@@ -1,7 +1,13 @@
 import showdown from "showdown"
 
 export function markdownToHTML(text) {
-  const converter = new showdown.Converter()
+  const converter = new showdown.Converter({
+    strikethrough: true,
+    tables: true,
+    literalMidWordUnderscores: true,
+    simplifiedAutoLink: true,
+    ellipsis: false,
+  })
   return converter.makeHtml(text)
 }
 
