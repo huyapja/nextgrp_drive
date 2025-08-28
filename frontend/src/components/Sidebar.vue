@@ -112,7 +112,7 @@
           <div class="flex relative h-9 w-full items-center text-gray-700 mb-2">
             <div
               class="w-full px-3 py-[10px] !text-black rounded-[8px] group hover:!bg-[#d4e1f9] hover:!text-[#0149C1] relative"
-              :class="isTeamsExpanded ? '!bg-[#d4e1f9] !text-[#0149C1]' : ''"
+              :class="isTeamsExpanded && isRouteActive(item.route) ? '!bg-[#d4e1f9] !text-[#0149C1]' : ''"
               @mouseenter="showTooltip = !isExpanded"
               @mouseleave="showTooltip = false"
             >
@@ -127,7 +127,7 @@
                       :is="item.icon"
                       class="size-5 transition-colors w-5 h-5"
                       :class="
-                        isTeamsExpanded
+                        isTeamsExpanded && isRouteActive(item.route)
                           ? 'text-[#0149C1] active_icon'
                           : 'text-gray-600 group-hover:text-[#0149C1]'
                       "
@@ -137,7 +137,7 @@
                     v-if="isExpanded"
                     class="ml-3 text-[14px] font-medium sidebar-label"
                     :class="
-                      isTeamsExpanded
+                      isTeamsExpanded && isRouteActive(item.route)
                         ? 'text-[#0149C1]'
                         : 'text-[#404040] group-hover:text-[#0149C1]'
                     "
@@ -256,7 +256,7 @@
                 @click="selectTeam(teamItem)"
                 class="flex items-center p-2 rounded-[8px] hover:bg-[#d4e1f9] hover:!text-[#171717] cursor-pointer transition-colors duration-150 group relative"
                 :class="{
-                  'bg-[#d4e1f9] !text-[#171717]': team === teamItem.name,
+                  'bg-[#d4e1f9] !text-[#171717]': team === teamItem.name && isRouteActive(`/t/${teamItem.name}/team`),
                 }"
               >
                 <span
@@ -496,33 +496,26 @@ let renameTargetTeam = null
 
 // Helper function to check if route is active
 const isRouteActive = (itemRoute) => {
-  const currentPath = route.path
+  const normalize = (path) => path.replace(/\/+$/, "");
+  const currentPath = normalize(route.path);
+  const targetPath = normalize(itemRoute);
 
   // Handle exact matches for special routes
-  if (itemRoute === "/shared/" && currentPath === "/shared/") {
-    return true
+  if (targetPath === "/shared" && currentPath === "/shared") {
+    return true;
   }
 
   // Handle team routes
-  if (itemRoute.includes("/t/")) {
-    // Extract the route pattern (e.g., '/recents', '/favourites', '/trash')
-    const routePattern = itemRoute.split("/").pop()
-    const currentPattern = currentPath.split("/").pop()
-
-    // For root team route (empty pattern)
-    if (routePattern === "" || !routePattern) {
-      return (
-        currentPath === itemRoute ||
-        (currentPath.endsWith("/") &&
-          currentPath.slice(0, -1) === itemRoute.slice(0, -1))
-      )
+  if (targetPath.startsWith("/t/")) {
+    // Nếu là route gốc team (tài liệu của tôi)
+    if (/^\/t\/[^/]+$/.test(targetPath)) {
+      return currentPath === targetPath;
     }
-
-    // For specific patterns
-    return routePattern === currentPattern
+    // Các route con (team, recents, favourites, trash...)
+    return currentPath === targetPath;
   }
 
-  return currentPath === itemRoute
+  return currentPath === targetPath;
 }
 
 const tooltipBufferStyle = ref('')
