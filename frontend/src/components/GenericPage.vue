@@ -25,10 +25,10 @@
   <div
     v-else
     ref="container"
-    class="flex flex-col overflow-auto min-h-full bg-surface-white"
+    class="flex flex-col overflow-auto h-[calc(100vh-88px)] bg-surface-white"
   >
     <!-- Content Area with Team Members -->
-    <div class="flex flex-1 overflow-hidden">
+    <div class="flex flex-1">
       <!-- Main Content -->
       <div class="flex-1 flex flex-col">
         <DriveToolBar
@@ -94,7 +94,6 @@ import InfoPopup from "@/components/InfoPopup.vue"
 import ListView from "@/components/ListView.vue"
 import Navbar from "@/components/Navbar.vue"
 import NoFilesSection from "@/components/NoFilesSection.vue"
-import TeamMembersList from "@/components/TeamMembersList.vue"
 import { clearRecent, toggleFav } from "@/resources/files"
 import { allUsers } from "@/resources/permissions"
 import { entitiesDownload } from "@/utils/download"

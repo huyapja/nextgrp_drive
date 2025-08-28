@@ -84,7 +84,7 @@
           <div class="flex items-center justify-between w-full">
             <div class="flex justify-start items-center w-full max-w-[80%]">
               <LucideFile class="w-5 mr-2" />
-              <p class="truncate text-sm leading-6 col-span-1 row-span-1">
+              <p class="truncate text-sm text-black leading-6 col-span-1 row-span-1">
                 {{ upload.name }}
               </p>
             </div>

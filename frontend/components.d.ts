@@ -45,6 +45,7 @@ declare module 'vue' {
     DriveToolBar: typeof import('./src/components/DriveToolBar.vue')['default']
     EditTagDialog: typeof import('./src/components/Settings/EditTagDialog.vue')['default']
     ErrorPage: typeof import('./src/components/ErrorPage.vue')['default']
+    FileCard: typeof import('./src/components/FileCard.vue')['default']
     FilePicker: typeof import('./src/components/FilePicker.vue')['default']
     FileRender: typeof import('./src/components/FileRender.vue')['default']
     FileUploader: typeof import('./src/components/FileUploader.vue')['default']

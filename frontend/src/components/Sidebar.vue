@@ -125,7 +125,7 @@
                   <span class="grid h-5 w-5 flex-shrink-0 place-items-center">
                     <component
                       :is="item.icon"
-                      class="size-5 transition-colors"
+                      class="size-5 transition-colors w-5 h-5"
                       :class="
                         isTeamsExpanded
                           ? 'text-[#0149C1] active_icon'
@@ -156,7 +156,7 @@
               <div
                 v-else
                 class="flex items-center flex-1 cursor-pointer sidebar-tooltip-anchor"
-                @click="showTooltip = !showTooltip"
+                @click="showTooltip = true"
               >
                 <span class="grid h-5 w-5 flex-shrink-0 place-items-center">
                   <component
@@ -169,18 +169,18 @@
               <!-- Buffer area to make tooltip easier to enter -->
               <div
                 v-if="showTooltip && !isExpanded"
-                class="fixed sidebar-tooltip-buffer"
+                class="absolute sidebar-tooltip-buffer"
                 :style="tooltipBufferStyle"
                 @mouseenter="showTooltip = true"
                 @mouseleave="showTooltip = false"
               ></div>
               <!-- Custom Tooltip cho collapsed sidebar -->
             </div>
-            <!-- v-if="showTooltip && !isExpanded" showTooltip && !isExpanded-->
+            <!-- v-if="showTooltip && !isExpanded" showTooltip && !isExpanded -->
 
             <div
               v-if="showTooltip && !isExpanded"
-              class="fixed bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[200px] max-w-[280px] sidebar-tooltip-panel"
+              class="absolute top-0 left-[56px] bg-white border border-gray-200 rounded-lg shadow-lg py-2 min-w-[200px] max-w-[280px] sidebar-tooltip-panel"
               :style="tooltipPanelStyle"
               @mouseenter="showTooltip = true"
               @mouseleave="showTooltip = false"
@@ -188,11 +188,6 @@
               <!-- <div class="!bg-white"> -->
 
                 <!-- Tooltip Header -->
-                <div class="px-3 py-2 border-b border-gray-100">
-                  <h3 class="text-sm font-medium text-gray-900">
-                    {{ item.label }}
-                  </h3>
-                </div>
   
                 <!-- Teams List trong Tooltip -->
                 <div class="py-1 max-h-60 overflow-y-auto">
@@ -200,9 +195,9 @@
                     v-for="teamItem in teamList"
                     :key="teamItem.name"
                     @click="selectTeamFromTooltip(teamItem)"
-                    class="flex items-center px-3 py-2 hover:bg-gray-50 cursor-pointer transition-colors duration-150 group"
+                    class="flex items-center px-3 py-2 hover:bg-[#d4e1f9] cursor-pointer transition-colors duration-150 group"
                     :class="{
-                      'bg-blue-50': team === teamItem.name,
+                      'bg-[#d4e1f9]': team === teamItem.name,
                     }"
                   >
                     <span
@@ -226,7 +221,7 @@
                   </div>
   
                   <!-- Tạo nhóm mới trong tooltip -->
-                  <div class="border-t border-gray-100 mt-1 pt-1">
+                  <div class="border-t border-gray-100 mt-1 pt-1 ml-1">
                     <button
                       @click="createNewTeamFromTooltip"
                       class="flex items-center px-3 py-2 text-sm text-[#0149C1] hover:bg-blue-50 transition-colors duration-150 w-full text-left"
@@ -238,12 +233,12 @@
                 </div>
   
                 <!-- Tooltip Arrow -->
-                <div
+                <!-- <div
                   class="absolute right-full top-3 border-4 border-transparent border-r-white"
                 ></div>
                 <div
                   class="absolute right-full top-3 mr-px border-4 border-transparent border-r-gray-200"
-                ></div>
+                ></div> -->
               <!-- </div> -->
             </div>
           </div>
@@ -461,19 +456,18 @@ import ShareDrive from "@/assets/Icons/ShareDrive.vue"
 import StarDrive from "@/assets/Icons/StarDrive.vue"
 import TeamDrive from "@/assets/Icons/TeamDrive.vue"
 import TrashDrive from "@/assets/Icons/TrashDrive.vue"
-import SidebarItem from "@/components/SidebarItem.vue"
 import { getTeams } from "@/resources/files"
 import { notifCount } from "@/resources/permissions"
 import { toast } from "@/utils/toasts"
 import {
+  Button as ButtonFrappe,
   Dialog,
   FormControl,
   createResource,
-  Button as ButtonFrappe,
 } from "frappe-ui"
 import { ChevronLeft, Pencil } from "lucide-vue-next"
 import { Button } from "primevue"
-import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick } from "vue"
+import { computed, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
@@ -533,28 +527,6 @@ const isRouteActive = (itemRoute) => {
 
 const tooltipBufferStyle = ref('')
 const tooltipPanelStyle = ref('')
-
-function updateTooltipPosition() {
-  nextTick(() => {
-    const anchor = document.querySelector('.sidebar-tooltip-anchor')
-    if (!anchor) return
-    const rect = anchor.getBoundingClientRect()
-    tooltipBufferStyle.value = `top: ${rect.top}px; left: ${rect.right + 4}px; width: 18px; height: 100px; z-index:2147483647;`
-    tooltipPanelStyle.value = `top: ${rect.top}px; left: ${rect.right + 22}px; min-width:200px; max-width:280px; z-index:2147483647;`
-  })
-}
-
-watch(() => showTooltip.value, (val) => {
-  if (val) updateTooltipPosition()
-})
-onMounted(() => {
-  window.addEventListener('scroll', updateTooltipPosition, true)
-  window.addEventListener('resize', updateTooltipPosition)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('scroll', updateTooltipPosition, true)
-  window.removeEventListener('resize', updateTooltipPosition)
-})
 
 const selectTeamFromTooltip = (team) => {
   showTooltip.value = false
@@ -868,6 +840,11 @@ const onLeave = (el) => {
   transition: none; /* Loại bỏ transition cho icon */
 }
 
+.place-items-center > svg {
+  width: 20px;
+  height: 20px;
+}
+
 /* Chỉ text label có transition */
 .sidebar-label[v-cloak],
 .sidebar-label[style*="display: none"] {
@@ -963,7 +940,7 @@ const onLeave = (el) => {
   width: 20px;
   background: transparent;
   position: absolute;
-  left: 30px;
+  left: 37px;
   top: 0 !important;
   z-index: 2147483647;
 }

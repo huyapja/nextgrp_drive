@@ -37,14 +37,14 @@
       :draggable="false"
     />
     <span
-      class="text-sm line-clamp-1 text-ink-gray-6"
+      class="text-sm line-clamp-1 text-ink-gray-6 truncate"
       :class="strikeThrough ? 'line-through ' : ' '"
       >{{ title ? title : entity.title }}</span
     >
   </div>
 </template>
 <script setup>
-import { getIconUrl } from "../utils/getIconUrl"
+import { getIconUrl } from "../utils/getIconUrl";
 
 defineProps({
   title: {

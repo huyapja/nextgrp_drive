@@ -191,7 +191,7 @@ onMounted(() => {
       let messages = JSON.parse(response._server_messages || "[]")
       if (messages.length) message = JSON.parse(messages[0]).message
     }
-    message = message || "Please contact support."
+    message = message || "Lỗi xảy ra trong quá trình tải lên."
     console.log(response)
     store.commit("updateUpload", {
       uuid: file.upload.uuid,

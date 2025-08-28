@@ -1,7 +1,8 @@
 <template>
+  <!-- Desktop version - tabs (>= 1200px) -->
   <div
     v-if="entity && store.state.showInfo"
-    class="transition-all duration-200 ease-in-out h-full border-l sm:min-w-[452px] sm:max-w-[452px] shrink-0 whitespace-nowrap"
+    class="hidden xl:flex overflow-y-auto transition-all duration-200 ease-in-out h-[100vh] border-l w-full max-w-[350px] shrink-0 whitespace-nowrap"
   >
     <div>
       <!-- Information -->
@@ -14,15 +15,6 @@
         >
           {{ __("Information") }}
         </span>
-        <div
-          v-if="thumbnailUrl[2]"
-          class="h-[210px] w-full mb-4"
-        >
-          <img
-            class="object-contain h-full mx-auto"
-            :src="thumbnailUrl[0] || thumbnailUrl[1]"
-          />
-        </div>
         <div class="space-y-6.5">
           <div v-if="entity.owner === $store.state.user.id">
             <div class="text-base font-medium mb-4">{{ __("Access") }}</div>
@@ -79,40 +71,40 @@
               {{ __("Properties") }}
             </div>
             <div class="text-base grid grid-flow-row grid-cols-2 gap-y-3">
-              <span class="col-span-1 text-ink-gray-5">{{ __("Type") }}</span>
+              <span class="col-span-1 text-ink-gray-5 truncate">{{ __("Type") }}</span>
               <span
                 class="col-span-1 text-ink-gray-8"
                 :title="entity.mime_type"
               >
-                  {{__(`${entity.file_type}`) }}
+                {{__(`${entity.file_type}`) }}
               </span>
               <span
                 v-if="entity.file_size"
-                class="col-span-1 text-ink-gray-5"
+                class="col-span-1 text-ink-gray-5 truncate"
               >
                 {{ __("Size") }}
               </span>
               <span
                 v-if="entity.file_size"
-                class="col-span-1 text-ink-gray-8"
+                class="col-span-1 text-ink-gray-8 truncate"
               >
                 {{ entity.file_size_pretty }}
                 {{ `(${entity.file_size})` }}
               </span>
-              <span class="col-span-1 text-ink-gray-5">{{
+              <span class="col-span-1 text-ink-gray-5 truncate">{{
                 __("Modified")
               }}</span>
-              <span class="col-span-1 text-ink-gray-8">{{
+              <span class="col-span-1 text-ink-gray-8 truncate">{{
                 formatDate(entity.modified)
               }}</span>
-              <span class="col-span-1 text-ink-gray-5">{{
+              <span class="col-span-1 text-ink-gray-5 truncate">{{
                 __("Uploaded")
               }}</span>
-              <span class="col-span-1 text-ink-gray-8">{{
+              <span class="col-span-1 text-ink-gray-8 truncate">{{
                 formatDate(entity.creation)
               }}</span>
-              <span class="col-span-1 text-ink-gray-5">{{ __("Owner") }}</span>
-              <span class="col-span-1 text-ink-gray-8">{{
+              <span class="col-span-1 text-ink-gray-5 truncate">{{ __("Owner") }}</span>
+              <span class="col-span-1 text-ink-gray-8 truncate">{{
                 entity.owner +
                 (entity.owner === $store.state.user.id ? __(" (you)") : "")
               }}</span>
@@ -123,10 +115,10 @@
       <!-- Comments -->
       <div
         v-if="entity.comment && tab === 1"
-        class="max-h-[90vh] pt-4 pb-5 border-b overflow-y-auto overflow-x-hidden"
+        class=" pt-4 pb-5 border-b overflow-y-auto overflow-x-hidden"
       >
         <span
-          class="inline-flex items-center gap-2.5 px-5 mb-5 text-ink-gray-8 font-medium text-lg w-full"
+          class="inline-flex items-center gap-2.5 px-5 mb-5 text-ink-gray-8 font-medium text-lg w-full h-[34px]"
         >
           {{ __("Comments") }}
         </span>
@@ -231,7 +223,7 @@
       </div>
       <div
         v-if="entity.write && tab === 2"
-        class="max-h-[90vh] pt-4 pb-5 border-b overflow-y-auto overflow-x-hidden"
+        class=" pt-4 pb-5 border-b overflow-y-auto overflow-x-hidden"
       >
         <span
           class="inline-flex items-center gap-2.5 px-5 mb-5 text-ink-gray-8 font-medium text-lg w-full"
@@ -246,8 +238,9 @@
     </div>
   </div>
 
+  <!-- Desktop Tab Buttons (>= 1200px) -->
   <div
-    class="hidden sm:flex flex-col items-center overflow-hidden h-full min-w-[48px] gap-1 pt-3 px-0 border-l z-0 bg-surface-white"
+    class="flex  flex-col items-center overflow-hidden h-full  gap-1 pt-3 px-2 border-l z-0 bg-surface-white"
   >
     <Button
       class="text-ink-gray-5"
@@ -289,6 +282,279 @@
     </Button>
   </div>
 
+  <!-- Mobile/Tablet Drawer (< 1200px) -->
+  <div
+    v-if="entity && store.state.showInfo"
+    class="xl:hidden fixed inset-0 z-50 overflow-hidden"
+  >
+    <!-- Backdrop -->
+    <div
+      class="absolute inset-0 bg-transparent transition-opacity"
+      @click="closeDrawer"
+    ></div>
+    
+    <!-- Drawer -->
+    <div class="absolute right-0 top-0 h-full w-full max-w-md bg-surface-white shadow-xl transform transition-transform">
+      <!-- Drawer Header -->
+      <div class="flex items-center justify-between p-4 border-b bg-surface-white sticky top-0 z-10">
+        <div class="flex items-center gap-2">
+          <Button
+            :class="[
+              mobileTab === 0 ? 'bg-surface-gray-3 text-black' : 'text-ink-gray-5 hover:bg-surface-gray-2'
+            ]"
+            variant="minimal"
+            size="sm"
+            @click="mobileTab = 0"
+          >
+            <LucideInfo class="size-4" />
+            
+          </Button>
+          <Button
+            v-if="entity?.comment"
+            :class="[
+              mobileTab === 1 ? 'bg-surface-gray-3 text-black' : 'text-ink-gray-5 hover:bg-surface-gray-2'
+            ]"
+            variant="minimal"
+            size="sm"
+            @click="mobileTab = 1"
+          >
+            <LucideMessageCircle class="size-4" />
+            
+          </Button>
+          <Button
+            v-if="entity?.write"
+            :class="[
+              mobileTab === 2 ? 'bg-surface-gray-3 text-black' : 'text-ink-gray-5 hover:bg-surface-gray-2'
+            ]"
+            variant="minimal"
+            size="sm"
+            @click="mobileTab = 2"
+          >
+            <LucideClock class="size-4" />
+            
+          </Button>
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          @click="closeDrawer"
+        >
+          <LucideX class="size-5" />
+        </Button>
+      </div>
+
+      <!-- Drawer Content -->
+      <div class="overflow-y-auto h-full pb-20">
+        <!-- Information Tab -->
+        <div v-if="mobileTab === 0" class="p-4">
+          <div class="space-y-6">
+            <div v-if="entity.owner === $store.state.user.id">
+              <div class="text-base font-medium mb-4">{{ __("Access") }}</div>
+              <div class="flex items-center justify-between text-ink-gray-6">
+                <div class="flex">
+                  <GeneralAccess
+                    size="md"
+                    class="-mr-[3px] outline outline-white"
+                    :access-type="
+                      generalAccess?.data?.read === 1 ? 'public' : 'restricted'
+                    "
+                  />
+                  <div
+                    v-if="userList.data?.length"
+                    class="flex items-center justify-start ms-3"
+                  >
+                    <Avatar
+                      v-for="user in userList.data.slice(0, 3)"
+                      :key="user?.user_name"
+                      size="sm"
+                      :label="user.full_name || user.user"
+                      :image="user?.user_image"
+                      class="-mr-[3px] outline outline-white"
+                    />
+                    <span
+                      v-if="userList.data.slice(3).length"
+                      class="text-base text-ink-gray-7 ms-1"
+                    >
+                      +{{ userList.data.slice(3).length }}
+                    </span>
+                  </div>
+                </div>
+                <Button
+                  v-if="$store.state.activeEntity?.share"
+                  :variant="'subtle'"
+                  class="rounded flex justify-center items-center"
+                  @click="emitter.emit('showShareDialog')"
+                >
+                  {{ __("Manage") }}
+                </Button>
+              </div>
+            </div>
+            <div v-if="userId !== 'Guest'">
+              <div class="text-base font-medium mb-4 text-ink-gray-8">
+                {{ __("Tags") }}
+              </div>
+              <TagInput
+                class="min-w-full"
+                :entity="entity"
+              />
+            </div>
+            <div>
+              <div class="text-base font-medium mb-4 text-ink-gray-8">
+                {{ __("Properties") }}
+              </div>
+              <div class="text-base grid grid-flow-row grid-cols-2 gap-y-3">
+                <span class="col-span-1 text-ink-gray-5 truncate">{{ __("Type") }}</span>
+                <span
+                  class="col-span-1 text-ink-gray-8"
+                  :title="entity.mime_type"
+                >
+                  {{__(`${entity.file_type}`) }}
+                </span>
+                <span
+                  v-if="entity.file_size"
+                  class="col-span-1 text-ink-gray-5 truncate"
+                >
+                  {{ __("Size") }}
+                </span>
+                <span
+                  v-if="entity.file_size"
+                  class="col-span-1 text-ink-gray-8 truncate"
+                >
+                  {{ entity.file_size_pretty }}
+                  {{ `(${entity.file_size})` }}
+                </span>
+                <span class="col-span-1 text-ink-gray-5 truncate">{{
+                  __("Modified")
+                }}</span>
+                <span class="col-span-1 text-ink-gray-8 truncate">{{
+                  formatDate(entity.modified)
+                }}</span>
+                <span class="col-span-1 text-ink-gray-5 truncate">{{
+                  __("Uploaded")
+                }}</span>
+                <span class="col-span-1 text-ink-gray-8 truncate">{{
+                  formatDate(entity.creation)
+                }}</span>
+                <span class="col-span-1 text-ink-gray-5 truncate">{{ __("Owner") }}</span>
+                <span class="col-span-1 text-ink-gray-8 truncate">{{
+                  entity.owner +
+                  (entity.owner === $store.state.user.id ? __(" (you)") : "")
+                }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Comments Tab -->
+        <div v-if="entity.comment && mobileTab === 1" class="p-4">
+          <div
+            v-for="comment in comments.data"
+            :key="comment.name || comment"
+            class="flex flex-col mb-5"
+          >
+            <div class="flex items-start justify-start">
+              <Avatar
+                :label="comment.comment_by"
+                :image="comment.user_image"
+                size="md"
+              />
+              <div class="ml-3">
+                <div
+                  class="flex items-center justify-start text-base gap-x-1 text-ink-gray-5"
+                >
+                  <span class="font-medium text-ink-gray-8">{{
+                    comment.comment_by
+                  }}</span>
+                  <span>• {{ __('lúc') }} {{ formatDate24(comment.creation) }}</span>
+                </div>
+                <div
+                  class="my-2 text-base text-ink-gray-7 break-word leading-1 comment-content"
+                  v-html="renderCommentContent(comment.content)"
+                ></div>
+                <!-- Reactions -->
+                <div class="relative inline-flex items-center gap-2 mt-1">
+                  <Tooltip
+                    v-for="r in (comment.reactions || [])"
+                    :key="r.emoji"
+                    :text="reactionTooltip(comment, r.emoji)"
+                  >
+                    <button
+                      class="px-2 py-0.5 rounded border text-sm"
+                      :class="r.reacted ? 'bg-surface-gray-3 border-outline-gray-3' : 'border-outline-gray-2'"
+                      @click="toggleReaction(comment, r.emoji)"
+                    >
+                      <span>{{ r.emoji }}</span>
+                      <span class="ml-1 text-ink-gray-7">{{ r.count }}</span>
+                    </button>
+                  </Tooltip>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    class="text-ink-gray-6 hover:bg-transparent"
+                    @click.stop="toggleEmojiMenu(comment)"
+                  >
+                    <LucideSmilePlus class="size-4" />
+                  </Button>
+                  <div
+                    v-if="openEmojiFor === comment.name"
+                    class="absolute top-full left-0 mt-1 bg-surface-white border rounded-md shadow p-1 flex items-center gap-1 z-50"
+                    @click.stop
+                  >
+                    <button
+                      v-for="e in defaultEmojis"
+                      :key="e"
+                      class="px-2 py-1 text-sm hover:bg-surface-gray-2 rounded"
+                      @click="toggleReaction(comment, e); openEmojiFor = null"
+                    >
+                      {{ e }}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="flex items-start justify-start py-2">
+            <Avatar
+              :label="fullName"
+              :image="imageURL"
+              class="mr-3"
+            />
+            <div
+              class="flex w-full bg-transparent rounded ring-outline-gray-3 group"
+            >
+              <div class="flex-1 min-w-0">
+                <RichCommentEditor
+                  ref="richCommentEditor"
+                  v-model="newComment"
+                  :entity-name="entity.name"
+                  :placeholder="__('Add a comment (use @ to mention users)')"
+                  @mentioned-users="(val) => (mentionedUsers = val)"
+                />
+              </div>
+              <div class="flex-shrink-0 self-start">
+                <Button
+                  class="hover:bg-transparent"
+                  variant="ghost"
+                  icon="arrow-up-circle"
+                  :disabled="isCommentEmpty"
+                  @click="postComment"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Activity Tab -->
+        <div v-if="entity.write && mobileTab === 2" class="p-4">
+          <ActivityTree
+            v-if="entity.write"
+            :entity="entity"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Permission Confirmation Dialog -->
   <PermissionConfirmDialog
     v-model="showPermissionDialog"
@@ -312,8 +578,11 @@ import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { Avatar, Button, call, createResource, Tooltip } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 import { useStore } from "vuex"
+import LucideClock from "~icons/lucide/clock"
+import LucideInfo from "~icons/lucide/info"
 import LucideMessageCircle from "~icons/lucide/message-circle"
 import LucideSmilePlus from "~icons/lucide/smile-plus"
+import LucideX from "~icons/lucide/x"
 import ActivityTree from "./ActivityTree.vue"
 
 const store = useStore()
@@ -324,6 +593,7 @@ const showPermissionDialog = ref(false)
 const usersWithoutPermission = ref([])
 const defaultEmojis = ["👍", "❤️", "😂", "🎉", "😮"]
 const openEmojiFor = ref(null)
+const mobileTab = ref(0) // For mobile drawer tabs
 
 const userId = computed(() => store.state.user.id)
 const fullName = computed(() => store.state.user.fullName)
@@ -371,6 +641,7 @@ function getFileTypeVi(type) {
   }
   return map[type.toLowerCase()] || type
 }
+
 function switchTab(val) {
   if (store.state.showInfo == false) {
     store.commit("setShowInfo", !store.state.showInfo)
@@ -380,6 +651,10 @@ function switchTab(val) {
   } else {
     store.commit("setInfoSidebarTab", val)
   }
+}
+
+function closeDrawer() {
+  store.commit("setShowInfo", false)
 }
 
 function formatDate24(date) {
@@ -401,10 +676,19 @@ watch(entity, (newEntity) => {
       (!newEntity.comment && tab.value === 1)
     )
       store.commit("setInfoSidebarTab", 0)
+    
+    // Set mobile tab to match desktop tab
+    mobileTab.value = tab.value
+    
     comments.fetch({ entity_name: newEntity.name })
     generalAccess.fetch({ entity: newEntity.name })
     userList.fetch({ entity: newEntity.name })
   }
+})
+
+// Watch tab changes to sync mobile tab
+watch(tab, (newTab) => {
+  mobileTab.value = newTab
 })
 
 async function postComment() {
@@ -558,32 +842,5 @@ function renderCommentContent(content) {
   // If content is plain text, return as is (for backward compatibility)
   return content
 }
+
 </script>
-
-<style scoped>
-:deep(span[data-type="mention"]) {
-  background-color: rgba(59, 130, 246, 0.1) !important;
-  color: #3b82f6 !important;
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-weight: 500;
-  text-decoration: none;
-}
-
-/* Ensure mentions are styled in comment content */
-
-:deep(.comment-content) {
-  white-space: pre-line;
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-
-:deep(.comment-content span[data-type="mention"]) {
-  background-color: rgba(59, 130, 246, 0.1) !important;
-  color: #3b82f6 !important;
-  border-radius: 4px;
-  padding: 2px 4px;
-  font-weight: 500;
-  text-decoration: none;
-}
-</style>
