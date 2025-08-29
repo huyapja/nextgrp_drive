@@ -2,7 +2,7 @@
   <!-- Desktop version - tabs (>= 1200px) -->
   <div
     v-if="entity && store.state.showInfo"
-    class="hidden xl:flex overflow-y-auto transition-all duration-200 ease-in-out h-[100vh] border-l w-full max-w-[350px] shrink-0 whitespace-nowrap"
+    class="hidden xl:block overflow-y-auto transition-all duration-200 ease-in-out h-[100vh] border-l w-full max-w-[350px] shrink-0 whitespace-nowrap"
   >
     <div>
       <!-- Information -->
@@ -294,7 +294,7 @@
     ></div>
     
     <!-- Drawer -->
-    <div class="absolute right-0 top-0 h-full w-full max-w-md bg-surface-white shadow-xl transform transition-transform">
+    <div class="absolute right-0 top-0 h-full w-full max-w-[350px] bg-surface-white shadow-xl transform transition-transform">
       <!-- Drawer Header -->
       <div class="flex items-center justify-between p-4 border-b bg-surface-white sticky top-0 z-10">
         <div class="flex items-center gap-2">
@@ -844,3 +844,11 @@ function renderCommentContent(content) {
 }
 
 </script>
+
+<style scoped>
+.comment-content {
+  white-space: pre-wrap;       /* Giữ xuống dòng gốc, đồng thời cho phép tự xuống dòng */
+  word-break: break-word;      /* Bẻ từ nếu quá dài */
+  overflow-wrap: break-word;   /* Tương thích tốt hơn */
+}
+</style>

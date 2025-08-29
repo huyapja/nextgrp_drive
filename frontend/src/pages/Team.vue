@@ -14,7 +14,11 @@
         @show-team-members="showTeamMembersList = true"
       />
     </div>
-    <TeamMembersList v-if="showTeamMembersList" class="!h-[100vh]" @close="showTeamMembersList = false" />
+    <TeamMembersList
+      v-if="showTeamMembersList"
+      class="!h-[100vh]"
+      @close="showTeamMembersList = false"
+    />
   </div>
 </template>
 
@@ -22,7 +26,7 @@
 import GenericPage from "@/components/GenericPage.vue"
 import { getHome, getTeams } from "@/resources/files"
 import { allUsers } from "@/resources/permissions"
-import { computed, watch, ref } from "vue"
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
@@ -30,9 +34,27 @@ import LucideBuilding2 from "~icons/lucide/building-2"
 const store = useStore()
 const route = useRoute()
 
+store.commit("setCurrentFolder", { name: "" })
+
 const showTeamMembersList = ref(true)
 
-store.commit("setCurrentFolder", { name: "" })
+function checkScreenWidth() {
+  if (window.innerWidth + 250 < 1600) {
+    showTeamMembersList.value = false
+  } else {
+    console.log("Showing team members list", window.innerWidth)
+    showTeamMembersList.value = true
+  }
+}
+
+onMounted(() => {
+  checkScreenWidth()
+  window.addEventListener("resize", checkScreenWidth)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener("resize", checkScreenWidth)
+})
 
 const write = computed(
   () =>

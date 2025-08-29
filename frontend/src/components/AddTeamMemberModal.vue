@@ -5,7 +5,7 @@
       title: 'Thành viên',
       // size: 'xl',
     }"
-    class="[&_.dialog-content]:mb-4"
+    class="[&_.dialog-content]:mb-4 z-[100]"
   >
     <template #body-content>
       <div class="space-y-3">

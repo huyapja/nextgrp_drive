@@ -45,6 +45,7 @@
     v-if="isLoggedIn && showSearchPopup"
     v-model="showSearchPopup"
   />
+  <SettingsDialog v-model="showSettings" />
   <Transition
     enter-active-class="transition duration-[150ms] ease-[cubic-bezier(.21,1.02,.73,1)]"
     enter-from-class="translate-y-1 opacity-0"
@@ -58,17 +59,25 @@
   <Toasts />
 </template>
 <script setup>
+import SettingsDialog from "@/components/Settings/SettingsDialog.vue"
 import Sidebar from "@/components/Sidebar.vue"
 import UploadTracker from "@/components/UploadTracker.vue"
 import emitter from "@/emitter"
 import { Toasts } from "@/utils/toasts.js"
 import { onKeyDown } from "@vueuse/core"
-import { computed, ref } from "vue"
+import { computed, onMounted, ref } from "vue"
 import { useRouter } from "vue-router"
 import { useStore } from "vuex"
 import BottomBar from "./components/BottomBar.vue"
 import SearchPopup from "./components/SearchPopup.vue"
 
+const showSettings = ref(false)
+
+onMounted(() => {
+  emitter.on("showSettings", () => {
+    showSettings.value = true
+  })
+})
 const store = useStore()
 const router = useRouter()
 

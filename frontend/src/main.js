@@ -1,4 +1,6 @@
 import emitter from "@/emitter"
+import { definePreset } from '@primevue/themes'
+import Aura from '@primevue/themes/aura'
 import {
   Button,
   frappeRequest,
@@ -7,8 +9,6 @@ import {
   setConfig,
 } from "frappe-ui"
 import PrimeVue from 'primevue/config'
-import Aura from '@primevue/themes/aura'
-import { definePreset } from '@primevue/themes'
 import { createApp } from "vue"
 import VueTippy from "vue-tippy"
 
