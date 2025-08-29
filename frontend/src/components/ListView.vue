@@ -188,7 +188,7 @@ const selectedColumns = computed(() => {
       prefix: ({ row }) => {
         return getThumbnailUrl(row.name, row.file_type)
       },
-      width: isMobile ? "50%" : isTablet ? "40%" : isLaptop ? "35%" : "30%",
+      width: isMobile ? "50%" : isTablet ? "20%" : isLaptop ? "35%" : "30%",
       
       resizable: !isMobile,
     },
