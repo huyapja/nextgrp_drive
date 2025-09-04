@@ -13,16 +13,16 @@
 </template>
 
 <script>
-import { Editor, EditorContent, VueRenderer } from "@tiptap/vue-3"
-import { Text } from "@tiptap/extension-text"
 import { Document } from "@tiptap/extension-document"
-import { Paragraph } from "@tiptap/extension-paragraph"
 import { History } from "@tiptap/extension-history"
-import { Placeholder } from "../extensions/placeholder"
-import { Mention } from "../extensions/mention/MentionExtension"
-import MentionList from "./MentionList.vue"
+import { Paragraph } from "@tiptap/extension-paragraph"
+import { Text } from "@tiptap/extension-text"
+import { Editor, EditorContent, VueRenderer } from "@tiptap/vue-3"
+import { call } from "frappe-ui"
 import tippy from "tippy.js"
-import { createResource, call } from "frappe-ui"
+import { Mention } from "../extensions/mention/MentionExtension"
+import { Placeholder } from "../extensions/placeholder"
+import MentionList from "./MentionList.vue"
 
 export default {
   name: "RichCommentEditor",
