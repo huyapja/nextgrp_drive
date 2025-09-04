@@ -7,7 +7,7 @@
     <div class="flex flex-row flex-wrap">
       <Breadcrumbs
         :items="store.state.breadcrumbs"
-        :class="'select-none truncate'"
+        class="select-none !truncate breadcrumbs-custom"
       >
         <template #prefix="{ item, index }">
           <LoadingIndicator
@@ -21,7 +21,7 @@
           >
             <component
               :is="COMPONENT_MAP[item.name]"
-              class="size-4 text-ink-gray-6 truncate"
+              class="size-4 text-ink-gray-6 !truncate"
             />
           </div>
         </template>
@@ -333,3 +333,8 @@ const createOptions = [
   },
 ]
 </script>
+<style scoped>
+.breadcrumbs-custom ::v-deep > div {
+  flex-wrap: wrap !important;
+}
+</style>

@@ -1,7 +1,7 @@
-import tippy from "tippy.js"
 import { VueRenderer } from "@tiptap/vue-3"
-import { Mention } from "./MentionExtension"
+import tippy from "tippy.js"
 import MentionList from "../../components/MentionList.vue"
+import { Mention } from "./MentionExtension"
 
 export default function configureMention(options) {
   return Mention.configure({

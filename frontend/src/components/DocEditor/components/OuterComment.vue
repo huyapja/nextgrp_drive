@@ -84,10 +84,10 @@
 </template>
 
 <script setup lang="ts">
-import { useStore } from "vuex"
-import { ref, watch, computed, nextTick, onUpdated } from "vue"
-import { Avatar, Button, Input } from "frappe-ui"
 import { formatDate } from "@/utils/format"
+import { Avatar, Button } from "frappe-ui"
+import { computed, ref, watch } from "vue"
+import { useStore } from "vuex"
 import RichCommentEditor from "./RichCommentEditor.vue"
 
 const store = useStore()

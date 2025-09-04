@@ -30,11 +30,11 @@
   </Dialog>
 </template>
 <script>
-import { Dialog, Button, Input } from "frappe-ui"
-import { ref } from "vue"
 import { useFocus } from "@vueuse/core"
-import { v4 as uuidv4 } from "uuid"
+import { Button, Dialog, Input } from "frappe-ui"
 import { DOMSerializer } from "prosemirror-model"
+import { v4 as uuidv4 } from "uuid"
+import { ref } from "vue"
 import RichCommentEditor from "./RichCommentEditor.vue"
 
 export default {

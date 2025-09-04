@@ -25,7 +25,7 @@
             item.has_permission 
               ? 'text-blue-600 font-medium' 
               : 'text-gray-400',
-            'flex-1'
+            'flex-1 truncate'
           ]"
           :title="item.has_permission ? 'Có quyền truy cập vào tài liệu' : 'Không có quyền truy cập vào tài liệu'"
         >
