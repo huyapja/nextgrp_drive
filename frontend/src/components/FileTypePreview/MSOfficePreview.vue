@@ -35,7 +35,7 @@ onMounted(async () => {
     const signed_url = data?.message?.signed_url
     if (signed_url) {
       const encoded = encodeURIComponent(signed_url)
-      officeUrl.value = `https://view.officeapps.live.com/op/view.aspx?src=${encoded}`
+      officeUrl.value = `https://view.officeapps.live.com/op/view.aspx?src=${encoded}&ui=en-US`
     } else {
       console.error('Không nhận được signed_url hợp lệ:', data)
     }
