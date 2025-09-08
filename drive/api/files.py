@@ -219,12 +219,23 @@ def get_thumbnail(entity_name):
                 thumbnail_data = BytesIO(thumbnail.read())
                 frappe.cache().set_value(entity_name, thumbnail_data, expires_in_sec=60 * 60)
             except FileNotFoundError:
+                # Handle different file types for thumbnail generation
                 if drive_file.mime_type.startswith("text"):
-                    with manager.get_file(drive_file.path) as f:
-                        thumbnail_data = f.read()[:1000].decode("utf-8").replace("\n", "<br/>")
+                    try:
+                        with manager.get_file(drive_file.path) as f:
+                            thumbnail_data = f.read()[:1000].decode("utf-8").replace("\n", "<br/>")
+                    except Exception:
+                        thumbnail_data = None
                 elif drive_file.mime_type == "frappe_doc":
-                    html = frappe.get_value("Drive Document", drive_file.document, "raw_content")
-                    thumbnail_data = html[:1000]
+                    try:
+                        html = frappe.get_value("Drive Document", drive_file.document, "raw_content")
+                        thumbnail_data = html[:1000] if html else None
+                    except Exception:
+                        thumbnail_data = None
+                else:
+                    # For other file types, return None to use icon instead
+                    thumbnail_data = None
+                    
                 if thumbnail_data:
                     frappe.cache().set_value(entity_name, thumbnail_data, expires_in_sec=60 * 60)
 
@@ -236,8 +247,11 @@ def get_thumbnail(entity_name):
         response.headers.set("Content-Type", "image/jpeg")
         response.headers.set("Content-Disposition", "inline", filename=entity_name)
         return response
-    else:
+    elif thumbnail_data:
         return thumbnail_data
+    else:
+        # Return 404 when no thumbnail is available
+        frappe.throw("No thumbnail available for this file type.", frappe.exceptions.PageDoesNotExistError)
 
 
 @frappe.whitelist()

@@ -1,112 +1,121 @@
 <template>
-  <div class="override_div">
-
-    <FrappeListView
-      ref="container"
-      class="select-none p-2 sm:p-5 w-full"
-      row-key="name"
-      :columns="selectedColumns"
-      :rows="formattedRows"
-      :options="{
-        selectable: true,
-        enableActive: true,
-        showTooltip: true,
-        resizeColumn: windowWidth > 640,
-        getRowRoute: () => '',
-        emptyState: {
-          description: __('Không tìm thấy - thử tìm kiếm khác?'),
-        },
-      }"
-      @update:selections="handleSelections"
-      @update:active-row="setActive"
-    >
-      <ListHeader class="mb-[1px]" />
-      <div
-        v-if="!folderContents"
-        class="w-full text-center flex items-center justify-center py-10"
+  <div class="file-manager-container">
+    <!-- Data Table -->
+    <div class="table-container">
+      <DataTable
+        v-model:selection="selectedRows"
+        :value="formattedRows"
+        :loading="!folderContents"
+        :paginator="false"
+        :rows="1000"
+        :scrollable="true"
+        scrollHeight="flex"
+        showGridlines
+        class="file-table"
+        dataKey="name"
+        @row-contextmenu="onRowContextMenu"
+        @row-click="onRowClick"
       >
-        <LoadingIndicator class="w-8" />
-      </div>
-      <template v-else>
-        <div
-          id="drop-area"
-          class="h-full pb-20 min-w-0 
-                 -webkit-overflow-scrolling-touch scrollbar-thin 
-                 scrollbar-thumb-gray-300 scrollbar-track-gray-100"
-        >
-          <ListEmptyState v-if="!formattedRows.length" />
-          <template v-else>
-            <!-- Grouped rows -->
-            <div
-              v-for="group in formattedRows"
-              v-if="formattedRows[0]?.group"
-              :key="group.group"
-              :data-group="group.group"
-            >
-              <div @click="toggleGroup(group.group)" style="cursor: pointer;">
-                <ListGroupHeader :group="group" />
-              </div>
-              <ListGroupRows v-if="!group.collapsed" :group="group">
-                <CustomListRow
-                  :rows="group.rows"
-                  :context-menu="contextMenu"
-                  @dropped="(...p) => emit('dropped', ...p)"
-                />
-              </ListGroupRows>
-            </div>
-  
-            <!-- Ungrouped rows -->
-            <div v-else :key="'ungrouped-rows'">
-              <CustomListRow
-                :rows="formattedRows"
-                :context-menu="contextMenu"
-                @dropped="(...p) => emit('dropped', ...p)"
+        <!-- Selection Column -->
+        <Column selectionMode="multiple" headerStyle="width: 4rem; text-align: center;" bodyStyle="width: 4rem; text-align: center;"></Column>
+        
+        <!-- Name Column -->
+        <Column field="title" :header="__('Tên')" sortable>
+          <template #body="slotProps">
+            <div class="name-cell">
+              <img 
+                :src="getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[0] || getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[1]"
+                class="file-icon"
+                :alt="slotProps.data.title"
               />
+              <span class="file-name">{{ getDisplayName(slotProps.data) }}</span>
             </div>
           </template>
-        </div>
-  
-        <p class="hidden absolute text-center w-full top-[50%] z-10 font-bold">
-          {{ __('Drop to upload') }}
-        </p>
-      </template>
-    </FrappeListView>
-  </div>
+        </Column>
+        
+        <!-- Owner Column -->
+        <Column field="owner" :header="__('Chủ sở hữu')" sortable>
+          <template #body="slotProps">
+            <div class="owner-cell">
+              <Avatar
+                :image="userData[slotProps.data.owner]?.user_image"
+                icon="pi pi-user"
+                shape="circle"
+                size="small"
+              />
+              <span class="owner-name">{{ getOwnerLabel(slotProps.data) }}</span>
+            </div>
+          </template>
+        </Column>
+        
+        <!-- Shared Column -->
+        <Column field="share_count" :header="__('Chia sẻ')" sortable>
+          <template #body="slotProps">
+            <div class="shared-cell">
+              <i 
+                :class="getShareIcon(slotProps.data.share_count)"
+                class="share-icon"
+              ></i>
+              <span>{{ getShareText(slotProps.data.share_count) }}</span>
+            </div>
+          </template>
+        </Column>
+        
+        <!-- Last Modified Column -->
+        <Column field="modified" :header="__('Sửa đổi lần cuối')" sortable>
+          <template #body="slotProps">
+            <span>{{ slotProps.data.relativeModified }}</span>
+          </template>
+        </Column>
+        
+        <!-- Size Column -->
+        <Column field="file_size_pretty" :header="__('Kích thước')" sortable>
+          <template #body="slotProps">
+            <span>{{ getSizeText(slotProps.data) }}</span>
+          </template>
+        </Column>
+        
+        <!-- Options Column -->
+        <Column bodyStyle="width: 2rem; text-align: center;">
+          <template #body="slotProps">
+            <Button 
+              icon="pi pi-ellipsis-v" 
+              text 
+              severity="secondary"
+              class="options-btn"
+              @click="onRowOptions($event, slotProps.data)"
+            />
+          </template>
+        </Column>
+      </DataTable>
+    </div>
 
-  <ContextMenu
-    v-if="rowEvent && selectedRow"
-    :key="selectedRow.name"
-    v-on-outside-click="() => (rowEvent = false)"
-    :close="() => (rowEvent = false)"
-    :action-items="dropdownActionItems(selectedRow)"
-    :event="rowEvent"
-  />
+    <!-- Context Menu -->
+    <ContextMenu
+      v-if="rowEvent && selectedRow"
+      :key="selectedRow.name"
+      v-on-outside-click="() => (rowEvent = false)"
+      :close="() => (rowEvent = false)"
+      :action-items="dropdownActionItems(selectedRow)"
+      :event="rowEvent"
+    />
+  </div>
 </template>
 
 <script setup>
-import {
-  ListHeader,
-  ListGroupRows,
-  ListGroupHeader,
-  ListEmptyState,
-  LoadingIndicator,
-  ListView as FrappeListView,
-  Avatar,
-} from "frappe-ui"
+import DataTable from 'primevue/datatable'
+import Column from 'primevue/column'
+import Button from 'primevue/button'
+import Avatar from 'primevue/avatar'
 import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { useStore } from "vuex"
 import { useRoute } from "vue-router"
-import { computed, h, ref, watch, useTemplateRef, nextTick, onMounted, onUnmounted } from "vue"
+import { computed, ref, watch, onMounted, onUnmounted } from "vue"
 import ContextMenu from "@/components/ContextMenu.vue"
-import CustomListRow from "./CustomListRow.vue"
 import { openEntity } from "@/utils/files"
 import { formatDate } from "@/utils/format"
-
 import { onKeyDown } from "@vueuse/core"
 import emitter from "@/emitter"
-import LucideBuilding2 from "~icons/lucide/building-2"
-import LucideUsers from "~icons/lucide/users"
-import LucideGlobe2 from "~icons/lucide/globe-2"
 
 const store = useStore()
 const route = useRoute()
@@ -117,13 +126,11 @@ const props = defineProps({
 })
 const emit = defineEmits(["dropped"])
 
-const container = useTemplateRef("container")
 const selections = defineModel(new Set())
 const selectedRow = ref(null)
-const collapsedGroups = ref({}) // Track collapsed state of each group
-const windowWidth = ref(window.innerWidth)
-
+const selectedRows = ref([])
 const rowEvent = ref(null)
+const windowWidth = ref(window.innerWidth)
 
 // Handle window resize
 const handleResize = () => {
@@ -140,159 +147,90 @@ onUnmounted(() => {
 
 const formattedRows = computed(() => {
   if (!props.folderContents) return []
-  if (Array.isArray(props.folderContents)) return props.folderContents
-  return Object.keys(props.folderContents)
-    .map((k) => ({
-      group: k,
-      rows: props.folderContents[k] || [],
-      collapsed: !!collapsedGroups.value[k],
-    }))
-    .filter((g) => g.rows.length)
-})
-
-// Function to toggle group collapse state
-const toggleGroup = async (groupName) => {
-  collapsedGroups.value[groupName] = !collapsedGroups.value[groupName]
-  
-  // Wait for DOM update
-  await nextTick()
-  
-  // Scroll to the group header
-  const dropArea = document.getElementById("drop-area")
-  if (dropArea) {
-    const groupHeader = dropArea.querySelector(`[data-group="${groupName}"]`)
-    if (groupHeader) {
-      groupHeader.scrollIntoView({ 
-        behavior: 'smooth', 
-        block: 'nearest',
-        inline: 'nearest'
-      })
-    }
+  if (Array.isArray(props.folderContents)) {
+    return props.folderContents
   }
-}
-
-const selectedColumns = computed(() => {
-  const isMobile = windowWidth.value <= 640
-  const isTablet = windowWidth.value <= 768
-  const isLaptop = windowWidth.value <= 1024
   
-  return [
-    {
-      label: __("Name"),
-      key: "title",
-      getLabel: ({ row: { title, is_group, document } }) =>
-        title.lastIndexOf(".") === -1 || is_group || document
-          ? title
-          : title.slice(0, title.lastIndexOf(".")),
-      getTooltip: (e) => (e.is_group || e.document ? "" : e.title),
-      prefix: ({ row }) => {
-        return getThumbnailUrl(row.name, row.file_type)
-      },
-      width: isMobile ? "50%" : isTablet ? "20%" : isLaptop ? "35%" : "30%",
-      
-      resizable: !isMobile,
-    },
-
-    {
-      label: __("Owner"),
-      key: "",
-      getLabel: ({ row }) =>
-        row.owner === store.state.user.id
-          ? __("You")
-          : props.userData[row.owner]?.full_name || row.owner,
-      prefix: ({ row }) => {
-        return h(Avatar, {
-          shape: "circle",
-          image: props.userData[row.owner]?.user_image,
-          label:
-            props.userData[row.owner]?.full_name ||
-            props.userData[row.owner]?.email ||
-            row.owner,
-          size: "sm",
-        })
-      },
-      width: isMobile ? "0%" : isTablet ? "20%" : "15%",
-      
-      isEnabled: (n) => !isMobile,
-      resizable: !isTablet,
-    },
-    {
-      label: __("Shared"),
-      key: "",
-      getLabel: ({ row }) => {
-        if (row.share_count === -2) return __("Public")
-        else if (row.share_count === -1) return __("Team")
-        else if (row.share_count > 0)
-          return (
-            row.share_count +
-            " " +
-            (row.share_count === 1 ? __("person") : __("people"))
-          )
-        return "-"
-      },
-      prefix: ({ row }) => {
-        if (row.share_count === -2) return h(LucideGlobe2, { class: "size-4" })
-        else if (row.share_count === -1)
-          return h(LucideBuilding2, { class: "size-4" })
-        else if (row.share_count > 0) return h(LucideUsers, { class: "size-4" })
-      },
-      width: isMobile ? "0%" : isTablet ? "15%" : "12%",
-      
-      isEnabled: (n) => !isMobile,
-      resizable: !isTablet,
-    },
-    {
-      label: __("Last Modified"),
-      getLabel: ({ row }) => row.relativeModified,
-      getTooltip: (row) => formatDate(row.creation),
-      key: "modified",
-      isEnabled: (n) => n !== "Recents" && !isLaptop,
-      width: "18%",
-      
-      resizable: true,
-    },
-    {
-      label: __("Last Accessed"),
-      getLabel: ({ row }) => row.relativeAccessed,
-      getTooltip: (row) => formatDate(row.accessed),
-      key: "modified",
-      isEnabled: (n) => n === "Recents" && !isLaptop,
-      width: "18%",
-      
-      resizable: true,
-    },
-    {
-      label: __("Size"),
-      key: "",
-      getLabel: ({ row }) =>
-        row.is_group
-          ? row.children
-            ? row.children + " " + (row.children === 1 ? __("item") : __("items"))
-            : __("empty")
-          : row.file_size_pretty,
-      width: isMobile ? "0%" : isTablet ? "25%" : isLaptop ? "15%" : "10%",
-      resizable: !isMobile,
-    },
-    { 
-      label: "", 
-      key: "options", 
-      align: "right", 
-      width: isMobile ? "40px" : "5%",
-      
-      resizable: false,
-    },
-  ].filter((k) => !k.isEnabled || k.isEnabled(route.name))
+  // Handle grouped data
+  return Object.keys(props.folderContents)
+    .flatMap((k) => props.folderContents[k] || [])
 })
 
-const setActive = (entityName) => {
-  const entity = props.folderContents.find((k) => k.name === entityName)
-  selectedRow.value =
-    !entity || entity.name !== store.state.activeEntity?.name ? entity : null
+
+// Data display methods
+const getDisplayName = (row) => {
+  if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
+    return row.title
+  }
+  return row.title.slice(0, row.title.lastIndexOf("."))
 }
+
+const getOwnerLabel = (row) => {
+  return row.owner === store.state.user.id
+    ? __("Bạn")
+    : props.userData[row.owner]?.full_name || row.owner
+}
+
+const getShareIcon = (shareCount) => {
+  if (shareCount === -2) return 'pi pi-globe'
+  else if (shareCount === -1) return 'pi pi-building'
+  else if (shareCount > 0) return 'pi pi-users'
+  return ''
+}
+
+const getShareText = (shareCount) => {
+  if (shareCount === -2) return __("Công khai")
+  else if (shareCount === -1) return __("Nhóm")
+  else if (shareCount > 0) {
+    return shareCount + " " + (shareCount === 1 ? __("người") : __("người"))
+  }
+  return __("-")
+}
+
+const getSizeText = (row) => {
+  if (row.is_group) {
+    return row.children
+      ? row.children + " " + (row.children === 1 ? __("mục") : __("mục"))
+      : __("trống")
+  }
+  return row.file_size_pretty
+}
+
+// Event handlers
+const onRowContextMenu = (event, row) => {
+  if (selectedRows.value.length > 0) return
+  if (event.ctrlKey) openEntity(route.params.team, row, true)
+  rowEvent.value = event
+  selectedRow.value = row
+  event.stopPropagation()
+  event.preventDefault()
+}
+
+const onRowClick = (event) => {
+  // Handle row click
+  console.log('Row clicked', event.data)
+}
+
+const onRowOptions = (event, row) => {
+  rowEvent.value = event
+  selectedRow.value = row
+  event.stopPropagation()
+}
+
+// Watch for selection changes
+watch(selectedRows, (newSelections) => {
+  const selectionSet = new Set(newSelections.map(row => row.name))
+  selections.value = selectionSet
+  if (newSelections.length === 0) {
+    selectedRow.value = null
+    store.commit("setActiveEntity", null)
+  }
+})
 
 watch(selectedRow, (k) => {
   store.commit("setActiveEntity", k)
 })
+
 const dropdownActionItems = (row) => {
   if (!row) return []
   return props.actionItems
@@ -307,26 +245,8 @@ const dropdownActionItems = (row) => {
     }))
 }
 
-const contextMenu = (event, row) => {
-  if (selections.value.size > 0) return
-  // Ctrl + click triggers context menu on Mac
-  if (event.ctrlKey) openEntity(route.params.team, row, true)
-  rowEvent.value = event
-  selectedRow.value = row
-  console.log(selectedRow.value)
-  event.stopPropagation()
-  event.preventDefault()
-}
-
-const handleSelections = (sels) => {
-  selections.value = sels
-  selectedRow.value = null
-  store.commit("setActiveEntity", null)
-}
-
-// Add keyboard shortcuts here as f-ui selections has to be mutated
+// Keyboard shortcuts
 onKeyDown("a", (e) => {
-  // How do I do this nicely?
   if (
     e.target.classList.contains("ProseMirror") ||
     e.target.tagName === "INPUT" ||
@@ -334,11 +254,11 @@ onKeyDown("a", (e) => {
   )
     return
   if (e.metaKey) {
-    container.value.selections.clear()
-    props.folderContents.map((k) => container.value.selections.add(k.name))
+    selectedRows.value = [...formattedRows.value]
     e.preventDefault()
   }
 })
+
 onKeyDown("Backspace", (e) => {
   if (
     e.target.classList.contains("ProseMirror") ||
@@ -348,6 +268,7 @@ onKeyDown("Backspace", (e) => {
     return
   if (e.metaKey) emitter.emit("remove")
 })
+
 onKeyDown("m", (e) => {
   if (
     e.target.classList.contains("ProseMirror") ||
@@ -357,6 +278,7 @@ onKeyDown("m", (e) => {
     return
   if (e.ctrlKey) emitter.emit("move")
 })
+
 onKeyDown("Escape", (e) => {
   if (
     e.target.classList.contains("ProseMirror") ||
@@ -364,194 +286,136 @@ onKeyDown("Escape", (e) => {
     e.target.tagName === "TEXTAREA"
   )
     return
-  container.value.selections.clear()
+  selectedRows.value = []
   e.preventDefault()
 })
 </script>
-<style>
-.dz-drag-hover #drop-area {
-  opacity: 0.5;
-  padding-left: 0;
-  padding-right: 0;
+<style scoped>
+:deep(.p-datatable-header-cell:first-child  > div){
+  @apply justify-center;
 }
 
-.dz-drag-hover #drop-area + p {
-  display: block;
+
+.file-manager-container {
+  @apply flex flex-col h-full bg-white;
 }
 
-/* Smooth scrolling for drop area */
-#drop-area {
-  scroll-behavior: smooth;
+/* Table Container */
+.table-container {
+  @apply flex-1 overflow-hidden;
 }
 
-/* Group header styling */
-[data-group] {
-  transition: all 0.2s ease-in-out;
+.file-table {
+  @apply h-full;
 }
 
-/* Responsive table styles */
-@media (max-width: 1024px) {
-  .frappe-list-view {
-    font-size: 14px;
-  }
-  
-  .frappe-list-view .table-header-cell {
-    padding: 8px 4px;
-  }
-  
-  .frappe-list-view .list-row {
-    padding: 8px 4px;
-  }
+/* Table Cell Styling */
+.name-cell {
+  @apply flex items-center gap-3;
 }
 
+.file-icon {
+  @apply w-[18px] h-[18px] flex-shrink-0 rounded-[2px];
+}
+
+.file-name {
+  @apply text-sm font-medium text-gray-900 truncate;
+}
+
+.owner-cell {
+  @apply flex items-center gap-2;
+}
+
+.owner-name {
+  @apply text-sm text-gray-700;
+}
+
+.shared-cell {
+  @apply flex items-center gap-2;
+}
+
+.share-icon {
+  @apply w-4 h-4 text-gray-500;
+}
+
+.options-btn {
+  @apply p-1 rounded hover:bg-gray-100;
+}
+
+/* PrimeVue DataTable Customization */
+:deep(.p-checkbox-input){
+  @apply min-w-[20px] max-w-[20px] min-h-[20px] max-h-[20px] rounded-[4px];
+}
+
+
+:deep(.p-datatable) {
+  @apply border-0;
+}
+
+:deep(.p-datatable-header) {
+  @apply bg-white border-b border-gray-200 p-0;
+}
+
+:deep(.p-datatable-thead > tr > th) {
+  @apply bg-white border-b border-gray-200 text-gray-600 font-medium text-sm py-3 px-4;
+}
+
+:deep(.p-datatable-tbody > tr) {
+  @apply border-b border-gray-100 hover:bg-gray-50 transition-colors !h-12;
+}
+
+:deep(.p-datatable-tbody > tr > td) {
+  @apply py-2 px-4 text-sm;
+}
+
+:deep(.p-datatable-tbody > tr.p-highlight) {
+  @apply bg-blue-50;
+}
+
+:deep(.p-checkbox) {
+  @apply !w-[20px] !h-[20px];
+}
+
+:deep(.p-checkbox .p-checkbox-box) {
+  @apply border-gray-300 min-w-[20px] max-w-[20px] min-h-[20px] max-h-[20px] rounded-[4px];
+}
+
+:deep(.p-checkbox .p-checkbox-box.p-highlight) {
+  @apply bg-blue-600 border-blue-600;
+}
+
+/* Responsive Design */
 @media (max-width: 768px) {
-  .frappe-list-view {
-    min-width: 100%;
-    font-size: 13px;
-  }
-  
-  .frappe-list-view .table-header-cell {
-    padding: 6px 2px;
-    font-size: 12px;
-  }
-  
-  .frappe-list-view .list-row {
-    padding: 6px 2px;
-  }
-  
-  .frappe-list-view .list-row-content {
-    min-height: 44px; /* Touch-friendly height */
+  :deep(.p-datatable-thead > tr > th:nth-child(3)),
+  :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
+    @apply hidden;
   }
 }
 
 @media (max-width: 640px) {
-  .frappe-list-view {
-    font-size: 12px;
+  :deep(.p-datatable-thead > tr > th:nth-child(2)),
+  :deep(.p-datatable-tbody > tr > td:nth-child(2)),
+  :deep(.p-datatable-thead > tr > th:nth-child(4)),
+  :deep(.p-datatable-tbody > tr > td:nth-child(4)) {
+    @apply hidden;
   }
   
-  .frappe-list-view .table-header-cell {
-    padding: 4px 1px;
-    font-size: 11px;
+  .file-name {
+    @apply text-xs;
   }
   
-  .frappe-list-view .list-row {
-    padding: 4px 1px;
-  }
-  
-  /* Make name column more prominent on mobile */
-  .frappe-list-view .list-row-content .name-column {
-    font-weight: 500;
+  .owner-name {
+    @apply text-xs;
   }
 }
 
-/* Ensure table content is scrollable horizontally on small screens */
-.frappe-list-view {
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(155, 155, 155, 0.5) transparent;
+/* Loading State */
+:deep(.p-datatable-loading-overlay) {
+  @apply bg-white bg-opacity-75;
 }
 
-.frappe-list-view::-webkit-scrollbar {
-  height: 6px;
-}
-
-.frappe-list-view::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.frappe-list-view::-webkit-scrollbar-thumb {
-  background-color: rgba(155, 155, 155, 0.5);
-  border-radius: 20px;
-}
-
-.frappe-list-view::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(155, 155, 155, 0.7);
-}
-
-.frappe-list-view table {
-  min-width: 600px;
-  table-layout: auto; /* Allow flexible column sizing */
-  width: 100%;
-}
-
-.frappe-list-view th,
-.frappe-list-view td {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Column resizing indicators */
-.frappe-list-view .column-resizer {
-  cursor: col-resize;
-  background: rgba(59, 130, 246, 0.1);
-  transition: background 0.2s ease;
-}
-
-.frappe-list-view .column-resizer:hover {
-  background: rgba(59, 130, 246, 0.2);
-}
-
-/* Responsive breakpoints */
-@media (max-width: 1024px) {
-  .frappe-list-view table {
-    min-width: 500px;
-  }
-}
-
-@media (max-width: 768px) {
-  .frappe-list-view table {
-    min-width: 400px;
-  }
-  
-  .frappe-list-view .list-row {
-    min-height: 48px;
-  }
-  
-  .frappe-list-view .checkbox {
-    transform: scale(1.2);
-  }
-  
-  #drop-area::-webkit-scrollbar {
-    display: none;
-  }
-  
-  #drop-area {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-}
-
-@media (max-width: 640px) {
-  .frappe-list-view table {
-    min-width: 320px;
-  }
-  
-  /* Make text more compact on mobile */
-  .frappe-list-view .list-row-content {
-    font-size: 0.875rem;
-    max-width: 150px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  
-  /* Smaller avatars on mobile */
-  .frappe-list-view .avatar {
-    width: 24px !important;
-    height: 24px !important;
-  }
-  
-  /* Optimize button sizes for touch */
-  .frappe-list-view .list-row .btn,
-  .frappe-list-view .list-row button {
-    min-height: 44px;
-    min-width: 44px;
-  }
-
-}
-.override_div>div{
-  position: unset !important;
+/* Empty State */
+:deep(.p-datatable-emptymessage) {
+  @apply text-center py-8 text-gray-500;
 }
 </style>
