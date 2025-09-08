@@ -8,6 +8,7 @@ import {
   onOutsideClickDirective,
   setConfig,
 } from "frappe-ui"
+import 'primeicons/primeicons.css'
 import PrimeVue from 'primevue/config'
 import { createApp } from "vue"
 import VueTippy from "vue-tippy"

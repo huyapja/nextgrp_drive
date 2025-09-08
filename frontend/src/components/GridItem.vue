@@ -73,7 +73,8 @@ const props = defineProps({ file: Object })
 
 const [thumbnailLink, backupLink, is_image] = getThumbnailUrl(
   props.file.name,
-  props.file.file_type
+  props.file.file_type,
+  props.file.is_group
 )
 const src = ref(thumbnailLink || backupLink)
 const imgLoaded = ref(false)

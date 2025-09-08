@@ -338,7 +338,7 @@ const isCommentEmpty = computed(() => {
   return !newComment.value || richCommentEditor.value?.isEmpty()
 })
 const thumbnailUrl = computed(() => {
-  const res = getThumbnailUrl(entity.value?.name, entity.value?.file_type)
+  const res = getThumbnailUrl(entity.value?.name, entity.value?.file_type, entity.value?.is_group)
   console.log(res)
   return res
 })
