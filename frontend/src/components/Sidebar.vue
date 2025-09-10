@@ -43,7 +43,7 @@
               <!-- Icon cố định ở bên trái -->
               <span class="grid h-5 w-5 flex-shrink-0 place-items-center">
                 <SearchIconDrive
-                  class="w-5 h-5 text-gray-600 group-hover:text-[#0149C1] transition-colors"
+                  class="w-5 h-5 text-[#404040] group-hover:text-[#0149C1] transition-colors"
                 />
               </span>
               <!-- Label với transition opacity -->
@@ -129,7 +129,7 @@
                       :class="
                         isTeamsExpanded && isRouteActive(item.route)
                           ? 'text-[#0149C1] active_icon'
-                          : 'text-gray-600 group-hover:text-[#0149C1]'
+                          : 'text-[#404040] group-hover:text-[#0149C1]'
                       "
                     />
                   </span>
@@ -315,7 +315,7 @@
                     :class="
                       isRouteActive(item.route)
                         ? 'text-[#0149C1] active_icon'
-                        : 'text-gray-600 group-hover:text-[#0149C1]'
+                        : 'text-[#404040] group-hover:text-[#0149C1]'
                     "
                   />
                 </span>

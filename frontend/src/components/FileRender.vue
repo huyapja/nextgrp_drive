@@ -1,5 +1,5 @@
 <template>
-  <div
+  <!-- <div
     v-if="error"
     class="max-w-[450px] px-16 py-8 z-10 bg-surface-white rounded-md text-neutral-100 text-xl text-center font-medium shadow-xl flex flex-col justify-center items-center"
   >
@@ -15,8 +15,8 @@
     >
       Tải xuống
     </Button>
-  </div>
-  <template v-else>
+  </div> -->
+  <template>
     <component
       :is="previewComponent"
       :preview-entity="previewEntity"
@@ -28,7 +28,6 @@ import AudioPreview from "@/components/FileTypePreview/AudioPreview.vue"
 import ImagePreview from "@/components/FileTypePreview/ImagePreview.vue"
 import MSOfficePreview from "@/components/FileTypePreview/MSOfficePreview.vue"
 import { computed } from "vue"
-import LucideAlertCircle from "~icons/lucide/alert-circle"
 import PDFPreview from "./FileTypePreview/PDFPreview.vue"
 import TextPreview from "./FileTypePreview/TextPreview.vue"
 import VideoPreview from "./FileTypePreview/VideoPreview.vue"

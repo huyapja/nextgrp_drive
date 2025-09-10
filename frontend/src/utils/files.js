@@ -17,7 +17,6 @@ import Image from "@/components/MimeIcons/Image.vue"
 import PDF from "@/components/MimeIcons/PDF.vue"
 import Presentation from "@/components/MimeIcons/Presentation.vue"
 import Spreadsheet from "@/components/MimeIcons/Spreadsheet.vue"
-import Unknown from "@/components/MimeIcons/Unknown.vue"
 import Video from "@/components/MimeIcons/Video.vue"
 
 export const openEntity = (team = null, entity, new_tab = false) => {
@@ -241,7 +240,7 @@ export const ICON_TYPES = {
   Spreadsheet: Spreadsheet,
   Archive: Archive,
   Presentation: Presentation,
-  Unknown: Unknown,
+  // Unknown: Unknown,
 }
 
 // Synced cache - ensure all setters are reflected in the app

@@ -2,7 +2,7 @@
   <nav
     ondragstart="return false;"
     ondrop="return false;"
-    class="bg-surface-white border-b w-full px-5 py-2.5  flex items-center flex-wrap gap-2 justify-between min-h-[72px]"
+    class="bg-surface-white border-b w-full px-5 py-2.5 flex items-center flex-wrap gap-2 justify-between min-h-[72px]"
   >
     <div class="flex flex-row flex-wrap">
       <Breadcrumbs
@@ -29,17 +29,27 @@
     </div>
 
     <div class="flex gap-2 justify-between">
-      <button class="flex items-center gap-1 hover:bg-gray-200 p-1 rounded" v-if="showTeamMembers && getTeamMembers?.data" @click="$emit('show-team-members')">
-        <img src="@/assets/images/icons/memberIcon.svg" alt="Team Members" />
-        <p class="text-[14px] font-medium text-[#404040] whitespace-nowrap">{{ getTeamMembers?.data?.length }} thành viên</p>
+      <button
+        class="flex items-center gap-1 hover:bg-gray-200 p-1 rounded"
+        v-if="showTeamMembers && getTeamMembers?.data"
+        @click="$emit('show-team-members')"
+      >
+        <img
+          src="@/assets/images/icons/memberIcon.svg"
+          alt="Team Members"
+        />
+        <p class="text-[14px] font-medium text-[#404040] whitespace-nowrap">
+          {{ getTeamMembers?.data?.length }} thành viên
+        </p>
       </button>
+
       <LucideStar
         v-if="rootEntity?.is_favourite"
         width="16"
         height="16"
         class="my-auto stroke-amber-500 fill-amber-500"
       />
-      
+
       <div
         v-if="
           ['Folder', 'Home', 'Team'].includes($route.name) &&
@@ -48,16 +58,28 @@
         "
         class="flex gap-2"
       >
-        <Dropdown :options="uploadOptions" placement="left">
-          <Button variant="subtle" class="rounded-[6px] px-3 h-[40px] !bg-[#0149C1] !text-white !font-[400px] whitespace-nowrap">
+        <Dropdown
+          :options="uploadOptions"
+          placement="left"
+        >
+          <Button
+            variant="subtle"
+            class="rounded-[6px] px-3 h-[40px] !bg-[#0149C1] !text-white !font-[400px] whitespace-nowrap"
+          >
             <template #prefix>
               <UploadDrive class="size-5" />
             </template>
             Tải lên
           </Button>
         </Dropdown>
-        <Dropdown :options="createOptions" placement="left">
-          <Button variant="subtle" class="rounded-[6px] px-3 h-[40px] !bg-[#0149C1] !text-white !font-[400px]">
+        <Dropdown
+          :options="createOptions"
+          placement="left"
+        >
+          <Button
+            variant="subtle"
+            class="rounded-[6px] px-3 h-[40px] !bg-[#0149C1] !text-white !font-[400px]"
+          >
             <template #prefix>
               <NewDrive class="size-5" />
             </template>
@@ -65,6 +87,7 @@
           </Button>
         </Dropdown>
       </div>
+
       <Button
         v-if="button"
         class="line-clamp-1 truncate w-full"
@@ -88,36 +111,127 @@
       >
         <UsersBar />
       </div>
-
-      <div
-        v-if="!isLoggedIn"
-        class="ml-auto"
-      >
-        <Button
-          variant="solid"
-          @click="$router.push({ name: 'Login' })"
-        >
-          Đăng nhập
-        </Button>
-      </div>
     </div>
+
+    <div
+      class="flex flex-row items-center h-full gap-[17px] pt-3 px-2 z-0 bg-surface-white"
+      v-if="route.name === 'File'"
+    >
+      <Button
+        v-if="entity?.comment"
+        class="text-ink-gray-5 !px-0"
+        :class="[
+          tab === 1
+            ? 'bg-transparent text-[#0149C1]'
+            : 'hover:bg-surface-menu-bar',
+        ]"
+        variant="minimal"
+        @click="switchTab(1)"
+      >
+        <MessageIcon
+          :class="
+            tab === 1 && store.state.showInfo
+              ? 'size-6 text-[#0149C1]'
+              : 'size-6 text-black'
+          "
+        />
+      </Button>
+
+      <Button
+        v-if="entity?.write"
+        class="text-ink-gray-5 !px-0"
+        :class="[
+          tab === 2
+            ? 'text-black bg-transparent'
+            : ' hover:bg-surface-menu-bar',
+        ]"
+        variant="minimal"
+        @click="switchTab(2)"
+      >
+        <CloudIcon
+          :class="
+            tab === 2 && store.state.showInfo
+              ? 'size-6 text-[#0149C1]'
+              : 'size-6 text-black'
+          "
+        />
+      </Button>
+
+      <Button
+        class="text-ink-gray-5 !px-0"
+        :class="[
+          tab === 0
+            ? 'text-black bg-transparent'
+            : ' hover:bg-surface-menu-bar',
+        ]"
+        variant="minimal"
+        @click="switchTab(0)"
+      >
+        <InfoIcon
+          :class="
+            tab === 0 && store.state.showInfo
+              ? 'size-6 text-[#0149C1]'
+              : 'size-6 text-black'
+          "
+        />
+      </Button>
+
+      <!-- Context Menu Button -->
+      <Button
+        class="text-ink-gray-5 !px-0 hover:bg-surface-menu-bar"
+        variant="minimal"
+        @click="onMoreClick"
+      >
+        <MoreIcon class="size-6 text-black" />
+      </Button>
+    </div>
+
+    <!-- Context Menu -->
+    <ContextMenu
+      v-if="moreEvent && selectedEntity"
+      :key="selectedEntity?.name || 'context-menu'"
+      v-on-outside-click="() => (moreEvent = false)"
+      :close="() => (moreEvent = false)"
+      :action-items="dropdownActionItems(selectedEntity)"
+      :event="moreEvent"
+    />
+
     <Dialogs
       v-if="$route.name === 'File' || $route.name === 'Document'"
       v-model="dialog"
-      :root-resource
+      :root-resource="rootResource"
+    />
+
+    <!-- Fixed Dialogs for Context Menu -->
+    <Dialogs
+      v-model="dialogContextMenu"
+      :selected-rows="entity ? [entity] : []"
+      :root-resource="props.rootResource"
+      :get-entities="getEntities"
     />
   </nav>
 </template>
+
 <script setup>
-import NewDrive from '@/assets/Icons/NewDrive.vue'
-import UploadDrive from '@/assets/Icons/UploadDrive.vue'
+import CloudIcon from "@/assets/Icons/CloudIcon.vue"
+import CloudIconBlack from "@/assets/Icons/CloudIconBlack.vue"
+import InfoIcon from "@/assets/Icons/InfoIcon.vue"
+import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
+import LinkIcon from "@/assets/Icons/LinkIcon.vue"
+import MessageIcon from "@/assets/Icons/MessageIcon.vue"
+import MoreIcon from "@/assets/Icons/MoreIcon.vue"
+import MoveIcon from "@/assets/Icons/MoveIcon.vue"
+import NewDrive from "@/assets/Icons/NewDrive.vue"
+import RenameIcon from "@/assets/Icons/RenameIcon.vue"
+import ShareIconBlack from "@/assets/Icons/ShareIconBlack.vue"
+import TrashIcon from "@/assets/Icons/TrashIcon.vue"
+import UploadDrive from "@/assets/Icons/UploadDrive.vue"
 import emitter from "@/emitter"
 import {
   createDocument,
   getFavourites,
   getRecents,
   getTrash,
-  toggleFav,
 } from "@/resources/files"
 import { entitiesDownload } from "@/utils/download"
 import {
@@ -125,29 +239,27 @@ import {
   Button,
   Dropdown,
   LoadingIndicator,
-  createResource
+  createResource,
 } from "frappe-ui"
-import { computed, ref } from "vue"
+import { computed, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
 import LucideClock from "~icons/lucide/clock"
-import LucideDownload from "~icons/lucide/download"
 import LucideFilePlus2 from "~icons/lucide/file-plus-2"
 import LucideFileUp from "~icons/lucide/file-up"
 import LucideFolderPlus from "~icons/lucide/folder-plus"
 import LucideFolderUp from "~icons/lucide/folder-up"
 import LucideHome from "~icons/lucide/home"
-import LucideInfo from "~icons/lucide/info"
 import LucideLink from "~icons/lucide/link"
-import LucideMoveUpRight from "~icons/lucide/move-up-right"
-import LucideShare2 from "~icons/lucide/share-2"
-import LucideSquarePen from "~icons/lucide/square-pen"
 import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"
 import LucideUsers from "~icons/lucide/users"
+import ContextMenu from "./ContextMenu.vue"
+import Dialogs from "./Dialogs.vue"
 import UsersBar from "./UsersBar.vue"
 
+// Component mapping
 const COMPONENT_MAP = {
   Home: LucideHome,
   Team: LucideBuilding2,
@@ -156,12 +268,163 @@ const COMPONENT_MAP = {
   Trash: LucideTrash,
   Recents: LucideClock,
 }
+
+// Props
+const props = defineProps({
+  actions: {
+    type: Array,
+    default: () => [],
+  },
+  triggerRoot: Function,
+  rootResource: Object,
+  getEntities: Function, // Add this prop
+})
+
+// Composables
 const store = useStore()
 const route = useRoute()
 const router = useRouter()
 
+// Computed properties
+const entity = computed(() => store.state.activeEntity)
+const isLoggedIn = computed(() => store.getters.isLoggedIn)
+const connectedUsers = computed(() => store.state.connectedUsers)
+const rootEntity = computed(() => props.rootResource?.data)
 const showTeamMembers = computed(() => route.name === "Team")
 
+const dialogContextMenu = ref("")
+
+const tab = computed({
+  get() {
+    return store.state.infoSidebarTab
+  },
+})
+
+// Reactive data
+const dialog = ref("")
+const selectedEntity = ref(null)
+const moreEvent = ref(false)
+
+// More button handler
+const onMoreClick = (event) => {
+  selectedEntity.value = entity.value
+  moreEvent.value = event
+  event.stopPropagation()
+  event.preventDefault()
+}
+
+// Context menu items - FIXED
+const dropdownActionItems = (row) => {
+  if (!row) return []
+
+  // Nếu có actions được truyền từ props, sử dụng chúng
+  if (props.actions && props.actions.length > 0) {
+    return props.actions
+      .filter((a) => !a.isEnabled || a.isEnabled(row))
+      .map((a) => ({
+        ...a,
+        handler: () => {
+          moreEvent.value = false
+          store.commit("setActiveEntity", row)
+          a.action([row])
+        },
+      }))
+  }
+
+  // Default actions cho file - FIXED handlers
+  return [
+    {
+      label: "Chia sẻ",
+      icon: ShareIconBlack,
+      handler: () => {
+        moreEvent.value = false
+        dialogContextMenu.value = "s" // Fixed from "s" to "share"
+      },
+      isEnabled: (e) => e.share,
+      important: true,
+    },
+    {
+      label: "Tải xuống",
+      icon: CloudIconBlack,
+      handler: () => {
+        moreEvent.value = false
+        entitiesDownload(route.params.team, [row])
+      },
+    },
+    {
+      label: "Sao chép liên kết",
+      icon: LinkIcon,
+      handler: () => {
+        moreEvent.value = false
+        // Get current file URL
+        const currentUrl = window.location.origin + window.location.pathname
+        navigator.clipboard.writeText(currentUrl)
+        // Optional: Show toast notification
+        console.log('Link copied to clipboard')
+      },
+    },
+    { divider: true },
+    {
+      label: "Di chuyển",
+      icon: MoveIcon,
+      handler: () => {
+        moreEvent.value = false
+        dialogContextMenu.value = "m"
+      },
+      isEnabled: (row) => row?.write,
+    },
+    {
+      label: "Đổi tên",
+      icon: RenameIcon,
+      handler: () => {
+        moreEvent.value = false
+        dialogContextMenu.value = "rn"
+      },
+      isEnabled: (row) => row?.write,
+    },
+    {
+      label: "Hiển thị thông tin",
+      icon: InfoIconBlack,
+      handler: () => {
+        moreEvent.value = false
+        store.commit("setShowInfo", true)
+        store.commit("setInfoSidebarTab", 0) // Set to info tab
+      },
+    },
+    { divider: true },
+    {
+      label: "Xóa",
+      icon: TrashIcon,
+      danger: true,
+      handler: () => {
+        moreEvent.value = false
+        dialogContextMenu.value = "delete"
+      },
+      isEnabled: (row) => row?.write,
+    },
+  ].filter((item) => !item.isEnabled || item.isEnabled(row))
+}
+
+// Tab switching
+function switchTab(val) {
+  if (store.state.showInfo == false) {
+    store.commit("setShowInfo", !store.state.showInfo)
+    store.commit("setInfoSidebarTab", val)
+  } else if (tab.value == val) {
+    store.commit("setShowInfo", !store.state.showInfo)
+  } else {
+    store.commit("setInfoSidebarTab", val)
+  }
+}
+
+// Watch selectedEntity
+watch(selectedEntity, (k) => {
+  if (k) {
+    store.commit("setActiveEntity", k)
+  }
+})
+
+// Team members resource
 const getTeamMembers = createResource({
   url: "drive.api.product.get_all_users",
   params: {
@@ -170,99 +433,37 @@ const getTeamMembers = createResource({
   auto: true,
 })
 
-const props = defineProps({
-  actions: Array,
-  triggerRoot: Function,
-  rootResource: Object,
-})
-const isLoggedIn = computed(() => store.getters.isLoggedIn)
-const connectedUsers = computed(() => store.state.connectedUsers)
-const dialog = ref("")
-const rootEntity = computed(() => props.rootResource?.data)
+// Button logic
+const possibleButtons = [
+  {
+    route: "Recents",
+    label: "Clear",
+    icon: LucideClock,
+    entities: getRecents,
+  },
+  {
+    route: "Favourites",
+    label: "Clear",
+    icon: LucideStar,
+    entities: getFavourites,
+  },
+  {
+    route: "Trash",
+    label: "Empty",
+    icon: LucideTrash,
+    entities: getTrash,
+    theme: "red",
+  },
+]
 
-const dropdownAction = computed(() => {
-  if (props.actions) return props.actions
-  if (!rootEntity.value) return
-  return [
-    {
-      label: __("Share"),
-      icon: LucideShare2,
-      onClick: () => (dialog.value = "s"),
-      isEnabled: () => rootEntity.value.share,
-    },
-    {
-      label: __("Download"),
-      icon: LucideDownload,
-      onClick: () => entitiesDownload(route.params.team, [rootEntity.value]),
-    },
-    {
-      label: __("Copy Link"),
-      icon: LucideLink,
-      onClick: () => getLink(rootEntity.value),
-    },
-    { divider: true },
-    {
-      label: __("Move"),
-      icon: LucideMoveUpRight,
-      onClick: () => (dialog.value = "m"),
-      isEnabled: () => rootEntity.value.write,
-    },
-    {
-      label: __("Rename"),
-      icon: LucideSquarePen,
-      onClick: () => (dialog.value = "rn"),
-      isEnabled: () => rootEntity.value.write,
-    },
-    {
-      label: __("Show Info"),
-      icon: LucideInfo,
-      onClick: () => infoEntities.value.push(store.state.activeEntity),
-      isEnabled: () => !store.state.activeEntity || !store.state.showInfo,
-    },
-    {
-      label: __("Hide Info"),
-      icon: LucideInfo,
-      onClick: () => (dialog.value = "info"),
-      isEnabled: () => store.state.activeEntity && store.state.showInfo,
-    },
-    {
-      label: __("Favourite"),
-      icon: LucideStar,
-      onClick: () => {
-        rootEntity.value.is_favourite = true
-        toggleFav.submit({
-          entities: [{ name: rootEntity.value.name, is_favourite: false }],
-        })
-      },
-      isEnabled: () => !rootEntity.value.is_favourite,
-    },
-    {
-      label: __("Unfavourite"),
-      icon: LucideStar,
-      color: "stroke-amber-500 fill-amber-500",
-      onClick: () => {
-        rootEntity.value.is_favourite = false
-        toggleFav.submit({
-          entities: [{ name: rootEntity.value.name, is_favourite: false }],
-        })
-      },
-      isEnabled: () => rootEntity.value.is_favourite,
-    },
-    { divider: true },
-    {
-      label: __("Delete"),
-      icon: LucideTrash,
-      onClick: () => (dialog.value = "remove"),
-      isEnabled: () => rootEntity.value.write,
-      color: "text-ink-red-4",
-    },
-  ].filter((k) => !k.isEnabled || k.isEnabled())
-})
+const button = computed(() =>
+  possibleButtons.find((k) => k.route == route.name)
+)
 
-// Functions
+// Create new document
 const newDocument = async () => {
   let data = await createDocument.submit({
-    title: __("Untitled Document"),
+    title: "Untitled Document",
     team: route.params.team,
     personal: store.state.breadcrumbs[0].name === "Home" ? 1 : 0,
     content: null,
@@ -276,40 +477,15 @@ const newDocument = async () => {
   )
 }
 
-// Constants
-const possibleButtons = [
-  {
-    route: "Recents",
-    label: __("Clear"),
-    icon: LucideClock,
-    entities: getRecents,
-  },
-  {
-    route: "Favourites",
-    label: __("Clear"),
-    icon: LucideStar,
-    entities: getFavourites,
-  },
-  {
-    route: "Trash",
-    label: __("Empty"),
-    icon: LucideTrash,
-    entities: getTrash,
-    theme: "red",
-  },
-]
-const button = computed(() =>
-  possibleButtons.find((k) => k.route == route.name)
-)
-
+// Dropdown options
 const uploadOptions = [
   {
-    label: __("Upload File"),
+    label: "Upload File",
     icon: LucideFileUp,
     onClick: () => emitter.emit("uploadFile"),
   },
   {
-    label: __("Upload Folder"),
+    label: "Upload Folder",
     icon: LucideFolderUp,
     onClick: () => emitter.emit("uploadFolder"),
   },
@@ -317,22 +493,23 @@ const uploadOptions = [
 
 const createOptions = [
   {
-    label: __("Document"),
+    label: "Document",
     icon: LucideFilePlus2,
     onClick: newDocument,
   },
   {
-    label: __("Folder"),
+    label: "Folder",
     icon: LucideFolderPlus,
     onClick: () => emitter.emit("newFolder"),
   },
   {
-    label: __("New Link"),
+    label: "New Link",
     icon: LucideLink,
     onClick: () => emitter.emit("newLink"),
   },
 ]
 </script>
+
 <style scoped>
 .breadcrumbs-custom ::v-deep > div {
   flex-wrap: wrap !important;

@@ -36,15 +36,12 @@ const route = useRoute()
 
 store.commit("setCurrentFolder", { name: "" })
 
-const showTeamMembersList = ref(true)
+const showTeamMembersList = ref(false)
 
 function checkScreenWidth() {
   if (window.innerWidth + 250 < 1600) {
     showTeamMembersList.value = false
-  } else {
-    console.log("Showing team members list", window.innerWidth)
-    showTeamMembersList.value = true
-  }
+  } 
 }
 
 onMounted(() => {

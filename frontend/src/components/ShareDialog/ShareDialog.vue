@@ -373,7 +373,9 @@ const handleClickOutside = (event) => {
 // Invite users
 const sharedUsers = ref([])
 watch(sharedUsers, (now, prev) => {
-  queryInput.value.el.value = ""
+  if (queryInput.value && queryInput.value.el) {
+    queryInput.value.el.value = ""
+  }
   query.value = ""
   if (now.length > prev.length) {
     const addedUser = sharedUsers.value[sharedUsers.value.length - 1]
