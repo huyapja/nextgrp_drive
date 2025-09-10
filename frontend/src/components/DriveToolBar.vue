@@ -57,59 +57,6 @@
     <!-- Right Controls -->
     <div class="controls-container">
       <template v-if="selections && !selections.length">
-        <!-- Active Filters -->
-        <div
-          v-if="activeFilters.length"
-          class="active-filters"
-        >
-          <div
-            v-for="(item, index) in activeFilters"
-            :key="index"
-            class="filter-tag"
-          >
-            <component :is="ICON_TYPES[item]" />
-            <span class="filter-text">{{ __(item) }}</span>
-            <Button
-              icon="pi pi-times"
-              variant="outlined"
-              severity="secondary"
-              size="small"
-              @click="activeFilters.splice(index, 1)"
-            />
-          </div>
-          <div
-            v-for="(item, index) in activeTags"
-            :key="index"
-            class="filter-tag"
-          >
-            <svg
-              v-if="item.color"
-              width="16"
-              height="16"
-              viewBox="0 0 16 16"
-              fill="none"
-              xmlns="http://www.w3.org/2000/svg"
-            >
-              <circle
-                r="4.5"
-                cx="8"
-                cy="8"
-                :fill="item.color"
-                :stroke="item.color"
-                stroke-width="3"
-              />
-            </svg>
-            <span class="filter-text">{{ item.title }}</span>
-            <Button
-              icon="pi pi-times"
-              text
-              severity="secondary"
-              size="small"
-              @click="store.state.activeTags.splice(index, 1)"
-            />
-          </div>
-        </div>
-        
         <!-- Filter Button -->
         <div class="relative">
           <Button 
@@ -121,21 +68,31 @@
             v-tooltip="__('Filter')"
             @click="showFilterMenu = !showFilterMenu"
           />
-          
-          <!-- Filter Menu -->
           <div v-if="showFilterMenu" ref="filter-menu" class="filter-menu">
             <div
               v-for="option in filterOptions"
               :key="option.value"
               class="filter-option"
-              @click="onFilterSelect(option)"
-              
+              @click.stop="toggleFilter(option.value)"
             >
+            <div class="flex items-center w-full gap-1">
               <component :is="option.icon" class="filter-option-icon" />
               <span>{{ option.label }}</span>
             </div>
+            <span class="filter-check">
+              <svg v-if="activeFilters.includes(option.value)" width="18" height="18" viewBox="0 0 18 18" fill="none">
+                <circle cx="9" cy="9" r="9" fill="#0149C1"/>
+                <path d="M5 9.5L8 12.5L13 7.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span v-else class="filter-unchecked"></span>
+            </span>
+            </div>
           </div>
         </div>
+        <!-- Hiển thị tổng số filter đã chọn -->
+        <!-- <div v-if="activeFilters.length" class="ml-2 text-xs text-gray-600">
+          {{ activeFilters.length }} {{ __('filter selected') }}
+        </div> -->
         
         <!-- Sort Control -->
         <!-- <div
@@ -277,6 +234,7 @@ watch(activeFilters.value, (val) => {
   const mime_types = []
   const isFolder = val.find((k) => k === "Folder")
   for (let k of val) {
+    if (k === "Unknown") continue
     mime_types.push(...MIME_LIST_MAP[k])
   }
   rows.value = props.getEntities.data.filter(
@@ -306,6 +264,14 @@ const filterOptions = computed(() => {
     icon: ICON_TYPES[k],
   }))
 })
+function toggleFilter(val) {
+  const idx = activeFilters.value.indexOf(val)
+  if (idx === -1) {
+    activeFilters.value.push(val)
+  } else {
+    activeFilters.value.splice(idx, 1)
+  }
+}
 
 const orderByItems = computed(() => {
   return columnHeaders.map((header) => ({
@@ -358,7 +324,7 @@ const columnHeaders = [
 
 <style scoped>
 .drive-toolbar {
-  @apply flex items-center justify-between px-4 py-2.5 border-b border-gray-200 bg-white h-[64px] max-h-[64px] gap-4;
+  @apply flex items-center justify-between px-4 py-2.5 border-gray-200 bg-white h-[64px] max-h-[64px] gap-4;
 }
 
 .selection-info {
@@ -422,19 +388,15 @@ const columnHeaders = [
 }
 
 .view-controls {
-  @apply flex items-center border border-gray-300 rounded-md overflow-hidden !h-[40px];
+  @apply flex bg-[#FAFAFA] items-center rounded-md overflow-hidden !h-[40px];
 }
 
 .view-btn {
-  @apply p-2;
+  @apply p-2 rounded-md;
 }
 
 .view-btn.active {
-  @apply bg-blue-50 text-blue-600;
-}
-
-.view-btn:first-child {
-  @apply border-r border-gray-300 rounded-r-none;
+  @apply !bg-[#D4E1F9] text-[#0149C1];
 }
 
 /* PrimeVue Component Customization */

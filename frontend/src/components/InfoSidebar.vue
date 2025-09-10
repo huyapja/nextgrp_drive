@@ -1,118 +1,136 @@
 <template>
-  <!-- Desktop version - tabs (>= 1200px) -->
-  <div
-    v-if="entity && store.state.showInfo"
-    class="xl:block overflow-y-auto transition-all duration-200 ease-in-out h-[100vh] border-l w-full max-w-[350px] min-w-[350px] shrink-0 whitespace-nowrap"
-  >
-    <div>
-      <!-- Information -->
+  <!-- Overlay for mobile drawer -->
+  <Transition name="overlay">
+    <div
+      v-if="entity && store.state.showInfo && isSmallScreen"
+      class="fixed inset-0 z-40"
+      @click="closeDrawer"
+    ></div>
+  </Transition>
+  
+  <!-- Desktop version - Information Panel / Mobile Drawer -->
+  <Transition name="drawer">
+    <div
+      v-if="entity && store.state.showInfo"
+      :class="[
+        'overflow-y-auto h-[100vh] bg-white',
+        isSmallScreen 
+          ? 'fixed top-0 right-0 w-[350px] z-50 border-l shadow-2xl' 
+          : 'xl:block border-l w-full max-w-[350px] min-w-[350px] shrink-0 transition-all duration-300 ease-in-out'
+      ]"
+    >
+    <div class="h-full">
+      <!-- Information Tab -->
       <div
         v-if="tab === 0"
-        class="h-full border-b px-5 pt-4 pb-5 w-full"
+        class="h-full flex flex-col"
       >
-        <span
-          class="inline-flex items-center gap-2.5 mb-5 text-ink-gray-8 font-medium text-lg w-full"
-        >
-          {{ __("Information") }}
-        </span>
-        <div class="space-y-6.5">
-          <div v-if="entity.owner === $store.state.user.id">
-            <div class="text-base font-medium mb-4">{{ __("Access") }}</div>
-            <div class="flex items-center justify-between text-ink-gray-6">
-              <div class="flex">
-                <GeneralAccess
-                  size="md"
-                  class="-mr-[3px] outline outline-white"
-                  :access-type="
-                    generalAccess?.data?.read === 1 ? 'public' : 'restricted'
-                  "
-                />
-                <div
-                  v-if="userList.data?.length"
-                  class="flex items-center justify-start ms-3"
-                >
-                  <Avatar
-                    v-for="user in userList.data.slice(0, 3)"
-                    :key="user?.user_name"
-                    size="sm"
-                    :label="user.full_name || user.user"
-                    :image="user?.user_image"
-                    class="-mr-[3px] outline outline-white"
-                  />
-                  <span
-                    v-if="userList.data.slice(3).length"
-                    class="text-base text-ink-gray-7 ms-1"
-                  >
-                    +{{ userList.data.slice(3).length }}
-                  </span>
-                </div>
-              </div>
-              <Button
-                v-if="$store.state.activeEntity?.share"
-                :variant="'subtle'"
-                class="rounded flex justify-center items-center"
-                @click="emitter.emit('showShareDialog')"
-              >
-                {{ __("Manage") }}
-              </Button>
+        <!-- Header -->
+        <div class="flex justify-between items-center p-4 pb-5">
+          <span class="font-[700] text-[#404040] text-[16px]">
+            Thông tin
+          </span>
+          <Button
+            icon="pi pi-times"
+            severity="secondary" 
+            text
+            rounded
+            size="small"
+            @click="closeDrawer"
+            :class="isSmallScreen ? 'text-gray-600 hover:text-gray-800' : ''"
+          />
+        </div>
+
+        <!-- Content -->
+        <div class="flex-1 overflow-y-auto p-4 pt-0 space-y-6">
+          <!-- Owner Section -->
+          <div>
+            <div class="text-[14px] font-[400] text-[#171717] mb-1">Chủ sở hữu</div>
+            <div class="flex items-center space-x-[6px]">
+              <CustomAvatar 
+                :image="entity.user_image"
+                :label="getInitials(entity.full_name)"  
+                size="normal"
+                shape="circle"
+                class="bg-blue-500 text-white !w-5 !h-5"
+              />
+              <span class="text-[14px] font-[500] text-[#171717]">{{ entity.full_name || entity.owner }}</span>
             </div>
           </div>
-          <div v-if="userId !== 'Guest'">
-            <div class="text-base font-medium mb-4 text-ink-gray-8">
-              {{ __("Tags") }}
+          {{ usersPermission.data }}
+          <!-- Shared With Section -->
+          <div v-if="entity.owner === $store.state.user.id && usersPermission?.length > 0">
+            <div class="text-[14px] font-[400] text-[#171717] mb-1">
+              Người có quyền truy cập
             </div>
+            <div class="flex flex-wrap items-center gap-[6px]">
+              <div class="flex items-center" v-for="(user, index) in usersPermission?.slice(0, 2)">
+                <div class="flex items-center space-x-[6px]">
+                  <CustomAvatar
+                    :key="user?.user_name"
+                    :label="getInitials(user.full_name || user.user)"
+                    :image="user.user_image"
+                    size="normal"
+                    shape="circle"
+                    class="bg-blue-500 text-white -ml-1 border-2 border-white !w-5 !h-5"
+                  />
+                  <span class="text-[14px] font-[500] text-[#171717]">{{ user.full_name || user.user }}</span>
+                </div>
+                <span v-if="index === 0 && usersPermission?.length > 2" class="text-sm text-gray-600">,</span>
+              </div>
+              <span 
+                v-if="usersPermission?.slice(2).length > 0"
+                class="text-sm text-gray-600 ml-2"
+              >
+                và {{ usersPermission.slice(2).length }} người khác
+              </span>
+            </div>
+          </div>
+
+          <!-- Tags Section -->
+          <div v-if="userId !== 'Guest'">
+            <div class="text-[14px] font-[400] text-[#171717] mb-1">Nhãn</div>
+          
+            <!-- Tag Input Component -->
             <TagInput
-              class="min-w-full"
+              class="w-full"
               :entity="entity"
             />
           </div>
+
+          <!-- Properties Section -->
           <div>
-            <div class="text-base font-medium mb-4 text-ink-gray-8">
-              {{ __("Properties") }}
-            </div>
-            <div class="text-base grid grid-flow-row grid-cols-2 gap-y-3">
-              <span class="col-span-1 text-ink-gray-5 truncate">{{ __("Type") }}</span>
-              <span
-                class="col-span-1 text-ink-gray-8"
-                :title="entity.mime_type"
-              >
-                {{__(`${entity.file_type}`) }}
-              </span>
-              <span
-                v-if="entity.file_size"
-                class="col-span-1 text-ink-gray-5 truncate"
-              >
-                {{ __("Size") }}
-              </span>
-              <span
-                v-if="entity.file_size"
-                class="col-span-1 text-ink-gray-8 truncate"
-              >
-                {{ entity.file_size_pretty }}
-                {{ `(${entity.file_size})` }}
-              </span>
-              <span class="col-span-1 text-ink-gray-5 truncate">{{
-                __("Modified")
-              }}</span>
-              <span class="col-span-1 text-ink-gray-8 truncate">{{
-                formatDate(entity.modified)
-              }}</span>
-              <span class="col-span-1 text-ink-gray-5 truncate">{{
-                __("Uploaded")
-              }}</span>
-              <span class="col-span-1 text-ink-gray-8 truncate">{{
-                formatDate(entity.creation)
-              }}</span>
-              <span class="col-span-1 text-ink-gray-5 truncate">{{ __("Owner") }}</span>
-              <span class="col-span-1 text-ink-gray-8 truncate">{{
-                entity.owner +
-                (entity.owner === $store.state.user.id ? __(" (you)") : "")
-              }}</span>
+            <div class="space-y-4">
+              <div class="">
+                <p class="text-[14px] font-[400] text-[#171717] mb-1">Loại</p>
+                <p class="text-[14px] font-[500] text-[#171717] mb-1">
+                  {{ getFileTypeVi(entity.file_type) }}
+                </p>
+              </div>
+              <div class="">
+                <p class="text-[14px] font-[400] text-[#171717] mb-1">Kích thước</p>
+                <p class="text-[14px] font-[500] text-[#171717] mb-1">
+                  {{ entity.file_size_pretty }}
+                </p>
+              </div>
+              <div class="">
+                <p class="text-[14px] font-[400] text-[#171717] mb-1">Lần sửa đổi gần nhất</p>
+                <p class="text-[14px] font-[500] text-[#171717] mb-1">
+                  {{ formatDateVi(entity.modified) }} do {{ entity.owner === $store.state.user.id ? 'tôi' : entity.owner }} thực hiện
+                </p>
+              </div>
+              <div class="">
+                <p class="text-[14px] font-[400] text-[#171717] mb-1">Ngày tạo</p>
+                <p class="text-[14px] font-[500] text-[#171717] mb-1">
+                  {{ formatDateVi(entity.creation) }}
+                </p>
+              </div>
             </div>
           </div>
         </div>
       </div>
-      <!-- Comments -->
+
+      <!-- Comments Tab -->
       <div
         v-if="entity.comment && tab === 1"
         class=" pt-4 pb-5 border-b overflow-y-auto overflow-x-hidden"
@@ -130,81 +148,88 @@
             class="flex flex-col mb-5"
           >
             <div class="flex items-start justify-start">
-              <Avatar
+              <!-- {{ comment }} -->
+              <!-- :image="comment.user_image" -->
+              <CustomAvatar 
                 :label="comment.comment_by"
                 :image="comment.user_image"
-                size="md"
+                class="!min-w-8 !h-8"
               />
               <div class="ml-3">
                 <div
-                  class="flex items-center justify-start text-base gap-x-1 text-ink-gray-5"
+                  class="flex mb-1 items-center justify-start text-base gap-x-1 text-ink-gray-5"
                 >
                   <span class="font-medium text-ink-gray-8">{{
                     comment.comment_by
                   }}</span>
-                  <span>• {{ __('lúc') }} {{ formatDate24(comment.creation) }}</span>
                 </div>
-                <div
-                  class="my-2 text-base text-ink-gray-7 break-word leading-1 comment-content"
-                  v-html="renderCommentContent(comment.content)"
-                ></div>
+                <div class="comment-bubble bg-[#7373731A] p-3 rounded-xl">
+                  <div
+                    class="mb-2 text-base text-ink-gray-7 break-word leading-relaxed comment-content !text-[#404040]"
+                    v-html="renderCommentContent(comment.content)"
+                  ></div>
+                   <div class="text-[#737373] text-[12px] font-[400]">{{ formatDate24(comment.creation) }}</div>
+                </div>
                 <!-- Reactions -->
-                <div class="relative inline-flex items-center gap-2 mt-1">
+                <div class="flex items-center gap-2 mt-2">
                   <Tooltip
                     v-for="r in (comment.reactions || [])"
                     :key="r.emoji"
                     :text="reactionTooltip(comment, r.emoji)"
                   >
                     <button
-                      class="px-2 py-0.5 rounded border text-sm"
-                      :class="r.reacted ? 'bg-surface-gray-3 border-outline-gray-3' : 'border-outline-gray-2'"
+                      v-if="r.count > 0"
+                      class="reaction-button inline-flex items-center gap-[0.5px] px-1 py-1 rounded-full text-sm font-medium transition-all duration-200 hover:scale-105"
+                      :class="r.reacted 
+                        ? 'bg-blue-50 border border-blue-200 text-blue-700 shadow-sm' 
+                        : 'bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300'"
                       @click="toggleReaction(comment, r.emoji)"
                     >
-                      <span>{{ r.emoji }}</span>
-                      <span class="ml-1 text-ink-gray-7">{{ r.count }}</span>
+                      <span class="text-base leading-none">{{ r.emoji }}</span>
+                      <span class="text-xs font-semibold">{{ r.count }}</span>
                     </button>
                   </Tooltip>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    class="text-ink-gray-6 hover:bg-transparent"
-                    @click.stop="toggleEmojiMenu(comment)"
-                  >
-                    <LucideSmilePlus class="size-4" />
-                  </Button>
-                  <div
-                    v-if="openEmojiFor === comment.name"
-                    class="absolute top-full left-0 mt-1 bg-surface-white border rounded-md shadow p-1 flex items-center gap-1 z-50"
-                    @click.stop
-                  >
-                    <button
-                      v-for="e in defaultEmojis"
-                      :key="e"
-                      class="px-2 py-1 text-sm hover:bg-surface-gray-2 rounded"
-                      @click="toggleReaction(comment, e); openEmojiFor = null"
+                  
+                  <div class="relative">
+                    <Button
+                      size="sm"
+                      variant="outlined"
+                      class="add-reaction-btn !p-1 !w-6 !h-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all duration-200"
+                      @click.stop="toggleEmojiMenu(comment)"
                     >
-                      {{ e }}
-                    </button>
+                      <LucideSmilePlus class="size-4" />
+                    </Button>
+                    
+                    <!-- Emoji Picker Dropdown -->
+                    <Transition name="emoji-picker">
+                      <div
+                        v-if="openEmojiFor === comment.name"
+                        class="absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg p-2 flex items-center gap-1 z-50 min-w-max"
+                        @click.stop
+                      >
+                        <button
+                          v-for="e in defaultEmojis"
+                          :key="e"
+                          class="flex items-center justify-center w-8 h-8 text-lg hover:bg-gray-100 rounded-md transition-colors duration-150"
+                          @click="toggleReaction(comment, e); openEmojiFor = null"
+                        >
+                          {{ e }}
+                        </button>
+                      </div>
+                    </Transition>
                   </div>
                 </div>
               </div>
             </div>
           </div>
           <div class="flex items-start justify-start py-2">
-            <Avatar
-              :label="fullName"
-              :image="imageURL"
-              class="mr-3"
-            />
-            <div
-              class="flex w-full bg-transparent rounded ring-outline-gray-3 group"
-            >
+
               <div class="flex-1 min-w-0">
                 <RichCommentEditor
                   ref="richCommentEditor"
                   v-model="newComment"
                   :entity-name="entity.name"
-                  :placeholder="__('Add a comment (use @ to mention users)')"
+                  :placeholder="__('Nhập tin nhắn...')"
                   @mentioned-users="(val) => (mentionedUsers = val)"
                 />
               </div>
@@ -217,72 +242,44 @@
                   @click="postComment"
                 />
               </div>
-            </div>
+            
           </div>
         </div>
       </div>
+
+      <!-- Activity Tab -->
       <div
         v-if="entity.write && tab === 2"
-        class=" pt-4 pb-5 border-b overflow-y-auto overflow-x-hidden"
+        class="h-full flex flex-col"
       >
-        <span
-          class="inline-flex items-center gap-2.5 px-5 mb-5 text-ink-gray-8 font-medium text-lg w-full"
-        >
-          {{ __("Activity") }}
-        </span>
-        <ActivityTree
-          v-if="entity.write"
-          :entity="entity"
-        />
+        <!-- Header -->
+        <div class="flex justify-between items-center p-4 border-b border-gray-100">
+          <span class="font-semibold text-gray-800 text-base">
+            Hoạt động
+          </span>
+          <Button
+            v-if="isSmallScreen"
+            icon="pi pi-times"
+            severity="secondary" 
+            text
+            rounded
+            size="small"
+            @click="closeDrawer"
+            class="text-gray-600 hover:text-gray-800"
+          />
+        </div>
+        
+        <!-- Activity Content -->
+        <div class="flex-1 overflow-y-auto p-4">
+          <ActivityTree
+            v-if="entity.write"
+            :entity="entity"
+          />
+        </div>
       </div>
     </div>
   </div>
-
-  <!-- Desktop Tab Buttons (>= 1200px) -->
-  <div
-    class="flex  flex-col items-center overflow-hidden h-full  gap-1 pt-3 px-2 border-l z-0 bg-surface-white"
-  >
-    <Button
-      class="text-ink-gray-5"
-      :class="[
-        tab === 0
-          ? 'text-black bg-surface-gray-3'
-          : ' hover:bg-surface-menu-bar',
-      ]"
-      variant="minimal"
-      @click="switchTab(0)"
-    >
-      <LucideInfo class="size-4 text-ink-gray-6" />
-    </Button>
-    <Button
-      v-if="entity?.comment"
-      class="text-ink-gray-5"
-      :class="[
-        tab === 1
-          ? 'text-black bg-surface-gray-3'
-          : ' hover:bg-surface-menu-bar',
-      ]"
-      variant="minimal"
-      @click="switchTab(1)"
-    >
-      <LucideMessageCircle class="size-4 text-ink-gray-6" />
-    </Button>
-    <Button
-      v-if="entity?.write"
-      class="text-ink-gray-5"
-      :class="[
-        tab === 2
-          ? 'text-black bg-surface-gray-3'
-          : ' hover:bg-surface-menu-bar',
-      ]"
-      variant="minimal"
-      @click="switchTab(2)"
-    >
-      <LucideClock class="size-4 text-ink-gray-6" />
-    </Button>
-  </div>
-
-  <!-- Mobile/Tablet Drawer (< 1200px) -->
+  </Transition>
 
   <!-- Permission Confirmation Dialog -->
   <PermissionConfirmDialog
@@ -298,20 +295,19 @@
 
 <script setup>
 import RichCommentEditor from "@/components/DocEditor/components/RichCommentEditor.vue"
-import GeneralAccess from "@/components/GeneralAccess.vue"
 import PermissionConfirmDialog from "@/components/PermissionConfirmDialog.vue"
 import TagInput from "@/components/TagInput.vue"
 import { generalAccess, userList } from "@/resources/permissions"
 import { formatDate } from "@/utils/format"
-import { getThumbnailUrl } from "@/utils/getIconUrl"
-import { Avatar, Button, call, createResource, Tooltip } from "frappe-ui"
-import { computed, ref, watch } from "vue"
+import { call, createResource, Tooltip } from "frappe-ui"
+import { LucideSmilePlus } from 'lucide-vue-next'
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
-import LucideClock from "~icons/lucide/clock"
-import LucideInfo from "~icons/lucide/info"
-import LucideMessageCircle from "~icons/lucide/message-circle"
-import LucideSmilePlus from "~icons/lucide/smile-plus"
 import ActivityTree from "./ActivityTree.vue"
+import CustomAvatar from './CustomAvatar.vue'
+
+// PrimeVue Components
+import Button from 'primevue/button'
 
 const store = useStore()
 const newComment = ref("")
@@ -321,15 +317,40 @@ const showPermissionDialog = ref(false)
 const usersWithoutPermission = ref([])
 const defaultEmojis = ["👍", "❤️", "😂", "🎉", "😮"]
 const openEmojiFor = ref(null)
-const mobileTab = ref(0) // For mobile drawer tabs
+
+// Screen size detection
+const isSmallScreen = ref(false)
+
+const checkScreenSize = () => {
+  isSmallScreen.value = window.innerWidth < 1440
+}
+
+onMounted(() => {
+  checkScreenSize()
+  window.addEventListener('resize', checkScreenSize)
+  window.addEventListener('keydown', handleKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkScreenSize)
+  window.removeEventListener('keydown', handleKeyDown)
+})
 
 const userId = computed(() => store.state.user.id)
 const fullName = computed(() => store.state.user.fullName)
 const imageURL = computed(() => store.state.user.imageURL)
 const entity = computed(() => store.state.activeEntity)
+
+const usersPermission = computed(() => {
+  if (userList.data?.length > 0) {
+    return userList.data.filter(u => u.user !== userId.value)
+  }
+  return []
+})
+console.log("InfoSidebar loaded", entity, usersPermission)
+
 const tab = computed({
   get() {
-    console.log("Tab value:", store.state.infoSidebarTab)
     return store.state.infoSidebarTab
   }
 })
@@ -337,13 +358,13 @@ const tab = computed({
 const isCommentEmpty = computed(() => {
   return !newComment.value || richCommentEditor.value?.isEmpty()
 })
-const thumbnailUrl = computed(() => {
-  const res = getThumbnailUrl(entity.value?.name, entity.value?.file_type, entity.value?.is_group)
-  console.log(res)
-  return res
-})
 
-// Hàm chuyển đổi file_type sang tiếng Việt
+// Utility functions
+function getInitials(name) {
+  if (!name) return "?"
+  return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+}
+
 function getFileTypeVi(type) {
   if (!type) return ''
   const map = {
@@ -365,65 +386,57 @@ function getFileTypeVi(type) {
     'mp3': 'Âm thanh MP3',
     'mp4': 'Video MP4',
     'folder': 'Thư mục',
-    // Thêm các loại khác nếu cần
+    'image': 'Hình ảnh'
   }
-  return map[type.toLowerCase()] || type
+  return map[type?.toLowerCase()] || type
 }
 
-function switchTab(val) {
-  if (store.state.showInfo == false) {
-    store.commit("setShowInfo", !store.state.showInfo)
-    store.commit("setInfoSidebarTab", val)
-  } else if (tab.value == val) {
-    store.commit("setShowInfo", !store.state.showInfo)
-  } else {
-    store.commit("setInfoSidebarTab", val)
-  }
+function formatDateVi(date) {
+  if (!date) return ''
+  const d = new Date(date)
+  const day = d.toLocaleDateString("vi-VN")
+  const time = d.toLocaleTimeString("vi-VN", { 
+    hour: "2-digit", 
+    minute: "2-digit", 
+    hour12: false 
+  })
+  return `${day} ${time}`
+}
+
+function formatDate24(date) {
+  const d = new Date(date)
+  const day = d.toLocaleDateString("vi-VN")
+  const time = d.toLocaleTimeString("vi-VN", { 
+    hour: "2-digit", 
+    minute: "2-digit", 
+    hour12: false 
+  })
+  return `${day} ${time}`
 }
 
 function closeDrawer() {
   store.commit("setShowInfo", false)
 }
 
-function formatDate24(date) {
-  const d = new Date(date)
-  const day = d.toLocaleDateString("vi-VN")
-  const time = d
-    .toLocaleTimeString("vi-VN", { hour: "2-digit", minute: "2-digit", hour12: false })
-  return `${day} ${time}`
+// Handle ESC key for mobile drawer
+const handleKeyDown = (event) => {
+  if (event.key === 'Escape' && isSmallScreen.value && store.state.showInfo) {
+    closeDrawer()
+  }
 }
 
-watch(entity, (newEntity) => {
-  if (
-    newEntity &&
-    typeof newEntity !== "number" &&
-    typeof newEntity !== "undefined"
-  ) {
-    if (
-      (!newEntity.write && tab.value === 2) ||
-      (!newEntity.comment && tab.value === 1)
-    )
-      store.commit("setInfoSidebarTab", 0)
-    
-    // Set mobile tab to match desktop tab
-    mobileTab.value = tab.value
-    
-    comments.fetch({ entity_name: newEntity.name })
-    generalAccess.fetch({ entity: newEntity.name })
-    userList.fetch({ entity: newEntity.name })
+function renderCommentContent(content) {
+  if (content.includes('<') && content.includes('>')) {
+    return content
   }
-})
+  return content
+}
 
-// Watch tab changes to sync mobile tab
-watch(tab, (newTab) => {
-  mobileTab.value = newTab
-})
-
+// Comment and reaction functions (keep existing logic)
 async function postComment() {
   if (isCommentEmpty.value) return
   
   try {
-    // Check if any mentioned users don't have permission
     if (mentionedUsers.value && mentionedUsers.value.length > 0) {
       const userEmails = mentionedUsers.value.map(u => u.id)
       const permissionCheck = await call("drive.api.product.check_users_permissions", {
@@ -442,14 +455,12 @@ async function postComment() {
       })
       
       if (usersWithoutAccess.length > 0) {
-        // Show permission dialog
         usersWithoutPermission.value = usersWithoutAccess
         showPermissionDialog.value = true
         return
       }
     }
     
-    // Post comment directly if no permission issues
     await submitComment()
   } catch (e) {
     console.log(e)
@@ -479,18 +490,44 @@ async function submitComment() {
 
 async function handleGrantAccess(usersToGrant) {
   try {
-    // Grant read access to users
     const userEmails = usersToGrant.map(u => u.id)
     await call("drive.api.product.grant_read_access_to_users", {
       entity_name: entity.value?.name,
       user_emails: JSON.stringify(userEmails)
     })
     
-    // Post the comment after granting access
     await submitComment()
   } catch (e) {
     console.error("Error granting access:", e)
   }
+}
+
+async function toggleReaction(comment, emoji) {
+  try {
+    await call("drive.api.comments.react_to_comment", {
+      comment_id: comment.name,
+      emoji,
+    })
+    if (!comment.reactions) comment.reactions = []
+    const existing = comment.reactions.find((r) => r.emoji === emoji)
+    if (existing) {
+      if (existing.reacted) {
+        existing.count = Math.max(0, (existing.count || 1) - 1)
+        existing.reacted = false
+      } else {
+        existing.count = (existing.count || 0) + 1
+        existing.reacted = true
+      }
+    } else {
+      comment.reactions.push({ emoji, count: 1, reacted: true })
+    }
+  } catch (e) {
+    comments.fetch()
+  }
+}
+
+function toggleEmojiMenu(comment) {
+  openEmojiFor.value = openEmojiFor.value === comment.name ? null : comment.name
 }
 
 let comments = createResource({
@@ -508,49 +545,25 @@ let comments = createResource({
   auto: false,
 })
 
-async function toggleReaction(comment, emoji) {
-  try {
-    await call("drive.api.comments.react_to_comment", {
-      comment_id: comment.name,
-      emoji,
-    })
-    // optimistic: update local state
-    if (!comment.reactions) comment.reactions = []
-    const existing = comment.reactions.find((r) => r.emoji === emoji)
-    if (existing) {
-      if (existing.reacted) {
-        existing.count = Math.max(0, (existing.count || 1) - 1)
-        existing.reacted = false
-      } else {
-        existing.count = (existing.count || 0) + 1
-        existing.reacted = true
-      }
-    } else {
-      comment.reactions.push({ emoji, count: 1, reacted: true })
+// Watch for entity changes
+watch(entity, (newEntity) => {
+  if (newEntity && typeof newEntity !== "number" && typeof newEntity !== "undefined") {
+    if ((!newEntity.write && tab.value === 2) || (!newEntity.comment && tab.value === 1)) {
+      store.commit("setInfoSidebarTab", 0)
     }
-  } catch (e) {
-    // fallback: refetch list
-    comments.fetch()
+    
+    comments.fetch({ entity_name: newEntity.name })
+    generalAccess.fetch({ entity: newEntity.name })
+    userList.fetch({ entity: newEntity.name })
   }
-}
+})
 
-function emojiOptions(comment) {
-  return defaultEmojis.map((e) => ({
-    label: e,
-    onClick: () => toggleReaction(comment, e),
-  }))
-}
-
-function toggleEmojiMenu(comment) {
-  openEmojiFor.value = openEmojiFor.value === comment.name ? null : comment.name
-}
-
+// Event listeners
 if (typeof window !== "undefined") {
   window.addEventListener("click", () => {
     openEmojiFor.value = null
   })
 }
-
 function reactionTooltip(comment, emoji) {
   const map = comment.reaction_users || {}
   const names = map[emoji] || []
@@ -561,22 +574,170 @@ function reactionTooltip(comment, emoji) {
 function resize(e) {
   e.target.style.height = `${e.target.scrollHeight}px`
 }
-
-function renderCommentContent(content) {
-  // If content is HTML (from rich editor), return as is
-  if (content.includes('<') && content.includes('>')) {
-    return content
-  }
-  // If content is plain text, return as is (for backward compatibility)
-  return content
-}
-
 </script>
 
 <style scoped>
 .comment-content {
-  white-space: pre-wrap;       /* Giữ xuống dòng gốc, đồng thời cho phép tự xuống dòng */
-  word-break: break-word;      /* Bẻ từ nếu quá dài */
-  overflow-wrap: break-word;   /* Tương thích tốt hơn */
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.5;
+}
+
+/* Comment bubble styling */
+.comment-bubble {
+  background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f4 100%);
+  border: 1px solid #e9ecef;
+  transition: all 0.2s ease;
+}
+
+.comment-bubble:hover {
+  background: linear-gradient(135deg, #f1f3f4 0%, #e9ecef 100%);
+  border-color: #dee2e6;
+}
+
+/* PrimeVue Avatar customization */
+:deep(.p-avatar) {
+  background-color: #3b82f6 !important;
+  color: white !important;
+}
+
+/* Custom chip colors */
+.bg-purple-100 {
+  background-color: #f3e8ff !important;
+}
+.text-purple-700 {
+  color: #7c3aed !important;
+}
+.bg-green-100 {
+  background-color: #dcfce7 !important;
+}
+.text-green-700 {
+  color: #15803d !important;
+}
+
+/* Overlay transitions */
+.overlay-enter-active,
+.overlay-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.overlay-enter-from,
+.overlay-leave-to {
+  opacity: 0;
+}
+
+/* Emoji picker transitions */
+.emoji-picker-enter-active,
+.emoji-picker-leave-active {
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.emoji-picker-enter-from,
+.emoji-picker-leave-to {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.95);
+}
+
+.emoji-picker-enter-to,
+.emoji-picker-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Reaction button enhancements */
+.reaction-button {
+  position: relative;
+  overflow: hidden;
+  transform-origin: center;
+}
+
+.reaction-button:active {
+  transform: scale(0.95);
+}
+
+.reaction-button::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(59, 130, 246, 0.1);
+  transition: all 0.3s ease;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+}
+
+.reaction-button:hover::before {
+  width: 120%;
+  height: 120%;
+}
+
+.reaction-button > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Add button hover effect */
+.add-reaction-btn {
+  position: relative;
+  overflow: hidden;
+}
+
+.add-reaction-btn::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(156, 163, 175, 0.1);
+  transition: all 0.2s ease;
+  transform: translate(-50%, -50%);
+  z-index: 0;
+}
+
+.add-reaction-btn:hover::after {
+  width: 120%;
+  height: 120%;
+}
+
+/* Drawer transitions for mobile - slide from right to left */
+@media (max-width: 1439px) {
+  .drawer-enter-active,
+  .drawer-leave-active {
+    transition: transform 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+  }
+  
+  .drawer-enter-from,
+  .drawer-leave-to {
+    transform: translateX(100%);
+  }
+  
+  .drawer-enter-to,
+  .drawer-leave-from {
+    transform: translateX(0);
+  }
+}
+
+/* Hide scrollbar on webkit browsers */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 6px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #e5e7eb;
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #d1d5db;
 }
 </style>

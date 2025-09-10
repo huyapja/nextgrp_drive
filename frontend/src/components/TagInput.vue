@@ -5,25 +5,27 @@
         <slot
           name="target"
           v-bind="{ open: openPopover, togglePopover }"
-        >
+        > 
           <div
             class="flex items-center justify-start min-w-full flex-wrap gap-2"
           >
-            <Tag
+            <Chip
               v-for="tag in entityTags.data"
               :key="tag.name"
-              :allow-delete="isOpen"
-              :tag="tag"
-              :entity="entity"
+              :label="tag.title"
+              :style="{
+                backgroundColor: tag.color ? tag.color + '1A' : '',
+                color: tag.color ? tag.color : ''
+              }"
+              class="cursor-pointer !text-[14px] font-[500] !px-2 !py-0.5 rounded-[8px]"
               @click="filterByTag(tag)"
-              @success="entityTags.fetch()"
             />
             <span
               v-if="!entityTags.data?.length"
               class="text-ink-gray-7 text-base"
             >
               Thư mục chưa có nhãn
-            </span>
+            </span>   
             <Button
               class="ml-auto"
               @click="togglePopover()"
@@ -135,10 +137,10 @@
 <script setup>
 import { getRandomColor } from "@/utils/random-color"
 import { createResource, Input, Popover } from "frappe-ui"
+import Chip from 'primevue/chip'
 import { computed, ref } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
-import Tag from "./Tag.vue"
 
 const store = useStore()
 const route = useRoute()
@@ -182,6 +184,12 @@ const entityTags = createResource({
   },
   auto: true,
 })
+console.log("Entity in TagInput:", entityTags)
+
+const handleColorTag = (color) => {
+  if (!color) return ""
+  return `!bg-[${color}] !bg-opacity-10 !text-[${color}] [&>span]:text-[${color}]`
+}
 
 const createTag = createResource({
   url: "drive.api.tags.create_tag",

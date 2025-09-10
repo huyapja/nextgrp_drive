@@ -81,8 +81,8 @@
     :get-entities="getEntities"
   />
   <FileUploader
-    v-if="$store.state.user.id"
-    @success="getEntities.fetch()"
+  v-if="$store.state.user.id"
+  @success="getEntities.fetch()"
   />
 </template>
 <script setup>
@@ -108,18 +108,20 @@ import { computed, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 
+import CloudIconBlack from "@/assets/Icons/CloudIconBlack.vue"
+import EyeIcon from "@/assets/Icons/EyeIcon.vue"
+import FavoriteIcon from "@/assets/Icons/FavoriteIcon.vue"
+import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
+import LinkIcon from "@/assets/Icons/LinkIcon.vue"
+import MoveIcon from "@/assets/Icons/MoveIcon.vue"
+import RenameIcon from "@/assets/Icons/RenameIcon.vue"
+import ShareIconBlack from "@/assets/Icons/ShareIconBlack.vue"
+import TrashIcon from "@/assets/Icons/TrashIcon.vue"
 import LucideClock from "~icons/lucide/clock"
-import LucideDownload from "~icons/lucide/download"
 import LucideExternalLink from "~icons/lucide/external-link"
-import LucideEye from "~icons/lucide/eye"
 import LucideInfo from "~icons/lucide/info"
-import LucideLink2 from "~icons/lucide/link-2"
-import LucideMoveUpRight from "~icons/lucide/move-up-right"
 import LucideRotateCcw from "~icons/lucide/rotate-ccw"
-import LucideShare2 from "~icons/lucide/share-2"
-import LucideSquarePen from "~icons/lucide/square-pen"
 import LucideStar from "~icons/lucide/star"
-import LucideTrash from "~icons/lucide/trash"
 
 const props = defineProps({
   grouper: { type: Function, default: (d) => d },
@@ -211,7 +213,7 @@ const actionItems = computed(() => {
       },
       {
         label: "Xóa vĩnh viễn",
-        icon: LucideTrash,
+        icon: TrashIcon,
         action: () => (dialog.value = "d"),
         isEnabled: () => route.name === "Trash",
         multi: true,
@@ -222,7 +224,7 @@ const actionItems = computed(() => {
     return [
       {
         label: "Xem trước",
-        icon: LucideEye,
+        icon: EyeIcon,
         action: ([entity]) => openEntity(team, entity),
         isEnabled: (e) => !e.is_link,
       },
@@ -235,14 +237,14 @@ const actionItems = computed(() => {
       { divider: true },
       {
         label: "Chia sẻ",
-        icon: LucideShare2,
+        icon: ShareIconBlack,
         action: () => (dialog.value = "s"),
         isEnabled: (e) => e.share,
         important: true,
       },
       {
         label: "Tải xuống",
-        icon: LucideDownload,
+        icon: CloudIconBlack,
         isEnabled: (e) => !e.is_link,
         action: (entities) => entitiesDownload(team, entities),
         multi: true,
@@ -250,14 +252,14 @@ const actionItems = computed(() => {
       },
       {
         label: "Sao chép liên kết",
-        icon: LucideLink2,
+        icon: LinkIcon,
         action: ([entity]) => getLink(entity),
         important: true,
       },
       { divider: true },
       {
         label: "Di chuyển",
-        icon: LucideMoveUpRight,
+        icon: MoveIcon,
         action: () => (dialog.value = "m"),
         isEnabled: (e) => e.write,
         multi: true,
@@ -265,13 +267,13 @@ const actionItems = computed(() => {
       },
       {
         label: "Đổi tên",
-        icon: LucideSquarePen,
+        icon: RenameIcon,
         action: () => (dialog.value = "rn"),
         isEnabled: (e) => e.write,
       },
       {
         label: "Hiển thị thông tin",
-        icon: LucideInfo,
+        icon: InfoIconBlack,
         action: () => infoEntities.value.push(store.state.activeEntity),
         isEnabled: () => !store.state.activeEntity || !store.state.showInfo,
       },
@@ -283,7 +285,7 @@ const actionItems = computed(() => {
       },
       {
         label: "Yêu thích",
-        icon: LucideStar,
+        icon: FavoriteIcon,
         action: (entities) => {
           entities.forEach((e) => (e.is_favourite = true))
           // Hack to cache
@@ -322,7 +324,7 @@ const actionItems = computed(() => {
       { divider: true, isEnabled: (e) => e.write },
       {
         label: "Xóa",
-        icon: LucideTrash,
+        icon: TrashIcon,
         action: () => (dialog.value = "remove"),
         isEnabled: (e) => e.write,
         important: true,

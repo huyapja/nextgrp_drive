@@ -24,10 +24,11 @@
           <template #body="slotProps">
             <div class="name-cell">
               <img 
-                :src="getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[0] || getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[1]"
-                class="file-icon"
-                :alt="slotProps.data.title"
-              />
+        :src="getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[0] || getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[1]"
+        class="file-icon"
+        :alt="slotProps.data.title"
+        @error="onThumbnailError($event, slotProps.data)"
+      />
               <span class="file-name">{{ getDisplayName(slotProps.data) }}</span>
             </div>
           </template>
@@ -144,6 +145,11 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
 })
+
+function onThumbnailError(event, row) {
+  // Fallback về icon mặc định nếu thumbnail lỗi
+  event.target.src = getThumbnailUrl(row.name, row.file_type)[1]
+}
 
 const formattedRows = computed(() => {
   if (!props.folderContents) return []
@@ -302,16 +308,19 @@ onKeyDown("Escape", (e) => {
 
 /* Table Container */
 .table-container {
-  @apply flex-1 overflow-hidden;
+  @apply flex-1 overflow-x-auto overflow-y-hidden;
+  /* Cho phép cuộn ngang khi bảng quá rộng */
 }
 
 .file-table {
-  @apply h-full;
+  @apply h-full min-w-[600px];
+  /* Đảm bảo bảng không bị bóp nhỏ quá */
 }
 
 /* Table Cell Styling */
 .name-cell {
-  @apply flex items-center gap-3;
+  @apply flex items-center gap-3 min-w-0 w-full;
+  max-width: 320px;
 }
 
 .file-icon {
@@ -320,6 +329,11 @@ onKeyDown("Escape", (e) => {
 
 .file-name {
   @apply text-sm font-medium text-gray-900 truncate;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
 }
 
 .owner-cell {
@@ -384,28 +398,77 @@ onKeyDown("Escape", (e) => {
   @apply bg-blue-600 border-blue-600;
 }
 
-/* Responsive Design */
-@media (max-width: 768px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(3)),
+@media (max-width: 1280px) {
+  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
   :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
 }
 
-@media (max-width: 640px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(2)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(2)),
-  :deep(.p-datatable-thead > tr > th:nth-child(4)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(4)) {
+/* Responsive Design */
+/* Responsive: Ẩn các cột phụ trên tablet/mobile */
+@media (max-width: 1024px) {
+  :deep(.p-datatable-thead > tr > th:nth-child(4)), /* Shared */
+  :deep(.p-datatable-tbody > tr > td:nth-child(4)),
+  :deep(.p-datatable-thead > tr > th:nth-child(6)), /* Size */
+  :deep(.p-datatable-tbody > tr > td:nth-child(6)),
+  :deep(.p-datatable-thead > tr > th:nth-child(5)), /* Last Modified */
+  :deep(.p-datatable-tbody > tr > td:nth-child(5)),
+  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
-  
+  .name-cell {
+    max-width: 220px;
+  }
+  .file-name {
+    max-width: 140px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 768px) {
+  .file-table {
+    @apply min-w-[400px];
+  }
   .file-name {
     @apply text-xs;
+    max-width: 90px;
+    font-size: 12px;
   }
-  
   .owner-name {
     @apply text-xs;
+  }
+  .name-cell {
+    @apply gap-2;
+    max-width: 160px;
+  }
+  .file-icon {
+    @apply w-[16px] h-[16px];
+  }
+  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
+    @apply hidden;
+  }
+}
+
+@media (max-width: 480px) {
+  .name-cell {
+    max-width: 110px;
+  }
+  .file-table {
+    @apply min-w-[320px];
+  }
+  .file-name {
+    @apply text-[11px];
+    max-width: 60px;
+    font-size: 11px;
+  }
+  .owner-name {
+    @apply text-[11px];
+  }
+  .options-btn {
+    @apply p-0;
   }
 }
 
