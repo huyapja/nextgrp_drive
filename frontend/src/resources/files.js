@@ -47,7 +47,7 @@ export const getTeams = createResource({
 
 export const getRecents = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files",
+  url: "drive.api.list.files_multi_team",
   cache: "recents-folder-contents",
   makeParams: (params) => {
     return { ...params, recents_only: true }
@@ -56,7 +56,7 @@ export const getRecents = createResource({
 
 export const getPersonal = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files",
+  url: "drive.api.list.files_multi_team",
   cache: "personal-folder-contents",
   makeParams: (params) => {
     return { ...params, personal: 1 }
@@ -65,7 +65,7 @@ export const getPersonal = createResource({
 
 export const getFavourites = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files",
+  url: "drive.api.list.files_multi_team",
   cache: "favourite-folder-contents",
   makeParams: (params) => {
     return { ...params, favourites_only: true }
@@ -74,7 +74,7 @@ export const getFavourites = createResource({
 
 export const getShared = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.shared",
+  url: "drive.api.list.shared_multi_team",
   cache: "shared-folder-contents",
   makeParams: (params) => {
     return { ...params }
@@ -83,7 +83,7 @@ export const getShared = createResource({
 
 export const getTrash = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files",
+  url: "drive.api.list.files_multi_team",
   cache: "trash-folder-contents",
   makeParams: (params) => {
     return { ...params, is_active: 0, only_parent: 0 }

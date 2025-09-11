@@ -139,7 +139,7 @@
         <div class="px-5 overflow-y-auto" :style="{ height: scrollableHeight }">
           <div class="flex justify-between items-center">
           <span class="font-[700] text-[#404040] text-[16px]">
-            {{ __("Comments") }}
+            {{ __("Comments") }} {{ comments.data?.length ? `(${comments.data.length})` : '' }}
           </span>
           <Button
             icon="pi pi-times"

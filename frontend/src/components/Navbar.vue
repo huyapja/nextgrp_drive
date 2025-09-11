@@ -360,7 +360,7 @@ const dropdownActionItems = (row) => {
         const currentUrl = window.location.origin + window.location.pathname
         navigator.clipboard.writeText(currentUrl)
         // Optional: Show toast notification
-        console.log('Link copied to clipboard')
+        console.log("Link copied to clipboard")
       },
     },
     { divider: true },
@@ -463,29 +463,27 @@ const button = computed(() =>
 // Create new document
 const newDocument = async () => {
   let data = await createDocument.submit({
-    title: "Untitled Document",
+    title: "Tài liệu mới",
     team: route.params.team,
     personal: store.state.breadcrumbs[0].name === "Home" ? 1 : 0,
     content: null,
     parent: store.state.currentFolder.name,
   })
-  window.open(
-    router.resolve({
-      name: "Document",
-      params: { team: route.params.team, entityName: data.name },
-    }).href
-  )
+  await router.push({
+    name: "Document",
+    params: { team: route.params.team, entityName: data.name },
+  })
 }
 
 // Dropdown options
 const uploadOptions = [
   {
-    label: "Upload File",
+    label: "Tải tệp lên",
     icon: LucideFileUp,
     onClick: () => emitter.emit("uploadFile"),
   },
   {
-    label: "Upload Folder",
+    label: "Tải lên thư mục",
     icon: LucideFolderUp,
     onClick: () => emitter.emit("uploadFolder"),
   },
@@ -493,17 +491,17 @@ const uploadOptions = [
 
 const createOptions = [
   {
-    label: "Document",
+    label: "Tài liệu",
     icon: LucideFilePlus2,
     onClick: newDocument,
   },
   {
-    label: "Folder",
+    label: "Thư mục",
     icon: LucideFolderPlus,
     onClick: () => emitter.emit("newFolder"),
   },
   {
-    label: "New Link",
+    label: "Liên kết mới",
     icon: LucideLink,
     onClick: () => emitter.emit("newLink"),
   },

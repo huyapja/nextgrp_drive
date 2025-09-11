@@ -187,7 +187,6 @@ def files(
             r["share_count"] = -1
         else:
             r["share_count"] = share_count.get(r["name"], 0)
-
     return res
 
 
@@ -308,6 +307,7 @@ def files_multi_team(
     folders=0,
     only_parent=1,
 ):
+    print("files_multi_team called with:", recents_only)
     """
     Lấy tệp từ nhiều nhóm
 
@@ -321,27 +321,27 @@ def files_multi_team(
         user_teams = get_teams()
     else:
         if isinstance(teams, str):
-            user_teams = [t.strip() for t in teams.split(',')]
+            user_teams = [t.strip() for t in teams.split(",")]
         else:
             user_teams = teams
-            
+
     # Xác minh người dùng có quyền truy cập vào tất cả các nhóm được chỉ định
     accessible_teams = get_teams()
     user_teams = [team for team in user_teams if team in accessible_teams]
-    
+
     if not user_teams:
         return []
-    
+
     field, ascending = order_by.split(" ")
     is_active = int(is_active)
     only_parent = int(only_parent)
     folders = int(folders)
     personal = int(personal)
     ascending = int(ascending)
-    
+
     user = frappe.session.user if frappe.session.user != "Guest" else ""
     all_results = []
-    
+
     # Lấy file từ mỗi team
     for team in user_teams:
         try:
@@ -351,7 +351,7 @@ def files_multi_team(
                 current_entity_name = home
             else:
                 current_entity_name = entity_name
-                
+
             try:
                 entity = frappe.get_doc("Drive File", current_entity_name)
                 # Skip if entity doesn't belong to current team
@@ -359,12 +359,12 @@ def files_multi_team(
                     continue
             except:
                 continue
-                
+
             # Get user access for this entity
             user_access = get_user_access(entity, user)
             if not user_access["read"]:
                 continue
-                
+
             query = (
                 frappe.qb.from_(DriveFile)
                 .left_join(DrivePermission)
@@ -379,35 +379,40 @@ def files_multi_team(
                 )
                 .where(fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
             )
-            
+
             if only_parent and (not recents_only and not favourites_only):
                 query = query.where(DriveFile.parent_entity == current_entity_name)
             else:
                 query = query.where((DriveFile.team == team) & (DriveFile.parent_entity != ""))
-                
+
             # Add favourites join
             if favourites_only:
                 query = query.right_join(DriveFavourite)
             else:
                 query = query.left_join(DriveFavourite)
             query = query.on(
-                (DriveFavourite.entity == DriveFile.name) & (DriveFavourite.user == frappe.session.user)
+                (DriveFavourite.entity == DriveFile.name)
+                & (DriveFavourite.user == frappe.session.user)
             ).select(DriveFavourite.name.as_("is_favourite"))
 
             if recents_only:
+                print("Base query for team", recents_only)
                 query = (
                     query.right_join(Recents)
                     .on(
-                        (Recents.entity == DriveFile.name)
+                        (Recents.entity_name == DriveFile.name)
                         & (Recents.user == frappe.session.user)
-                        & (Recents.action_type == "View")
+                        # & (Recents.action_type == "View")
                     )
-                    .select(Recents.creation.as_("last_viewed"))
+                    .orderby(Recents.last_interaction, order=Order.desc)
+                    .select("*")
                 )
-
+            print("Recents join added", query.run(as_dict=True), recents_only)
             # Add other filters
             if tag_list:
-                tag_list_parsed = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+                tag_list_parsed = (
+                    json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+                )
                 query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
                 tag_list_criterion = [DriveEntityTag.tag == tags for tags in tag_list_parsed]
                 query = query.where(Criterion.any(tag_list_criterion))
@@ -431,19 +436,18 @@ def files_multi_team(
 
             if folders:
                 query = query.where(DriveFile.is_group == 1)
-
             # Execute query for this team
             team_results = query.run(as_dict=True)
             all_results.extend(team_results)
-            
+
         except Exception as e:
             frappe.log_error(f"Error getting files for team {team}: {str(e)}")
             continue
-    
+
     # Get child counts and share counts for all teams
     if user_teams:
         team_condition = Criterion.any(DriveFile.team == team for team in user_teams)
-        
+
         child_count_query = (
             frappe.qb.from_(DriveFile)
             .where(team_condition & (DriveFile.is_active == 1))
@@ -454,7 +458,9 @@ def files_multi_team(
             frappe.qb.from_(DriveFile)
             .right_join(DrivePermission)
             .on(DrivePermission.entity == DriveFile.name)
-            .where((DrivePermission.user != "") & (DrivePermission.user != "$TEAM") & team_condition)
+            .where(
+                (DrivePermission.user != "") & (DrivePermission.user != "$TEAM") & team_condition
+            )
             .select(DriveFile.name, fn.Count("*").as_("share_count"))
             .groupby(DriveFile.name)
         )
@@ -472,7 +478,7 @@ def files_multi_team(
             .where((DrivePermission.user == "$TEAM") & team_condition)
             .select(DrivePermission.entity)
         )
-        
+
         public_files = set(k[0] for k in public_files_query.run())
         team_files = set(k[0] for k in team_files_query.run())
         children_count = dict(child_count_query.run())
@@ -482,7 +488,7 @@ def files_multi_team(
         team_files = set()
         children_count = {}
         share_count = {}
-    
+
     # Add computed fields
     for r in all_results:
         r["children"] = children_count.get(r["name"], 0)
@@ -493,12 +499,12 @@ def files_multi_team(
             r["share_count"] = -1
         else:
             r["share_count"] = share_count.get(r["name"], 0)
-    
+
     # Sort results
     if field in ["modified", "creation", "title", "file_size"]:
         reverse = not ascending
         all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
-    
+
     # Apply cursor pagination if specified
     if cursor and all_results:
         if field in all_results[0]:
@@ -509,11 +515,11 @@ def files_multi_team(
                 elif not ascending and r.get(field, "") < cursor:
                     filtered_results.append(r)
             all_results = filtered_results
-    
+
     # Apply limit
     if limit:
-        all_results = all_results[:int(limit)]
-    
+        all_results = all_results[: int(limit)]
+
     return all_results
 
 
@@ -528,7 +534,7 @@ def shared_multi_team(
 ):
     """
     Returns shared items from multiple teams
-    
+
     :param teams: Comma-separated list of team names, or None for all user teams
     :param by: 0 for shared with user, 1 for shared by user
     :return: List of shared DriveEntities from multiple teams
@@ -540,20 +546,20 @@ def shared_multi_team(
     else:
         # Parse teams parameter
         if isinstance(teams, str):
-            user_teams = [t.strip() for t in teams.split(',')]
+            user_teams = [t.strip() for t in teams.split(",")]
         else:
             user_teams = teams
-            
+
     # Verify user has access to all specified teams
     accessible_teams = get_teams()
     user_teams = [team for team in user_teams if team in accessible_teams]
-    
+
     if not user_teams:
         return []
-    
+
     by = int(by)
     team_condition = Criterion.any(DriveFile.team == team for team in user_teams)
-    
+
     query = (
         frappe.qb.from_(DriveFile)
         .right_join(DrivePermission)
@@ -587,7 +593,9 @@ def shared_multi_team(
         query = query.where(Criterion.any(tag_list_criterion))
 
     if mime_type_list:
-        mime_type_list = json.loads(mime_type_list) if not isinstance(mime_type_list, list) else mime_type_list
+        mime_type_list = (
+            json.loads(mime_type_list) if not isinstance(mime_type_list, list) else mime_type_list
+        )
         query = query.where(
             Criterion.any(DriveFile.mime_type == mime_type for mime_type in mime_type_list)
         )
@@ -621,13 +629,14 @@ def shared_multi_team(
         .where((DrivePermission.user == "$TEAM") & team_condition)
         .select(DrivePermission.entity)
     )
-    
+
     public_files = set(k[0] for k in public_files_query.run())
     team_files = set(k[0] for k in team_files_query.run())
 
     children_count = dict(child_count_query.run())
     share_count = dict(share_query.run())
     res = query.run(as_dict=True)
+    print("Shared multi-team results:", res)
     parents = {r["name"] for r in res}
 
     for r in res:
@@ -641,6 +650,7 @@ def shared_multi_team(
             r["share_count"] = share_count.get(r["name"], 0)
 
     return [r for r in res if r["parent_entity"] not in parents]
+
 
 # @frappe.whitelist()
 # def files_for_move(

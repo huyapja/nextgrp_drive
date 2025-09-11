@@ -26,7 +26,7 @@ export const openEntity = (team = null, entity, new_tab = false) => {
     if (!getRecents.data?.some?.((k) => k.name === entity.name))
       getRecents.setData((data) => [...(data || []), entity])
     mutate([entity], (e) => {
-      e.accessed = Date()
+      e.accessed = Date() 
       entity.relativeAccessed = useTimeAgoVi(entity.accessed)
     })
   }
@@ -53,7 +53,7 @@ export const openEntity = (team = null, entity, new_tab = false) => {
   } else if (entity.is_link) {
     const origin = new URL(entity.path).origin
     confirm(
-      `This will open an external link to ${origin} - are you sure you want to open?`
+      `Thao tác này sẽ mở một liên kết ngoài tới ${origin} – bạn có chắc chắn muốn mở không?`
     ) && window.open(entity.path, "_blank")
   } else if (entity.mime_type === "frappe_doc") {
     router.push({

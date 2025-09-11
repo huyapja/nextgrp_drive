@@ -34,7 +34,7 @@ const store = createStore({
       ascending: false,
     }),
     view: getJson("view", "list"),
-    shareView: getJson("shareView", "with"),
+    shareView: getJson("shareView", "by"),
     activeTags: [],
     activeEntity: null,
     notifCount: 0,
