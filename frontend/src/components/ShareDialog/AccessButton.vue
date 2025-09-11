@@ -2,7 +2,7 @@
   <div class="flex gap-1">
     <Dropdown
       :button="{
-        label: shareAccess === 'editor' ? 'Can edit' : 'Can view',
+        label: shareAccess === 'editor' ? 'Chỉnh sửa' : 'Xem',
         iconRight: 'chevron-down',
         variant: 'ghost',
       }"
@@ -10,19 +10,18 @@
       :options="[
         {
           value: 'reader',
-          label: 'Can view',
+          label: 'Xem',
           onClick: () => (shareAccess = 'reader'),
           icon: shareAccess === 'reader' && 'check',
         },
         {
           value: 'editor',
-          label: 'Can edit',
+          label: 'Chỉnh sửa',
           onClick: () => (shareAccess = 'editor'),
           icon: shareAccess === 'editor' && 'check',
         },
-        { divider: true },
         {
-          label: 'Remove',
+          label: 'Xóa',
           onClick: () => emit('removeAccess'),
           color: 'text-ink-red-3',
         },
