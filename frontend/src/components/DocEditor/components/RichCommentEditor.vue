@@ -2,11 +2,11 @@
   <div class="rich-comment-editor">
     <div
       v-if="editor"
-      class="editor-content border rounded focus-within:ring-2 ring-outline-gray-3 hover:bg-surface-gray-2 focus-within:bg-surface-gray-2"
+      class="editor-content "
     >
       <EditorContent
         :editor="editor"
-        class="prose prose-sm max-w-none min-h-[3.5rem] max-h-[12rem] overflow-y-auto focus:outline-none !m-0 !p-0"
+        class="prose prose-sm max-w-none min-h-[40px] max-h-[80px] overflow-y-auto focus:outline-none !m-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       />
     </div>
   </div>

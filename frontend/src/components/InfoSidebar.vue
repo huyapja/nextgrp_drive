@@ -133,97 +133,116 @@
       <!-- Comments Tab -->
       <div
         v-if="entity.comment && tab === 1"
-        class=" pt-4 pb-5 border-b overflow-y-auto overflow-x-hidden"
+        class="pt-4 overflow-x-hidden relative"
       >
-        <span
-          class="inline-flex items-center gap-2.5 px-5 mb-5 text-ink-gray-8 font-medium text-lg w-full h-[34px]"
-        >
-          {{ __("Comments") }}
-        </span>
-        <!-- Check commenting permissions -->
-        <div class="pb-2 px-5">
-          <div
-            v-for="comment in comments.data"
-            :key="comment.name || comment"
-            class="flex flex-col mb-5"
-          >
-            <div class="flex items-start justify-start">
-              <!-- {{ comment }} -->
-              <!-- :image="comment.user_image" -->
-              <CustomAvatar 
-                :label="comment.comment_by"
-                :image="comment.user_image"
-                class="!min-w-8 !h-8"
-              />
-              <div class="ml-3">
-                <div
-                  class="flex mb-1 items-center justify-start text-base gap-x-1 text-ink-gray-5"
-                >
-                  <span class="font-medium text-ink-gray-8">{{
-                    comment.comment_by
-                  }}</span>
-                </div>
-                <div class="comment-bubble bg-[#7373731A] p-3 rounded-xl">
+
+        <div class="px-5 overflow-y-auto" :style="{ height: scrollableHeight }">
+          <div class="flex justify-between items-center">
+          <span class="font-[700] text-[#404040] text-[16px]">
+            {{ __("Comments") }}
+          </span>
+          <Button
+            icon="pi pi-times"
+            severity="secondary" 
+            text
+            rounded
+            size="small"
+            @click="closeDrawer"
+            :class="isSmallScreen ? 'text-gray-600 hover:text-gray-800' : ''"
+          />
+        </div>
+
+          <!-- Check commenting permissions -->
+          <div class="pt-5">
+            <div
+              v-for="comment in comments.data"
+              :key="comment.name || comment"
+              class="flex flex-col mb-5"
+            >
+              <div class="flex items-start justify-start">
+                <!-- {{ comment }} -->
+                <!-- :image="comment.user_image" -->
+                <CustomAvatar 
+                  :label="comment.comment_by"
+                  :image="comment.user_image"
+                  class="!min-w-8 !h-8"
+                />
+                <div class="ml-3">
                   <div
-                    class="mb-2 text-base text-ink-gray-7 break-word leading-relaxed comment-content !text-[#404040]"
-                    v-html="renderCommentContent(comment.content)"
-                  ></div>
-                   <div class="text-[#737373] text-[12px] font-[400]">{{ formatDate24(comment.creation) }}</div>
-                </div>
-                <!-- Reactions -->
-                <div class="flex items-center gap-2 mt-2">
-                  <Tooltip
-                    v-for="r in (comment.reactions || [])"
-                    :key="r.emoji"
-                    :text="reactionTooltip(comment, r.emoji)"
+                    class="flex mb-1 items-center justify-start text-base gap-x-1 text-ink-gray-5"
                   >
-                    <button
-                      v-if="r.count > 0"
-                      class="reaction-button inline-flex items-center gap-[0.5px] px-1 py-1 rounded-full text-sm font-medium transition-all duration-200 hover:scale-105"
-                      :class="r.reacted 
-                        ? 'bg-blue-50 border border-blue-200 text-blue-700 shadow-sm' 
-                        : 'bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300'"
-                      @click="toggleReaction(comment, r.emoji)"
+                    <span class="font-medium text-ink-gray-8">{{
+                      comment.comment_by
+                    }}</span>
+                  </div>
+                  <div class="comment-bubble bg-[#F5F5F5] p-2 rounded-[8px]">
+                    <div
+                      class="mb-1 text-base text-ink-gray-7 break-word leading-relaxed comment-content !text-[#404040]"
+                      v-html="renderCommentContent(comment.content)"
+                    ></div>
+                     <div class="text-[#737373] text-[12px] font-[400]">{{ formatDate24(comment.creation) }}</div>
+                  </div>
+                  <!-- Reactions -->
+                  <div class="flex items-center gap-2 mt-2">
+                    <Tooltip
+                      v-for="r in (comment.reactions || [])"
+                      :key="r.emoji"
+                      :text="reactionTooltip(comment, r.emoji)"
                     >
-                      <span class="text-base leading-none">{{ r.emoji }}</span>
-                      <span class="text-xs font-semibold">{{ r.count }}</span>
-                    </button>
-                  </Tooltip>
-                  
-                  <div class="relative">
-                    <Button
-                      size="sm"
-                      variant="outlined"
-                      class="add-reaction-btn !p-1 !w-6 !h-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all duration-200"
-                      @click.stop="toggleEmojiMenu(comment)"
-                    >
-                      <LucideSmilePlus class="size-4" />
-                    </Button>
-                    
-                    <!-- Emoji Picker Dropdown -->
-                    <Transition name="emoji-picker">
-                      <div
-                        v-if="openEmojiFor === comment.name"
-                        class="absolute top-full left-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-lg p-2 flex items-center gap-1 z-50 min-w-max"
-                        @click.stop
+                      <button
+                        v-if="r.count > 0"
+                        class="reaction-button inline-flex items-center gap-[0.5px] px-1 py-1 rounded-full text-sm font-medium transition-all duration-200 hover:scale-105"
+                        :class="r.reacted 
+                          ? 'bg-blue-50 border border-blue-200 text-blue-700 shadow-sm' 
+                          : 'bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300'"
+                        @click="toggleReaction(comment, r.emoji)"
                       >
-                        <button
-                          v-for="e in defaultEmojis"
-                          :key="e"
-                          class="flex items-center justify-center w-8 h-8 text-lg hover:bg-gray-100 rounded-md transition-colors duration-150"
-                          @click="toggleReaction(comment, e); openEmojiFor = null"
-                        >
-                          {{ e }}
-                        </button>
-                      </div>
-                    </Transition>
+                        <span class="text-base leading-none">{{ r.emoji }}</span>
+                        <span class="text-xs font-semibold">{{ r.count }}</span>
+                      </button>
+                    </Tooltip>
+                    
+                    <div class="relative emoji-picker-container">
+                      <Button
+                        size="sm"
+                        variant="outlined"
+                        class="add-reaction-btn !p-1 !w-6 !h-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all duration-200"
+                        @click.stop="toggleEmojiMenu(comment, $event)"
+                      >
+                        <LucideSmilePlus class="size-4" />
+                      </Button>
+                      
+                      <!-- Emoji Picker Dropdown -->
+                      <Teleport to="body">
+                        <Transition name="emoji-picker">
+                          <div
+                            v-if="openEmojiFor === comment.name"
+                            ref="emojiPicker"
+                            class="emoji-picker-popup_1 fixed bg-white border border-gray-200 rounded-[8px] shadow-xl p-1 flex items-center gap-1 min-w-max"
+                            :style="emojiPickerStyle"
+                            style="z-index: 9999;"
+                            @click.stop
+                          >
+                            <button
+                              v-for="e in defaultEmojis"
+                              :key="e"
+                              class="flex items-center justify-center w-8 h-8 text-lg hover:bg-gray-100 rounded-md transition-colors duration-150"
+                              @click="toggleReaction(comment, e); openEmojiFor = null"
+                            >
+                              {{ e }}
+                            </button>
+                          </div>
+                        </Transition>
+                      </Teleport>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
-          <div class="flex items-start justify-start py-2">
-
+        </div>
+        <div ref="commentInputRef" class="py-2 px-5">
+          <div  class="flex flex-row items-center justify-start pl-1 pr-2 bg-white sticky z-[10] top-[100%] left-0 right-0 border border-[#E5E5E5] rounded-[8px]">
               <div class="flex-1 min-w-0">
                 <RichCommentEditor
                   ref="richCommentEditor"
@@ -231,18 +250,20 @@
                   :entity-name="entity.name"
                   :placeholder="__('Nhập tin nhắn...')"
                   @mentioned-users="(val) => (mentionedUsers = val)"
+                  @input="updateCommentInputHeight"
+                  @resize="updateCommentInputHeight"
                 />
               </div>
-              <div class="flex-shrink-0 self-start">
+              <div class="flex-shrink-0 self-start mt-[1px]">
                 <Button
-                  class="hover:bg-transparent"
+                  class="hover:bg-transparent !p-2 !bg-transparent !border-none cursor-pointer ml-[-8px]"
                   variant="ghost"
-                  icon="arrow-up-circle"
                   :disabled="isCommentEmpty"
                   @click="postComment"
-                />
+                >
+                  <SendIcon class="w-5 h-5" />
+                </Button>
               </div>
-            
           </div>
         </div>
       </div>
@@ -294,6 +315,7 @@
 </template>
 
 <script setup>
+import SendIcon from '@/assets/Icons/SendIcon.vue'
 import RichCommentEditor from "@/components/DocEditor/components/RichCommentEditor.vue"
 import PermissionConfirmDialog from "@/components/PermissionConfirmDialog.vue"
 import TagInput from "@/components/TagInput.vue"
@@ -317,6 +339,10 @@ const showPermissionDialog = ref(false)
 const usersWithoutPermission = ref([])
 const defaultEmojis = ["👍", "❤️", "😂", "🎉", "😮"]
 const openEmojiFor = ref(null)
+const emojiButtonPosition = ref({ top: 0, left: 0 })
+const emojiPicker = ref(null)
+const commentInputRef = ref(null)
+const commentInputHeight = ref(58) // Default height
 
 // Screen size detection
 const isSmallScreen = ref(false)
@@ -325,15 +351,58 @@ const checkScreenSize = () => {
   isSmallScreen.value = window.innerWidth < 1440
 }
 
+// Update comment input height dynamically
+const updateCommentInputHeight = () => {
+  if (commentInputRef.value) {
+    console.log(commentInputRef.value?.offsetHeight, 'height');
+    commentInputHeight.value = commentInputRef.value.offsetHeight
+  }
+}
+
+// Computed height for scrollable area
+const scrollableHeight = computed(() => {
+  return `calc(100vh - ${commentInputHeight.value + 16}px)` // 60px for header padding
+})
+
+// Calculate emoji picker position
+const emojiPickerStyle = computed(() => {
+  return {
+    top: `${emojiButtonPosition.value.top + 8}px`,
+    left: `${Math.max(8, emojiButtonPosition.value.left - 160)}px`,
+  }
+})
+
+// Event listeners for closing emoji picker
+let clickOutsideHandler = null
+
 onMounted(() => {
   checkScreenSize()
   window.addEventListener('resize', checkScreenSize)
   window.addEventListener('keydown', handleKeyDown)
+  
+  // Create click outside handler
+  clickOutsideHandler = (event) => {
+    // Check if click is outside emoji picker container or the teleported popup
+    if (!event.target.closest('.emoji-picker-container') && 
+        !event.target.closest('.emoji-picker-popup_1')) {
+      openEmojiFor.value = null
+    }
+  }
+  document.addEventListener('click', clickOutsideHandler)
+  
+  // Setup ResizeObserver for comment input
+  if (commentInputRef.value) {
+    const resizeObserver = new ResizeObserver(updateCommentInputHeight)
+    resizeObserver.observe(commentInputRef.value)
+  }
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkScreenSize)
   window.removeEventListener('keydown', handleKeyDown)
+  if (clickOutsideHandler) {
+    document.removeEventListener('click', clickOutsideHandler)
+  }
 })
 
 const userId = computed(() => store.state.user.id)
@@ -411,7 +480,7 @@ function formatDate24(date) {
     minute: "2-digit", 
     hour12: false 
   })
-  return `${day} ${time}`
+  return `${time} ${day}`
 }
 
 function closeDrawer() {
@@ -526,8 +595,19 @@ async function toggleReaction(comment, emoji) {
   }
 }
 
-function toggleEmojiMenu(comment) {
-  openEmojiFor.value = openEmojiFor.value === comment.name ? null : comment.name
+function toggleEmojiMenu(comment, event) {
+  if (openEmojiFor.value === comment.name) {
+    openEmojiFor.value = null
+  } else {
+    // Get button position
+    const button = event.currentTarget
+    const rect = button.getBoundingClientRect()
+    emojiButtonPosition.value = {
+      top: rect.bottom + window.scrollY,
+      left: rect.left + window.scrollX
+    }
+    openEmojiFor.value = comment.name
+  }
 }
 
 let comments = createResource({
@@ -545,6 +625,12 @@ let comments = createResource({
   auto: false,
 })
 
+// Watch for comment editor changes to update height
+watch(newComment, () => {
+  // Delay the height calculation to allow DOM to update
+  setTimeout(updateCommentInputHeight, 50)
+})
+
 // Watch for entity changes
 watch(entity, (newEntity) => {
   if (newEntity && typeof newEntity !== "number" && typeof newEntity !== "undefined") {
@@ -558,12 +644,6 @@ watch(entity, (newEntity) => {
   }
 })
 
-// Event listeners
-if (typeof window !== "undefined") {
-  window.addEventListener("click", () => {
-    openEmojiFor.value = null
-  })
-}
 function reactionTooltip(comment, emoji) {
   const map = comment.reaction_users || {}
   const names = map[emoji] || []
@@ -587,13 +667,8 @@ function resize(e) {
 /* Comment bubble styling */
 .comment-bubble {
   background: linear-gradient(135deg, #f8f9fa 0%, #f1f3f4 100%);
-  border: 1px solid #e9ecef;
   transition: all 0.2s ease;
-}
-
-.comment-bubble:hover {
-  background: linear-gradient(135deg, #f1f3f4 0%, #e9ecef 100%);
-  border-color: #dee2e6;
+  width: fit-content;
 }
 
 /* PrimeVue Avatar customization */
@@ -739,5 +814,11 @@ function resize(e) {
 
 .overflow-y-auto::-webkit-scrollbar-thumb:hover {
   background: #d1d5db;
+}
+
+/* Global styles for teleported emoji picker */
+:global(.emoji-picker-popup_1) {
+  backdrop-filter: blur(8px);
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 </style>

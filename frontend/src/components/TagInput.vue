@@ -5,7 +5,7 @@
         <slot
           name="target"
           v-bind="{ open: openPopover, togglePopover }"
-        > 
+        >
           <div
             class="flex items-center justify-start min-w-full flex-wrap gap-2"
           >
@@ -15,7 +15,7 @@
               :label="tag.title"
               :style="{
                 backgroundColor: tag.color ? tag.color + '1A' : '',
-                color: tag.color ? tag.color : ''
+                color: tag.color ? tag.color : '',
               }"
               class="cursor-pointer !text-[14px] font-[500] !px-2 !py-0.5 rounded-[8px]"
               @click="filterByTag(tag)"
@@ -25,10 +25,15 @@
               class="text-ink-gray-7 text-base"
             >
               Thư mục chưa có nhãn
-            </span>   
+            </span>
             <Button
               class="ml-auto"
-              @click="togglePopover()"
+              @click="
+                () => {
+                  tagInputText = ''
+                  togglePopover()
+                }
+              "
             >
               Quản lý nhãn
             </Button>
@@ -50,11 +55,14 @@
               type="text"
               @input="tagInputText = $event"
               @keydown.enter="
-                (e) =>
+                (e) => {
                   createTag.submit({
                     title: tagInputText.trim(),
                     color: getRandomColor(),
                   })
+
+                  tagInputText = ''
+                }
               "
             />
             <ul
@@ -112,11 +120,13 @@
               v-if="tagInputText"
               class="mr-auto px-2 py-1.5 hover:bg-surface-gray-2 rounded cursor-pointer"
               @click="
-                (e) =>
+                (e) => {
                   createTag.submit({
                     title: tagInputText.trim(),
                     color: getRandomColor(),
                   })
+                  tagInputText = ''
+                }
               "
             >
               {{ __('Create tag "{0}"').format(tagInputText) }}
@@ -137,7 +147,7 @@
 <script setup>
 import { getRandomColor } from "@/utils/random-color"
 import { createResource, Input, Popover } from "frappe-ui"
-import Chip from 'primevue/chip'
+import Chip from "primevue/chip"
 import { computed, ref } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
