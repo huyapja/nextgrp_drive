@@ -110,7 +110,7 @@ import Button from 'primevue/button'
 import Avatar from 'primevue/avatar'
 import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { useStore } from "vuex"
-import { useRoute } from "vue-router"
+import { useRoute, useRouter } from "vue-router"
 import { computed, ref, watch, onMounted, onUnmounted } from "vue"
 import ContextMenu from "@/components/ContextMenu.vue"
 import { openEntity } from "@/utils/files"
@@ -213,8 +213,13 @@ const onRowContextMenu = (event, row) => {
 }
 
 const onRowClick = (event) => {
-  // Handle row click
-  console.log('Row clicked', event.data)
+  const row = event?.data
+  console.log("Row clicked:", row)
+  if (row && typeof row === 'object' && row.name !== undefined) {
+    // Truyền đúng tham số team nếu có
+    const team = row.team || (route.params && route.params.team) || null
+    openEntity(team, row)
+  }
 }
 
 const onRowOptions = (event, row) => {
@@ -375,7 +380,7 @@ onKeyDown("Escape", (e) => {
 }
 
 :deep(.p-datatable-tbody > tr) {
-  @apply border-b border-gray-100 hover:bg-gray-50 transition-colors !h-12;
+  @apply border-b border-gray-100 hover:bg-gray-50 transition-colors !h-12 cursor-pointer;
 }
 
 :deep(.p-datatable-tbody > tr > td) {
