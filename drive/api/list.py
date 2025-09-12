@@ -3,6 +3,7 @@ import json
 from drive.utils.files import get_home_folder, MIME_LIST_MAP, get_file_type
 from .permissions import ENTITY_FIELDS, get_user_access, get_teams
 from pypika import Order, Criterion, functions as fn, CustomFunction
+from datetime import datetime, timedelta
 
 
 DriveUser = frappe.qb.DocType("User")
@@ -16,6 +17,32 @@ Recents = frappe.qb.DocType("Drive Entity Log")
 DriveEntityTag = frappe.qb.DocType("Drive Entity Tag")
 
 Binary = CustomFunction("BINARY", ["expression"])
+
+
+@frappe.whitelist(allow_guest=True)
+def calculate_days_remaining(modified_date):
+    """Calculate remaining time before permanent deletion
+    Returns:
+        str: Remaining time in format:
+            - "X days" if more than 24 hours remain
+            - "X hours" if less than 24 hours remain
+    """
+    if not modified_date:
+        return "0 giờ"
+
+    # Calculate exact time remaining
+    deletion_date = modified_date + timedelta(days=30)
+    remaining = deletion_date - datetime.now()
+    total_hours = remaining.total_seconds() / 3600
+
+    if total_hours <= 0:
+        return "0 giờ"
+    elif total_hours < 24:
+        return f"{int(total_hours)} giờ"
+    else:
+        # Calculate full days (rounded down)
+        days = int(total_hours // 24)
+        return f"{days} ngày"
 
 
 @frappe.whitelist(allow_guest=True)
@@ -70,6 +97,7 @@ def files(
         # Give defaults as a team member
         .select(
             *ENTITY_FIELDS,
+            DriveFile.modified,
             fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
             fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_("comment"),
             fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
@@ -438,6 +466,33 @@ def files_multi_team(
                 query = query.where(DriveFile.is_group == 1)
             # Execute query for this team
             team_results = query.run(as_dict=True)
+            team_info = frappe.get_value("Drive Team", team, ["name", "title"], as_dict=1)
+
+            # Add team info to each result
+            for result in team_results:
+                result["team"] = team_info.name if team_info else team
+                result["team_name"] = team_info.title if team_info else team
+                # Add days_remaining for files in trash
+                if is_active == 0 and only_parent == 0 and result["modified"]:
+                    try:
+                        modified_date = result["modified"]
+                        if isinstance(modified_date, str):
+                            try:
+                                modified_datetime = datetime.strptime(
+                                    modified_date, "%Y-%m-%d %H:%M:%S.%f"
+                                )
+                            except ValueError:
+                                modified_datetime = datetime.strptime(
+                                    modified_date, "%Y-%m-%d %H:%M:%S"
+                                )
+                        else:
+                            modified_datetime = modified_date
+                        result["days_remaining"] = calculate_days_remaining(modified_datetime)
+                    except Exception as e:
+                        frappe.log_error(
+                            f"Error calculating days_remaining for {result['name']}: {str(e)}"
+                        )
+                        result["days_remaining"] = None
             all_results.extend(team_results)
 
         except Exception as e:
@@ -633,6 +688,13 @@ def shared_multi_team(
 
     res = list(unique_files.values())
 
+    # Get team information for all teams
+    team_info = {}
+    for team in user_teams:
+        info = frappe.get_value("Drive Team", team, ["name", "title"], as_dict=1)
+        if info:
+            team_info[team] = info
+
     # Get additional information
     child_count_query = (
         frappe.qb.from_(DriveFile)
@@ -681,6 +743,15 @@ def shared_multi_team(
             r["share_count"] = -1
         else:
             r["share_count"] = share_count.get(r["name"], 0)
+
+        # Add team information
+        current_team = r.get("team")
+        if current_team and current_team in team_info:
+            r["team"] = team_info[current_team]["name"]
+            r["team_name"] = team_info[current_team]["title"]
+        else:
+            r["team"] = current_team
+            r["team_name"] = current_team
 
     # Return only non-child files
     parents = {r["name"] for r in res}
