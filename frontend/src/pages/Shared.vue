@@ -21,7 +21,9 @@ watch(
   shareView,
   (val) => {
     getShared.fetch({ by: val === "with" ? 0 : 1 })
+    console.log("Fetch shared files with by =", getShared.data)
   },
   { immediate: true }
 )
+
 </script>

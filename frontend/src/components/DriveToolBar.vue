@@ -15,26 +15,20 @@
       class="shared-tabs"
     >
       <TabButtons
-        v-model="shareView"
-        :buttons="[
-          {
-            label: __('By'),
-            value: 'by',
-            onClick: () => {
-              store.commit('toggleShareView', 'by')
-            },
-            disabled: !getEntities.data?.length,
-          },
-          {
-            label: __('With you'),
-            value: 'with',
-            onClick: () => {
-              store.commit('toggleShareView', 'with')
-            },
-            disabled: !getEntities.data?.length,
-          },
-        ]"
-      />
+  v-model="shareView"
+  :buttons="[
+    {
+      label: __('By'),
+      value: 'by',
+      disabled: !getEntities.data?.length,
+    },
+    {
+      label: __('With you'),
+      value: 'with',
+      disabled: !getEntities.data?.length,
+    },
+  ]"
+/>
     </div>
     
     <!-- Search Bar -->
@@ -320,6 +314,11 @@ const columnHeaders = [
     field: "mime_type",
   },
 ]
+
+watch(shareView, (newValue) => {
+  console.log('shareView changed:', newValue)
+  store.commit('toggleShareView', newValue)
+}, { immediate: true })
 </script>
 
 <style scoped>

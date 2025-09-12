@@ -65,7 +65,7 @@
         <!-- Last Modified Column -->
         <Column field="modified" :header="__('Sửa đổi lần cuối')" sortable>
           <template #body="slotProps">
-            <span>{{ slotProps.data.relativeModified }}</span>
+            <span>{{ useTimeAgoVi(slotProps.data.modified) }}</span>
           </template>
         </Column>
         
@@ -117,6 +117,7 @@ import { openEntity } from "@/utils/files"
 import { formatDate } from "@/utils/format"
 import { onKeyDown } from "@vueuse/core"
 import emitter from "@/emitter"
+import { useTimeAgoVi } from "@/utils/useTimeAgoVi"
 
 const store = useStore()
 const route = useRoute()

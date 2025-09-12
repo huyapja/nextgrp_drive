@@ -437,19 +437,19 @@ const getTeamMembers = createResource({
 const possibleButtons = [
   {
     route: "Recents",
-    label: "Clear",
+    label: "Xóa tất cả",
     icon: LucideClock,
     entities: getRecents,
   },
   {
     route: "Favourites",
-    label: "Clear",
+    label: "Xóa tất cả",
     icon: LucideStar,
     entities: getFavourites,
   },
   {
     route: "Trash",
-    label: "Empty",
+    label: "Xóa tất cả",
     icon: LucideTrash,
     entities: getTrash,
     theme: "red",
