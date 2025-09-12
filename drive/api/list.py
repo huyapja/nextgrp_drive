@@ -407,7 +407,7 @@ def files_multi_team(
                     .orderby(Recents.last_interaction, order=Order.desc)
                     .select("*")
                 )
-            print("Recents join added", query.run(as_dict=True), recents_only)
+
             # Add other filters
             if tag_list:
                 tag_list_parsed = (
@@ -526,31 +526,20 @@ def files_multi_team(
 @frappe.whitelist()
 def shared_multi_team(
     teams=None,
-    by=0,
+    by=1,
     order_by="modified",
     limit=1000,
     tag_list=[],
     mime_type_list=[],
 ):
-    """
-    Returns shared items from multiple teams
-
-    :param teams: Comma-separated list of team names, or None for all user teams
-    :param by: 0 for shared with user, 1 for shared by user
-    :return: List of shared DriveEntities from multiple teams
-    :rtype: list[frappe._dict]
-    """
     if not teams:
-        # If no teams specified, get all teams user is member of
         user_teams = get_teams()
     else:
-        # Parse teams parameter
         if isinstance(teams, str):
             user_teams = [t.strip() for t in teams.split(",")]
         else:
             user_teams = teams
 
-    # Verify user has access to all specified teams
     accessible_teams = get_teams()
     user_teams = [team for team in user_teams if team in accessible_teams]
 
@@ -567,8 +556,25 @@ def shared_multi_team(
             (DrivePermission.entity == DriveFile.name)
             & ((DrivePermission.owner if by else DrivePermission.user) == frappe.session.user)
         )
-        .limit(limit)
         .where((DrivePermission.read == 1) & (DriveFile.is_active == 1) & team_condition)
+        .groupby(
+            DriveFile.name,
+            DriveFile.team,
+            DriveFile.title,
+            DriveFile.creation,
+            DriveFile.modified,
+            DriveFile.owner,
+            DriveFile.mime_type,
+            DriveFile.file_size,
+            DriveFile.parent_entity,
+            DriveFile.is_group,
+            DrivePermission.user,
+            DrivePermission.owner,
+            DrivePermission.read,
+            DrivePermission.share,
+            DrivePermission.comment,
+            DrivePermission.write,
+        )
         .select(
             *ENTITY_FIELDS,
             DriveFile.team,
@@ -578,13 +584,28 @@ def shared_multi_team(
             DrivePermission.share,
             DrivePermission.comment,
             DrivePermission.write,
+            fn.Max(DriveFile.modified).as_("last_modified"),
         )
+        .limit(limit)
     )
 
-    query = query.orderby(
-        order_by.split()[0],
-        order=Order.desc if order_by.endswith("desc") else Order.asc,
-    )
+    # Xử lý order_by
+    if order_by:
+        order_parts = order_by.split()
+        order_field = order_parts[0]
+        is_desc = len(order_parts) > 1 and order_parts[1].lower() == "0"
+
+        # Xử lý trường hợp đặc biệt modified+0
+        if "+" in order_field:
+            base_field = order_field.split("+")[0]
+            # Sử dụng biểu thức số học
+            order_expr = DriveFile[base_field] + 0
+            query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
+        else:
+            # Xử lý order by bình thường
+            query = query.orderby(
+                DriveFile[order_field], order=Order.desc if is_desc else Order.asc
+            )
 
     if tag_list:
         tag_list = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
@@ -600,13 +621,26 @@ def shared_multi_team(
             Criterion.any(DriveFile.mime_type == mime_type for mime_type in mime_type_list)
         )
 
-    # Get child counts and share counts
+    # Execute query and get results
+    res = query.run(as_dict=True)
+
+    # Additional processing to ensure uniqueness
+    unique_files = {}
+    for r in res:
+        file_key = f"{r['name']}_{r['team']}"
+        if file_key not in unique_files or r["modified"] > unique_files[file_key]["modified"]:
+            unique_files[file_key] = r
+
+    res = list(unique_files.values())
+
+    # Get additional information
     child_count_query = (
         frappe.qb.from_(DriveFile)
         .where((DriveFile.is_active == 1) & team_condition)
         .select(DriveFile.parent_entity, fn.Count("*").as_("child_count"))
         .groupby(DriveFile.parent_entity)
     )
+
     share_query = (
         frappe.qb.from_(DriveFile)
         .right_join(DrivePermission)
@@ -615,6 +649,7 @@ def shared_multi_team(
         .select(DriveFile.name, fn.Count("*").as_("share_count"))
         .groupby(DriveFile.name)
     )
+
     public_files_query = (
         frappe.qb.from_(DrivePermission)
         .inner_join(DriveFile)
@@ -622,6 +657,7 @@ def shared_multi_team(
         .where((DrivePermission.user == "") & team_condition)
         .select(DrivePermission.entity)
     )
+
     team_files_query = (
         frappe.qb.from_(DrivePermission)
         .inner_join(DriveFile)
@@ -632,13 +668,10 @@ def shared_multi_team(
 
     public_files = set(k[0] for k in public_files_query.run())
     team_files = set(k[0] for k in team_files_query.run())
-
     children_count = dict(child_count_query.run())
     share_count = dict(share_query.run())
-    res = query.run(as_dict=True)
-    print("Shared multi-team results:", res)
-    parents = {r["name"] for r in res}
 
+    # Add additional information to results
     for r in res:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
@@ -649,6 +682,8 @@ def shared_multi_team(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+    # Return only non-child files
+    parents = {r["name"] for r in res}
     return [r for r in res if r["parent_entity"] not in parents]
 
 
