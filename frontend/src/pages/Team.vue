@@ -26,6 +26,7 @@
 import GenericPage from "@/components/GenericPage.vue"
 import { getHome, getTeams } from "@/resources/files"
 import { allUsers } from "@/resources/permissions"
+import { createResource } from "frappe-ui"
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
@@ -36,6 +37,14 @@ const route = useRoute()
 
 store.commit("setCurrentFolder", { name: "" })
 
+const getTeamMembers = createResource({
+  url: "drive.api.product.get_all_users",
+  params: {
+    team: route.params.team,
+  },
+  auto: true,
+})
+
 const showTeamMembersList = ref(false)
 
 function checkScreenWidth() {
@@ -43,6 +52,18 @@ function checkScreenWidth() {
     showTeamMembersList.value = false
   } 
 }
+
+watch(
+  () => getTeamMembers.data,
+  (newData) => {
+    if (newData?.length === 1) {
+      showTeamMembersList.value = true
+    } else {
+      showTeamMembersList.value = false
+    }
+  },
+  { immediate: true }
+)
 
 onMounted(() => {
   checkScreenWidth()

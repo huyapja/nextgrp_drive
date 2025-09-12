@@ -17,25 +17,48 @@
         @row-click="onRowClick"
       >
         <!-- Selection Column -->
-        <Column selectionMode="multiple" headerStyle="width: 4rem; text-align: center;" bodyStyle="width: 4rem; text-align: center;"></Column>
-        
+        <Column
+          selectionMode="multiple"
+          headerStyle="width: 4rem; text-align: center;"
+          bodyStyle="width: 4rem; text-align: center;"
+        ></Column>
+
         <!-- Name Column -->
-        <Column field="title" :header="__('Tên')" sortable>
+        <Column
+          field="title"
+          :header="__('Tên')"
+          sortable
+        >
           <template #body="slotProps">
             <div class="name-cell">
-              <img 
-        :src="getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[0] || getThumbnailUrl(slotProps.data.name, slotProps.data.file_type)[1]"
-        class="file-icon"
-        :alt="slotProps.data.title"
-        @error="onThumbnailError($event, slotProps.data)"
-      />
-              <span class="file-name">{{ getDisplayName(slotProps.data) }}</span>
+              <img
+                :src="
+                  getThumbnailUrl(
+                    slotProps.data.name,
+                    slotProps.data.file_type
+                  )[0] ||
+                  getThumbnailUrl(
+                    slotProps.data.name,
+                    slotProps.data.file_type
+                  )[1]
+                "
+                class="file-icon"
+                :alt="slotProps.data.title"
+                @error="onThumbnailError($event, slotProps.data)"
+              />
+              <span class="file-name">{{
+                getDisplayName(slotProps.data)
+              }}</span>
             </div>
           </template>
         </Column>
-        
+
         <!-- Owner Column -->
-        <Column field="owner" :header="__('Chủ sở hữu')" sortable>
+        <Column
+          field="owner"
+          :header="__('Chủ sở hữu')"
+          sortable
+        >
           <template #body="slotProps">
             <div class="owner-cell">
               <Avatar
@@ -44,16 +67,45 @@
                 shape="circle"
                 size="small"
               />
-              <span class="owner-name">{{ getOwnerLabel(slotProps.data) }}</span>
+              <span class="owner-name">{{
+                getOwnerLabel(slotProps.data)
+              }}</span>
             </div>
           </template>
         </Column>
-        
+        <!-- Team Column -->
+        <Column
+          v-if="['Recents', 'Favourites', 'Trash', 'Shared'].includes($route.name)"
+          field="team_name"
+          :header="__('Nhóm')"
+          sortable
+        >
+          <template #body="slotProps">
+            <div class="owner-cell">
+              <span class="owner-name">{{ slotProps.data.team_name }}</span>
+            </div>
+          </template>
+        </Column>
+        <!-- Days Remaining Column -->
+        <Column
+          v-if="$route.name === 'Trash'"
+          field="days_remaining"
+          :header="__('Ngày còn lại')"
+          sortable
+        >
+          <template #body="slotProps">
+            <span>{{ slotProps.data.days_remaining }}</span>
+          </template>
+        </Column>
         <!-- Shared Column -->
-        <Column field="share_count" :header="__('Chia sẻ')" sortable>
+        <Column
+          field="share_count"
+          :header="__('Chia sẻ')"
+          sortable
+        >
           <template #body="slotProps">
             <div class="shared-cell">
-              <i 
+              <i
                 :class="getShareIcon(slotProps.data.share_count)"
                 class="share-icon"
               ></i>
@@ -61,27 +113,35 @@
             </div>
           </template>
         </Column>
-        
+
         <!-- Last Modified Column -->
-        <Column field="modified" :header="__('Sửa đổi lần cuối')" sortable>
+        <Column
+          field="modified"
+          :header="__('Sửa đổi lần cuối')"
+          sortable
+        >
           <template #body="slotProps">
             <span>{{ useTimeAgoVi(slotProps.data.modified) }}</span>
           </template>
         </Column>
-        
+
         <!-- Size Column -->
-        <Column field="file_size_pretty" :header="__('Kích thước')" sortable>
+        <Column
+          field="file_size_pretty"
+          :header="__('Kích thước')"
+          sortable
+        >
           <template #body="slotProps">
             <span>{{ getSizeText(slotProps.data) }}</span>
           </template>
         </Column>
-        
+
         <!-- Options Column -->
         <Column bodyStyle="width: 2rem; text-align: center;">
           <template #body="slotProps">
-            <Button 
-              icon="pi pi-ellipsis-v" 
-              text 
+            <Button
+              icon="pi pi-ellipsis-v"
+              text
               severity="secondary"
               class="options-btn"
               @click="onRowOptions($event, slotProps.data)"
@@ -104,10 +164,10 @@
 </template>
 
 <script setup>
-import DataTable from 'primevue/datatable'
-import Column from 'primevue/column'
-import Button from 'primevue/button'
-import Avatar from 'primevue/avatar'
+import DataTable from "primevue/datatable"
+import Column from "primevue/column"
+import Button from "primevue/button"
+import Avatar from "primevue/avatar"
 import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { useStore } from "vuex"
 import { useRoute, useRouter } from "vue-router"
@@ -140,11 +200,11 @@ const handleResize = () => {
 }
 
 onMounted(() => {
-  window.addEventListener('resize', handleResize)
+  window.addEventListener("resize", handleResize)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', handleResize)
+  window.removeEventListener("resize", handleResize)
 })
 
 function onThumbnailError(event, row) {
@@ -155,14 +215,15 @@ function onThumbnailError(event, row) {
 const formattedRows = computed(() => {
   if (!props.folderContents) return []
   if (Array.isArray(props.folderContents)) {
+    console.log("Folder contents is an array:", props.folderContents)
     return props.folderContents
   }
-  
-  // Handle grouped data
-  return Object.keys(props.folderContents)
-    .flatMap((k) => props.folderContents[k] || [])
-})
 
+  // Handle grouped data
+  return Object.keys(props.folderContents).flatMap(
+    (k) => props.folderContents[k] || []
+  )
+})
 
 // Data display methods
 const getDisplayName = (row) => {
@@ -179,10 +240,10 @@ const getOwnerLabel = (row) => {
 }
 
 const getShareIcon = (shareCount) => {
-  if (shareCount === -2) return 'pi pi-globe'
-  else if (shareCount === -1) return 'pi pi-building'
-  else if (shareCount > 0) return 'pi pi-users'
-  return ''
+  if (shareCount === -2) return "pi pi-globe"
+  else if (shareCount === -1) return "pi pi-building"
+  else if (shareCount > 0) return "pi pi-users"
+  return ""
 }
 
 const getShareText = (shareCount) => {
@@ -216,7 +277,7 @@ const onRowContextMenu = (event, row) => {
 const onRowClick = (event) => {
   const row = event?.data
   console.log("Row clicked:", row)
-  if (row && typeof row === 'object' && row.name !== undefined) {
+  if (row && typeof row === "object" && row.name !== undefined) {
     // Truyền đúng tham số team nếu có
     const team = row.team || (route.params && route.params.team) || null
     openEntity(team, row)
@@ -231,7 +292,7 @@ const onRowOptions = (event, row) => {
 
 // Watch for selection changes
 watch(selectedRows, (newSelections) => {
-  const selectionSet = new Set(newSelections.map(row => row.name))
+  const selectionSet = new Set(newSelections.map((row) => row.name))
   selections.value = selectionSet
   if (newSelections.length === 0) {
     selectedRow.value = null
@@ -303,10 +364,9 @@ onKeyDown("Escape", (e) => {
 })
 </script>
 <style scoped>
-:deep(.p-datatable-header-cell:first-child  > div){
+:deep(.p-datatable-header-cell:first-child > div) {
   @apply justify-center;
 }
-
 
 .file-manager-container {
   @apply flex flex-col h-full bg-white;
@@ -363,10 +423,9 @@ onKeyDown("Escape", (e) => {
 }
 
 /* PrimeVue DataTable Customization */
-:deep(.p-checkbox-input){
+:deep(.p-checkbox-input) {
   @apply min-w-[20px] max-w-[20px] min-h-[20px] max-h-[20px] rounded-[4px];
 }
-
 
 :deep(.p-datatable) {
   @apply border-0;

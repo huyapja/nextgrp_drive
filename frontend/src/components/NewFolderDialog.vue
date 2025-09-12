@@ -51,7 +51,7 @@ const props = defineProps({
   parent: String,
 })
 const emit = defineEmits(["update:modelValue", "success", "mutate"])
-const folderName = ref("")
+const folderName = ref("Thư mục mới")
 const text = useTemplateRef("my-input")
 watch(text, (val) => {
   val.el.focus()

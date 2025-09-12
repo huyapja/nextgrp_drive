@@ -228,14 +228,16 @@ def get_thumbnail(entity_name):
                         thumbnail_data = None
                 elif drive_file.mime_type == "frappe_doc":
                     try:
-                        html = frappe.get_value("Drive Document", drive_file.document, "raw_content")
+                        html = frappe.get_value(
+                            "Drive Document", drive_file.document, "raw_content"
+                        )
                         thumbnail_data = html[:1000] if html else None
                     except Exception:
                         thumbnail_data = None
                 else:
                     # For other file types, return None to use icon instead
                     thumbnail_data = None
-                    
+
                 if thumbnail_data:
                     frappe.cache().set_value(entity_name, thumbnail_data, expires_in_sec=60 * 60)
 
@@ -251,7 +253,9 @@ def get_thumbnail(entity_name):
         return thumbnail_data
     else:
         # Return 404 when no thumbnail is available
-        frappe.throw("No thumbnail available for this file type.", frappe.exceptions.PageDoesNotExistError)
+        frappe.throw(
+            "No thumbnail available for this file type.", frappe.exceptions.PageDoesNotExistError
+        )
 
 
 @frappe.whitelist()
