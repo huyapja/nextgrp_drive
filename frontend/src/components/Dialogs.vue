@@ -38,6 +38,13 @@
     @success="getEntities.fetch(getEntities.params)"
   />
 
+  <MoveOwnerDialog
+    v-if="dialog === 'move_owner'"
+    v-model="dialog"
+    :entity="selections[0]"
+    @success="getEntities.fetch(getEntities.params)"
+  />
+
   <!-- Deletion dialogs -->
   <GeneralDialog
     v-if="dialog === 'remove'"
@@ -88,6 +95,7 @@ import { useRoute } from "vue-router"
 import { sortEntities } from "@/utils/files"
 import { useTimeAgo } from "@vueuse/core"
 import { openEntity } from "../utils/files"
+import MoveOwnerDialog from "@/components/MoveOwnerDialog.vue"
 
 const dialog = defineModel(String)
 const store = useStore()
@@ -114,6 +122,7 @@ emitter.on("rename", () => (dialog.value = "rn"))
 emitter.on("remove", () => (dialog.value = "remove"))
 emitter.on("move", () => (dialog.value = "m"))
 emitter.on("newLink", () => (dialog.value = "l"))
+emitter.on("move_owner", () => (dialog.value = "move_owner"))
 
 const setTitle = (title) =>
   (document.title = (route.name === "Folder" ? "Folder - " : "") + title)
@@ -141,7 +150,7 @@ function addToList(data, file_type) {
 
 function removeFromList(entities, move = true) {
   // Hack (that breaks for some reason)
-  if (!props.getEntities.data && props.rootResource) {
+  if (!props.getEntities?.data && props.rootResource) {
     if (move) {
       store.state.breadcrumbs.splice(1)
       store.state.breadcrumbs.push({ loading: true })

@@ -12,6 +12,7 @@ from io import BytesIO
 import mimemapper
 import jwt
 import boto3
+import requests
 
 from drive.utils.files import (
     get_home_folder,
@@ -73,17 +74,36 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
     total_chunks = int(frappe.form_dict.total_chunk_count)
 
     temp_path = get_upload_path(home_folder["name"], f"{upload_session}_{secure_filename(title)}")
-    with temp_path.open("ab") as f:
+    # with temp_path.open("ab") as f:
+    #     f.seek(int(frappe.form_dict.chunk_byte_offset))
+    #     f.write(file.stream.read())
+    #     if (
+    #         not f.tell() >= int(frappe.form_dict.total_file_size)
+    #         or current_chunk != total_chunks - 1
+    #     ):
+    #         return
+
+    # Thay thế đoạn code hiện tại
+    if not temp_path.exists():
+        # Tạo file rỗng với size dự kiến
+        with temp_path.open("wb") as f:
+            f.seek(int(frappe.form_dict.total_file_size) - 1)
+            f.write(b"\0")
+
+    with temp_path.open("r+b") as f:
         f.seek(int(frappe.form_dict.chunk_byte_offset))
-        f.write(file.stream.read())
-        if (
-            not f.tell() >= int(frappe.form_dict.total_file_size)
-            or current_chunk != total_chunks - 1
-        ):
+        chunk_data = file.stream.read()
+        f.write(chunk_data)
+
+        if current_chunk != total_chunks - 1:
             return
 
     # Validate that file size is matching
     file_size = temp_path.stat().st_size
+    # Trong hàm upload_file, trước dòng validation:
+    print(f"Expected size: {frappe.form_dict.total_file_size}")
+    print(f"Actual size on disk: {file_size}")
+    print(f"Temp path: {temp_path}")
     if file_size != int(frappe.form_dict.total_file_size):
         temp_path.unlink()
         frappe.throw("Size on disk does not match specified filesize.", ValueError)
@@ -305,7 +325,7 @@ def get_upload_path(team_name, file_name):
     uploads_path = Path(frappe.get_site_path("private/files"), team_name, "uploads")
     if not os.path.exists(uploads_path):
         uploads_path = Path(frappe.get_site_path("private/files"), team_name, "uploads")
-        uploads_path.mkdir()
+        uploads_path.mkdir(parents=True, exist_ok=True)
     return uploads_path / file_name
 
 
@@ -1173,3 +1193,26 @@ def get_file_signed_url(docname: str):
         "signed_url": signed_url,
         "title": doc.title,
     }
+
+
+@frappe.whitelist(allow_guest=True)  # cho phép Office/Google viewer gọi
+def proxy_file(docname: str):
+    """Proxy file từ S3 về cho client xem trực tiếp."""
+
+    doc = frappe.get_doc("Drive File", docname)
+    mime_type = doc.mime_type or "application/octet-stream"
+
+    # Lấy signed url nội bộ
+    signed_url = get_s3_signed_url(doc.path, mime_type)
+
+    # Gọi signed URL để lấy file từ S3
+    res = requests.get(signed_url, stream=True)
+
+    if res.status_code != 200:
+        frappe.throw(_("Không thể tải file từ S3 (status {0})").format(res.status_code))
+
+    # Trả file về cho client
+    frappe.local.response.filename = doc.title
+    frappe.local.response.type = "binary"
+    frappe.local.response.mime_type = mime_type
+    frappe.local.response.stream = res.raw  # stream thẳng dữ liệu

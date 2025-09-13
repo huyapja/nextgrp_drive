@@ -122,6 +122,7 @@ import LucideExternalLink from "~icons/lucide/external-link"
 import LucideInfo from "~icons/lucide/info"
 import LucideRotateCcw from "~icons/lucide/rotate-ccw"
 import LucideStar from "~icons/lucide/star"
+import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 
 const props = defineProps({
   grouper: { type: Function, default: (d) => d },
@@ -200,6 +201,8 @@ const onDrop = (targetFile, draggedItem) => {
   props.getEntities.setData(data)
 }
 
+const currentUserEmail = computed(() => store.state.user.id)
+
 // Action Items
 const actionItems = computed(() => {
   if (route.name === "Trash") {
@@ -240,6 +243,13 @@ const actionItems = computed(() => {
         icon: ShareIconBlack,
         action: () => (dialog.value = "s"),
         isEnabled: (e) => e.share,
+        important: true,
+      },
+      {
+        label: "Chuyển quyền sở hữu tài liệu",
+        icon: MoveOwnerIcon,
+        action: () => (dialog.value = "move_owner"),
+        isEnabled: (e) => currentUserEmail.value === e?.owner,
         important: true,
       },
       {

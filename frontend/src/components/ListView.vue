@@ -61,9 +61,9 @@
         >
           <template #body="slotProps">
             <div class="owner-cell">
-              <Avatar
+              <CustomAvatar
                 :image="userData[slotProps.data.owner]?.user_image"
-                icon="pi pi-user"
+                :label="userData[slotProps.data.owner]?.full_name"
                 shape="circle"
                 size="small"
               />
@@ -178,6 +178,7 @@ import { formatDate } from "@/utils/format"
 import { onKeyDown } from "@vueuse/core"
 import emitter from "@/emitter"
 import { useTimeAgoVi } from "@/utils/useTimeAgoVi"
+import CustomAvatar from "./CustomAvatar.vue"
 
 const store = useStore()
 const route = useRoute()

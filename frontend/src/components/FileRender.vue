@@ -16,12 +16,12 @@
       Tải xuống
     </Button>
   </div> -->
-  <template>
+  <!-- <template> -->
     <component
       :is="previewComponent"
       :preview-entity="previewEntity"
     />
-  </template>
+  <!-- </template> -->
 </template>
 <script setup>
 import AudioPreview from "@/components/FileTypePreview/AudioPreview.vue"
