@@ -1,560 +1,797 @@
 <template>
   <Dialog
     v-model="openDialog"
-    :options="{ size: 'lg', dialogClass: 'fixed-height-dialog' }"
+    :options="{ size: 'lg' }"
   >
     <template #body-main>
-      <div class="p-4 sm:px-6 h-full overflow-y-auto">
-        <div class="flex w-full justify-between gap-x-2 mb-4">
-          <div class="font-semibold text-2xl flex text-nowrap overflow-hidden">
-            {{ __('Sharing') }} "
-            <div class="truncate max-w-[80%]">
-              {{ entity?.title }}
-            </div>
-            "
+      <div class="space-y-4 p-4">
+        <div class="">
+          <div class="text-lg font-medium text-gray-900">
+            Chia sẻ "{{ entity?.title || entity?.name }}"
           </div>
-          <Button
-            class="ml-auto shrink-0"
-            variant="ghost"
-            @click="$emit('update:modelValue', false)"
+          <div
+            @click="closeDialog"
+            class="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
           >
-            <template #icon>
-              <LucideX class="size-4" />
-            </template>
-          </Button>
-        </div>
-        <div class="mb-4 border-b pb-4">
-          <div class="mb-2 text-ink-gray-5 font-medium text-base">
-            {{ __('General Access') }}
-          </div>
-          <div class="flex justify-between mt-3">
-            <div class="flex flex-col gap-2">
-              <div class="w-fit">
-                <Autocomplete
-                  v-model="generalAccessLevel"
-                  :options="generalOptions"
-                  :hide-search="true"
-                  @update:model-value="
-                    (val) => updateGeneralAccess(val, generalAccessLevel)
-                  "
-                >
-                  <template #prefix>
-                    <component
-                      :is="generalAccessLevel.icon"
-                      class="mr-2 size-4 text-ink-gray-6"
-                    />
-                  </template>
-                  <template #item-prefix="{ option }">
-                    <component
-                      :is="option.icon"
-                      class="size-4 text-ink-gray-6"
-                    />
-                  </template>
-                </Autocomplete>
-              </div>
-            </div>
-            <div class="my-auto">
-              <Autocomplete
-                v-if="generalAccessLevel.value !== 'restricted'"
-                v-model="generalAccessType"
-                class="my-auto"
-                :options="accessOptions"
-                :hide-search="true"
-                @update:model-value="
-                  (val) => updateGeneralAccess(generalAccessType, val)
-                "
-              />
-            </div>
+            <svg
+              class="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M6 18L18 6M6 6l12 12"
+              ></path>
+            </svg>
           </div>
         </div>
-        <!-- Members section -->
-        <div class="text-ink-gray-5 font-medium text-base mb-2">{{ __('Members') }}</div>
-        <div class="flex gap-3">
-          <div class="flex-grow">
-            <div ref="dropdownContainer" class="relative">
+        <!-- Add People Section -->
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-2">
+            Thêm người
+          </label>
 
+          <!-- Combined input with tags and dropdown -->
+          <div class="flex gap-2">
+            <!-- Search Input with selected users as tags -->
+            <div
+              class="flex-1 relative"
+              ref="dropdownContainer"
+            >
               <div
-                class="flex flex-col items-start justify-start rounded-md bg-surface-gray-2"
+                :class="[
+                  'w-full px-3 border border-gray-300 rounded-md focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white',
+                  sharedUsers.length === 0 ? 'h-[40px]' : 'min-h-[40px]',
+                ]"
               >
-                <div class="flex flex-wrap justify-between p-1 w-full">
-                  <div class="w-[75%] flex flex-wrap">
-                    <Button
-                      v-for="(user, idx) in sharedUsers"
-                      :key="user.name"
-                      :label="user.email"
-                      variant="outline"
-                      class="shadow-sm m-0.5 p-1"
-                    >
-                      <template #prefix>
-                        <Avatar
-                          size="sm"
-                          :image="user.image"
-                          :label="user.email"
-                        />
-                      </template>
-                      <template #suffix>
-                        <LucideX
-                          class="h-4"
-                          stroke-width="1.5"
-                          @click.stop="() => sharedUsers.splice(idx, 1)"
-                        />
-                      </template>
-                    </Button>
-                    <input
-                      ref="queryInput"
-                      v-focus
-                      v-model="query"
-                      :placeholder="__('Add people...')"
-                      class="text-base px-1.5 p-1 flex-shrink min-w-24 grow basis-0 border-none bg-transparent 1 text-base text-ink-gray-8 placeholder-ink-gray-4 focus:ring-0 cursor-text outline-none"
-                      autocomplete="off"
-                      @focus="handleInputFocus"
-                      @input="handleInputChange"
-                      @click="handleInputFocus"
+                <div class="flex flex-wrap items-center gap-1 min-h-[40px]">
+                  <!-- Selected user tags - Show max 3 -->
+                  <div
+                    v-for="(user, idx) in displayedSharedUsers"
+                    :key="user.name"
+                    class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-md text-sm"
+                  >
+                    <CustomAvatar
+                      :image="user.user_image"
+                      :label="(user.full_name || user.email).slice(0, 1).toUpperCase()"
+                      size="small"
+                      shape="circle"
+                      class="!w-5 !h-5 bg-blue-500 text-white"
                     />
+                    <span>{{ user.full_name || user.email }}</span>
+                    <button
+                      class="text-gray-400 hover:text-gray-600 ml-1"
+                      @click="removeSharedUser(idx)"
+                    >
+                      <svg
+                        class="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"
+                        ></path>
+                      </svg>
+                    </button>
                   </div>
-                  <div class="w-[25%] mt-auto" />
+
+                  <!-- Show additional users count if more than 3 -->
+                  <div
+                    v-if="additionalUsersCount > 0"
+                    class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 rounded-md text-sm text-blue-800 font-medium"
+                  >
+                    <span>+{{ additionalUsersCount }} khác</span>
+                    <button
+                      class="text-blue-600 hover:text-blue-800 ml-1"
+                      @click="showAllSharedUsers = !showAllSharedUsers"
+                      :title="showAllSharedUsers ? 'Thu gọn' : 'Xem tất cả'"
+                    >
+                      <svg
+                        class="w-3 h-3 transition-transform"
+                        :class="{ 'rotate-180': showAllSharedUsers }"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M19 9l-7 7-7-7"
+                        />
+                      </svg>
+                    </button>
+                  </div>
+
+                  <!-- Input field -->
+                  <input
+                    v-model="query"
+                    type="text"
+                    placeholder="Nhập email hoặc tên..."
+                    class="flex-1 min-w-[120px] outline-none border-none bg-transparent text-sm outline-none focus:ring-0 !p-0"
+                    @focus="handleInputFocus"
+                    @input="handleInputChange"
+                    @blur="handleInputBlur"
+                  />
                 </div>
               </div>
-              <transition
-                enter-active-class="transition duration-100 ease-out"
-                enter-from-class="transform scale-95 opacity-0"
-                enter-to-class="transform scale-100 opacity-100"
-                leave-active-class="transition duration-75 ease-out"
-                leave-from-class="transform scale-100 opacity-100"
-                leave-to-class="transform scale-95 opacity-0"
+
+              <!-- Show all selected users when expanded -->
+              <div
+                v-if="showAllSharedUsers && sharedUsers.length > 3"
+                class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto p-2"
+              >
+                <div class="text-xs font-medium text-gray-500 mb-2 px-1">
+                  Tất cả người được chọn ({{ sharedUsers.length }})
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <div
+                    v-for="(user, idx) in sharedUsers"
+                    :key="user.name"
+                    class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-md text-sm"
+                  >
+                    <CustomAvatar
+                      :image="user.user_image"
+                      :label="(user.full_name || user.email).slice(0, 1).toUpperCase()"
+                      size="small"
+                      shape="circle"
+                      class="!w-4 !h-4 bg-blue-500 text-white"
+                    />
+                    <span class="text-xs">{{ user.full_name || user.email }}</span>
+                    <button
+                      class="text-gray-400 hover:text-gray-600 ml-1"
+                      @click="removeSharedUser(idx)"
+                    >
+                      <svg
+                        class="w-3 h-3"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          stroke-linecap="round"
+                          stroke-linejoin="round"
+                          stroke-width="2"
+                          d="M6 18L18 6M6 6l12 12"
+                        ></path>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Dropdown suggestions -->
+              <div
+                v-if="
+                  isDropdownOpen && (filteredUsers.length > 0 || showAllUsers) && !showAllSharedUsers
+                "
+                class="absolute z-[10000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto !p-0"
               >
                 <div
-                  v-if="isDropdownOpen"
-                  class="absolute z-[9999] rounded-lg bg-surface-modal text-base shadow-2xl max-w-[330px]"
+                  v-if="filteredUsers.length === 0 && showAllUsers"
+                  class="p-3 text-sm text-gray-500"
                 >
-                <div class="overflow-hidden h-[10rem] rounded-lg">
-
-                  <div class="max-h-[10rem] overflow-y-auto px-1.5 py-1.5">
-                    <div v-if="allSiteUsers.loading" class="px-2.5 py-1.5 text-ink-gray-5 text-sm cursor-not-allowed">
-                      {{ __('Loading users...') }}
+                  Nhập để tìm kiếm người dùng...
+                </div>
+                <div
+                  v-for="person in filteredUsers"
+                  :key="person.email"
+                  class="flex items-center p-3 hover:bg-gray-50 cursor-pointer"
+                  @click="selectUser(person)"
+                >
+                  <CustomAvatar
+                    :image="person.user_image"
+                    :label="(person.full_name || person.email).slice(0, 1).toUpperCase()"
+                    size="normal"
+                    shape="circle"
+                    class="mr-3 !w-6 !h-6 bg-blue-500 text-white"
+                  />
+                  <div class="flex-1 min-w-0">
+                    <div class="text-sm font-medium text-gray-900 truncate">
+                      {{ person.full_name || person.email }}
                     </div>
-                    <div v-else-if="!filteredUsers.length" class="px-2.5 py-1.5 text-ink-gray-5 text-sm cursor-not-allowed">
-                      {{ query.length ? __('No users found') : __('No users available') }}
-                    </div>
-                    <div
-                      v-for="person in filteredUsers"
-                      :key="person.email"
-                      class="flex flex-1 gap-2 overflow-hidden items-center rounded px-2.5 py-1.5 text-base text-ink-gray-7 hover:bg-surface-gray-3"
-                      :class="{
-                        'cursor-pointer': !person.disabled,
-                        'opacity-50 cursor-not-allowed': person.disabled,
-                      }"
-                      @click="selectUser(person)"
-                    >
-                      <Avatar
-                        size="sm"
-                        :label="person.full_name || person.email"
-                        :image="person.user_image"
-                        class="mr-2"
-                      />
-                      <span class="block truncate">
-                        {{ person.email }}
-                        <span v-if="person.full_name"
-                          >({{ person.full_name }})</span
-                        >
-                      </span>
-                    </div>
+                    
                   </div>
                 </div>
+              </div>
+            </div>
+
+            <!-- Custom Permission Dropdown -->
+            <div class="relative w-40" ref="permissionDropdownContainer">
+              <button
+                @click="togglePermissionDropdown"
+                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm min-h-[40px] bg-white text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
+              >
+                <span class="text-gray-900">{{
+                  shareAccess === "reader" ? "Người xem" : "Người chỉnh sửa"
+                }}</span>
+                <svg
+                  class="w-4 h-4 text-gray-400 transition-transform"
+                  :class="{ 'rotate-180': isPermissionDropdownOpen }"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                >
+                  <path
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    stroke-width="2"
+                    d="M19 9l-7 7-7-7"
+                  />
+                </svg>
+              </button>
+
+              <!-- Permission Dropdown -->
+              <div
+                v-if="isPermissionDropdownOpen"
+                class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden"
+              >
+                <div
+                  @click="selectPermission('reader')"
+                  class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
+                  :class="{
+                    'bg-blue-50 border-l-2 border-l-blue-500':
+                      shareAccess === 'reader',
+                  }"
+                >
+                  <div class="text-sm font-medium text-gray-900">Người xem</div>
                 </div>
-              </transition>
+                <div
+                  @click="selectPermission('editor')"
+                  class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
+                  :class="{
+                    'bg-blue-50 border-l-2 border-l-blue-500':
+                      shareAccess === 'editor',
+                  }"
+                >
+                  <div class="text-sm font-medium text-gray-900">
+                    Người chỉnh sửa
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
-          <Autocomplete
-            v-model="shareAccess"
-            class=""
-            :placeholder="__('Access')"
-            :hide-search="true"
-            :options="
-              advancedTweak
-                ? filteredAccess.map((k) => ({
-                    value: k,
-                    label: k[0].toUpperCase() + k.slice(1),
-                  }))
-                : accessOptions
-            "
-          />
         </div>
 
-        <div
-          v-if="getUsersWithAccess.data"
-          class="mb-3"
-        >
-          <div
-            v-if="!getUsersWithAccess.data?.length"
-            class="text-sm w-full my-4"
-          >
-            {{ __('No shares yet.') }}
-          </div>
-          <div
-            v-else
-            class="flex flex-col gap-4 overflow-y-scroll text-base max-h-80 py-4"
-          >
+        <!-- Current Members Section -->
+        <div v-if="getUsersWithAccess.data?.length > 0">
+          <h3 class="text-sm font-medium text-gray-700 mb-3">
+            Những người có quyền truy cập
+          </h3>
+
+          <div class="space-y-0 max-h-60 overflow-y-auto">
             <div
               v-for="(user, idx) in getUsersWithAccess.data"
               :key="user.name"
-              class="flex items-center gap-x-3 pr-1"
+              class="flex items-center justify-between p-0 py-2 hover:bg-gray-50 rounded-md"
             >
-              <Avatar
-                size="xl"
-                :label="user.user || user.email"
-                :image="user.user_image"
-              />
-
-              <div class="flex items-start flex-col gap-1">
-                <span class="font-medium text-base text-ink-gray-9">{{
-                  user.full_name || user.user || user.email
-                }}</span>
-                <span class="text-ink-gray-7 text-sm">{{
-                  user.full_name ? user.user || user.email : ""
-                }}</span>
+              <div class="flex items-center">
+                <CustomAvatar
+                  :image="user.user_image"
+                  :label="
+                    (user.full_name || user.user || user.email)
+                      .slice(0, 1)
+                      .toUpperCase()
+                  "
+                  size="normal"
+                  shape="circle"
+                  class="mr-3 !w-6 !h-6 bg-blue-500 text-white"
+                />
+                
+                  <div class="text-sm font-medium text-gray-900">
+                    {{ user.full_name || user.user || user.email }}
+                  </div>
+                
               </div>
-              <span
-                v-if="user.user == $store.state.user.id"
-                class="ml-auto mr-1 text-ink-gray-7"
-              >
+
+              <div class="flex items-center gap-2">
+                <!-- Access Level Display/Selector -->
                 <div
                   v-if="user.user === entity.owner"
-                  class="flex gap-1"
+                  class="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-full"
                 >
-                  {{ __('Owner (you)') }}<LucideDiamond class="size-3 my-auto" />
+                  <svg
+                    class="w-4 h-4 text-gray-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      stroke-width="2"
+                      d="M5.121 17.804A13.937 13.937 0 0112 16c2.5 0 4.847.655 6.879 1.804M15 10a3 3 0 11-6 0 3 3 0 016 0zm6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  <span class="text-sm text-gray-600">Chủ sở hữu</span>
                 </div>
-                <template v-else>{{ __('You') }}</template>
-              </span>
-              <AccessButton
-                v-else-if="user.user !== entity.owner"
-                class="text-ink-gray-7 relative flex-shrink-0 ml-auto"
-                :access-obj="user"
-                :access-levels="filteredAccess"
-                @update-access="
-                  (access) =>
-                    updateAccess.submit({
-                      entity_name: entity.name,
-                      user: user.user,
-                      ...access,
-                    })
-                "
-                @remove-access="
-                  getUsersWithAccess.data.splice(idx, 1),
-                    updateAccess.submit({
-                      method: 'unshare',
-                      entity_name: entity.name,
-                      user: user.user,
-                    })
-                "
-              />
-              <span
-                v-else
-                class="ml-auto flex items-center gap-1 text-ink-gray-5"
-              >
-                {{ __('Owner') }}
-                <LucideDiamond class="size-3" />
-              </span>
+
+                <!-- Custom Access Level Selector -->
+                <div
+                  v-else
+                  class="relative"
+                  ref="userAccessDropdownContainer"
+                >
+                  <button
+                    @click="toggleUserAccessDropdown(user)"
+                    class="flex items-center gap-2 px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 min-w-[120px]"
+                  >
+                    <span>{{
+                      getAccessLevel(user) === "reader"
+                        ? "Có thể xem"
+                        : "Có thể chỉnh sửa"
+                    }}</span>
+                    <svg
+                      class="w-4 h-4 text-gray-400 ml-auto"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                    >
+                      <path
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        stroke-width="2"
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  </button>
+
+                  <!-- User Access Dropdown -->
+                  <div
+                    v-if="activeUserDropdown === user.user"
+                    class="absolute right-0 z-50 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden"
+                  >
+                    <div
+                      @click="updateUserAccess(user, 'reader')"
+                      class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
+                      :class="{
+                        'bg-blue-50 border-l-2 border-l-blue-500':
+                          getAccessLevel(user) === 'reader',
+                      }"
+                    >
+                      <div>
+                        <div class="text-sm font-medium text-gray-900">
+                          Có thể xem
+                        </div>
+                      </div>
+                    </div>
+                    <div
+                      v-if="entity.write"
+                      @click="updateUserAccess(user, 'editor')"
+                      class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
+                      :class="{
+                        'bg-blue-50 border-l-2 border-l-blue-500':
+                          getAccessLevel(user) === 'editor',
+                      }"
+                    >
+                      <div>
+                        <div class="text-sm font-medium text-gray-900">
+                          Có thể chỉnh sửa
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        <div
-          v-else
-          class="flex min-h-[19.2vh] w-full"
-        >
-          <LoadingIndicator class="w-7 h-auto text-ink-gray-7 mx-auto" />
-        </div>
-        <div class="w-full flex items-center justify-end gap-2">
+        <div class="flex justify-between items-center w-full gap-2">
+          <!-- Copy Link Button -->
           <Button
-            class="text-base"
             variant="outline"
             @click="getLink(entity)"
+            class="h-[40px] max-w-[50%] w-full !bg-[#D4E1F9] text-[#2563EB] !hover:bg-[#D4E1F9] !border-[#0149C1]"
           >
-            <template #prefix>
-              <LucideLink2 class="w-4 text-ink-gray-6" />
-            </template>
-            {{ __('Copy Link') }}
+            Sao chép liên kết
           </Button>
+    
+          <!-- Share Button -->
           <Button
-            v-if="sharedUsers.length"
-            :label="__('Invite')"
-            variant="solid"
-            @click="addShares"
-          />
+            :variant="sharedUsers.length > 0 ? 'solid' : 'outline'"
+            @click="sharedUsers.length > 0 ? addShares() : closeDialog()"
+            class="h-[40px] max-w-[50%] w-full !bg-[#0149C1] !text-white !hover:bg-[#01337A] !border-[#01337A]"
+          >
+            {{ updateAccess.loading ? "Đang chia sẻ..." : sharedUsers.length > 0 ? "Chia sẻ" : "Đóng" }}
+          </Button>
         </div>
       </div>
     </template>
   </Dialog>
 </template>
-<script setup>
-import AccessButton from "@/components/ShareDialog/AccessButton.vue"
-import emitter from "@/emitter"
-import { getLink } from "@/utils/getLink"
-import {
-  Autocomplete,
-  Avatar,
-  Dialog,
-  LoadingIndicator,
-  createResource,
-} from "frappe-ui"
-import { computed, markRaw, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue"
 
+<script setup>
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
+import { useStore } from "vuex"
+
+// Frappe UI Components
+import { Button, Dialog } from "frappe-ui"
+
+// Custom components
+import CustomAvatar from "../CustomAvatar.vue"
+
+import emitter from "@/emitter"
 import {
   allSiteUsers,
   getUsersWithAccess,
-  updateAccess
+  updateAccess,
 } from "@/resources/permissions"
+import { getLink } from "@/utils/getLink"
 
-import LucideBuilding2 from "~icons/lucide/building-2"
-import LucideDiamond from "~icons/lucide/diamond"
-import LucideGlobe2 from "~icons/lucide/globe-2"
-import LucideLock from "~icons/lucide/lock"
+const props = defineProps({
+  modelValue: String,
+  entity: Object,
+})
 
-import store from "@/store"
-
-const props = defineProps({ modelValue: String, entity: Object })
 const emit = defineEmits(["update:modelValue", "success"])
-getUsersWithAccess.fetch({ entity: props.entity.name })
+const store = useStore()
 
-// Fetch all site users when component is mounted
-onMounted(() => {
-  allSiteUsers.fetch().catch(error => {
-    console.error("Error fetching all site users:", error)
-  })
-  
-  // Add click outside listener
-  document.addEventListener('mousedown', handleClickOutside)
-  document.addEventListener('click', handleClickOutside)
+// Reactive data
+const query = ref("")
+const sharedUsers = ref([])
+const isDropdownOpen = ref(false)
+const shareAccess = ref("reader")
+const dropdownContainer = ref(null)
+const isPermissionDropdownOpen = ref(false)
+const permissionDropdownContainer = ref(null)
+const activeUserDropdown = ref(null)
+const userAccessDropdownContainer = ref(null)
+const showAllUsers = ref(false)
+const showAllSharedUsers = ref(false)
+
+// Computed
+const openDialog = computed({
+  get: () => props.modelValue === "s",
+  set: (value) => emit("update:modelValue", value ? "s" : ""),
 })
 
-onUnmounted(() => {
-  document.removeEventListener('mousedown', handleClickOutside)
-  document.removeEventListener('click', handleClickOutside)
-})
-
-// Reactive reference for all site users
 const allUsersData = computed(() => allSiteUsers.data || [])
 
-
-
-// Manual dropdown control
-const isDropdownOpen = ref(false)
-
-// Method to handle input focus
-const handleInputFocus = () => {
-  isDropdownOpen.value = true
-}
-
-// Method to handle input change
-const handleInputChange = () => {
-  isDropdownOpen.value = true
-}
-
-// Method to select user
-const selectUser = (person) => {
-  if (person.disabled) return
-  sharedUsers.value.push(person)
-  query.value = ''
-  isDropdownOpen.value = false
-}
-
-// Handle click outside
-const dropdownContainer = ref(null)
-const handleClickOutside = (event) => {
-  if (!isDropdownOpen.value) return // Don't process if already closed
-  
-  if (dropdownContainer.value && !dropdownContainer.value.contains(event.target)) {
-    isDropdownOpen.value = false
-  }
-}
-
-
-
-// Invite users
-const sharedUsers = ref([])
-watch(sharedUsers, (now, prev) => {
-  if (queryInput.value && queryInput.value.el) {
-    queryInput.value.el.value = ""
-  }
-  query.value = ""
-  if (now.length > prev.length) {
-    const addedUser = sharedUsers.value[sharedUsers.value.length - 1]
-    if (!allUsersData.value.some((k) => k.name === addedUser.name))
-      allSiteUsers.data.push(addedUser)
-  }
+// Show only first 3 selected users
+const displayedSharedUsers = computed(() => {
+  return showAllSharedUsers.value ? sharedUsers.value : sharedUsers.value.slice(0, 3)
 })
-const shareAccess = ref({ value: "reader" })
-const advancedTweak = false
-const baseOption = computed(() => ({ email: query.value, name: query.value }))
-const query = ref("")
-const queryInput = useTemplateRef("queryInput")
+
+// Count of additional users beyond the first 3
+const additionalUsersCount = computed(() => {
+  return Math.max(0, sharedUsers.value.length - 3)
+})
+
 const filteredUsers = computed(() => {
   const allUsers = allUsersData.value || []
   if (!allUsers.length) return []
-  
+
   const currentUserId = store.state.user.id
-  const availableUsers = allUsers.filter(k => k.name !== currentUserId)
-  
+  const selectedUserIds = sharedUsers.value.map(u => u.name)
+  const existingUserIds = (getUsersWithAccess.data || []).map(u => u.user)
+
+  // Filter out current user, selected users, and users with existing access
+  const availableUsers = allUsers.filter((k) => {
+    return k.name !== currentUserId && 
+           !selectedUserIds.includes(k.name) && 
+           !existingUserIds.includes(k.name)
+  })
+
   if (!query.value.trim()) {
-    // Show all users when no query
-    return availableUsers.map((k) => {
-      const existingAccess = getUsersWithAccess.data?.find(({ user }) => user === k.name)
-      return {
-        ...k,
-        disabled: !!existingAccess
-      }
-    })
+    return showAllUsers.value ? availableUsers.slice(0, 8) : []
   }
-  
-  // Filter users when there's a query
+
   const regex = new RegExp(query.value.trim(), "i")
   return availableUsers
     .filter((k) => {
-      const email = k.email || ''
-      const fullName = k.full_name || ''
+      const email = k.email || ""
+      const fullName = k.full_name || ""
       return regex.test(email) || regex.test(fullName)
     })
-    .map((k) => {
-      const existingAccess = getUsersWithAccess.data?.find(({ user }) => user === k.name)
-      return {
-        ...k,
-        disabled: !!existingAccess
-      }
-    })
+    .slice(0, 8)
 })
 
-const accessOptions = computed(() => {
-  return props.entity.write
-    ? [
-        { value: "reader", label: __("Can view") },
-        { value: "editor", label: __("Can edit") },
-      ]
-    : [{ value: "reader", label: __("Can view") }]
-})
-function addShares() {
-  // Used to enable future advanced config
+// Methods
+const handleInputFocus = () => {
+  isDropdownOpen.value = true
+  showAllUsers.value = true
+  showAllSharedUsers.value = false
+}
+
+const handleInputBlur = () => {
+  // Delay to allow click events to fire
+  setTimeout(() => {
+    isDropdownOpen.value = false
+    showAllUsers.value = false
+  }, 150)
+}
+
+const handleInputChange = () => {
+  isDropdownOpen.value = true
+  showAllSharedUsers.value = false
+}
+
+const selectUser = (person) => {
+  sharedUsers.value.push({
+    ...person,
+    accessLevel: shareAccess.value,
+  })
+  query.value = ""
+  isDropdownOpen.value = false
+  showAllUsers.value = false
+  showAllSharedUsers.value = false
+}
+
+const removeSharedUser = (index) => {
+  // If we're showing all users and removing from the expanded view
+  if (showAllSharedUsers.value) {
+    sharedUsers.value.splice(index, 1)
+  } else {
+    // If we're in the normal view, remove from the actual array
+    sharedUsers.value.splice(index, 1)
+  }
+  
+  // Close expanded view if no users left or less than 4 users
+  if (sharedUsers.value.length <= 3) {
+    showAllSharedUsers.value = false
+  }
+}
+
+const togglePermissionDropdown = () => {
+  isPermissionDropdownOpen.value = !isPermissionDropdownOpen.value
+  activeUserDropdown.value = null
+  showAllSharedUsers.value = false
+}
+
+const selectPermission = (permission) => {
+  shareAccess.value = permission
+  isPermissionDropdownOpen.value = false
+}
+
+const toggleUserAccessDropdown = (user) => {
+  activeUserDropdown.value =
+    activeUserDropdown.value === user.user ? null : user.user
+  isPermissionDropdownOpen.value = false
+  showAllSharedUsers.value = false
+}
+
+const addShares = async () => {
   try {
-    const access =
-      shareAccess.value.value === "editor"
-        ? { read: 1, comment: 1, share: 1, write: 1 }
-        : { read: 1, comment: 1, share: 1, write: 0 }
     for (let user of sharedUsers.value) {
-      let r = {
+      const access =
+        shareAccess.value === "editor"
+          ? { read: 1, comment: 1, share: 1, write: 1 }
+          : { read: 1, comment: 1, share: 1, write: 0 }
+
+      const payload = {
         entity_name: props.entity.name,
         user: user.name,
-        valid_until: invalidAfter.value,
         ...access,
       }
-      updateAccess.submit(r)
-      getUsersWithAccess.data.push({ ...user, ...access })
+
+      await updateAccess.submit(payload)
     }
+
     sharedUsers.value = []
+    showAllSharedUsers.value = false
     emitter.emit("refreshUserList")
     emit("success")
+
+    // Refresh the users list
+    setTimeout(() => {
+      getUsersWithAccess.fetch({ entity: props.entity.name })
+    }, 500)
   } catch (e) {
-    console.error("Error in advanced share config:", e)
+    console.error("Error sharing:", e)
   }
 }
-const invalidAfter = ref()
 
-// General access
-const generalOptions = [
-  {
-    label: __("Accessible to invited members"),
-    value: "restricted",
-    icon: markRaw(LucideLock),
-  },
-  {
-    label: __("Accessible to team only"),
-    value: "team",
-    icon: markRaw(LucideBuilding2),
-  },
-  { label: __("Accessible to all"), value: "public", icon: markRaw(LucideGlobe2) },
-]
-const generalAccessLevel = ref(generalOptions[0])
-const generalAccessType = ref() // Sẽ được set từ accessOptions
+const updateUserAccess = async (user, newAccessLevel) => {
+  try {
+    const access =
+      newAccessLevel === "editor"
+        ? { read: 1, comment: 1, share: 1, write: 1 }
+        : { read: 1, comment: 1, share: 1, write: 0 }
 
-// Khởi tạo generalAccessType với giá trị mặc định
-watch(accessOptions, (newOptions) => {
-  if (!generalAccessType.value && newOptions.length > 0) {
-    generalAccessType.value = newOptions[0] // "Can view"
+    await updateAccess.submit({
+      entity_name: props.entity.name,
+      user: user.user,
+      ...access,
+    })
+
+    // Update local data
+    Object.assign(user, access)
+    emitter.emit("refreshUserList")
+    emit("success")
+    activeUserDropdown.value = null
+  } catch (e) {
+    console.error("Error updating access:", e)
   }
-}, { immediate: true })
+}
 
-const getGeneralAccess = createResource({
-  url: "drive.api.permissions.get_user_access",
-  makeParams: (params) => ({ ...params, entity: props.entity.name }),
-  onSuccess: (data) => {
-    if (!data || !data.read) {
-      if (getGeneralAccess.params.user === "")
-        getGeneralAccess.fetch({ user: "$TEAM" })
-      return
+const getAccessLevel = (user) => {
+  return user.write ? "editor" : "reader"
+}
+
+const closeDialog = () => {
+  emit("update:modelValue", "")
+}
+
+// Handle click outside - Updated to handle all dropdowns
+const handleClickOutside = (event) => {
+  // Handle search input dropdown
+  if (
+    dropdownContainer.value &&
+    !dropdownContainer.value.contains(event.target)
+  ) {
+    isDropdownOpen.value = false
+    showAllUsers.value = false
+    showAllSharedUsers.value = false
+  }
+
+  // Handle permission dropdown
+  if (
+    permissionDropdownContainer.value &&
+    !permissionDropdownContainer.value.contains(event.target)
+  ) {
+    isPermissionDropdownOpen.value = false
+  }
+
+  // Handle user access dropdowns
+  const userAccessContainers = document.querySelectorAll('[ref="userAccessDropdownContainer"]')
+  let clickedOnUserDropdown = false
+  
+  userAccessContainers.forEach(container => {
+    if (container && container.contains(event.target)) {
+      clickedOnUserDropdown = true
     }
-    const translate = { "": "public", $TEAM: "team" }
-    generalAccessLevel.value = generalOptions.find(
-      (k) => k.value === translate[getGeneralAccess.params.user]
-    )
+  })
 
-    // Tìm đúng option từ accessOptions thay vì tạo object mới
-    const targetValue = data.write ? "editor" : "reader"
-    generalAccessType.value = accessOptions.value.find(opt => opt.value === targetValue) || accessOptions.value[0]
-  },
-})
-getGeneralAccess.fetch({ user: "" })
-
-const updateGeneralAccess = (type, level) => {
-  for (let user of ["$TEAM", ""]) {
-    updateAccess.submit({
-      entity_name: props.entity.name,
-      user,
-      method: "unshare",
-    })
+  if (!clickedOnUserDropdown) {
+    activeUserDropdown.value = null
   }
-  if (type.value !== "restricted") {
-    updateAccess.submit({
-      entity_name: props.entity.name,
-      user: type.value === "public" ? "" : "$TEAM",
-      read: 1,
-      comment: 1,
-      share: 1,
-      write: level.value === "editor",
-    })
-  }
-  emit("success")
 }
 
-const openDialog = computed({
-  get: () => {
-    return props.modelValue === "s"
-  },
-  set: (value) => {
-    emit("update:modelValue", value || "")
-  },
+// Lifecycle
+onMounted(async () => {
+  try {
+    await allSiteUsers.fetch()
+    await getUsersWithAccess.fetch({ entity: props.entity.name })
+  } catch (error) {
+    console.error("Error fetching data:", error)
+  }
+
+  document.addEventListener("click", handleClickOutside)
 })
 
-const ACCESS_LEVELS = ["read", "comment", "share", "write"]
-const filteredAccess = computed(() =>
-  ACCESS_LEVELS.filter((l) => props.entity[l])
+onUnmounted(() => {
+  document.removeEventListener("click", handleClickOutside)
+})
+
+// Watch for dialog open/close
+watch(
+  () => props.modelValue,
+  (newValue) => {
+    if (newValue === "s") {
+      getUsersWithAccess.fetch({ entity: props.entity.name })
+      // Reset form
+      sharedUsers.value = []
+      query.value = ""
+      isDropdownOpen.value = false
+      showAllUsers.value = false
+      isPermissionDropdownOpen.value = false
+      activeUserDropdown.value = null
+      showAllSharedUsers.value = false
+    }
+  }
 )
+
+// Clear query when no shared users
+watch(sharedUsers, (newUsers) => {
+  if (newUsers.length === 0) {
+    query.value = ""
+    showAllSharedUsers.value = false
+    if (!showAllUsers.value) {
+      isDropdownOpen.value = false
+    }
+  }
+})
 </script>
 
 <style scoped>
-:deep(.fixed-height-dialog) {
-  height: 600px !important;
-  max-height: 600px !important;
-  overflow: hidden;
+/* Scrollbar styling */
+.overflow-y-auto::-webkit-scrollbar {
+  width: 6px;
 }
 
-:deep(.fixed-height-dialog .dialog-content) {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
+.overflow-y-auto::-webkit-scrollbar-track {
+  background: #f1f5f9;
 }
 
-:deep(.fixed-height-dialog .dialog-body) {
-  flex: 1;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
+.overflow-y-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.overflow-y-auto::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Dropdown positioning */
+.absolute.z-50 {
+  z-index: 9999;
+}
+
+/* Tag styling */
+.inline-flex {
+  background-color: #f3f4f6;
+  transition: all 0.2s ease;
+}
+
+.inline-flex:hover {
+  background-color: #e5e7eb;
+}
+
+/* Input container focus styling */
+.focus-within\:ring-2:focus-within {
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* Dropdown animations */
+.rotate-180 {
+  transform: rotate(180deg);
+}
+
+/* Custom button styling */
+button {
+  transition: all 0.2s ease;
+}
+
+button:focus {
+  outline: none;
+}
+
+/* Dropdown item hover effects */
+.hover\:bg-gray-50:hover {
+  background-color: #f9fafb;
+  transition: background-color 0.15s ease;
+}
+
+/* Selected item styling */
+.bg-blue-50 {
+  background-color: #eff6ff;
+}
+
+.border-l-blue-500 {
+  border-left-color: #3b82f6;
+}
+
+/* Permission dropdown styling */
+.relative button {
+  position: relative;
+}
+
+.relative .absolute {
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Additional users count styling */
+.bg-blue-100 {
+  background-color: #dbeafe;
+}
+
+.text-blue-800 {
+  color: #1e40af;
+}
+
+.text-blue-600 {
+  color: #2563eb;
+}
+
+.hover\:text-blue-800:hover {
+  color: #1e40af;
 }
 </style>
