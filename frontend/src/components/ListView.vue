@@ -63,7 +63,7 @@
             <div class="owner-cell">
               <CustomAvatar
                 :image="userData[slotProps.data.owner]?.user_image"
-                :label="userData[slotProps.data.owner]?.full_name"
+                :label="userData[slotProps.data.owner]?.full_name.slice(0, 1)"
                 shape="circle"
                 size="small"
               />

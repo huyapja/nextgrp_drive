@@ -120,7 +120,6 @@
 
 <script setup>
 import { userList } from "@/resources/permissions";
-import { toast } from "@/utils/toasts";
 import {
   createResource,
   Dialog
@@ -130,7 +129,7 @@ import Dropdown from 'primevue/dropdown';
 import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import RadioButton from 'primevue/radiobutton';
-import { computed, ref, watch } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useStore } from "vuex";
 import CustomAvatar from "./CustomAvatar.vue";
 
@@ -174,33 +173,23 @@ const handleCancel = () => {
   openDialog.value = false
 }
 
+
+// Định nghĩa resource ở ngoài
 const moveOwnerResource = createResource({
-  url: 'frappe.client.call',     
-  doc: 'Drive File',                    // Tên DocType
-     method: 'move_owner',                 // Tên method trong class
-     name: props.entity?.name,             // ID của document
-     args: {                               // Arguments cho method
-       new_owner: selectedUser.value,
-       old_owner_permissions: ownerPermission.value,
-     }
-,
+  url: 'run_doc_method',
+  auto: false,
   onSuccess: (data) => {
-    console.log('Move owner success:', data)
-    toast("Đã chuyển quyền sở hữu thành công!")
-    
-    emit('success', {
-      new_owner: selectedUser.value,
-      old_owner_permission: ownerPermission.value
-    })
-    
+    console.log('Success:', data)
+    emit('success')
     resetForm()
     openDialog.value = false
+    submitting.value = false
   },
-  onError: (error) => {
-    console.error("Move owner error:", error)
-    const errorMessage = error.messages?.[0] || "Không thể chuyển quyền sở hữu. Vui lòng thử lại."
-    error.value = errorMessage
-  },            
+  onError: (err) => {
+    error.value = err.message || 'Có lỗi xảy ra khi chuyển quyền sở hữu'
+    console.error('Error transferring ownership:', err)
+    submitting.value = false
+  }
 })
 
 const handleTransfer = async () => {
@@ -213,26 +202,19 @@ const handleTransfer = async () => {
   submitting.value = true
   error.value = ''
   
-  try { 
-    await moveOwnerResource.submit()
-    
-    // Xử lý response ngay tại đây nếu cần
-    console.log('Response:', response)
-    
-    emit('success', {
+  // Update params và reload
+  moveOwnerResource.params = {
+    dt: 'Drive File',
+    dn: props.entity?.name,
+    method: 'move_owner',
+    args: JSON.stringify({
       new_owner: selectedUser.value,
-      old_owner_permission: ownerPermission.value
+      old_owner_permissions: ownerPermission.value,
     })
-    
-    resetForm()
-    openDialog.value = false
-    
-  } catch (err) {
-    error.value = err.message || 'Có lỗi xảy ra khi chuyển quyền sở hữu'
-    console.error('Error transferring ownership:', err)
-  } finally {
-    submitting.value = false
   }
+  
+  // Gọi reload thay vì submit
+  moveOwnerResource.reload()
 }
 
 const resetForm = () => {
@@ -248,6 +230,10 @@ watch(openDialog, (newValue) => {
   }
 })
 
+onMounted(() => {
+  if (!props.entity?.name) return
+  userList.fetch({entity: props.entity.name})
+})
 </script>
 
 <style scoped>

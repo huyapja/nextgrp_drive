@@ -35,14 +35,14 @@
     v-if="dialog === 's'"
     v-model="dialog"
     :entity="selections[0]"
-    @success="getEntities.fetch(getEntities.params)"
+    @success="handleRefresh"
   />
 
   <MoveOwnerDialog
     v-if="dialog === 'move_owner'"
     v-model="dialog"
     :entity="selections[0]"
-    @success="getEntities.fetch(getEntities.params)"
+    @success="handleRefresh"
   />
 
   <!-- Deletion dialogs -->
@@ -146,6 +146,13 @@ function addToList(data, file_type) {
   props.getEntities.setData(newData)
   // props.getEntities.fetch()
   resetDialog()
+}
+
+const handleRefresh = () => {
+  console.log('Handle refresh called', props.getEntities)
+  if (props.getEntities?.fetch) {
+    props.getEntities.fetch(props.getEntities.params)
+  }
 }
 
 function removeFromList(entities, move = true) {

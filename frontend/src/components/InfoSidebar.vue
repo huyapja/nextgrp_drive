@@ -319,6 +319,7 @@ import SendIcon from '@/assets/Icons/SendIcon.vue'
 import RichCommentEditor from "@/components/DocEditor/components/RichCommentEditor.vue"
 import PermissionConfirmDialog from "@/components/PermissionConfirmDialog.vue"
 import TagInput from "@/components/TagInput.vue"
+import emitter from "@/emitter"
 import { generalAccess, userList } from "@/resources/permissions"
 import { formatDate } from "@/utils/format"
 import { call, createResource, Tooltip } from "frappe-ui"
@@ -374,6 +375,7 @@ const emojiPickerStyle = computed(() => {
 
 // Event listeners for closing emoji picker
 let clickOutsideHandler = null
+const refreshTrigger = ref(0)
 
 onMounted(() => {
   checkScreenSize()
@@ -395,6 +397,13 @@ onMounted(() => {
     const resizeObserver = new ResizeObserver(updateCommentInputHeight)
     resizeObserver.observe(commentInputRef.value)
   }
+
+  emitter.on("refreshUserList", () => {
+    if (entity.value?.name) {
+      refreshTrigger.value++
+      userList.fetch({ entity: entity.value.name })
+    }
+  })
 })
 
 onUnmounted(() => {
@@ -403,6 +412,7 @@ onUnmounted(() => {
   if (clickOutsideHandler) {
     document.removeEventListener('click', clickOutsideHandler)
   }
+  emitter.off("refreshUserList")
 })
 
 const userId = computed(() => store.state.user.id)
@@ -411,12 +421,12 @@ const imageURL = computed(() => store.state.user.imageURL)
 const entity = computed(() => store.state.activeEntity)
 
 const usersPermission = computed(() => {
+  refreshTrigger.value
   if (userList.data?.length > 0) {
     return userList.data.filter(u => u.user !== userId.value)
   }
   return []
 })
-console.log("InfoSidebar loaded", entity, usersPermission)
 
 const tab = computed({
   get() {

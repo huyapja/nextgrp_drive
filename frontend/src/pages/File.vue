@@ -4,6 +4,7 @@
       <Navbar
         v-if="!file?.error"
         :root-resource="file"
+        :get-entities="file"
       />
       <ErrorPage
         v-if="file.error"
@@ -55,7 +56,6 @@
 import ErrorPage from "@/components/ErrorPage.vue"
 import FileRender from "@/components/FileRender.vue"
 import InfoSidebar from "@/components/InfoSidebar.vue"
-import Navbar from "@/components/Navbar.vue"
 import { enterFullScreen, prettyData, setBreadCrumbs } from "@/utils/files"
 import { onKeyStroke } from "@vueuse/core"
 import { Button, createResource, LoadingIndicator } from "frappe-ui"

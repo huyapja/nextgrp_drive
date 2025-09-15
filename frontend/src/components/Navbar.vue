@@ -200,6 +200,7 @@
       v-if="$route.name === 'File' || $route.name === 'Document'"
       v-model="dialog"
       :root-resource="rootResource"
+      :get-entities="getEntities"
     />
 
     <!-- Fixed Dialogs for Context Menu -->
@@ -280,6 +281,8 @@ const props = defineProps({
   rootResource: Object,
   getEntities: Function, // Add this prop
 })
+
+console.log('Navbar getEntities prop:', props.getEntities)
 
 // Composables
 const store = useStore()
