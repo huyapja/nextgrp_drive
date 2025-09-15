@@ -287,6 +287,9 @@
   </Dialog>
 </template>
 <script setup>
+import AccessButton from "@/components/ShareDialog/AccessButton.vue"
+import emitter from "@/emitter"
+import { getLink } from "@/utils/getLink"
 import {
   Autocomplete,
   Avatar,
@@ -296,13 +299,10 @@ import {
 } from "frappe-ui"
 import { computed, markRaw, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue"
 
-import AccessButton from "@/components/ShareDialog/AccessButton.vue"
-import { getLink } from "@/utils/getLink"
-
 import {
   allSiteUsers,
   getUsersWithAccess,
-  updateAccess,
+  updateAccess
 } from "@/resources/permissions"
 
 import LucideBuilding2 from "~icons/lucide/building-2"
@@ -433,22 +433,27 @@ const accessOptions = computed(() => {
 })
 function addShares() {
   // Used to enable future advanced config
-  const access =
-    shareAccess.value.value === "editor"
-      ? { read: 1, comment: 1, share: 1, write: 1 }
-      : { read: 1, comment: 1, share: 1, write: 0 }
-  for (let user of sharedUsers.value) {
-    let r = {
-      entity_name: props.entity.name,
-      user: user.name,
-      valid_until: invalidAfter.value,
-      ...access,
+  try {
+    const access =
+      shareAccess.value.value === "editor"
+        ? { read: 1, comment: 1, share: 1, write: 1 }
+        : { read: 1, comment: 1, share: 1, write: 0 }
+    for (let user of sharedUsers.value) {
+      let r = {
+        entity_name: props.entity.name,
+        user: user.name,
+        valid_until: invalidAfter.value,
+        ...access,
+      }
+      updateAccess.submit(r)
+      getUsersWithAccess.data.push({ ...user, ...access })
     }
-    updateAccess.submit(r)
-    getUsersWithAccess.data.push({ ...user, ...access })
+    sharedUsers.value = []
+    emitter.emit("refreshUserList")
+    emit("success")
+  } catch (e) {
+    console.error("Error in advanced share config:", e)
   }
-  sharedUsers.value = []
-  emit("success")
 }
 const invalidAfter = ref()
 

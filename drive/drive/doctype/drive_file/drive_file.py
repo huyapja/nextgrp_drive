@@ -403,6 +403,74 @@ class DriveFile(Document):
         if perm_name:
             frappe.delete_doc("Drive Permission", perm_name, ignore_permissions=True)
 
+    @frappe.whitelist()
+    def move_owner(self, new_owner, old_owner_permissions=0):
+        """
+        Move ownership of this file or folder to the specified user
+
+        :param new_owner: User to whom ownership is to be transferred
+        """
+
+        permission_old = int(old_owner_permissions) if old_owner_permissions else 0
+        old_owner = self.owner  # Lưu owner cũ
+
+        if self.owner == new_owner:
+            return
+
+        if not frappe.has_permission(
+            doctype="Drive File",
+            doc=self,
+            ptype="share",
+            user=frappe.session.user,
+        ):
+            frappe.throw("Not permitted", frappe.PermissionError)
+
+        if self.is_group:
+            for child in self.get_children():
+                child.move_owner(new_owner)
+
+        # Sử dụng frappe.db.set_value thay vì self.owner = new_owner
+        frappe.db.set_value("Drive File", self.name, "owner", new_owner)
+        frappe.db.commit()
+
+        if self.document:
+            doc = frappe.get_doc("Drive Document", self.document)
+            # Sử dụng frappe.db.set_value cho Drive Document
+            frappe.db.set_value("Drive Document", doc.name, "owner", new_owner)
+            frappe.db.commit()
+
+        # remove all permissions as they are no longer valid
+        frappe.db.delete("Drive Permission", {"entity": self.name, "user": new_owner})
+        frappe.db.delete("Drive Permission", {"entity": self.name, "user": old_owner})
+
+        # Reload document để có owner mới
+        self.reload()
+
+        # share with new owner with full permissions
+        self.share(
+            user=new_owner,
+            read=1,
+            write=1,
+            share=1,
+            comment=1,
+        )
+
+        # Share với user hiện tại (người thực hiện move)
+        self.share(
+            user=frappe.session.user,
+            read=1,
+            write=permission_old,
+            share=1,
+            comment=1,
+        )
+
+        return {
+            "status": "success",
+            "message": f"File ownership moved from {old_owner} to {new_owner}",
+            "old_owner": old_owner,
+            "new_owner": new_owner,
+        }
+
 
 def on_doctype_update():
     frappe.db.add_index("Drive File", ["title"])

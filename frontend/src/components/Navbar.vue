@@ -200,6 +200,7 @@
       v-if="$route.name === 'File' || $route.name === 'Document'"
       v-model="dialog"
       :root-resource="rootResource"
+      :get-entities="getEntities"
     />
 
     <!-- Fixed Dialogs for Context Menu -->
@@ -255,6 +256,7 @@ import LucideLink from "~icons/lucide/link"
 import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"
 import LucideUsers from "~icons/lucide/users"
+import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import ContextMenu from "./ContextMenu.vue"
 import Dialogs from "./Dialogs.vue"
 import UsersBar from "./UsersBar.vue"
@@ -280,10 +282,15 @@ const props = defineProps({
   getEntities: Function, // Add this prop
 })
 
+console.log('Navbar getEntities prop:', props.getEntities)
+
 // Composables
 const store = useStore()
 const route = useRoute()
 const router = useRouter()
+
+//current user
+const currentUserEmail = computed(() => store.state.user.id)
 
 // Computed properties
 const entity = computed(() => store.state.activeEntity)
@@ -363,6 +370,16 @@ const dropdownActionItems = (row) => {
         console.log("Link copied to clipboard")
       },
     },
+    {
+      label: "Chuyển quyền sở hữu tài liệu",
+      icon: MoveOwnerIcon,
+      handler: () => {
+        moreEvent.value = false
+        dialogContextMenu.value = 'move_owner'
+      },
+      isEnabled: (row)=> currentUserEmail.value === row?.owner
+      
+    },
     { divider: true },
     {
       label: "Di chuyển",
@@ -398,7 +415,7 @@ const dropdownActionItems = (row) => {
       danger: true,
       handler: () => {
         moreEvent.value = false
-        dialogContextMenu.value = "delete"
+        dialogContextMenu.value = "remove"
       },
       isEnabled: (row) => row?.write,
     },

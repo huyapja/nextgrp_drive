@@ -39,8 +39,8 @@
 </template>
 
 <script setup>
-import { ref, watch } from "vue"
 import { useObjectUrl } from "@vueuse/core"
+import { ref, watch } from "vue"
 import { useRouter } from "vue-router"
 
 const props = defineProps({

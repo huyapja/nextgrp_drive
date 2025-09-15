@@ -132,7 +132,7 @@ class FileManager:
                 aws_key = site_config.get("aws_access_key_id")
                 aws_secret = site_config.get("aws_secret_access_key")
                 endpoint_url = site_config.get("aws_s3_endpoint_url")
-                signature_version = site_config.get("aws_signature_version", "s3v4")
+                signature_version = site_config.get("aws_signature_version", "s3")
             else:
                 self.s3_enabled = False
                 self.bucket = None
