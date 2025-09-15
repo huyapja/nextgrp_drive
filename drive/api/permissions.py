@@ -41,24 +41,20 @@ def get_user_access(entity, user=frappe.session.user):
     teams = get_teams(user)
 
     # Quyền mặc định
-    access = {
-        "read": 0,
-        "comment": 0,
-        "share": 0,
-        "write": 0,
-        "type": "guest"
-    }
+    access = {"read": 0, "comment": 0, "share": 0, "write": 0, "type": "guest"}
 
     # Quyền theo team
     if entity.team in teams and entity.is_private == 0:
         access_level = get_access(entity.team)
-        access.update({
-            "read": 1,
-            "comment": 1,
-            "share": 1,
-            "write": 1 if ((entity.is_group and access_level) or access_level == 2) else 0,
-            "type": {2: "team-admin", 1: "team", 0: "guest"}[access_level],
-        })
+        access.update(
+            {
+                "read": 1,
+                "comment": 1,
+                "share": 1,
+                "write": 1 if ((entity.is_group and access_level) or access_level == 2) else 0,
+                "type": {2: "team-admin", 1: "team", 0: "guest"}[access_level],
+            }
+        )
 
     # Quyền theo chia sẻ trực tiếp
     path = generate_upward_path(entity.name, user)
@@ -185,27 +181,132 @@ def get_shared_with_list(entity):
         doctype="Drive File", doc=entity, ptype="share", user=frappe.session.user
     ):
         raise frappe.PermissionError
-    permissions = frappe.db.get_all(
+
+    # Lấy thông tin file/folder
+    entity_doc = frappe.get_doc("Drive File", entity)
+
+    # Danh sách cuối cùng
+    all_users = []
+
+    # 1. Thêm owner
+    owner_info = frappe.db.get_value(
+        "User",
+        entity_doc.owner,
+        ["user_image", "full_name", "name as user", "email"],
+        as_dict=True,
+    )
+    owner_info.update(
+        {"read": 1, "write": 1, "comment": 1, "share": 1, "is_owner": True, "source": "owner"}
+    )
+    all_users.append(owner_info)
+
+    # 2. Lấy permissions trực tiếp
+    direct_permissions = frappe.db.get_all(
         "Drive Permission",
         filters=[["entity", "=", entity], ["user", "!=", ""], ["user", "!=", "$TEAM"]],
-        order_by="user",
         fields=["user", "read", "write", "comment", "share"],
     )
 
-    owner = frappe.db.get_value("Drive File", entity, "owner")
-    permissions.insert(
-        0,
-        frappe.db.get_value(
-            "User", owner, ["user_image", "full_name", "name as user"], as_dict=True
-        ),
+    for perm in direct_permissions:
+        user_info = frappe.db.get_value(
+            "User", perm.user, ["user_image", "full_name", "email"], as_dict=True
+        )
+        if user_info:  # Kiểm tra user còn tồn tại
+            perm.update(user_info)
+            perm["source"] = "direct"
+            all_users.append(perm)
+
+    # 3. Lấy team members
+    team_permission = frappe.db.get_value(
+        "Drive Permission",
+        {"entity": entity, "user": "$TEAM"},
+        ["read", "write", "comment", "share"],
+        as_dict=True,
     )
 
-    for p in permissions:
-        user_info = frappe.db.get_value(
-            "User", p.user, ["user_image", "full_name", "email"], as_dict=True
+    print("Team_permission:", team_permission)
+
+    # Hiển thị team members nếu:
+    # 1. Có team permission, HOẶC
+    # 2. File thuộc về team và không private (sử dụng quyền mặc định theo team)
+    if entity_doc.team and (team_permission or not entity_doc.is_private):
+        # Lấy tất cả user đã có trong danh sách
+        existing_users = {user["user"] for user in all_users}
+
+        # Nếu không có team permission, sử dụng quyền mặc định theo logic get_user_access
+        if not team_permission:
+            # Lấy access level của current user để làm reference
+            current_user_teams = get_teams(frappe.session.user)
+            if entity_doc.team in current_user_teams:
+                current_user_access = get_access(entity_doc.team)
+                team_permission = {
+                    "read": 1,
+                    "comment": 1,
+                    "share": 1,
+                    "write": (
+                        1
+                        if (
+                            (entity_doc.is_group and current_user_access)
+                            or current_user_access == 2
+                        )
+                        else 0
+                    ),
+                }
+            else:
+                # Current user không trong team, không hiển thị team members
+                team_permission = None
+
+        if team_permission:
+            # Lấy tất cả thành viên của Drive Team
+            team_members = frappe.db.sql(
+                """
+                SELECT DISTINCT u.name as user, u.user_image, u.full_name, u.email
+                FROM `tabUser` u
+                INNER JOIN `tabDrive Team Member` dtm ON dtm.user = u.name
+                WHERE dtm.parent = %s 
+                AND dtm.parenttype = 'Drive Team'
+                AND u.enabled = 1
+                AND u.name NOT IN %s
+            """,
+                (entity_doc.team, tuple(existing_users) if existing_users else ("",)),
+                as_dict=True,
+            )
+
+            print(f"Found {len(team_members)} team members:", [m["user"] for m in team_members])
+
+            for member in team_members:
+                team_member = {
+                    "user": member.user,
+                    "user_image": member.user_image,
+                    "full_name": member.full_name,
+                    "email": member.email,
+                    "read": team_permission.get("read", 0),
+                    "write": team_permission.get("write", 0),
+                    "comment": team_permission.get("comment", 0),
+                    "share": team_permission.get("share", 0),
+                    "source": "team",
+                    "team_name": entity_doc.team,
+                    "has_explicit_permission": bool(
+                        frappe.db.get_value(
+                            "Drive Permission", {"entity": entity, "user": "$TEAM"}
+                        )
+                    ),
+                }
+                all_users.append(team_member)
+
+    # 4. Sắp xếp kết quả
+    all_users.sort(
+        key=lambda x: (
+            0 if x.get("is_owner") else 1 if x.get("source") == "direct" else 2,
+            x.get("full_name", "").lower(),
         )
-        p.update(user_info)
-    return permissions
+    )
+
+    print(f"Final result: {len(all_users)} users")
+    for user in all_users:
+        print(f"  - {user.get('full_name')} ({user.get('user')}) - {user.get('source')}")
+
+    return all_users
 
 
 def auto_delete_expired_perms():
