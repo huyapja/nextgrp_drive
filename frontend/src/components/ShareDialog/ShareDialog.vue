@@ -88,26 +88,7 @@
                     class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 rounded-md text-sm text-blue-800 font-medium"
                   >
                     <span>+{{ additionalUsersCount }} khác</span>
-                    <button
-                      class="text-blue-600 hover:text-blue-800 ml-1"
-                      @click="showAllSharedUsers = !showAllSharedUsers"
-                      :title="showAllSharedUsers ? 'Thu gọn' : 'Xem tất cả'"
-                    >
-                      <svg
-                        class="w-3 h-3 transition-transform"
-                        :class="{ 'rotate-180': showAllSharedUsers }"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </button>
+                    
                   </div>
 
                   <!-- Input field -->
@@ -123,56 +104,13 @@
                 </div>
               </div>
 
-              <!-- Show all selected users when expanded -->
-              <div
-                v-if="showAllSharedUsers && sharedUsers.length > 3"
-                class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto p-2"
-              >
-                <div class="text-xs font-medium text-gray-500 mb-2 px-1">
-                  Tất cả người được chọn ({{ sharedUsers.length }})
-                </div>
-                <div class="flex flex-wrap gap-1">
-                  <div
-                    v-for="(user, idx) in sharedUsers"
-                    :key="user.name"
-                    class="inline-flex items-center gap-1 px-2 py-1 bg-gray-100 rounded-md text-sm"
-                  >
-                    <CustomAvatar
-                      :image="user.user_image"
-                      :label="(user.full_name || user.email).slice(0, 1).toUpperCase()"
-                      size="small"
-                      shape="circle"
-                      class="!w-4 !h-4 bg-blue-500 text-white"
-                    />
-                    <span class="text-xs">{{ user.full_name || user.email }}</span>
-                    <button
-                      class="text-gray-400 hover:text-gray-600 ml-1"
-                      @click="removeSharedUser(idx)"
-                    >
-                      <svg
-                        class="w-3 h-3"
-                        fill="none"
-                        stroke="currentColor"
-                        viewBox="0 0 24 24"
-                      >
-                        <path
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                          stroke-width="2"
-                          d="M6 18L18 6M6 6l12 12"
-                        ></path>
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Dropdown suggestions -->
+              <!-- Dropdown suggestions with checkboxes -->
               <div
                 v-if="
                   isDropdownOpen && (filteredUsers.length > 0 || showAllUsers) && !showAllSharedUsers
                 "
-                class="absolute z-[10000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-48 overflow-y-auto !p-0"
+                class="absolute z-[10000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto !p-0"
+                @click.stop
               >
                 <div
                   v-if="filteredUsers.length === 0 && showAllUsers"
@@ -180,12 +118,22 @@
                 >
                   Nhập để tìm kiếm người dùng...
                 </div>
+                
                 <div
                   v-for="person in filteredUsers"
                   :key="person.email"
                   class="flex items-center p-3 hover:bg-gray-50 cursor-pointer"
-                  @click="selectUser(person)"
+                  @click.stop="toggleUserSelection(person)"
                 >
+                  <!-- Simple Checkbox -->
+                  <input
+                    type="checkbox"
+                    :checked="isUserSelected(person)"
+                    @change="toggleUserSelection(person)"
+                    @click.stop
+                    class="w-4 h-4 mr-3 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 "
+                  />
+
                   <CustomAvatar
                     :image="person.user_image"
                     :label="(person.full_name || person.email).slice(0, 1).toUpperCase()"
@@ -197,7 +145,6 @@
                     <div class="text-sm font-medium text-gray-900 truncate">
                       {{ person.full_name || person.email }}
                     </div>
-                    
                   </div>
                 </div>
               </div>
@@ -388,7 +335,7 @@
           <Button
             variant="outline"
             @click="getLink(entity)"
-            class="h-[40px] max-w-[50%] w-full !bg-[#D4E1F9] text-[#2563EB] !hover:bg-[#D4E1F9] !border-[#0149C1]"
+            class="h-[40px] max-w-[50%] w-full !bg-[#D4E1F9] text-[#2563EB] !hover:bg-[#D4E1F9] !border-[#0149C1] !text-[#0149C1]"
           >
             Sao chép liên kết
           </Button>
@@ -469,13 +416,13 @@ const filteredUsers = computed(() => {
   if (!allUsers.length) return []
 
   const currentUserId = store.state.user.id
-  const selectedUserIds = sharedUsers.value.map(u => u.name)
+  const sharedUserIds = sharedUsers.value.map(u => u.name)
   const existingUserIds = (getUsersWithAccess.data || []).map(u => u.user)
 
-  // Filter out current user, selected users, and users with existing access
+  // Filter out current user, shared users, and users with existing access
   const availableUsers = allUsers.filter((k) => {
     return k.name !== currentUserId && 
-           !selectedUserIds.includes(k.name) && 
+           !sharedUserIds.includes(k.name) && 
            !existingUserIds.includes(k.name)
   })
 
@@ -500,17 +447,39 @@ const handleInputFocus = () => {
   showAllSharedUsers.value = false
 }
 
-const handleInputBlur = () => {
+const handleInputBlur = (event) => {
+  // Don't close if clicking inside dropdown
+  if (dropdownContainer.value && dropdownContainer.value.contains(event.relatedTarget)) {
+    return
+  }
   // Delay to allow click events to fire
   setTimeout(() => {
     isDropdownOpen.value = false
     showAllUsers.value = false
-  }, 150)
+  }, 200)
 }
 
 const handleInputChange = () => {
   isDropdownOpen.value = true
   showAllSharedUsers.value = false
+}
+
+// Check if user is selected and add to shared users directly
+const isUserSelected = (person) => {
+  return sharedUsers.value.some(user => user.name === person.name)
+}
+
+// Toggle user selection and add/remove from shared users immediately
+const toggleUserSelection = (person) => {
+  const index = sharedUsers.value.findIndex(user => user.name === person.name)
+  if (index > -1) {
+    sharedUsers.value.splice(index, 1)
+  } else {
+    sharedUsers.value.push({
+      ...person,
+      accessLevel: shareAccess.value,
+    })
+  }
 }
 
 const selectUser = (person) => {
@@ -698,8 +667,14 @@ watch(sharedUsers, (newUsers) => {
     }
   }
 })
-</script>
 
+// Clear selected users when dropdown closes
+watch(isDropdownOpen, (isOpen) => {
+  if (!isOpen && query.value === '') {
+    // Only clear query if dropdown is closing and no search query
+  }
+})
+</script>
 <style scoped>
 /* Scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar {

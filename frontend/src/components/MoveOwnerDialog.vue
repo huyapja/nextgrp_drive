@@ -91,10 +91,6 @@
             <ProgressSpinner size="small" />
             <span>Đang tải danh sách người dùng...</span>
           </div>
-
-          <Message v-if="error" severity="error" :closable="false">
-            {{ error }}
-          </Message>
         </div>
 
         <!-- Action buttons -->
@@ -122,11 +118,11 @@
 import { userList } from "@/resources/permissions";
 import {
   createResource,
-  Dialog
+  Dialog,
+  toast
 } from "frappe-ui";
 import Button from 'primevue/button';
 import Dropdown from 'primevue/dropdown';
-import Message from 'primevue/message';
 import ProgressSpinner from 'primevue/progressspinner';
 import RadioButton from 'primevue/radiobutton';
 import { computed, onMounted, ref, watch } from 'vue';
@@ -179,15 +175,15 @@ const moveOwnerResource = createResource({
   url: 'run_doc_method',
   auto: false,
   onSuccess: (data) => {
-    console.log('Success:', data)
     emit('success')
     resetForm()
     openDialog.value = false
     submitting.value = false
+    toast.success('Chuyển quyền sở hữu thành công')
   },
   onError: (err) => {
-    error.value = err.message || 'Có lỗi xảy ra khi chuyển quyền sở hữu'
-    console.error('Error transferring ownership:', err)
+    toast.error(err.message || 'Có lỗi xảy ra khi chuyển quyền sở hữu')
+    openDialog.value = false
     submitting.value = false
   }
 })
