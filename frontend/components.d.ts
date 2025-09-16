@@ -102,6 +102,7 @@ declare module 'vue' {
     LucideMoreVertical: typeof import('~icons/lucide/more-vertical')['default']
     LucidePlus: typeof import('~icons/lucide/plus')['default']
     LucideSearch: typeof import('~icons/lucide/search')['default']
+    LucideSettings: typeof import('~icons/lucide/settings')['default']
     LucideSmilePlus: typeof import('~icons/lucide/smile-plus')['default']
     LucideStar: typeof import('~icons/lucide/star')['default']
     LucideTag: typeof import('~icons/lucide/tag')['default']

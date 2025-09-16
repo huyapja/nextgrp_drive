@@ -65,17 +65,17 @@
                     <span>{{
                       member.access_level === 2 ? "Quản lý" : "Thành viên"
                     }}</span>
-                    <LucideChevronDown
+                    <!-- <LucideChevronDown
                       v-if="member.access_level !== 2"
                       class="h-3 w-3 text-gray-400 transition-transform duration-200"
                       :class="{
                         'rotate-180': openRoleDropdown === member.name,
                       }"
-                    />
+                    /> -->
                   </button>
 
                   <!-- Dropdown Menu -->
-                  <div
+                  <!-- <div
                     v-if="
                       openRoleDropdown === member.name &&
                       member.access_level !== 2
@@ -102,7 +102,7 @@
                       <LucideCrown class="h-3 w-3" />
                       <span>Quản lý</span>
                     </button>
-                  </div>
+                  </div> -->
                 </div>
 
                 <Button

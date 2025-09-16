@@ -446,7 +446,9 @@ def files_multi_team(
                 query = query.where(Criterion.any(tag_list_criterion))
 
             if personal == 1:
-                query = query.where(DriveFile.is_private == 1)
+                query = query.where(
+                    DriveFile.is_private == 1 and DriveFile.owner == frappe.session.user
+                )
             elif personal == 0:
                 query = query.where(DriveFile.is_private == 0)
 
@@ -572,8 +574,8 @@ def files_multi_team(
             all_results = filtered_results
 
     # Apply limit
-    if limit:
-        all_results = all_results[: int(limit)]
+    # if limit:
+    #     all_results = all_results[: int(limit)]
 
     return all_results
 

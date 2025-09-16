@@ -224,8 +224,6 @@ def get_shared_with_list(entity):
         as_dict=True,
     )
 
-    print("Team_permission:", team_permission)
-
     # Hiển thị team members nếu:
     # 1. Có team permission, HOẶC
     # 2. File thuộc về team và không private (sử dụng quyền mặc định theo team)
@@ -294,7 +292,40 @@ def get_shared_with_list(entity):
                 }
                 all_users.append(team_member)
 
-    # 4. Sắp xếp kết quả
+    # 4. Lọc trùng email - Giữ theo thứ tự ưu tiên: owner > direct > team
+    def deduplicate_by_email(users_list):
+        """
+        Lọc trùng email, ưu tiên theo thứ tự:
+        1. owner (is_owner = True)
+        2. direct (source = "direct")
+        3. team (source = "team")
+        """
+        seen_emails = {}
+        unique_users = []
+
+        # Sắp xếp theo thứ tự ưu tiên trước khi lọc
+        priority_order = {"owner": 0, "direct": 1, "team": 2}
+        users_list.sort(
+            key=lambda x: (priority_order.get(x.get("source"), 3), 0 if x.get("is_owner") else 1)
+        )
+
+        for user in users_list:
+            email = user.get("email")
+            if email and email not in seen_emails:
+                seen_emails[email] = True
+                unique_users.append(user)
+            elif email:
+                # Log thông tin user bị duplicate để debug
+                print(
+                    f"Duplicate email found and skipped: {email} - {user.get('full_name')} ({user.get('source')})"
+                )
+
+        return unique_users
+
+    # Áp dụng lọc trùng email
+    all_users = deduplicate_by_email(all_users)
+
+    # 5. Sắp xếp kết quả cuối cùng
     all_users.sort(
         key=lambda x: (
             0 if x.get("is_owner") else 1 if x.get("source") == "direct" else 2,
@@ -302,11 +333,55 @@ def get_shared_with_list(entity):
         )
     )
 
-    print(f"Final result: {len(all_users)} users")
-    for user in all_users:
-        print(f"  - {user.get('full_name')} ({user.get('user')}) - {user.get('source')}")
-
     return all_users
+
+
+# Hàm utility riêng biệt để lọc trùng email (có thể tái sử dụng)
+def remove_duplicate_emails(users_list, keep_priority=None):
+    """
+    Lọc trùng email từ danh sách users
+
+    :param users_list: List of user dictionaries
+    :param keep_priority: List thứ tự ưu tiên source ['owner', 'direct', 'team']
+    :return: List users đã lọc trùng
+    """
+    if keep_priority is None:
+        keep_priority = ["owner", "direct", "team"]
+
+    # Tạo mapping priority
+    priority_map = {source: idx for idx, source in enumerate(keep_priority)}
+
+    # Group theo email
+    email_groups = {}
+    for user in users_list:
+        email = user.get("email")
+        if email:
+            if email not in email_groups:
+                email_groups[email] = []
+            email_groups[email].append(user)
+
+    # Chọn user tốt nhất cho mỗi email
+    unique_users = []
+    for email, users in email_groups.items():
+        if len(users) == 1:
+            unique_users.append(users[0])
+        else:
+            # Sắp xếp theo ưu tiên và chọn user đầu tiên
+            users.sort(
+                key=lambda x: (
+                    priority_map.get(x.get("source"), 999),
+                    0 if x.get("is_owner") else 1,
+                )
+            )
+            unique_users.append(users[0])
+
+            # Log các user bị loại bỏ
+            for removed_user in users[1:]:
+                print(
+                    f"Removed duplicate: {removed_user.get('full_name')} ({removed_user.get('source')}) - Email: {email}"
+                )
+
+    return unique_users
 
 
 def auto_delete_expired_perms():
