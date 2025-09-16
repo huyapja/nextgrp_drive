@@ -5,7 +5,7 @@
     class="min-w-[167px] py-2 absolute mt-1 min-w-48 rounded-lg bg-white shadow-sm border border-[#E5E5E5] focus:outline-none"
     :style="{
       left: `${calculateX}px`,
-      top: `${calculateY}px`,
+      top: `${calculateY}px `,
       'z-index': 1000,
     }"
   >
