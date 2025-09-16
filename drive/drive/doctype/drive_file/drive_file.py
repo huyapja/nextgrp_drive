@@ -471,6 +471,53 @@ class DriveFile(Document):
             "new_owner": new_owner,
         }
 
+    @frappe.whitelist()
+    def create_shortcut(self):
+        """
+        Create a shortcut of this file/folder into current user's 'My Documents'
+        """
+        # Lấy folder 'Tài liệu của tôi' (home folder của user)
+        home_folder = get_home_folder(self.team)
+
+        # Nếu đã có shortcut trỏ tới entity này trong home_folder thì bỏ qua
+        exists = frappe.db.exists(
+            "Drive File",
+            {"parent_entity": home_folder.name, "is_shortcut": 1, "target_entity": self.name},
+        )
+        if exists:
+            return frappe.get_doc("Drive File", exists)
+
+        shortcut_title = get_new_title(self.title, home_folder.name)
+
+        shortcut = frappe.get_doc(
+            {
+                "doctype": "Drive File",
+                "title": shortcut_title,
+                "is_shortcut": 1,
+                "target_entity": self.name,
+                "is_group": self.is_group,
+                "mime_type": self.mime_type,
+                "parent_entity": home_folder.name,
+                "team": self.team,
+                "original_owner": self.full_name,
+                "owner_shortcut": frappe.session.user,
+            }
+        )
+        shortcut.insert()
+
+        # Log activity
+        full_name = frappe.db.get_value("User", frappe.session.user, "full_name")
+        message = f"{full_name} created a shortcut to {self.title}"
+        create_new_activity_log(
+            entity=shortcut.name,
+            activity_type="create",
+            activity_message=message,
+            document_field="title",
+            field_new_value=self.title,
+        )
+
+        return shortcut
+
 
 def on_doctype_update():
     frappe.db.add_index("Drive File", ["title"])

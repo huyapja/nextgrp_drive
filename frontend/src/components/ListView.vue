@@ -235,9 +235,9 @@ const getDisplayName = (row) => {
 }
 
 const getOwnerLabel = (row) => {
-  return row.owner === store.state.user.id
+  return (row.original_owner || row.owner) === store.state.user.id
     ? __("Bạn")
-    : props.userData[row.owner]?.full_name || row.owner
+    : props.userData[row.original_owner || row.owner]?.full_name || row.owner
 }
 
 const getShareIcon = (shareCount) => {

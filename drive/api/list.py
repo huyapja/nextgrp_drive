@@ -335,7 +335,6 @@ def files_multi_team(
     folders=0,
     only_parent=1,
 ):
-    print("files_multi_team called with:", recents_only)
     """
     Lấy tệp từ nhiều nhóm
 
@@ -344,6 +343,7 @@ def files_multi_team(
     :return: Danh sách các DriveEntities với quyền từ nhiều nhóm
     :rtype: list[frappe._dict]
     """
+
     if not teams:
         # Nếu không có team nào được chỉ định, lấy tất cả các team mà người dùng là thành viên
         user_teams = get_teams()
@@ -366,7 +366,6 @@ def files_multi_team(
     folders = int(folders)
     personal = int(personal)
     ascending = int(ascending)
-
     user = frappe.session.user if frappe.session.user != "Guest" else ""
     all_results = []
 
@@ -447,11 +446,18 @@ def files_multi_team(
 
             if personal == 1:
                 query = query.where(
-                    DriveFile.is_private == 1 and DriveFile.owner == frappe.session.user
+                    ((DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user))
+                    | (
+                        (DriveFile.is_shortcut == 1)
+                        & (DriveFile.owner_shortcut == frappe.session.user)
+                    )
                 )
             elif personal == 0:
                 query = query.where(DriveFile.is_private == 0)
 
+            print(
+                "Filtering personal files for user", personal, DriveFile.owner, frappe.session.user
+            )
             query = query.where(DriveFile.is_active == is_active)
 
             file_kinds = json.loads(file_kinds) if not isinstance(file_kinds, list) else file_kinds

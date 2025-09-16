@@ -116,6 +116,7 @@ import LinkIcon from "@/assets/Icons/LinkIcon.vue"
 import MoveIcon from "@/assets/Icons/MoveIcon.vue"
 import RenameIcon from "@/assets/Icons/RenameIcon.vue"
 import ShareIconBlack from "@/assets/Icons/ShareIconBlack.vue"
+import ShortcutIcon from "@/assets/Icons/ShortcutIcon.vue"
 import TrashIcon from "@/assets/Icons/TrashIcon.vue"
 import LucideClock from "~icons/lucide/clock"
 import LucideExternalLink from "~icons/lucide/external-link"
@@ -123,6 +124,7 @@ import LucideInfo from "~icons/lucide/info"
 import LucideRotateCcw from "~icons/lucide/rotate-ccw"
 import LucideStar from "~icons/lucide/star"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
+import { createShortcut } from "../utils/files"
 
 const props = defineProps({
   grouper: { type: Function, default: (d) => d },
@@ -250,6 +252,12 @@ const actionItems = computed(() => {
         icon: MoveOwnerIcon,
         action: () => (dialog.value = "move_owner"),
         isEnabled: (e) => currentUserEmail.value === e?.owner,
+        important: true,
+      },
+      {
+        label: "Tạo lối tắt",
+        icon: ShortcutIcon,
+        action: ([entity]) => createShortcut(entity),
         important: true,
       },
       {
