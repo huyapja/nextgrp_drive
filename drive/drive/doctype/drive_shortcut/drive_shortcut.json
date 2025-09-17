@@ -1,0 +1,58 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2025-09-17 22:44:41.263538",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "file",
+  "is_shortcut",
+  "shortcut_owner"
+ ],
+ "fields": [
+  {
+   "fieldname": "file",
+   "fieldtype": "Link",
+   "label": "File",
+   "options": "Drive File"
+  },
+  {
+   "default": "0",
+   "fieldname": "is_shortcut",
+   "fieldtype": "Check",
+   "label": "Is Shortcut"
+  },
+  {
+   "fieldname": "shortcut_owner",
+   "fieldtype": "Link",
+   "label": "Shortcut Owner",
+   "options": "User"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2025-09-17 23:10:49.246461",
+ "modified_by": "hoa00001@gmail.com",
+ "module": "Drive",
+ "name": "Drive Shortcut",
+ "owner": "hoa00001@gmail.com",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": []
+}
