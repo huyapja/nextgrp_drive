@@ -58,7 +58,7 @@
           <template #tab-panel>
             <div class="py-1 h-40 overflow-auto">
               <Tree
-                v-for="k in tree.children"
+                v-for="k in currentTree.children"
                 :key="k.value"
                 node-key="value"
                 :node="k"
@@ -150,7 +150,7 @@
                 </template>
               </Tree>
               <p
-                v-if="!tree.children.length"
+                v-if="!currentTree.children.length"
                 class="text-base text-center pt-5"
               >
                 {{ __('No folders yet.') }}
@@ -266,15 +266,7 @@ const props = defineProps({
   },
 })
 
-const homeMap = {}
-const teamMap = {}
-allFolders.data.forEach((item) => {
-  ;(item.is_private ? homeMap : teamMap)[item.value] = {
-    ...item,
-    children: [],
-  }
-})
-
+// Dynamic tree structures that will be updated from API responses
 const homeRoot = reactive({
   name: "",
   label: __("Home"),
@@ -289,21 +281,14 @@ const teamRoot = reactive({
   isCollapsed: true,
 })
 
-allFolders.data.forEach((item) => {
-  let map = item.is_private ? homeMap : teamMap
-  const node = map[item.value]
-  node.isCollapsed = true
-  if (map[item.parent]) {
-    map[item.parent].children.push(node)
-  } else {
-    ;(item.is_private ? homeRoot : teamRoot).children.push(node)
-  }
-})
-
 const store = useStore()
 const in_home = store.state.breadcrumbs[0].name == "Home"
 const tabIndex = ref(in_home ? 0 : 1)
-const tree = ref(tabIndex.value === 0 ? homeRoot : teamRoot)
+
+// Computed property to get current tree based on tab
+const currentTree = computed(() => {
+  return tabIndex.value === 0 ? homeRoot : teamRoot
+})
 
 const open = computed({
   get() {
@@ -333,25 +318,66 @@ const dropDownBreadcrumbs = computed(() => {
   })
 })
 
-const tabs = [
-  {
-    label: __("Home"),
-    icon: h(LucideHome, { class: "size-4" }),
-  },
-  {
-    label: __("Team"),
-    icon: h(LucideBuilding2, { class: "size-4" }),
-  },
-  // {
-  //   label: __("Favourites"),
-  //   icon: h(Star, { class: "size-4" }),
-  // },
-]
+const tabs = computed(() => {
+  const allTabs = [
+    {
+      label: __("Home"),
+      icon: h(LucideHome, { class: "size-4" }),
+    },
+    {
+      label: __("Team"),
+      icon: h(LucideBuilding2, { class: "size-4" }),
+    },
+  ]
+  
+  // Nếu đang ở trang Home, chỉ hiển thị tab Home
+  if (route.name === 'Home') {
+    return allTabs.slice(0, 1) // Chỉ lấy tab đầu tiên (Home)
+  }
+  
+  return allTabs
+})
 
 const breadcrumbs = ref([
   { name: "", title: in_home ? __("Home") : __("Team"), is_private: in_home ? 1 : 0 },
 ])
 const folderSearch = ref(null)
+
+// Function to build tree structure from flat folder data
+function buildTreeStructure(folders, targetRoot) {
+  // Clear existing children
+  targetRoot.children = []
+  
+  // Create a map for quick lookup
+  const folderMap = {}
+  const rootChildren = []
+  
+  // First pass: create all folder objects
+  folders.forEach(folder => {
+    folderMap[folder.value || folder.name] = {
+      value: folder.value || folder.name,
+      name: folder.name || folder.value,
+      label: folder.label || folder.title,
+      children: [],
+      isCollapsed: true,
+      is_private: folder.is_private
+    }
+  })
+  
+  // Second pass: build tree structure
+  folders.forEach(folder => {
+    const node = folderMap[folder.value || folder.name]
+    const parentKey = folder.parent
+    
+    if (parentKey && folderMap[parentKey]) {
+      folderMap[parentKey].children.push(node)
+    } else {
+      rootChildren.push(node)
+    }
+  })
+  
+  targetRoot.children = rootChildren
+}
 
 const folderPermissions = createResource({
   url: "drive.api.permissions.get_entity_with_permissions",
@@ -372,17 +398,69 @@ const folderContents = createResource({
     folders: 1,
     ...params,
   }),
+  onSuccess: (data) => {
+    // Update team tree with new data
+    if (data && Array.isArray(data)) {
+      const folders = data.filter(item => item.is_group) // Only folders
+      buildTreeStructure(folders, teamRoot)
+    }
+  }
+})
+
+const folderMultiContents = createResource({
+  url: "drive.api.list.files_multi_team",
+  makeParams: (params) => ({
+    team: route.params.team,
+    is_active: 1,
+    folders: 1,
+    ...params,
+  }),
+  onSuccess: (data) => {
+    // Update home tree with new data
+    if (data && Array.isArray(data)) {
+      const folders = data.filter(item => item.is_group) // Only folders
+      buildTreeStructure(folders, homeRoot)
+    }
+  }
+})
+
+// Initialize tree structure from allFolders.data on mount
+onMounted(() => {
+  if (allFolders.data) {
+    const homeFolders = allFolders.data.filter(f => f.is_private)
+    const teamFolders = allFolders.data.filter(f => !f.is_private)
+    
+    buildTreeStructure(homeFolders, homeRoot)
+    buildTreeStructure(teamFolders, teamRoot)
+  }
+})
+
+// Watch for changes in allFolders.data
+watch(() => allFolders.data, (newData) => {
+  if (newData) {
+    const homeFolders = newData.filter(f => f.is_private)
+    const teamFolders = newData.filter(f => !f.is_private)
+    
+    buildTreeStructure(homeFolders, homeRoot)
+    buildTreeStructure(teamFolders, teamRoot)
+  }
+}, { deep: true })
+
+// Watch route changes để reset tab khi chuyển trang
+watch(() => route.name, (newRouteName) => {
+  if (newRouteName === 'Home') {
+    tabIndex.value = 0 // Luôn set về tab Home
+  }
 })
 
 watch(
   tabIndex,
   (newValue) => {
     currentFolder.value = ""
-    tree.value = tabIndex.value === 0 ? homeRoot : teamRoot
     switch (newValue) {
       case 0:
         breadcrumbs.value = [{ name: "", title: __('Home'), is_private: 1 }]
-        folderContents.fetch({
+        folderMultiContents.fetch({
           entity_name: "",
           personal: 1,
         })
@@ -420,11 +498,31 @@ const createFolder = createResource({
   onSuccess(data) {
     createdNode.value.value = data.name
     currentFolder.value = data.name
-    allFolders.data.push(createdNode.value)
+    allFolders.data.push({
+      value: data.name,
+      label: data.title,
+      name: data.name,
+      title: data.title,
+      parent: createdNode.value.parent,
+      is_private: tabIndex.value === 0
+    })
     folderPermissions.fetch({
       entity_name: data.name,
     })
     createdNode.value = null
+    
+    // Refresh the current tree
+    if (tabIndex.value === 0) {
+      folderMultiContents.fetch({
+        entity_name: "",
+        personal: 1,
+      })
+    } else {
+      folderContents.fetch({
+        entity_name: "",
+        personal: 0,
+      })
+    }
   },
 })
 
@@ -464,9 +562,9 @@ const expandNode = (obj, name) => {
 
 watch(folderSearch, (val) => {
   if (!val) return
-  tree.value = val.is_private ? homeRoot : teamRoot
+  
   tabIndex.value = val.is_private ? 0 : 1
-  expandNode(tree.value, val.value)
+  expandNode(currentTree.value, val.value)
 
   currentFolder.value = val.value
   openEntity(val)
@@ -477,10 +575,19 @@ function closeEntity(name) {
   if (breadcrumbs.value.length > 1 && index !== breadcrumbs.value.length - 1) {
     breadcrumbs.value = breadcrumbs.value.slice(0, index + 1)
     currentFolder.value = breadcrumbs.value[breadcrumbs.value.length - 1].name
-    folderContents.fetch({
-      entity_name: currentFolder.value,
-      personal: currentFolder.value === "" ? 1 : -1,
-    })
+    
+    // Fetch appropriate data based on current tab
+    if (tabIndex.value === 0) {
+      folderMultiContents.fetch({
+        entity_name: currentFolder.value,
+        personal: currentFolder.value === "" ? 1 : -1,
+      })
+    } else {
+      folderContents.fetch({
+        entity_name: currentFolder.value,
+        personal: currentFolder.value === "" ? 0 : -1,
+      })
+    }
   }
 }
 
@@ -556,10 +663,6 @@ watch(open, (isOpen) => {
 // Watch folderSearch changes to trigger translation
 watch(folderSearch, () => {
   setTimeout(translateAutocompleteText, 50)
-})
-
-onMounted(() => {
-  translateAutocompleteText()
 })
 </script>
 

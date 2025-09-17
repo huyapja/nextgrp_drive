@@ -31,21 +31,30 @@
         >
           <template #body="slotProps">
             <div class="name-cell">
-              <img
-                :src="
-                  getThumbnailUrl(
-                    slotProps.data.name,
-                    slotProps.data.file_type
-                  )[0] ||
-                  getThumbnailUrl(
-                    slotProps.data.name,
-                    slotProps.data.file_type
-                  )[1]
-                "
-                class="file-icon"
-                :alt="slotProps.data.title"
-                @error="onThumbnailError($event, slotProps.data)"
-              />
+              
+              <div class="file-container">
+                <img
+                  :src="
+                    getThumbnailUrl(
+                      slotProps.data.name,
+                      slotProps.data.file_type
+                    )[0] ||
+                    getThumbnailUrl(
+                      slotProps.data.name,
+                      slotProps.data.file_type
+                    )[1]
+                  "
+                  class="file-icon"
+                  :alt="slotProps.data.title"
+                  @error="onThumbnailError($event, slotProps.data)"
+                />
+                <span
+                  v-if="slotProps.data.is_shortcut && ['Home'].includes($route.name)"
+                  class="shortcut-badge"
+                >
+                  <ShortCutIconFile />
+                </span>
+              </div>
               <span class="file-name">{{
                 getDisplayName(slotProps.data)
               }}</span>
@@ -75,7 +84,9 @@
         </Column>
         <!-- Team Column -->
         <Column
-          v-if="['Recents', 'Favourites', 'Trash', 'Shared'].includes($route.name)"
+          v-if="
+            ['Recents', 'Favourites', 'Trash', 'Shared'].includes($route.name)
+          "
           field="team_name"
           :header="__('Nhóm')"
           sortable
@@ -156,10 +167,10 @@
       v-if="rowEvent && selectedRow"
       :key="selectedRow.name"
       v-on-outside-click="() => (rowEvent = false)"
-      :close="() => (rowEvent = false)"
       :action-items="dropdownActionItems(selectedRow)"
       :event="rowEvent"
-    />
+      :close="() => {}"
+      />
   </div>
 </template>
 
@@ -179,6 +190,9 @@ import { onKeyDown } from "@vueuse/core"
 import emitter from "@/emitter"
 import { useTimeAgoVi } from "@/utils/useTimeAgoVi"
 import CustomAvatar from "./CustomAvatar.vue"
+import ShortCutIconFile from "@/assets/Icons/ShortCutIconFile.vue"
+import { createShortcutResource, removeShortcutResource } from "../utils/files"
+
 
 const store = useStore()
 const route = useRoute()
@@ -235,9 +249,9 @@ const getDisplayName = (row) => {
 }
 
 const getOwnerLabel = (row) => {
-  return (row.original_owner || row.owner) === store.state.user.id
+  return (row.owner) === store.state.user.id
     ? __("Bạn")
-    : props.userData[row.original_owner || row.owner]?.full_name || row.owner
+    : props.userData[row.owner]?.full_name || row.owner
 }
 
 const getShareIcon = (shareCount) => {
@@ -309,15 +323,46 @@ const dropdownActionItems = (row) => {
   if (!row) return []
   return props.actionItems
     .filter((a) => !a.isEnabled || a.isEnabled(row))
-    .map((a) => ({
+    .map((a) => {
+      let isLoading = false
+      if (a.label === 'Tạo lối tắt'){
+        isLoading = createShortcutResource.loading
+      }
+      if (a.label === 'Bỏ lối tắt'){
+        isLoading = removeShortcutResource.loading
+      }
+      return{
       ...a,
       handler: () => {
-        rowEvent.value = false
+        if (!['Tạo lối tắt', 'Bỏ lối tắt'].includes(a.label)){
+          rowEvent.value = false
+        }
         store.commit("setActiveEntity", row)
         a.action([row])
       },
-    }))
+      loading: isLoading
+    }})
 }
+
+watch(
+  () => createShortcutResource.loading,
+  (newLoading, oldLoading) => {
+    // Khi loading chuyển từ true sang false (hoàn thành)
+    if (oldLoading === true && newLoading === false) {
+      rowEvent.value = false // Đóng context menu
+    }
+  }
+)
+
+watch(
+  () => removeShortcutResource.loading,
+  (newLoading, oldLoading) => {
+    // Khi loading chuyển từ true sang false (hoàn thành)
+    if (oldLoading === true && newLoading === false) {
+      rowEvent.value = false // Đóng context menu
+    }
+  }
+)
 
 // Keyboard shortcuts
 onKeyDown("a", (e) => {
@@ -546,5 +591,24 @@ onKeyDown("Escape", (e) => {
 /* Empty State */
 :deep(.p-datatable-emptymessage) {
   @apply text-center py-8 text-gray-500;
+}
+
+.file-container {
+  position: relative;
+  display: inline-block;
+}
+
+.shortcut-badge {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  color: #007bff; /* hoặc màu bạn muốn */
+  background-color: white;
+  border-radius: 8px;
+  padding: 1px;
+}
+
+.shortcut-badge i {
+  font-size: 8px;
 }
 </style>

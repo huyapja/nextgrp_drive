@@ -20,10 +20,7 @@
   "is_active",
   "document",
   "is_private",
-  "old_name",
-  "is_shortcut",
-  "owner_shortcut",
-  "original_owner"
+  "old_name"
  ],
  "fields": [
   {
@@ -107,28 +104,10 @@
    "fieldname": "is_link",
    "fieldtype": "Check",
    "label": "Is Link"
-  },
-  {
-   "default": "0",
-   "fieldname": "is_shortcut",
-   "fieldtype": "Check",
-   "label": "Is shortcut"
-  },
-  {
-   "fieldname": "owner_shortcut",
-   "fieldtype": "Link",
-   "label": "Owner ShortCut",
-   "options": "User"
-  },
-  {
-   "fieldname": "original_owner",
-   "fieldtype": "Link",
-   "label": "Original Owner",
-   "options": "User"
   }
  ],
  "links": [],
- "modified": "2025-09-16 16:58:03.938304",
+ "modified": "2025-09-17 10:38:46.050232",
  "modified_by": "hoa00001@gmail.com",
  "module": "Drive",
  "name": "Drive File",

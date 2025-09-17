@@ -20,8 +20,6 @@ ENTITY_FIELDS = [
     "owner",
     "parent_entity",
     "is_private",
-    "is_shortcut",
-    "original_owner",
 ]
 
 

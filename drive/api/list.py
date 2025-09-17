@@ -15,6 +15,7 @@ TeamMember = frappe.qb.DocType("Drive Team Member")
 DriveFavourite = frappe.qb.DocType("Drive Favourite")
 Recents = frappe.qb.DocType("Drive Entity Log")
 DriveEntityTag = frappe.qb.DocType("Drive Entity Tag")
+DriveShortcut = frappe.qb.DocType("Drive Shortcut")
 
 Binary = CustomFunction("BINARY", ["expression"])
 
@@ -92,12 +93,16 @@ def files(
     query = (
         frappe.qb.from_(DriveFile)
         .where(DriveFile.is_active == is_active)
+        .left_join(DriveShortcut)
+        .on(((DriveShortcut.file == DriveFile.name)))
         .left_join(DrivePermission)
         .on((DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user))
         # Give defaults as a team member
         .select(
             *ENTITY_FIELDS,
             DriveFile.modified,
+            DriveShortcut.is_shortcut,
+            DriveShortcut.shortcut_owner,
             fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
             fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_("comment"),
             fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
@@ -143,18 +148,25 @@ def files(
     elif not is_active:
         query = query.where(DriveFile.owner == frappe.session.user)
 
-    if personal == 0:
-        query = query.where(DriveFile.is_private == 0)
+    if personal == 0 or personal == -1:
+        query = query.where(
+            (DriveFile.is_private == 0)
+            # & (
+            #     (DriveShortcut.shortcut_owner.isnull())  # Không lấy shortcut
+            #     # | (DriveShortcut.is_shortcut == 0)
+            # )  # Chỉ lấy file thật, không phải shortcut
+        )
     elif personal == 1:
         query = query.where(DriveFile.is_private == 1)
         # Temporary hack: the correct way would be to check permissions on all children
         if entity_name == home:
-            query = query.where(DriveFile.owner == frappe.session.user)
-    elif personal == -1:
-        query = query.where(
-            (DriveFile.is_private == 0)
-            | ((DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user))
-        )
+            query = query.where(
+                (DriveFile.owner == frappe.session.user)
+                | (
+                    (DriveShortcut.is_shortcut == 1)
+                    & (DriveShortcut.shortcut_owner == frappe.session.user)
+                )
+            )
 
     query = query.select(Recents.last_interaction.as_("accessed"))
     if tag_list:
@@ -394,10 +406,14 @@ def files_multi_team(
 
             query = (
                 frappe.qb.from_(DriveFile)
+                .left_join(DriveShortcut)
+                .on(DriveShortcut.file == DriveFile.name)
                 .left_join(DrivePermission)
                 .on((DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user))
                 .select(
                     *ENTITY_FIELDS,
+                    DriveShortcut.is_shortcut,
+                    DriveShortcut.shortcut_owner,
                     fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
                     fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_("comment"),
                     fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
@@ -448,16 +464,13 @@ def files_multi_team(
                 query = query.where(
                     ((DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user))
                     | (
-                        (DriveFile.is_shortcut == 1)
-                        & (DriveFile.owner_shortcut == frappe.session.user)
+                        (DriveShortcut.shortcut_owner == frappe.session.user)
+                        & (DriveShortcut.is_shortcut == 1)
                     )
                 )
             elif personal == 0:
                 query = query.where(DriveFile.is_private == 0)
 
-            print(
-                "Filtering personal files for user", personal, DriveFile.owner, frappe.session.user
-            )
             query = query.where(DriveFile.is_active == is_active)
 
             file_kinds = json.loads(file_kinds) if not isinstance(file_kinds, list) else file_kinds

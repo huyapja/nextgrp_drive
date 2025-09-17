@@ -475,48 +475,87 @@ class DriveFile(Document):
     def create_shortcut(self):
         """
         Create a shortcut of this file/folder into current user's 'My Documents'
+        For folders, recursively create shortcuts for all children
         """
         # Lấy folder 'Tài liệu của tôi' (home folder của user)
         home_folder = get_home_folder(self.team)
 
-        # Nếu đã có shortcut trỏ tới entity này trong home_folder thì bỏ qua
+        # Kiểm tra nếu đã có shortcut trỏ tới entity này trong home_folder
         exists = frappe.db.exists(
-            "Drive File",
-            {"parent_entity": home_folder.name, "is_shortcut": 1, "target_entity": self.name},
+            "Drive Shortcut",
+            {"file": self.name, "is_shortcut": 1, "shortcut_owner": frappe.session.user},
         )
         if exists:
-            return frappe.get_doc("Drive File", exists)
+            return frappe.get_doc("Drive Shortcut", exists)
 
-        shortcut_title = get_new_title(self.title, home_folder.name)
+        # Tạo shortcut cho file/folder hiện tại
+        shortcut = self._create_single_shortcut()
+        return shortcut
 
-        shortcut = frappe.get_doc(
-            {
-                "doctype": "Drive File",
-                "title": shortcut_title,
-                "is_shortcut": 1,
-                "target_entity": self.name,
-                "is_group": self.is_group,
-                "mime_type": self.mime_type,
-                "parent_entity": home_folder.name,
-                "team": self.team,
-                "original_owner": self.full_name,
-                "owner_shortcut": frappe.session.user,
-            }
-        )
-        shortcut.insert()
+    def _create_single_shortcut(self):
+        """
+        Create a single shortcut (helper method)
+        """
 
-        # Log activity
-        full_name = frappe.db.get_value("User", frappe.session.user, "full_name")
-        message = f"{full_name} created a shortcut to {self.title}"
-        create_new_activity_log(
-            entity=shortcut.name,
-            activity_type="create",
-            activity_message=message,
-            document_field="title",
-            field_new_value=self.title,
-        )
+        if not frappe.has_permission(
+            doctype="Drive File",
+            doc=self,
+            ptype="read",
+            user=frappe.session.user,
+        ):
+            frappe.throw("Cannot create shortcut to own file/folder", frappe.PermissionError)
+
+        # Thay vì copy tất cả, chỉ copy những field cần thiết
+        shortcut_data = {
+            "doctype": "Drive Shortcut",
+            "file": self.name,
+            "is_shortcut": 1,
+            "shortcut_owner": frappe.session.user,
+        }
+        print(shortcut_data, "Creating shortcut...")
+        shortcut = frappe.get_doc(shortcut_data)
+        shortcut.insert(ignore_permissions=True)
 
         return shortcut
+
+    @frappe.whitelist()
+    def remove_shortcut(self):
+        # Kiểm tra quyền đọc file
+        if not frappe.has_permission(
+            doctype="Drive File",
+            doc=self,
+            ptype="read",
+            user=frappe.session.user,
+        ):
+            frappe.throw("You don't have permission to access this file", frappe.PermissionError)
+
+        try:
+            # Tìm shortcut của user hiện tại cho file này
+            shortcut = frappe.db.get_value(
+                "Drive Shortcut",
+                {"file": self.name, "shortcut_owner": frappe.session.user},
+                ["name", "shortcut_owner", "file"],
+                as_dict=True,
+            )
+
+            if not shortcut:
+                frappe.throw("Shortcut not found or you don't have permission to remove it")
+
+            # Xóa shortcut
+            frappe.delete_doc("Drive Shortcut", shortcut.name, ignore_permissions=True)
+            frappe.db.commit()
+
+            return {
+                "success": True,
+                "message": "Shortcut removed successfully",
+                "removed_shortcut": shortcut.name,
+            }
+
+        except frappe.DoesNotExistError:
+            frappe.throw("Shortcut not found")
+        except Exception as e:
+            frappe.db.rollback()
+            frappe.throw(f"Failed to remove shortcut: {str(e)}")
 
 
 def on_doctype_update():

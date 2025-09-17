@@ -19,6 +19,7 @@ import Presentation from "@/components/MimeIcons/Presentation.vue"
 import Spreadsheet from "@/components/MimeIcons/Spreadsheet.vue"
 import Video from "@/components/MimeIcons/Video.vue"
 import { createResource, toast } from "frappe-ui"
+import { getPersonal } from "../resources/files"
 
 export const openEntity = (team = null, entity, new_tab = false) => {
   store.commit("setActiveEntity", entity)
@@ -340,20 +341,15 @@ export function printDoc(html) {
   }
 }
 
-const createShortcutResource = createResource({
+export const createShortcutResource = createResource({
     url: 'run_doc_method',
     auto: false,
-    
     onSuccess: (data) => {
-      console.log("Shortcut created", data)
-      emit('success')
-      resetForm()
-      openDialog.value = false
-      submitting.value = false
-      toast.success('Tạo shortcut thành công')
+      getPersonal.reload()
+      toast('Tạo shortcut thành công')
     },
     onError: (err) => {
-      toast.error(err.message || 'Có lỗi xảy ra khi tạo shortcut')
+      toast(err.message || 'Có lỗi xảy ra khi tạo shortcut')
       openDialog.value = false
       submitting.value = false
     }
@@ -366,4 +362,28 @@ export function createShortcut(entity) {
     method: 'create_shortcut'
   }
   createShortcutResource.reload()
+}
+
+//remove_shortcut
+export const removeShortcutResource = createResource({
+    url: 'run_doc_method',
+    auto: false,
+    onSuccess: (data) => {
+      getPersonal.reload()
+      toast('Tạo shortcut thành công')
+    },
+    onError: (err) => {
+      toast(err.message || 'Có lỗi xảy ra khi tạo shortcut')
+      openDialog.value = false
+      submitting.value = false
+    }
+  }) // avoid eslint no-unused-vars error
+
+export function removeShortcut(entity) {
+  removeShortcutResource.params = {
+    dt: 'Drive File',
+    dn: entity?.name,
+    method: 'remove_shortcut'
+  }
+  removeShortcutResource.reload()
 }

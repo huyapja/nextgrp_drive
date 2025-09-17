@@ -124,7 +124,7 @@ import LucideInfo from "~icons/lucide/info"
 import LucideRotateCcw from "~icons/lucide/rotate-ccw"
 import LucideStar from "~icons/lucide/star"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
-import { createShortcut } from "../utils/files"
+import { createShortcut, removeShortcut } from "../utils/files"
 
 const props = defineProps({
   grouper: { type: Function, default: (d) => d },
@@ -244,14 +244,14 @@ const actionItems = computed(() => {
         label: "Chia sẻ",
         icon: ShareIconBlack,
         action: () => (dialog.value = "s"),
-        isEnabled: (e) => e.share,
+        isEnabled: (e) => e.share && !store.state.activeEntity?.is_shortcut,
         important: true,
       },
       {
         label: "Chuyển quyền sở hữu tài liệu",
         icon: MoveOwnerIcon,
         action: () => (dialog.value = "move_owner"),
-        isEnabled: (e) => currentUserEmail.value === e?.owner,
+        isEnabled: (e) => currentUserEmail.value === e?.owner && !store.state.activeEntity?.is_shortcut || route.name !== 'Home',
         important: true,
       },
       {
@@ -259,6 +259,14 @@ const actionItems = computed(() => {
         icon: ShortcutIcon,
         action: ([entity]) => createShortcut(entity),
         important: true,
+        isEnabled: ()=> !store.state.activeEntity?.is_shortcut || route.name !== 'Home'
+      },
+      {
+        label: "Bỏ lối tắt",
+        icon: ShortcutIcon,
+        action: ([entity]) => removeShortcut(entity),
+        important: true,
+        isEnabled: ()=> store.state.activeEntity?.is_shortcut && route.name === 'Home'
       },
       {
         label: "Tải xuống",
@@ -267,6 +275,7 @@ const actionItems = computed(() => {
         action: (entities) => entitiesDownload(team, entities),
         multi: true,
         important: true,
+        isEnabled:()=> !store.state.activeEntity?.is_shortcut || route.name !== 'Home'
       },
       {
         label: "Sao chép liên kết",
@@ -344,7 +353,7 @@ const actionItems = computed(() => {
         label: "Xóa",
         icon: TrashIcon,
         action: () => (dialog.value = "remove"),
-        isEnabled: (e) => e.write,
+        isEnabled: (e) => e.write && (!store.state.activeEntity?.is_shortcut || route.name !== 'Home'),
         important: true,
         multi: true,
         danger: true,

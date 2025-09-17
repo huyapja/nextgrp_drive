@@ -25,6 +25,8 @@
         class="group flex w-full items-center px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-150"
         :class="item.danger ? 'hover:bg-red-50' : 'hover:bg-gray-50'"
       >
+
+        
         <div 
           class="flex items-center justify-center w-6 h-6 mr-2 rounded-md flex-shrink-0"
         >
@@ -45,6 +47,7 @@
         >
           {{ item.badge }}
         </span>
+        <ProgressSpinner strokeWidth="2" v-if="item.loading" style="width: 16px; height: 16px; margin: 0px 4px"/>
       </button>
     </div>
   </div>
@@ -52,6 +55,7 @@
 
 <script setup>
 import disableScroll from "@/utils/disable-scroll"
+import { ProgressSpinner } from "primevue"
 import { onBeforeUnmount, onMounted, onUpdated, ref } from "vue"
 
 const props = defineProps({
