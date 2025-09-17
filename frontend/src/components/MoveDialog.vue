@@ -677,6 +677,6 @@ watch(folderSearch, () => {
 /* Ensure Vietnamese text displays correctly */
 :deep(.dropdown-content),
 :deep(.autocomplete-dropdown) {
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: system-ui, -apple-system, sans-serif; 
 }
 </style>
