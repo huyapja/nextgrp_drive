@@ -36,11 +36,12 @@
 </template>
 
 <script setup>
-import { rename } from "@/resources/files"
+import { renameShortcut } from "@/resources/files"
 import { Dialog, Input } from "frappe-ui"
 import { computed, ref } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
+import { rename } from "../resources/files"
 
 const props = defineProps({ entity: Object, modelValue: String })
 const emit = defineEmits(["update:modelValue", "success"])
@@ -75,13 +76,29 @@ const open = computed({
 })
 
 const submit = () => {
-  rename.submit({
-    entity_name: props.entity.name,
-    new_title: newName.value + (ext.value ? "." + ext.value : ""),
-  })
-  emit("success", {
-    name: props.entity.name,
-    title: newName.value + (ext.value ? "." + ext.value : ""),
-  })
+  if (!!props.entity.is_shortcut) {
+    console.log(props.entity.shortcut_name, "props.entity.shortcut_name")
+    renameShortcut.submit({
+      entity_name: props.entity.shortcut_name,
+      new_title: newName.value + (ext.value ? "." + ext.value : ""),
+    })
+    emit("success", {
+      name: props.entity.shortcut_name,
+      title: newName.value + (ext.value ? "." + ext.value : ""),
+      is_shortcut: props.entity.is_shortcut,
+    })
+  } 
+  else {
+    rename.submit({
+      entity_name: props.entity.name,
+      new_title: newName.value + (ext.value ? "." + ext.value : ""),
+    })
+    emit("success", {
+      name: props.entity.name,
+      title: newName.value + (ext.value ? "." + ext.value : ""),
+      is_shortcut: props.entity.is_shortcut,
+    })
+  }
+  
 }
 </script>

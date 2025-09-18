@@ -231,6 +231,26 @@ export const rename = createResource({
   },
 })
 
+export const renameShortcut = createResource({
+  url: "drive.api.files.call_controller_method",
+  method: "POST",
+  makeParams: (data) => {
+    return {
+      method: "rename_shortcut",
+      ...data,
+    }
+  },
+  onError(error) {
+    toast({
+      title: JSON.stringify(error).includes("FileExistsError")
+        ? __("There is already a file with this name!")
+        : __("There was an error"),
+      position: "bottom-right",
+      timeout: 2,
+    })
+  },
+})
+
 export const createDocument = createResource({
   method: "POST",
   url: "drive.api.files.create_document_entity",

@@ -448,10 +448,18 @@ def files_multi_team(
                     .on(
                         (DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user)
                     )
+                    .left_join(DriveFavourite)
+                    .on(
+                        (DriveFavourite.entity_shortcut == DriveShortcut.name)
+                    )
                     .select(
                         *ENTITY_FIELDS,
                         DriveShortcut.is_shortcut,
                         DriveShortcut.shortcut_owner,
+                        DriveShortcut.is_favourite,
+                        DriveShortcut.name.as_("shortcut_name"),
+                        DriveFavourite.name.as_("is_favourite"),
+                        DriveFavourite.entity_shortcut,
                         fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
                         fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
                             "comment"
@@ -508,6 +516,10 @@ def files_multi_team(
                     )
                     .select(
                         *ENTITY_FIELDS,
+                        DriveShortcut.is_shortcut,
+                        DriveShortcut.shortcut_owner,
+                        DriveShortcut.is_favourite,
+                        DriveShortcut.name.as_("shortcut_name"),
                         fn.Coalesce(DriveShortcut.is_shortcut, 0).as_("is_shortcut"),
                         fn.Coalesce(DriveShortcut.shortcut_owner, "").as_("shortcut_owner"),
                         fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
@@ -528,16 +540,32 @@ def files_multi_team(
                     q = q.where(DriveFile.parent_entity == current_entity_name)
                 else:
                     q = q.where((DriveFile.team == team) & (DriveFile.parent_entity != ""))
-
+                print("111111111111111111111")
                 # Add favourites join
                 if favourites_only:
+                    print("222222222222222222")
                     q = q.right_join(DriveFavourite)
                 else:
                     q = q.left_join(DriveFavourite)
-                q = q.on(
-                    (DriveFavourite.entity == DriveFile.name)
-                    & (DriveFavourite.user == frappe.session.user)
-                ).select(DriveFavourite.name.as_("is_favourite"))
+                    print("333333333333333333")
+                try:
+                    q = q.on(
+                        (
+                            (DriveFavourite.entity == DriveFile.name)
+                        | (DriveFavourite.entity_shortcut == DriveShortcut.name)
+                        ) 
+                        & 
+                        (DriveFavourite.user == frappe.session.user)
+                    ).select(DriveFavourite.name.as_("is_favourite"))
+                    print("44444444444444444444444444")
+                except Exception as e:
+                    print(f"Error in join condition: {e}")
+                    # Fallback without DriveShortcut
+                    q = q.on(
+                        (DriveFavourite.entity == DriveFile.name)
+                        & 
+                        (DriveFavourite.user == frappe.session.user)
+                    ).select(DriveFavourite.name.as_("is_favourite"))
 
                 if recents_only:
                     q = (
@@ -584,7 +612,6 @@ def files_multi_team(
 
             # Execute main query
             main_results = query.run(as_dict=True)
-            print(f"DEBUG - Main query results count: {len(main_results)}")
 
             # Đánh dấu results từ main query (file gốc)
             for result in main_results:
@@ -598,6 +625,7 @@ def files_multi_team(
                 # Đánh dấu results từ shortcut query
                 for result in shortcut_results:
                     result["_source"] = "shortcut"
+                    print('DEBUG -shortcut', result.shortcut_name, result.entity_shortcut, result.is_favourite)
                 team_results.extend(shortcut_results)
 
             print(f"DEBUG - Total team_results for {team}: {len(team_results)}")
@@ -642,20 +670,6 @@ def files_multi_team(
             continue
 
     print(f"DEBUG - Total all_results: {len(all_results)}")
-
-    # Nếu không có kết quả, thử query đơn giản để test
-    if not all_results and user_teams:
-        print("DEBUG - No results found, trying simple query...")
-        try:
-            simple_query = (
-                frappe.qb.from_(DriveFile)
-                .select("name", "title", "team", "owner", "is_private")
-                .limit(5)
-            )
-            simple_results = simple_query.run(as_dict=True)
-            print(f"DEBUG - Simple query results: {simple_results}")
-        except Exception as e:
-            print(f"DEBUG - Simple query error: {str(e)}")
 
     # Get child counts and share counts for all teams
     if user_teams:

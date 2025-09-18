@@ -1,42 +1,174 @@
 {
  "actions": [],
  "allow_rename": 1,
- "creation": "2025-09-17 22:44:41.263538",
+ "autoname": "hash",
+ "creation": "2024-01-01 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
  "field_order": [
+  "basic_info_section",
+  "title",
   "file",
+  "shortcut_owner",
+  "column_break_4",
   "is_shortcut",
-  "shortcut_owner"
+  "is_favourite",
+  "parent_folder",
+  "file_properties_section",
+  "file_type",
+  "mime_type",
+  "is_group",
+  "column_break_10",
+  "file_size",
+  "color",
+  "description",
+  "timestamps_section",
+  "creation_date",
+  "column_break_15",
+  "modified_date"
  ],
  "fields": [
   {
+   "fieldname": "basic_info_section",
+   "fieldtype": "Section Break",
+   "label": "Basic Information"
+  },
+  {
+   "description": "Display name of the shortcut (can be different from original file)",
+   "fieldname": "title",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "Title",
+   "reqd": 1
+  },
+  {
+   "description": "Reference to the original Drive File",
    "fieldname": "file",
    "fieldtype": "Link",
-   "label": "File",
-   "options": "Drive File"
+   "in_list_view": 1,
+   "label": "Original File",
+   "options": "Drive File",
+   "reqd": 1
+  },
+  {
+   "default": "user",
+   "description": "User who created this shortcut",
+   "fieldname": "shortcut_owner",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Shortcut Owner",
+   "options": "User",
+   "reqd": 1
+  },
+  {
+   "fieldname": "column_break_4",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "1",
+   "description": "Always 1 for shortcuts",
+   "fieldname": "is_shortcut",
+   "fieldtype": "Check",
+   "label": "Is Shortcut",
+   "read_only": 1
   },
   {
    "default": "0",
-   "fieldname": "is_shortcut",
+   "description": "Mark shortcut as favourite",
+   "fieldname": "is_favourite",
    "fieldtype": "Check",
-   "label": "Is Shortcut"
+   "label": "Is Favourite"
   },
   {
-   "fieldname": "shortcut_owner",
+   "description": "Folder containing this shortcut",
+   "fieldname": "parent_folder",
    "fieldtype": "Link",
-   "label": "Shortcut Owner",
-   "options": "User"
+   "label": "Parent Folder",
+   "options": "Drive File"
+  },
+  {
+   "description": "Inherited from original file for display purposes",
+   "fieldname": "file_properties_section",
+   "fieldtype": "Section Break",
+   "label": "File Properties"
+  },
+  {
+   "description": "File extension (copied from original)",
+   "fieldname": "file_type",
+   "fieldtype": "Data",
+   "label": "File Type",
+   "read_only": 1
+  },
+  {
+   "description": "MIME type (copied from original)",
+   "fieldname": "mime_type",
+   "fieldtype": "Data",
+   "label": "MIME Type",
+   "read_only": 1
+  },
+  {
+   "default": "0",
+   "description": "Whether original file is a folder",
+   "fieldname": "is_group",
+   "fieldtype": "Check",
+   "label": "Is Folder",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_10",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Size in bytes (copied from original)",
+   "fieldname": "file_size",
+   "fieldtype": "Int",
+   "label": "File Size",
+   "read_only": 1
+  },
+  {
+   "description": "Display color for the shortcut",
+   "fieldname": "color",
+   "fieldtype": "Color",
+   "label": "Color"
+  },
+  {
+   "description": "Optional description for the shortcut",
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "label": "Description"
+  },
+  {
+   "fieldname": "timestamps_section",
+   "fieldtype": "Section Break",
+   "label": "Timestamps"
+  },
+  {
+   "default": "now",
+   "fieldname": "creation_date",
+   "fieldtype": "Datetime",
+   "label": "Created On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "column_break_15",
+   "fieldtype": "Column Break"
+  },
+  {
+   "default": "now",
+   "fieldname": "modified_date",
+   "fieldtype": "Datetime",
+   "label": "Modified On",
+   "read_only": 1
   }
  ],
- "grid_page_length": 50,
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-17 23:10:49.246461",
+ "modified": "2025-09-18 13:51:47.689778",
  "modified_by": "hoa00001@gmail.com",
  "module": "Drive",
  "name": "Drive Shortcut",
- "owner": "hoa00001@gmail.com",
+ "naming_rule": "Random",
+ "owner": "Administrator",
  "permissions": [
   {
    "create": 1,
@@ -49,10 +181,39 @@
    "role": "System Manager",
    "share": 1,
    "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Drive User",
+   "share": 1,
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "All",
+   "share": 1,
+   "write": 1
   }
  ],
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1,
+ "track_seen": 1,
+ "track_views": 1
 }

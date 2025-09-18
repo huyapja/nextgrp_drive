@@ -471,41 +471,41 @@ class DriveFile(Document):
             "new_owner": new_owner,
         }
 
-    @frappe.whitelist()
-    def create_shortcut(self):
-        """
-        Create a shortcut of this file/folder into current user's 'My Documents'
-        For folders, recursively create shortcuts for all children
-        """
-        # Tạo shortcut cho file/folder hiện tại
-        shortcut = self._create_single_shortcut()
-        return shortcut
+    # @frappe.whitelist()
+    # def create_shortcut(self):
+    #     """
+    #     Create a shortcut of this file/folder into current user's 'My Documents'
+    #     For folders, recursively create shortcuts for all children
+    #     """
+    #     # Tạo shortcut cho file/folder hiện tại
+    #     shortcut = self._create_single_shortcut()
+    #     return shortcut
 
-    def _create_single_shortcut(self):
-        """
-        Create a single shortcut (helper method)
-        """
+    # def _create_single_shortcut(self):
+    #     """
+    #     Create a single shortcut (helper method)
+    #     """
 
-        if not frappe.has_permission(
-            doctype="Drive File",
-            doc=self,
-            ptype="read",
-            user=frappe.session.user,
-        ):
-            frappe.throw("Cannot create shortcut to own file/folder", frappe.PermissionError)
+    #     if not frappe.has_permission(
+    #         doctype="Drive File",
+    #         doc=self,
+    #         ptype="read",
+    #         user=frappe.session.user,
+    #     ):
+    #         frappe.throw("Cannot create shortcut to own file/folder", frappe.PermissionError)
 
-        # Thay vì copy tất cả, chỉ copy những field cần thiết
-        shortcut_data = {
-            "doctype": "Drive Shortcut",
-            "file": self.name,
-            "is_shortcut": 1,
-            "shortcut_owner": frappe.session.user,
-        }
-        print(shortcut_data, "Creating shortcut...")
-        shortcut = frappe.get_doc(shortcut_data)
-        shortcut.insert(ignore_permissions=True)
+    #     # Thay vì copy tất cả, chỉ copy những field cần thiết
+    #     shortcut_data = {
+    #         "doctype": "Drive Shortcut",
+    #         "file": self.name,
+    #         "is_shortcut": 1,
+    #         "shortcut_owner": frappe.session.user,
+    #     }
+    #     print(shortcut_data, "Creating shortcut...")
+    #     shortcut = frappe.get_doc(shortcut_data)
+    #     shortcut.insert(ignore_permissions=True)
 
-        return shortcut
+    #     return shortcut
 
     @frappe.whitelist()
     def remove_shortcut(self):
@@ -545,6 +545,105 @@ class DriveFile(Document):
         except Exception as e:
             frappe.db.rollback()
             frappe.throw(f"Failed to remove shortcut: {str(e)}")
+
+    @frappe.whitelist()
+    def create_shortcut(self, parent_folder=None):
+        """
+        Create a shortcut of this file/folder
+        Similar to Google Drive shortcut functionality
+
+        :param parent_folder: Target folder to place shortcut (default: user's root)
+        :return: Created shortcut document
+        """
+        # Kiểm tra quyền đọc file gốc
+        if not frappe.has_permission(
+            doctype="Drive File",
+            doc=self,
+            ptype="read",
+            user=frappe.session.user,
+        ):
+            frappe.throw(
+                "You don't have permission to create shortcut for this file/folder",
+                frappe.PermissionError,
+            )
+
+        # Không cho phép tạo shortcut của chính mình
+        # if self.owner == frappe.session.user:
+        #     frappe.throw("Cannot create shortcut to your own file/folder", frappe.ValidationError)
+
+        # Kiểm tra shortcut đã tồn tại chưa
+        existing_shortcut = frappe.db.exists(
+            {
+                "doctype": "Drive Shortcut",
+                "file": self.name,
+                "shortcut_owner": frappe.session.user,
+                "parent_folder": parent_folder or "",
+            }
+        )
+
+        if existing_shortcut:
+            frappe.throw("Shortcut already exists in this location", frappe.DuplicateEntryError)
+
+        # Xác định parent folder
+        target_parent = parent_folder or get_home_folder(self.team).name
+
+        # Tạo shortcut
+        shortcut = self._create_single_shortcut(target_parent)
+
+        # Nếu là folder, có thể tùy chọn tạo shortcut cho children
+        if self.is_group and frappe.form_dict.get("include_children"):
+            self._create_shortcuts_for_children(shortcut.name)
+
+        return shortcut
+
+    def _create_single_shortcut(self, parent_folder=None):
+        """
+        Create a single shortcut (helper method)
+        """
+        shortcut_data = {
+            "doctype": "Drive Shortcut",
+            "file": self.name,  # Reference to original file
+            "title": self.title,  # Display name (có thể rename sau)
+            "is_shortcut": 1,
+            "shortcut_owner": frappe.session.user,
+            "parent_folder": parent_folder,
+            "is_group": self.is_group,  # Copy folder status
+            "file_size": self.file_size if not self.is_group else 0,
+            "mime_type": self.mime_type,
+            "created": frappe.utils.now(),
+            "modified": frappe.utils.now(),
+            # Inherit some display properties from original
+            "color": getattr(self, "color", None),
+            "description": f"Shortcut to {self.title}",
+        }
+
+        shortcut = frappe.get_doc(shortcut_data)
+        shortcut.insert(ignore_permissions=True)
+
+        frappe.msgprint(f"Shortcut '{self.title}' created successfully", alert=True)
+        return shortcut
+
+    def _create_shortcuts_for_children(self, shortcut_parent):
+        """
+        Recursively create shortcuts for folder children (optional feature)
+        """
+        if not self.is_group:
+            return
+
+        children = frappe.get_all(
+            "Drive File",
+            filters={"parent_drive_file": self.name},
+            fields=["name", "title", "is_group"],
+        )
+
+        for child in children:
+            child_doc = frappe.get_doc("Drive File", child.name)
+            try:
+                child_shortcut = child_doc._create_single_shortcut(shortcut_parent)
+                if child.is_group:
+                    child_doc._create_shortcuts_for_children(child_shortcut.name)
+            except Exception as e:
+                frappe.log_error(f"Failed to create shortcut for {child.title}: {str(e)}")
 
 
 def on_doctype_update():
