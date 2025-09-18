@@ -477,17 +477,6 @@ class DriveFile(Document):
         Create a shortcut of this file/folder into current user's 'My Documents'
         For folders, recursively create shortcuts for all children
         """
-        # Lấy folder 'Tài liệu của tôi' (home folder của user)
-        home_folder = get_home_folder(self.team)
-
-        # Kiểm tra nếu đã có shortcut trỏ tới entity này trong home_folder
-        exists = frappe.db.exists(
-            "Drive Shortcut",
-            {"file": self.name, "is_shortcut": 1, "shortcut_owner": frappe.session.user},
-        )
-        if exists:
-            return frappe.get_doc("Drive Shortcut", exists)
-
         # Tạo shortcut cho file/folder hiện tại
         shortcut = self._create_single_shortcut()
         return shortcut

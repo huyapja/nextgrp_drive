@@ -49,7 +49,7 @@
                   @error="onThumbnailError($event, slotProps.data)"
                 />
                 <span
-                  v-if="slotProps.data.is_shortcut && ['Home'].includes($route.name)"
+                  v-if="!!slotProps.data.is_shortcut"
                   class="shortcut-badge"
                 >
                   <ShortCutIconFile />
