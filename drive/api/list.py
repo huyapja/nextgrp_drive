@@ -146,10 +146,11 @@ def files(
 
     if personal == 0 or personal == -1:
         query = query.where((DriveFile.is_private == 0))
-    elif personal == 1:
+    elif personal == 1 or personal == -2:
         query = query.where(DriveFile.is_private == 1)
         # Temporary hack: the correct way would be to check permissions on all children
         if entity_name == home:
+            query = query.right_join(DriveShortcut)
             query = query.where(
                 (DriveFile.owner == frappe.session.user)
                 | (
@@ -321,6 +322,57 @@ def shared(
     return [r for r in res if r["parent_entity"] not in parents]
 
 
+def apply_favourite_join(query, favourites_only=False, has_shortcut_join=False):
+    """
+    Áp dụng join với DriveFavourite cho query
+
+    :param query: Query object cần áp dụng favourite join
+    :param favourites_only: Chỉ lấy các file được favourite (right join)
+    :param has_shortcut_join: Query đã có join với DriveShortcut hay chưa
+    :return: Query object đã được áp dụng favourite join
+    """
+    try:
+        # Chọn loại join dựa trên favourites_only
+        if favourites_only:
+            query = query.right_join(DriveFavourite)
+        else:
+            query = query.left_join(DriveFavourite)
+
+        # Áp dụng điều kiện join tùy thuộc vào việc có shortcut join hay không
+        if has_shortcut_join:
+            # Nếu query đã có join với DriveShortcut
+            query = query.on(
+                (
+                    (DriveFavourite.entity == DriveFile.name)
+                    | (DriveFavourite.entity_shortcut == DriveShortcut.name)
+                )
+                & (DriveFavourite.user == frappe.session.user)
+            ).select(DriveFavourite.name.as_("is_favourite"))
+        else:
+            # Nếu query không có shortcut join
+            query = query.on(
+                (DriveFavourite.entity == DriveFile.name)
+                & (DriveFavourite.user == frappe.session.user)
+            ).select(DriveFavourite.name.as_("is_favourite"))
+
+        return query
+
+    except Exception as e:
+        print(f"Error in favourite join: {e}")
+        # Fallback: chỉ join với entity thường
+        if favourites_only:
+            query = query.right_join(DriveFavourite)
+        else:
+            query = query.left_join(DriveFavourite)
+
+        query = query.on(
+            (DriveFavourite.entity == DriveFile.name)
+            & (DriveFavourite.user == frappe.session.user)
+        ).select(DriveFavourite.name.as_("is_favourite"))
+
+        return query
+
+
 @frappe.whitelist()
 def files_multi_team(
     teams=None,
@@ -365,20 +417,33 @@ def files_multi_team(
     if not user_teams:
         return []
 
+    def safe_int_conversion(value, default=0):
+        """Safely convert value to int, handling string boolean values"""
+        if isinstance(value, str):
+            if value.lower() in ["true", "1"]:
+                return 1
+            elif value.lower() in ["false", "0"]:
+                return 0
+            else:
+                try:
+                    return int(value)
+                except ValueError:
+                    return default
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return default
+
     field, ascending = order_by.split(" ")
-    is_active = int(is_active)
-    only_parent = int(only_parent)
-    folders = int(folders)
-    personal = int(personal)
-    ascending = int(ascending)
+    is_active = safe_int_conversion(is_active, 1)
+    only_parent = safe_int_conversion(only_parent, 1)
+    folders = safe_int_conversion(folders, 0)
+    personal = safe_int_conversion(personal, -1)
+    ascending = safe_int_conversion(ascending, 1)
+    favourites_only = safe_int_conversion(favourites_only, 0)
+    recents_only = safe_int_conversion(recents_only, 0)
     user = frappe.session.user if frappe.session.user != "Guest" else ""
     all_results = []
-
-    # Debug: Log các thông tin đầu vào
-    print(f"DEBUG - user_teams: {user_teams}")
-    print(f"DEBUG - personal: {personal}")
-    print(f"DEBUG - entity_name: {entity_name}")
-    print(f"DEBUG - user: {user}")
 
     # Lấy file từ mỗi team
     for team in user_teams:
@@ -411,7 +476,7 @@ def files_multi_team(
 
             print(f"DEBUG - Building queries for personal={personal}")
 
-            if personal == 1:
+            if personal == 1 or personal == -2:
                 print("DEBUG - Building queries for personal=1 (My Drive)")
                 # Query 1: Lấy file gốc thuộc về user
                 original_files_query = (
@@ -432,14 +497,11 @@ def files_multi_team(
                     )
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
-                        & (DriveFile.is_private == 1)
                         & (DriveFile.owner == frappe.session.user)
                     )
                 )
 
                 # Query 2: Lấy shortcuts mà user tạo ra
-
-                # Combine both queries
                 shortcut_files_query = (
                     frappe.qb.from_(DriveFile)
                     .inner_join(DriveShortcut)
@@ -448,18 +510,14 @@ def files_multi_team(
                     .on(
                         (DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user)
                     )
-                    .left_join(DriveFavourite)
-                    .on(
-                        (DriveFavourite.entity_shortcut == DriveShortcut.name)
-                    )
                     .select(
                         *ENTITY_FIELDS,
                         DriveShortcut.is_shortcut,
                         DriveShortcut.shortcut_owner,
                         DriveShortcut.is_favourite,
                         DriveShortcut.name.as_("shortcut_name"),
-                        DriveFavourite.name.as_("is_favourite"),
-                        DriveFavourite.entity_shortcut,
+                        DriveShortcut.title.as_("shortcut_title"),
+                        DriveShortcut.parent_folder.as_("parent_entity"),
                         fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
                         fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
                             "comment"
@@ -474,6 +532,8 @@ def files_multi_team(
                     )
                 )
 
+                if personal == 1:
+                    original_files_query = original_files_query.where(DriveFile.is_private == 1)
                 query = original_files_query
                 shortcut_query = shortcut_files_query
 
@@ -520,6 +580,7 @@ def files_multi_team(
                         DriveShortcut.shortcut_owner,
                         DriveShortcut.is_favourite,
                         DriveShortcut.name.as_("shortcut_name"),
+                        DriveShortcut.title.as_("shortcut_title"),
                         fn.Coalesce(DriveShortcut.is_shortcut, 0).as_("is_shortcut"),
                         fn.Coalesce(DriveShortcut.shortcut_owner, "").as_("shortcut_owner"),
                         fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
@@ -535,37 +596,17 @@ def files_multi_team(
                 shortcut_query = None
 
             # Áp dụng các filter chung cho cả file gốc và shortcut
-            def apply_common_filters(q):
+            def apply_common_filters(q, has_shortcut=False):
                 if only_parent and (not recents_only and not favourites_only):
-                    q = q.where(DriveFile.parent_entity == current_entity_name)
+                    q = q.where(
+                        (DriveFile.parent_entity == current_entity_name)
+                        # | (DriveShortcut.parent_folder == current_entity_name)
+                    )
                 else:
                     q = q.where((DriveFile.team == team) & (DriveFile.parent_entity != ""))
-                print("111111111111111111111")
-                # Add favourites join
-                if favourites_only:
-                    print("222222222222222222")
-                    q = q.right_join(DriveFavourite)
-                else:
-                    q = q.left_join(DriveFavourite)
-                    print("333333333333333333")
-                try:
-                    q = q.on(
-                        (
-                            (DriveFavourite.entity == DriveFile.name)
-                        | (DriveFavourite.entity_shortcut == DriveShortcut.name)
-                        ) 
-                        & 
-                        (DriveFavourite.user == frappe.session.user)
-                    ).select(DriveFavourite.name.as_("is_favourite"))
-                    print("44444444444444444444444444")
-                except Exception as e:
-                    print(f"Error in join condition: {e}")
-                    # Fallback without DriveShortcut
-                    q = q.on(
-                        (DriveFavourite.entity == DriveFile.name)
-                        & 
-                        (DriveFavourite.user == frappe.session.user)
-                    ).select(DriveFavourite.name.as_("is_favourite"))
+
+                # Sử dụng hàm riêng để xử lý favourite join
+                q = apply_favourite_join(q, favourites_only, has_shortcut)
 
                 if recents_only:
                     q = (
@@ -603,12 +644,31 @@ def files_multi_team(
                     q = q.where(Criterion.any(criterion))
 
                 if folders:
+                    try:
+                        query_sql = str(q)
+                        has_shortcut_table = (
+                            "DriveShortcut" in query_sql or "tabDrive Shortcut" in query_sql
+                        )
+                    except Exception as e:
+                        has_shortcut_table = has_shortcut_join
+                    # Always filter by folders first
                     q = q.where(DriveFile.is_group == 1)
 
+                    # Only add shortcut filter if DriveShortcut table is actually in the query
+                    if has_shortcut_table:
+                        try:
+                            q = q.where(fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0)
+                        except Exception as e:
+                            print(f"DEBUG - Failed to add shortcut filter: {e}")
+                    else:
+                        print(
+                            "DEBUG - No DriveShortcut table in query, only filtering by is_group"
+                        )
                 return q
 
             # Apply filters to main query
-            query = apply_common_filters(query)
+            has_shortcut_join = personal == -1  # personal = -1 có shortcut join
+            query = apply_common_filters(query, has_shortcut_join)
 
             # Execute main query
             main_results = query.run(as_dict=True)
@@ -620,12 +680,19 @@ def files_multi_team(
 
             # Execute shortcut query if exists (for personal = 1)
             if shortcut_query is not None:
+                # Shortcut query luôn có shortcut join
+                shortcut_query = apply_common_filters(shortcut_query, has_shortcut=True)
                 shortcut_results = shortcut_query.run(as_dict=True)
                 print(f"DEBUG - Shortcut query results count: {len(shortcut_results)}")
                 # Đánh dấu results từ shortcut query
                 for result in shortcut_results:
                     result["_source"] = "shortcut"
-                    print('DEBUG -shortcut', result.shortcut_name, result.entity_shortcut, result.is_favourite)
+                    print(
+                        "DEBUG -shortcut",
+                        result.get("shortcut_name"),
+                        result.get("entity_shortcut"),
+                        result.get("is_favourite"),
+                    )
                 team_results.extend(shortcut_results)
 
             print(f"DEBUG - Total team_results for {team}: {len(team_results)}")

@@ -103,9 +103,18 @@ export const mutate = (entities, func) => {
     l.setData((d) => {
       if (!d) return
       entities.forEach(({ name, ...params }) => {
-        let el = d.find((k) => k.name === name)
-        if (el) {
-          func(el, params)
+        let el = {}
+
+        if (params.is_shortcut){
+          el = d.find((k) => k.shortcut_name === params.shortcut_name)
+          if (el) {
+            func(el, params)
+          }
+        }else{
+          el = d.find((k) => k.name === name)
+          if (el) {
+            func(el, params)
+          }
         }
       })
       return d
@@ -119,7 +128,7 @@ export const updateMoved = (new_parent, team) => {
     // No further mutation of the resource object can take place
     createResource({
       ...COMMON_OPTIONS,
-      url: "drive.api.list.files",
+      url: "drive.api.list.files_multi_team",
       makeParams: (params) => ({
         ...params,
         entity_name: new_parent,
@@ -137,6 +146,14 @@ export const updateMoved = (new_parent, team) => {
   }
 }
 
+const handleFilterFavourite = (entity) => {
+  if (entity.is_shortcut) {
+    return entity.shortcut_name
+  } else {
+    return entity.name
+  }
+}
+
 export const toggleFav = createResource({
   url: "drive.api.files.set_favourite",
   makeParams(data) {
@@ -145,16 +162,41 @@ export const toggleFav = createResource({
       mutate(getFavourites.data, (el) => (el.is_favourite = false))
       return { clear_all: true }
     }
-    const entity_names = data.entities.map(({ name }) => name)
-    getFavourites.setData((d) => {
-      return data.entities[0].is_favourite
-        ? [...d, ...data.entities]
-        : d.filter(({ name }) => !entity_names.includes(name))
-    })
-    mutate(
-      data.entities,
-      (el, { is_favourite }) => (el.is_favourite = is_favourite)
+    let entity_names = data.entities.map((entity) =>
+      handleFilterFavourite(entity)
     )
+    getFavourites.setData((d) => {
+      const currentFavourites = new Set(d.map(item => 
+        item.is_shortcut ? item.shortcut_name : item.name
+      ));
+      
+      let updatedFavourites = [...d];
+      
+      data.entities.forEach(entity => {
+        const entityId = entity.is_shortcut ? entity.shortcut_name : entity.name;
+        
+        if (entity.is_favourite) {
+          // Thêm vào favourites nếu chưa có
+          if (!currentFavourites.has(entityId)) {
+            updatedFavourites.push(entity);
+            currentFavourites.add(entityId);
+          }
+        } else {
+          // Xóa khỏi favourites nếu có
+          updatedFavourites = updatedFavourites.filter(item => {
+            const itemId = item.is_shortcut ? item.shortcut_name : item.name;
+            return itemId !== entityId;
+          });
+          currentFavourites.delete(entityId);
+        }
+      });
+      
+      return updatedFavourites;
+    });
+    // mutate(
+    //   data.entities,
+    //   (el, { is_favourite }) => (el.is_favourite = is_favourite)
+    // )
     return {
       entities: data.entities,
     }
@@ -163,8 +205,11 @@ export const toggleFav = createResource({
     if (!toggleFav.params.entities) toast(__("All favourites cleared"))
     if (toggleFav.params.entities.length === 1) return
     if (toggleFav.params.entities[0].is_favourite === false)
-      toast(__("{0} items unfavourited").format(toggleFav.params.entities.length))
-    else toast(__("{0} items favourited").format(toggleFav.params.entities.length))
+      toast(
+        __("{0} items unfavourited").format(toggleFav.params.entities.length)
+      )
+    else
+      toast(__("{0} items favourited").format(toggleFav.params.entities.length))
   },
 })
 
@@ -186,8 +231,12 @@ export const clearRecent = createResource({
   onSuccess: () => {
     const files = clearRecent.params.entity_names?.length
     toast(
-      files ? __("Removed {0} file{1} from Recents.").format(files, files === 1 ? "" : "s") 
-            : __("Removed all files from Recents.")
+      files
+        ? __("Removed {0} file{1} from Recents.").format(
+            files,
+            files === 1 ? "" : "s"
+          )
+        : __("Removed all files from Recents.")
     )
   },
 })
@@ -205,8 +254,12 @@ export const clearTrash = createResource({
     // Buggy for some reason
     const files = clearTrash.params.entity_names?.length
     toast(
-      files ? __("Permanently deleted {0} file{1}.").format(files, files === 1 ? "" : "s")
-            : __("Permanently deleted all files.")
+      files
+        ? __("Permanently deleted {0} file{1}.").format(
+            files,
+            files === 1 ? "" : "s"
+          )
+        : __("Permanently deleted all files.")
     )
   },
 })
@@ -305,7 +358,7 @@ export const move = createResource({
 
 export const allFolders = createResource({
   method: "GET",
-  url: "drive.api.list.files",
+  url: "drive.api.list.files_multi_team",
   cache: "all-folders",
   makeParams: (params) => ({
     ...params,

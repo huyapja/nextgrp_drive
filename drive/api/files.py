@@ -835,7 +835,7 @@ def set_favourite(entities=None, clear_all=False):
     for entity in entities:
         # Check if this is a shortcut entity
         is_shortcut = entity.get("is_shortcut") or entity.get("shortcut_name")
-        
+
         if is_shortcut:
             # For shortcut files, check existing favourite by entity_shortcut
             existing_doc = frappe.db.exists(
@@ -1083,7 +1083,7 @@ def get_title(entity_name):
 
 
 @frappe.whitelist()
-def move(entity_names, new_parent=None, is_private=None):
+def move(entities, new_parent=None, is_private=None):
     """
     Move file or folder to the new parent folder
 
@@ -1092,16 +1092,17 @@ def move(entity_names, new_parent=None, is_private=None):
     :raises FileExistsError: If a file or folder with the same name already exists in the specified parent folder
     :return: DriveEntity doc once file is moved
     """
-    if isinstance(entity_names, str):
-        entity_names = json.loads(entity_names)
-    if not entity_names or not isinstance(entity_names, list):
-        frappe.throw(f"Expected a non-empty list but got {type(entity_names)}", ValueError)
 
-    for entity in entity_names:
-        doc = frappe.get_doc("Drive File", entity)
-        res = doc.move(new_parent, is_private)
-    if res["title"] == "Drive - " + res["team"]:
-        res["title"] = "Home" if res["is_private"] else "Team"
+    for entity in entities:
+        # Sửa: Truy cập như dictionary thay vì object attribute
+        if entity.get("is_shortcut"):  # hoặc entity["is_shortcut"] nếu chắc chắn key tồn tại
+            doc = frappe.get_doc("Drive Shortcut", {"name": entity.get("shortcut_name")})
+            res = doc.move_shortcut(new_parent)
+        else:
+            doc = frappe.get_doc("Drive File", entity.get("name"))  # hoặc entity["name"]
+            res = doc.move(new_parent, is_private)
+            # if res["title"] == "Drive - " + res["team"]:
+            #     res["title"] = "Home" if res["is_private"] else "Team"
 
     return res
 

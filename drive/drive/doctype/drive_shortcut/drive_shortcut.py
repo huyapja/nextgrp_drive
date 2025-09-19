@@ -65,7 +65,7 @@ class DriveShortcut(Document):
     #         self.title = original_file.title
 
     @frappe.whitelist()
-    def move_shortcut(self, new_parent_folder):
+    def move_shortcut(self, parent_folder):
         """
         Move shortcut to different folder (like Google Drive)
         Instance method - operates on current shortcut document
@@ -74,11 +74,11 @@ class DriveShortcut(Document):
             frappe.throw("You can only move your own shortcuts", frappe.PermissionError)
 
         # Validate new parent folder exists and user has access
-        if new_parent_folder:
-            if not frappe.db.exists("Drive File", new_parent_folder):
+        if parent_folder:
+            if not frappe.db.exists("Drive File", parent_folder):
                 frappe.throw("Target folder does not exist")
 
-            folder = frappe.get_doc("Drive File", new_parent_folder)
+            folder = frappe.get_doc("Drive File", parent_folder)
             if not frappe.has_permission(
                 "Drive File", doc=folder, ptype="write", user=self.shortcut_owner
             ):
@@ -90,7 +90,7 @@ class DriveShortcut(Document):
                 "doctype": "Drive Shortcut",
                 "file": self.file,
                 "shortcut_owner": self.shortcut_owner,
-                "parent_folder": new_parent_folder or "",
+                "parent_folder": parent_folder or "",
                 "name": ["!=", self.name],
             }
         )
@@ -99,15 +99,47 @@ class DriveShortcut(Document):
             frappe.throw("Shortcut already exists in target location")
 
         # Update parent folder
-        old_folder = self.parent_folder
-        self.parent_folder = new_parent_folder
-        self.save()
+        old_parent = self.parent_folder
+        self.parent_folder = parent_folder
 
-        return {
-            "message": f"Shortcut moved from '{old_folder or 'Root'}' to '{new_parent_folder or 'Root'}'",
-            "success": True,
-            "new_parent_folder": self.parent_folder,
-        }
+        # Thêm các cách để đảm bảo save được commit
+        self.save()
+        frappe.db.commit()  # Force commit transaction
+
+        # Hoặc dùng cách khác:
+        # self.db_update()  # Direct database update
+
+        # Verify update đã thành công
+        updated_parent = frappe.db.get_value("Drive Shortcut", self.name, "parent_folder")
+        print(
+            f"Old parent: {old_parent}, New parent: {parent_folder}, Updated parent: {updated_parent}"
+        )
+
+        # Lấy thông tin từ thư mục đích, bao gồm team
+        if parent_folder:
+            parent_info = frappe.get_value(
+                "Drive File",
+                parent_folder,
+                ["title", "name", "is_private", "team"],
+                as_dict=True,
+            )
+        else:
+            # Nếu move về root, lấy team từ file gốc hoặc user hiện tại
+            original_file_info = frappe.get_value(
+                "Drive File",
+                self.file,
+                ["team", "is_private"],
+                as_dict=True,
+            )
+            parent_info = {
+                "title": "Home" if original_file_info.get("is_private", True) else "Team",
+                "name": None,
+                "is_private": original_file_info.get("is_private", True),
+                "team": original_file_info.get("team", ""),
+            }
+
+        print(parent_info, "11111111111111")
+        return parent_info
 
     @frappe.whitelist()
     def rename_shortcut(self, new_title):

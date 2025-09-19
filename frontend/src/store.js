@@ -58,6 +58,7 @@ const store = createStore({
     editorNewTab: localStorage.getItem("editorNewTab")
       ? JSON.parse(localStorage.getItem("editorNewTab"))
       : false,
+    folderRefreshTriggers: {},
   },
   getters: {
     isLoggedIn: (state) => {
@@ -72,6 +73,9 @@ const store = createStore({
     uploadsCompleted: (state) => {
       return state.uploads.filter((upload) => upload.completed && !upload.error)
     },
+    getFolderRefreshTrigger: (state) => (entityName) => {
+      return state.folderRefreshTriggers[entityName] || 0
+    }
   },
   mutations: {
     setElementExists(state, val) {
@@ -158,6 +162,21 @@ const store = createStore({
     setIsSidebarExpanded(state, payload) {
       localStorage.setItem("IsSidebarExpanded", JSON.stringify(payload))
       state.IsSidebarExpanded = payload
+    },
+    // Mutation để trigger refresh folder
+    triggerFolderRefresh(state, entityName) {
+      if (!state.folderRefreshTriggers[entityName]) {
+        state.folderRefreshTriggers[entityName] = 0
+      }
+      state.folderRefreshTriggers[entityName]++
+      console.log(`🔄 Triggered refresh for folder: ${entityName}, count: ${state.folderRefreshTriggers[entityName]}`)
+    },
+    
+    // Mutation để reset refresh trigger (optional)
+    resetFolderRefreshTrigger(state, entityName) {
+      if (state.folderRefreshTriggers[entityName]) {
+        state.folderRefreshTriggers[entityName] = 0
+      }
     },
   },
   actions: {

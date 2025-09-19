@@ -259,14 +259,14 @@ const actionItems = computed(() => {
         icon: ShortcutIcon,
         action: ([entity]) => createShortcut(entity),
         important: true,
-        isEnabled: ()=> !store.state.activeEntity?.is_shortcut || route.name !== 'Home'
+        isEnabled: ()=> !store.state.activeEntity?.is_shortcut
       },
       {
         label: "Bỏ lối tắt",
         icon: ShortcutIcon,
         action: ([entity]) => removeShortcut(entity),
         important: true,
-        isEnabled: ()=> store.state.activeEntity?.is_shortcut && route.name === 'Home'
+        isEnabled: ()=> store.state.activeEntity?.is_shortcut 
       },
       {
         label: "Tải xuống",
@@ -362,6 +362,7 @@ const actionItems = computed(() => {
     ]
   }
 })
+
 
 const userData = computed(() =>
   allUsers.data ? Object.fromEntries(allUsers.data.map((k) => [k.name, k])) : {}

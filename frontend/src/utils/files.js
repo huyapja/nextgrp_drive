@@ -7,7 +7,6 @@ import { formatSize } from "@/utils/format"
 import { useTimeAgoVi } from "@/utils/useTimeAgoVi"
 import { set } from "idb-keyval"
 import { getLink } from "./getLink"
-
 // MIME icons
 import Archive from "@/components/MimeIcons/Archive.vue"
 import Audio from "@/components/MimeIcons/Audio.vue"
@@ -369,6 +368,7 @@ export const removeShortcutResource = createResource({
     url: 'run_doc_method',
     auto: false,
     onSuccess: (data) => {
+      console.log("KKKKKKKKKKK", data)
       getPersonal.reload()
       toast('Tạo shortcut thành công')
     },
