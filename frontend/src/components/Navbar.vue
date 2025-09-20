@@ -257,6 +257,7 @@ import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"
 import LucideUsers from "~icons/lucide/users"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
+import ShortcutIcon from "../assets/Icons/ShortcutIcon.vue"
 import ContextMenu from "./ContextMenu.vue"
 import Dialogs from "./Dialogs.vue"
 import UsersBar from "./UsersBar.vue"
@@ -282,7 +283,7 @@ const props = defineProps({
   getEntities: Function, // Add this prop
 })
 
-console.log('Navbar getEntities prop:', props.getEntities)
+console.log("Navbar getEntities prop:", props.getEntities)
 
 // Composables
 const store = useStore()
@@ -375,10 +376,26 @@ const dropdownActionItems = (row) => {
       icon: MoveOwnerIcon,
       handler: () => {
         moreEvent.value = false
-        dialogContextMenu.value = 'move_owner'
+        dialogContextMenu.value = "move_owner"
       },
-      isEnabled: (row)=> currentUserEmail.value === row?.owner
-      
+      isEnabled: (row) => currentUserEmail.value === row?.owner,
+    },
+    {
+      label: "Tạo lối tắt",
+      icon: ShortcutIcon,
+      action: ([entity]) => createShortcut(entity),
+      important: true,
+      isEnabled: () =>
+        !store.state.activeEntity?.is_shortcut || route.name !== "Home",
+    },
+    {
+      label: "Bỏ lối tắt",
+      icon: ShortcutIcon,
+      action: ([entity]) => removeShortcut(entity),
+      important: true,
+      isEnabled: () =>{
+        console.log(store.state.activeEntity, "store.state.activeEntity()")
+        return store.state.activeEntity?.is_shortcut && route.name === "Home"},
     },
     { divider: true },
     {

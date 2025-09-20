@@ -16,7 +16,7 @@
             <template v-else>
               <span class="flex items-center">
                 {{ __('Moving') }} "
-                <span class="truncate max-w-[80%]">{{ props.entities[0].title }}</span>"
+                <span class="truncate max-w-[80%]">{{props.entities[0].shortcut_title || props.entities[0].title }}</span>"
               </span>
             </template>
           </div>
@@ -212,7 +212,7 @@
             @click="
               $emit('success'),
                 move.submit({
-                  entity_names: entities.map((obj) => obj.name),
+                  entities: entities,
                   new_parent: currentFolder,
                   is_private: breadcrumbs[breadcrumbs.length - 1].is_private,
                 })
@@ -265,6 +265,10 @@ const props = defineProps({
     default: null,
   },
 })
+
+const handleMove = ()=>{
+
+}
 
 // Dynamic tree structures that will be updated from API responses
 const homeRoot = reactive({
@@ -391,7 +395,7 @@ const folderPermissions = createResource({
 })
 
 const folderContents = createResource({
-  url: "drive.api.list.files",
+  url: "drive.api.list.files_multi_team",
   makeParams: (params) => ({
     team: route.params.team,
     is_active: 1,
@@ -409,12 +413,15 @@ const folderContents = createResource({
 
 const folderMultiContents = createResource({
   url: "drive.api.list.files_multi_team",
-  makeParams: (params) => ({
-    team: route.params.team,
-    is_active: 1,
-    folders: 1,
-    ...params,
-  }),
+  makeParams: (params) => {
+    const finalParams = {
+      team: route.params.team,
+      is_active: 1,
+      folders: 1,
+      ...params,
+    };
+    return finalParams;
+  },
   onSuccess: (data) => {
     // Update home tree with new data
     if (data && Array.isArray(data)) {

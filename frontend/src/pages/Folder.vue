@@ -28,7 +28,7 @@ const props = defineProps({
 
 const getFolderContents = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files",
+  url: "drive.api.list.files_multi_team",
   makeParams: (params) => ({
     ...params,
     // Disable all checks, return all children
@@ -39,6 +39,7 @@ const getFolderContents = createResource({
   cache: ["folder", props.entityName],
 })
 setCache(getFolderContents, ["folder", props.entityName])
+
 
 onMounted(() => {
   // Lưu thông tin folder share nếu user chưa login

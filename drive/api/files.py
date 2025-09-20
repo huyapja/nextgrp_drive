@@ -823,43 +823,85 @@ def delete_entities(entity_names=None, clear_all=None):
 
 @frappe.whitelist()
 def set_favourite(entities=None, clear_all=False):
-    """
-    Favouite or unfavourite DriveEntities for specified user
-
-    :param entities: List[dict] of document names and whether favorite
-    :type entity_names: list[str]
-    :raises ValueError: If decoded entity_names is not a list
-    """
     if clear_all:
-        return frappe.db.delete("Drive Favourite", {"user": frappe.session.user})
+        # Clear all favourites from Drive Favourite table
+        frappe.db.delete("Drive Favourite", {"user": frappe.session.user})
+        frappe.db.commit()
+        return
 
     if not isinstance(entities, list):
         frappe.throw(f"Expected list but got {type(entities)}", ValueError)
 
     for entity in entities:
-        existing_doc = frappe.db.exists(
-            {
-                "doctype": "Drive Favourite",
-                "entity": entity["name"],
-                "user": frappe.session.user,
-            }
-        )
-        if not entity.get("is_favourite"):
-            entity["is_favourite"] = not existing_doc
+        # Check if this is a shortcut entity
+        is_shortcut = entity.get("is_shortcut") or entity.get("shortcut_name")
 
-        if not isinstance(entity["is_favourite"], bool):
-            entity["is_favourite"] = json.loads(entity["is_favourite"])
+        if is_shortcut:
+            # For shortcut files, check existing favourite by entity_shortcut
+            existing_doc = frappe.db.exists(
+                {
+                    "doctype": "Drive Favourite",
+                    "entity_shortcut": entity["shortcut_name"],
+                    "user": frappe.session.user,
+                }
+            )
 
-        if not entity["is_favourite"] and existing_doc:
-            frappe.delete_doc("Drive Favourite", existing_doc)
-        elif entity["is_favourite"] and not existing_doc:
-            frappe.get_doc(
+            # Set default favourite status if not provided
+            if "is_favourite" not in entity:
+                entity["is_favourite"] = not existing_doc
+
+            # Ensure is_favourite is boolean
+            if not isinstance(entity["is_favourite"], bool):
+                entity["is_favourite"] = json.loads(entity["is_favourite"])
+
+            # Handle favourite/unfavourite logic for shortcuts
+            if not entity["is_favourite"] and existing_doc:
+                # Remove from favourites
+                frappe.delete_doc("Drive Favourite", existing_doc)
+            elif entity["is_favourite"] and not existing_doc:
+                # Add to favourites
+                frappe.get_doc(
+                    {
+                        "doctype": "Drive Favourite",
+                        # "entity": entity.get("name"),  # Original entity name if available
+                        "entity_shortcut": entity["shortcut_name"],
+                        "user": frappe.session.user,
+                    }
+                ).insert()
+
+        else:
+            # For regular files, use entity field as before
+            existing_doc = frappe.db.exists(
                 {
                     "doctype": "Drive Favourite",
                     "entity": entity["name"],
                     "user": frappe.session.user,
                 }
-            ).insert()
+            )
+
+            # Set default favourite status if not provided
+            if "is_favourite" not in entity:
+                entity["is_favourite"] = not existing_doc
+
+            # Ensure is_favourite is boolean
+            if not isinstance(entity["is_favourite"], bool):
+                entity["is_favourite"] = json.loads(entity["is_favourite"])
+
+            # Handle favourite/unfavourite logic for regular files
+            if not entity["is_favourite"] and existing_doc:
+                # Remove from favourites
+                frappe.delete_doc("Drive Favourite", existing_doc)
+            elif entity["is_favourite"] and not existing_doc:
+                # Add to favourites
+                frappe.get_doc(
+                    {
+                        "doctype": "Drive Favourite",
+                        "entity": entity["name"],
+                        "user": frappe.session.user,
+                    }
+                ).insert()
+
+    frappe.db.commit()
 
 
 # def toggle_is_active(doc):
@@ -937,21 +979,32 @@ def remove_or_restore(entity_names, team):
 @frappe.whitelist(allow_guest=True)
 def call_controller_method(entity_name, method):
     """
-    Call a whitelisted Drive File controller method
+    Call a whitelisted Drive File or Drive Shortcut controller method
 
     :param entity_name: Document-name of the document on which the controller method is to be called
     :param method: The controller method to be called
     :raises ValueError: If the entity does not exist
     :return: The result of the controller method
     """
-    # broken
-    drive_file = frappe.get_doc("Drive File", frappe.local.form_dict.pop("entity_name"))
-    if not drive_file:
-        frappe.throw("Entity does not exist", ValueError)
+    # Get parameters from form_dict
+    entity_name = frappe.local.form_dict.pop("entity_name")
     method = frappe.local.form_dict.pop("method")
-    drive_file.is_whitelisted(method)
-    frappe.local.form_dict.pop("cmd")
-    return drive_file.run_method(method, **frappe.local.form_dict)
+    frappe.local.form_dict.pop("cmd", None)  # Remove cmd parameter
+
+    # Try Drive File first
+    if frappe.db.exists("Drive File", entity_name):
+        drive_file = frappe.get_doc("Drive File", entity_name)
+        drive_file.is_whitelisted(method)
+        return drive_file.run_method(method, **frappe.local.form_dict)
+
+    # Try Drive Shortcut if Drive File not found
+    elif frappe.db.exists("Drive Shortcut", entity_name):
+        drive_shortcut = frappe.get_doc("Drive Shortcut", entity_name)
+        drive_shortcut.is_whitelisted(method)
+        return drive_shortcut.run_method(method, **frappe.local.form_dict)
+
+    # If neither exists, throw error
+    frappe.throw(f"Entity '{entity_name}' does not exist", ValueError)
 
 
 @frappe.whitelist()
@@ -1030,7 +1083,7 @@ def get_title(entity_name):
 
 
 @frappe.whitelist()
-def move(entity_names, new_parent=None, is_private=None):
+def move(entities, new_parent=None, is_private=None):
     """
     Move file or folder to the new parent folder
 
@@ -1039,16 +1092,17 @@ def move(entity_names, new_parent=None, is_private=None):
     :raises FileExistsError: If a file or folder with the same name already exists in the specified parent folder
     :return: DriveEntity doc once file is moved
     """
-    if isinstance(entity_names, str):
-        entity_names = json.loads(entity_names)
-    if not entity_names or not isinstance(entity_names, list):
-        frappe.throw(f"Expected a non-empty list but got {type(entity_names)}", ValueError)
 
-    for entity in entity_names:
-        doc = frappe.get_doc("Drive File", entity)
-        res = doc.move(new_parent, is_private)
-    if res["title"] == "Drive - " + res["team"]:
-        res["title"] = "Home" if res["is_private"] else "Team"
+    for entity in entities:
+        # Sửa: Truy cập như dictionary thay vì object attribute
+        if entity.get("is_shortcut"):  # hoặc entity["is_shortcut"] nếu chắc chắn key tồn tại
+            doc = frappe.get_doc("Drive Shortcut", {"name": entity.get("shortcut_name")})
+            res = doc.move_shortcut(new_parent)
+        else:
+            doc = frappe.get_doc("Drive File", entity.get("name"))  # hoặc entity["name"]
+            res = doc.move(new_parent, is_private)
+            # if res["title"] == "Drive - " + res["team"]:
+            #     res["title"] = "Home" if res["is_private"] else "Team"
 
     return res
 

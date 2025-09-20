@@ -4,7 +4,7 @@
     <div class="table-container">
       <DataTable
         v-model:selection="selectedRows"
-        :value="formattedRows"
+        :value="formattedRowsWithKeys"
         :loading="!folderContents"
         :paginator="false"
         :rows="1000"
@@ -12,10 +12,10 @@
         scrollHeight="flex"
         showGridlines
         class="file-table"
-        dataKey="name"
+        dataKey="uniqueKey"
         @row-contextmenu="onRowContextMenu"
         @row-click="onRowClick"
-      >
+>
         <!-- Selection Column -->
         <Column
           selectionMode="multiple"
@@ -49,7 +49,7 @@
                   @error="onThumbnailError($event, slotProps.data)"
                 />
                 <span
-                  v-if="slotProps.data.is_shortcut && ['Home'].includes($route.name)"
+                  v-if="!!slotProps.data.is_shortcut"
                   class="shortcut-badge"
                 >
                   <ShortCutIconFile />
@@ -242,10 +242,17 @@ const formattedRows = computed(() => {
 
 // Data display methods
 const getDisplayName = (row) => {
-  if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
-    return row.title
+  if (row.is_shortcut){
+    if (row.shortcut_title.lastIndexOf(".") === -1 || row.is_group || row.document) {
+    return row.shortcut_title
+    }
+    return row.shortcut_title.slice(0, row.shortcut_title.lastIndexOf("."))
+  }else{
+    if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
+      return row.title
+    }
+    return row.title.slice(0, row.title.lastIndexOf("."))
   }
-  return row.title.slice(0, row.title.lastIndexOf("."))
 }
 
 const getOwnerLabel = (row) => {
@@ -306,8 +313,26 @@ const onRowOptions = (event, row) => {
 }
 
 // Watch for selection changes
+const getRowUniqueId = (row) => {
+  // If it's a shortcut, use shortcut_name (shortcut ID)
+  // Otherwise, use name (original file ID)
+  return row.is_shortcut ? row.shortcut_name : row.name
+}
+
+// Computed property for formatted rows with unique dataKey
+const formattedRowsWithKeys = computed(() => {
+  return formattedRows.value.map(row => ({
+    ...row,
+    uniqueKey: getRowUniqueId(row)
+  }))
+})
+
+// Updated watch function
 watch(selectedRows, (newSelections) => {
-  const selectionSet = new Set(newSelections.map((row) => row.name))
+  // Use the unique identifier for each row type
+  const selectionSet = new Set(newSelections.map((row) => getRowUniqueId(row)))
+  console.log("Selection set:", selectionSet, "Selected rows:", selectedRows.value)
+  
   selections.value = selectionSet
   if (newSelections.length === 0) {
     selectedRow.value = null

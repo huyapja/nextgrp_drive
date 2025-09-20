@@ -18,9 +18,15 @@
     v-model="dialog"
     :entity="selections[0]"
     @success="
-      ({ name, title }) => {
-        if (selections[0] !== rootResource?.data && props.getEntities)
-          props.getEntities.data.find((k) => k.name === name).title = title
+      ({ name, title, is_shortcut = false }) => {
+        console.log(name, is_shortcut, title, 'name, is_shortcut, title')
+        if (selections[0] !== rootResource?.data && props.getEntities){
+          if (is_shortcut){
+            props.getEntities.data.find((k) => k.shortcut_name === name).title = title
+          } else {
+            props.getEntities.data.find((k) => k.name === name).title = title
+          }
+        }
         resetDialog()
         // Handle breadcrumbs
         let l = store.state.breadcrumbs[store.state.breadcrumbs.length - 1]
@@ -170,9 +176,15 @@ function removeFromList(entities, move = true) {
       })
     }
   } else {
-    const names = entities.map((o) => o.name)
+    const names = entities.map((o) => o.shortcut_name || o.name)
     props.getEntities.setData(
-      props.getEntities.data.filter(({ name }) => !names.includes(name))
+      props.getEntities.data.filter(({ name, shortcut_name, is_shortcut }) => {
+        if (is_shortcut){
+          return !names.includes(shortcut_name)
+        } else{
+          return !names.includes(name)
+        }
+      })
     )
   }
   resetDialog()
