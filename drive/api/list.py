@@ -597,17 +597,101 @@ def files_multi_team(
 
             # Áp dụng các filter chung cho cả file gốc và shortcut
             def apply_common_filters(q, has_shortcut=False):
-                if only_parent and (not recents_only and not favourites_only):
-                    q = q.where(
-                        (DriveFile.parent_entity == current_entity_name)
-                        # | (DriveShortcut.parent_folder == current_entity_name)
+                """
+                Apply common filters to the query with optimized logic to reduce code duplication
+                """
+
+                def has_shortcut_table_in_query(query):
+                    """Helper function to check if shortcut table exists in query"""
+                    try:
+                        query_sql = str(query)
+                        return "DriveShortcut" in query_sql or "tabDrive Shortcut" in query_sql
+                    except Exception as e:
+                        print(f"DEBUG - Error checking query SQL: {e}")
+                        return has_shortcut_join
+
+                def apply_parent_filter(query, has_shortcut_table):
+                    """Apply parent entity filtering with shortcut handling"""
+                    if has_shortcut_table:
+                        try:
+                            return query.where(DriveShortcut.parent_folder == current_entity_name)
+                        except Exception as e:
+                            print(f"DEBUG - Failed to add shortcut filter: {e}")
+                            return query.where(DriveFile.parent_entity == current_entity_name)
+                    else:
+                        print(
+                            "DEBUG - No DriveShortcut table in query, only filtering by parent_entity"
+                        )
+                        return query.where(DriveFile.parent_entity == current_entity_name)
+
+                def apply_folder_filter(query, has_shortcut_table):
+                    """Apply folder-specific filtering"""
+                    query = query.where(DriveFile.is_group == 1)
+
+                    if has_shortcut_table:
+                        try:
+                            return query.where(fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0)
+                        except Exception as e:
+                            print(f"DEBUG - Failed to add shortcut filter: {e}")
+                    else:
+                        print(
+                            "DEBUG - No DriveShortcut table in query, only filtering by is_group"
+                        )
+
+                    return query
+
+                def apply_file_kinds_filter(query, file_kinds):
+                    """Apply file kinds filtering"""
+                    file_kinds_parsed = (
+                        json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
                     )
+
+                    if not file_kinds_parsed:
+                        return query
+
+                    mime_types = []
+                    criterion = []
+
+                    for kind in file_kinds_parsed:
+                        mime_types.extend(MIME_LIST_MAP.get(kind, []))
+
+                    if mime_types:
+                        criterion.extend(
+                            [DriveFile.mime_type == mime_type for mime_type in mime_types]
+                        )
+
+                    if "Folder" in file_kinds_parsed:
+                        criterion.append(DriveFile.is_group == 1)
+
+                    return query.where(Criterion.any(criterion)) if criterion else query
+
+                def apply_tag_filter(query, tag_list):
+                    """Apply tag filtering"""
+                    if not tag_list:
+                        return query
+
+                    tag_list_parsed = (
+                        json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+                    )
+                    query = query.left_join(DriveEntityTag).on(
+                        DriveEntityTag.parent == DriveFile.name
+                    )
+                    tag_criteria = [DriveEntityTag.tag == tag for tag in tag_list_parsed]
+                    return query.where(Criterion.any(tag_criteria))
+
+                # Main filtering logic
+                has_shortcut_table = has_shortcut_table_in_query(q)
+
+                # Apply parent/team filtering
+                if only_parent and (not recents_only and not favourites_only):
+                    q = apply_parent_filter(q, has_shortcut_table)
                 else:
                     q = q.where((DriveFile.team == team) & (DriveFile.parent_entity != ""))
 
-                # Sử dụng hàm riêng để xử lý favourite join
+                # Apply favourite join
                 q = apply_favourite_join(q, favourites_only, has_shortcut)
 
+                # Apply recents filtering
                 if recents_only:
                     q = (
                         q.right_join(Recents)
@@ -619,51 +703,22 @@ def files_multi_team(
                         .select("*")
                     )
 
-                # Add tag filters
-                if tag_list:
-                    tag_list_parsed = (
-                        json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
-                    )
-                    q = q.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
-                    tag_list_criterion = [DriveEntityTag.tag == tags for tags in tag_list_parsed]
-                    q = q.where(Criterion.any(tag_list_criterion))
+                # Apply tag filtering
+                q = apply_tag_filter(q, tag_list)
 
+                # Apply active status filter
                 q = q.where(DriveFile.is_active == is_active)
 
-                # Process file_kinds - use the parameter directly
-                file_kinds_parsed = (
-                    json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
-                )
-                if file_kinds_parsed:
-                    mime_types = []
-                    for kind in file_kinds_parsed:
-                        mime_types.extend(MIME_LIST_MAP.get(kind, []))
-                    criterion = [DriveFile.mime_type == mime_type for mime_type in mime_types]
-                    if "Folder" in file_kinds_parsed:
-                        criterion.append(DriveFile.is_group == 1)
-                    q = q.where(Criterion.any(criterion))
+                # Apply file kinds filtering
+                q = apply_file_kinds_filter(q, file_kinds)
 
+                # Apply folder filtering
                 if folders:
-                    try:
-                        query_sql = str(q)
-                        has_shortcut_table = (
-                            "DriveShortcut" in query_sql or "tabDrive Shortcut" in query_sql
-                        )
-                    except Exception as e:
-                        has_shortcut_table = has_shortcut_join
-                    # Always filter by folders first
-                    q = q.where(DriveFile.is_group == 1)
+                    has_shortcut_table = has_shortcut_table_in_query(
+                        q
+                    )  # Re-check after previous filters
+                    q = apply_folder_filter(q, has_shortcut_table)
 
-                    # Only add shortcut filter if DriveShortcut table is actually in the query
-                    if has_shortcut_table:
-                        try:
-                            q = q.where(fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0)
-                        except Exception as e:
-                            print(f"DEBUG - Failed to add shortcut filter: {e}")
-                    else:
-                        print(
-                            "DEBUG - No DriveShortcut table in query, only filtering by is_group"
-                        )
                 return q
 
             # Apply filters to main query

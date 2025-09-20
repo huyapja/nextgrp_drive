@@ -176,9 +176,15 @@ function removeFromList(entities, move = true) {
       })
     }
   } else {
-    const names = entities.map((o) => o.name)
+    const names = entities.map((o) => o.shortcut_name || o.name)
     props.getEntities.setData(
-      props.getEntities.data.filter(({ name }) => !names.includes(name))
+      props.getEntities.data.filter(({ name, shortcut_name, is_shortcut }) => {
+        if (is_shortcut){
+          return !names.includes(shortcut_name)
+        } else{
+          return !names.includes(name)
+        }
+      })
     )
   }
   resetDialog()

@@ -349,7 +349,7 @@ export const move = createResource({
     })
 
     // Update moved-into folder
-    updateMoved(data.name, data.team, data.is_private)
+    // updateMoved(data.name, data.team, data.is_private, data.is_shortcut)
   },
   onError() {
     toast(__("There was an error."))

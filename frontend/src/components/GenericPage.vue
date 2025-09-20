@@ -160,8 +160,8 @@ watch(
 const selections = ref(new Set())
 const selectedEntitities = computed(
   () =>
-    props.getEntities.data?.filter?.(({ name }) =>
-      selections.value.has(name)
+    props.getEntities.data?.filter?.(({ name, is_shortcut, shortcut_name }) =>
+      selections.value.has(is_shortcut ? shortcut_name : name)
     ) || []
 )
 

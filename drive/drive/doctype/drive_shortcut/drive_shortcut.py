@@ -85,18 +85,18 @@ class DriveShortcut(Document):
                 frappe.throw("No permission to add shortcuts to this folder")
 
         # Check if shortcut already exists in target location
-        existing = frappe.db.exists(
-            {
-                "doctype": "Drive Shortcut",
-                "file": self.file,
-                "shortcut_owner": self.shortcut_owner,
-                "parent_folder": parent_folder or "",
-                "name": ["!=", self.name],
-            }
-        )
+        # existing = frappe.db.exists(
+        #     {
+        #         "doctype": "Drive Shortcut",
+        #         "file": self.file,
+        #         "shortcut_owner": self.shortcut_owner,
+        #         "parent_folder": parent_folder or "",
+        #         "name": ["!=", self.name],
+        #     }
+        # )
 
-        if existing:
-            frappe.throw("Shortcut already exists in target location")
+        # if existing:
+        #     frappe.throw("Shortcut already exists in target location")
 
         # Update parent folder
         old_parent = self.parent_folder
@@ -137,8 +137,7 @@ class DriveShortcut(Document):
                 "is_private": original_file_info.get("is_private", True),
                 "team": original_file_info.get("team", ""),
             }
-
-        print(parent_info, "11111111111111")
+        parent_info["is_shortcut"] = True
         return parent_info
 
     @frappe.whitelist()
