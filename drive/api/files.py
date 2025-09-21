@@ -802,23 +802,84 @@ def delete_background_job(entity, ignore_permissions):
 @frappe.whitelist()
 def delete_entities(entity_names=None, clear_all=None):
     """
-    Delete DriveEntities
+    Permanently delete DriveEntities (files and shortcuts)
 
-    :param entity_names: List of document-names
-    :type entity_names: list[str]
+    :param entity_names: List of document-names or objects with entity and is_shortcut properties
+    :type entity_names: list[str] or list[dict]
     :raises ValueError: If decoded entity_names is not a list
     """
     if clear_all:
-        entity_names = frappe.db.get_list(
+        # Xóa vĩnh viễn tất cả files trong trash của user
+        file_names = frappe.db.get_list(
             "Drive File", {"is_active": 0, "owner": frappe.session.user}, pluck="name"
         )
+        for file_name in file_names:
+            frappe.get_doc("Drive File", file_name).permanent_delete()
+
+        # Soft delete tất cả shortcuts trong trash của user (set is_active = -1)
+        shortcut_names = frappe.db.get_list(
+            "Drive Shortcut", {"is_active": 0, "shortcut_owner": frappe.session.user}, pluck="name"
+        )
+        for shortcut_name in shortcut_names:
+            frappe.db.set_value("Drive Shortcut", shortcut_name, "is_active", -1)
+
     elif isinstance(entity_names, str):
         entity_names = json.loads(entity_names)
     elif not isinstance(entity_names, list) or not entity_names:
         frappe.throw(f"Expected non-empty list but got {type(entity_names)}", ValueError)
 
-    for entity in entity_names:
-        frappe.get_doc("Drive File", entity).permanent_delete()
+    if entity_names:
+        for entity in entity_names:
+            # Xử lý entity có thể là string hoặc dict
+            if isinstance(entity, dict):
+                entity_name = entity.get("entity")
+                is_shortcut = entity.get("is_shortcut", False)
+            else:
+                # Backward compatibility - assume it's a file name
+                entity_name = entity
+                is_shortcut = False
+
+            if is_shortcut:
+                # Soft delete shortcut (set is_active = -1)
+                try:
+                    # Kiểm tra shortcut có tồn tại và đang trong trash không
+                    shortcut = frappe.db.get_value(
+                        "Drive Shortcut",
+                        {
+                            "name": entity_name,
+                            "shortcut_owner": frappe.session.user,
+                            "is_active": 0,  # Chỉ xử lý shortcut đã ở trong trash
+                        },
+                        ["name"],
+                        as_dict=True,
+                    )
+
+                    if not shortcut:
+                        frappe.throw(
+                            f"Shortcut {entity_name} not found in trash or you don't have permission to delete it"
+                        )
+
+                    # Soft delete: set is_active = -1
+                    frappe.db.set_value("Drive Shortcut", entity_name, "is_active", -1)
+
+                except frappe.DoesNotExistError:
+                    frappe.throw(f"Shortcut {entity_name} not found")
+                except Exception as e:
+                    frappe.throw(f"Failed to delete shortcut {entity_name}: {str(e)}")
+            else:
+                # Xóa vĩnh viễn file (logic cũ)
+                try:
+                    file_doc = frappe.get_doc("Drive File", entity_name)
+                    # Kiểm tra file có trong trash không
+                    if file_doc.is_active == 1:
+                        frappe.throw(f"File {entity_name} is not in trash")
+                    file_doc.permanent_delete()
+                except Exception as e:
+                    frappe.throw(f"Failed to delete file {entity_name}: {str(e)}")
+
+    frappe.db.commit()
+
+    return {"success": True, "message": "Entities permanently deleted successfully"}
 
 
 @frappe.whitelist()
@@ -912,68 +973,146 @@ def set_favourite(entities=None, clear_all=False):
 
 
 @frappe.whitelist()
-def remove_or_restore(entity_names, team):
+def remove_or_restore(team, entity_shortcuts=None, entity_names=None):
     """
-    To move entities to or restore entities from the trash
+    To move entities (files and shortcuts) to or restore entities from the trash
 
-    :param entity_names: List of document-names
+    :param entity_names: List of file document-names
     :type entity_names: list[str]
+    :param entity_shortcuts: List of shortcut document-names
+    :type entity_shortcuts: list[str]
+    :param team: Team name
     """
     storage_data = storage_bar_data(team)
 
-    if isinstance(entity_names, str):
-        entity_names = json.loads(entity_names)
-    if not isinstance(entity_names, list):
-        frappe.throw(f"Expected list but got {type(entity_names)}", ValueError)
+    # Process files
+    if entity_names:
+        if isinstance(entity_names, str):
+            entity_names = json.loads(entity_names)
+        if not isinstance(entity_names, list):
+            frappe.throw(f"Expected list but got {type(entity_names)}", ValueError)
 
-    def depth_zero_toggle_is_active(doc):
-        if doc.is_active:
-            flag = 0
-            # Thêm vào global trash khi chuyển vào thùng rác
-            existing_trash = frappe.db.exists(
-                {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
+        def depth_zero_toggle_is_active(doc):
+            if doc.is_active:
+                flag = 0
+                # Thêm vào global trash khi chuyển vào thùng rác
+                existing_trash = frappe.db.exists(
+                    {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
+                )
+                if not existing_trash:
+                    frappe.get_doc(
+                        {
+                            "doctype": "Drive Trash",
+                            "entity": doc.name,
+                            "user": frappe.session.user,
+                            "team": doc.team,
+                            "original_path": doc.path,
+                            "trashed_on": frappe.utils.now(),
+                        }
+                    ).insert()
+            else:
+                storage_data_limit = storage_data["limit"] * 1024 * 1024
+                if (storage_data_limit - storage_data["total_size"]) < doc.file_size:
+                    frappe.throw("You're out of storage!", ValueError)
+                flag = 1
+                # Xóa khỏi global trash khi khôi phục
+                existing_trash = frappe.db.exists(
+                    {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
+                )
+                if existing_trash:
+                    frappe.delete_doc("Drive Trash", existing_trash)
+
+            doc.is_active = flag
+            folder_size = frappe.db.get_value("Drive File", doc.parent_entity, "file_size")
+            frappe.db.set_value(
+                "Drive File",
+                doc.parent_entity,
+                "file_size",
+                folder_size + doc.file_size * (1 if flag else -1),
             )
-            if not existing_trash:
-                frappe.get_doc(
+            doc.save()
+
+        for entity in entity_names:
+            doc = frappe.get_doc("Drive File", entity)
+            if not frappe.has_permission(
+                doctype="Drive File", user=frappe.session.user, doc=doc, ptype="write"
+            ):
+                raise frappe.PermissionError("You do not have permission to remove this file")
+            depth_zero_toggle_is_active(doc)
+
+    # Process shortcuts
+    if entity_shortcuts:
+        if isinstance(entity_shortcuts, str):
+            entity_shortcuts = json.loads(entity_shortcuts)
+        if not isinstance(entity_shortcuts, list):
+            frappe.throw(f"Expected list but got {type(entity_shortcuts)}", ValueError)
+
+        def toggle_shortcut_is_active(name):
+            # Get shortcut document
+            shortcut_doc = frappe.get_doc("Drive Shortcut", name)
+
+            # Check permission - user must own the shortcut
+            if shortcut_doc.shortcut_owner != frappe.session.user:
+                raise frappe.PermissionError("You do not have permission to modify this shortcut")
+
+            if shortcut_doc.is_active:
+                # Move to trash
+                flag = 0
+                # Thêm vào Drive Trash với entity_shortcut
+                existing_trash = frappe.db.exists(
                     {
                         "doctype": "Drive Trash",
-                        "entity": doc.name,
+                        "entity_shortcut": name,
                         "user": frappe.session.user,
-                        "team": doc.team,
-                        "original_path": doc.path,
-                        "trashed_on": frappe.utils.now(),
                     }
-                ).insert()
-        else:
-            storage_data_limit = storage_data["limit"] * 1024 * 1024
-            if (storage_data_limit - storage_data["total_size"]) < doc.file_size:
-                frappe.throw("You're out of storage!", ValueError)
-            flag = 1
-            # Xóa khỏi global trash khi khôi phục
-            existing_trash = frappe.db.exists(
-                {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
-            )
-            if existing_trash:
-                frappe.delete_doc("Drive Trash", existing_trash)
+                )
+                if not existing_trash:
+                    frappe.get_doc(
+                        {
+                            "doctype": "Drive Trash",
+                            "entity_shortcut": name,
+                            "user": frappe.session.user,
+                            "team": team,
+                            "original_path": f"Shortcut: {shortcut_doc.name}",
+                            "trashed_on": frappe.utils.now(),
+                        }
+                    ).insert()
+            else:
+                # Restore from trash
+                flag = 1
+                # Check if original file still exists and is active
+                original_file = frappe.db.get_value("Drive File", shortcut_doc.file, "is_active")
+                if not original_file:
+                    frappe.throw(
+                        f"Cannot restore shortcut '{shortcut_doc.name}'. The original file no longer exists or is in trash."
+                    )
 
-        doc.is_active = flag
-        folder_size = frappe.db.get_value("Drive File", doc.parent_entity, "file_size")
-        frappe.db.set_value(
-            "Drive File",
-            doc.parent_entity,
-            "file_size",
-            folder_size + doc.file_size * (1 if flag else -1),
-        )
+                # Xóa khỏi Drive Trash
+                existing_trash = frappe.db.exists(
+                    {
+                        "doctype": "Drive Trash",
+                        "entity_shortcut": name,
+                        "user": frappe.session.user,
+                    }
+                )
+                if existing_trash:
+                    frappe.delete_doc("Drive Trash", existing_trash)
 
-        doc.save()
+            # Update shortcut status
+            shortcut_doc.is_active = flag
+            shortcut_doc.save(ignore_permissions=True)
 
-    for entity in entity_names:
-        doc = frappe.get_doc("Drive File", entity)
-        if not frappe.has_permission(
-            doctype="Drive File", user=frappe.session.user, doc=doc, ptype="write"
-        ):
-            raise frappe.PermissionError("You do not have permission to remove this file")
-        depth_zero_toggle_is_active(doc)
+        for shortcut in entity_shortcuts:
+            toggle_shortcut_is_active(shortcut)
+
+    frappe.db.commit()
+
+    return {
+        "success": True,
+        "message": "Operation completed successfully",
+        "processed_files": len(entity_names) if entity_names else 0,
+        "processed_shortcuts": len(entity_shortcuts) if entity_shortcuts else 0,
+    }
 
 
 @frappe.whitelist(allow_guest=True)
@@ -1064,8 +1203,17 @@ def clear_deleted_files():
         filters={"is_active": -1, "modified": ["<", days_before]},
         fields=["name"],
     )
+
+    result_shortcut = frappe.db.get_all(
+        "Drive Shortcut",
+        filters={"is_active": -1, "modified": ["<", days_before]},
+        fields=["name"],
+    )
     for entity in result:
         doc = frappe.get_doc("Drive File", entity, ignore_permissions=True)
+        doc.delete()
+    for entity in result_shortcut:
+        doc = frappe.get_doc("Drive Shortcut", entity, ignore_permissions=True)
         doc.delete()
 
 

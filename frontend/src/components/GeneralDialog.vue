@@ -65,104 +65,135 @@ export default {
   },
 
   computed: {
-    dialogData() {
-      const items =
-        this.entities.length === 1
-          ? __("this item")
-          : __("{0} items").format(this.entities.length)
-      switch (this.for) {
-        case "restore":
-          return {
-            title: __("Restore Items"),
-            message: __("Selected items will be restored to their original locations."),
-            buttonMessage: __("Restore"),
-            onSuccess: () => {
-              getTrash.setData((d) =>
-                d.filter((k) => !e.map((l) => l.name).includes(k.name))
-              )
-            },
-            variant: "solid",
-            buttonIcon: "refresh-ccw",
-            methodName: "drive.api.files.remove_or_restore",
-            toastMessage: __("Restored {0}").format(items),
-          }
-        case "remove":
-          return {
-            title: __("Move to Trash"),
-            message: __("{0} will be moved to Trash. Items in trash are deleted forever after 30 days.").format(
-              items.charAt(0).toUpperCase() + items.slice(1)
-            ),
-            buttonMessage: __("Move to Trash"),
-            mutate: (el) => (el.is_active = 0),
-            onSuccess: (e) => {
-              getTrash.setData(
-                sortEntities([
-                  ...getTrash.data,
-                  ...e.map((k) => {
-                    k.modified = Date()
-                    k.relativeModified = useTimeAgo(k.modified)
-                    return k
-                  }),
-                ])
-              )
-            },
-            theme: "red",
-            variant: "subtle",
-            buttonIcon: "trash-2",
-            methodName: "drive.api.files.remove_or_restore",
-            toastMessage: __("Moved {0} to Trash").format(items),
-          }
-        default:
-          return {}
-      }
+  dialogData() {
+    const items =
+      this.entities.length === 1
+        ? __("this item")
+        : __("{0} items").format(this.entities.length)
+    
+    // Separate files and shortcuts
+    const files = this.entities.filter(entity => !entity.is_shortcut)
+    const shortcuts = this.entities.filter(entity => entity.is_shortcut)
+    
+    switch (this.for) {
+      case "restore":
+        return {
+          title: __("Restore Items"),
+          message: __("Selected items will be restored to their original locations."),
+          buttonMessage: __("Restore"),
+          onSuccess: () => {
+            getTrash.setData((d) =>
+              d.filter((k) => !this.entities.map((l) => l.name || l.entity_shortcut).includes(k.name || k.entity_shortcut))
+            )
+          },
+          variant: "solid",
+          buttonIcon: "refresh-ccw",
+          methodName: "drive.api.files.remove_or_restore",
+          toastMessage: __("Restored {0}").format(items),
+          files: files,
+          shortcuts: shortcuts,
+        }
+      case "remove":
+        return {
+          title: __("Move to Trash"),
+          message: __("{0} will be moved to Trash. Items in trash are deleted forever after 30 days.").format(
+            items.charAt(0).toUpperCase() + items.slice(1)
+          ),
+          buttonMessage: __("Move to Trash"),
+          mutate: (el) => (el.is_active = 0),
+          onSuccess: (e) => {
+            getTrash.setData(
+              sortEntities([
+                ...getTrash.data,
+                ...e.map((k) => {
+                  k.modified = Date()
+                  k.relativeModified = useTimeAgo(k.modified)
+                  return k
+                }),
+              ])
+            )
+          },
+          theme: "red",
+          variant: "subtle",
+          buttonIcon: "trash-2",
+          methodName: "drive.api.files.remove_or_restore",
+          toastMessage: __("Moved {0} to Trash").format(items),
+          files: files,
+          shortcuts: shortcuts,
+        }
+      default:
+        return {}
+    }
+  },
+  open: {
+    get() {
+      return this.modelValue === this.for
     },
-    open: {
-      get() {
-        return this.modelValue === this.for
-      },
-      set(value) {
-        this.$emit("update:modelValue", value || "")
-      },
+    set(value) {
+      this.$emit("update:modelValue", value || "")
     },
   },
-  resources: {
-    method() {
-      return {
-        url: this.dialogData.methodName,
-        makeParams: () => {
-          this.$emit("success")
-          return {
-            entity_names:
-              typeof this.entities === "string"
-                ? JSON.stringify([this.entities])
-                : JSON.stringify(this.entities.map((entity) => entity.name)),
-            team: this.$route.params.team,
-          }
-        },
-        onSuccess(data) {
-          this.$emit("success", data)
-          emitter.emit("recalculate")
-          this.$resources.method.reset()
-          this.entities.map((entity) => del(entity.name))
-          if (this.dialogData.mutate)
-            mutate(this.entities, this.dialogData.mutate)
-          if (this.dialogData.onSuccess)
-            this.dialogData.onSuccess(this.entities, data)
-          toast({
-            title: this.dialogData.toastMessage,
-            position: "bottom-right",
-            timeout: 2,
-          })
-        },
-        onError(error) {
-          if (error.messages) {
-            this.errorMessage = error.messages.join("\n")
-          } else {
-            this.errorMessage = error.message
-          }
-        },
-      }
-    },
+},
+resources: {
+  method() {
+    return {
+      url: this.dialogData.methodName,
+      makeParams: () => {
+        this.$emit("success")
+        
+        const files = this.dialogData.files || []
+        const shortcuts = this.dialogData.shortcuts || []
+        
+        const params = {
+          team: this.$route.params.team,
+        }
+        
+        // Add file names if any
+        if (files.length > 0) {
+          params.entity_names = JSON.stringify(
+            files.map((entity) => entity.name || entity.entity)
+          )
+        }
+        
+        // Add shortcut names if any
+        if (shortcuts.length > 0) {
+          params.entity_shortcuts = JSON.stringify(
+            shortcuts.map((entity) => entity.shortcut_name)
+          )
+          
+        }
+        console.log("mmmmmmmmm", shortcuts.map((entity) => entity.shortcut_name));
+        
+        return params
+      },
+      onSuccess(data) {
+        this.$emit("success", data)
+        emitter.emit("recalculate")
+        this.$resources.method.reset()
+        
+        // Delete from cache
+        this.entities.map((entity) => del(entity.name || entity.entity_shortcut))
+        
+        if (this.dialogData.mutate)
+          mutate(this.entities, this.dialogData.mutate)
+        if (this.dialogData.onSuccess)
+          this.dialogData.onSuccess(this.entities, data)
+        
+        toast({
+          title: this.dialogData.toastMessage,
+          position: "bottom-right",
+          timeout: 2,
+        })
+      },
+      onError(error) {
+        if (error.messages) {
+          this.errorMessage = error.messages.join("\n")
+        } else {
+          this.errorMessage = error.message
+        }
+      },
+    }
   },
+},
 }
 </script>

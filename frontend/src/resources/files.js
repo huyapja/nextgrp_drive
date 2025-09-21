@@ -86,7 +86,7 @@ export const getTrash = createResource({
   url: "drive.api.list.files_multi_team",
   cache: "trash-folder-contents",
   makeParams: (params) => {
-    return { ...params, is_active: 0, only_parent: 0 }
+    return { ...params, is_active: 0, only_parent: 0, personal: 1 }
   },
 })
 
@@ -241,14 +241,31 @@ export const clearRecent = createResource({
   },
 })
 
+const handleClearTrash = (entities)=>{
+  if(!entities?.length) return
+  return entities.map((entity)=>{
+    if (entity.is_shortcut){
+      return {
+        entity: entity.shortcut_name,
+        is_shortcut: true
+      }
+    }else{
+      return {
+        entity: entity.name,
+        is_shortcut: false
+      }
+    }
+  })
+}
+                    
 export const clearTrash = createResource({
   url: "drive.api.files.delete_entities",
   makeParams: (data) => {
-    if (!data) {
+    if (!data) { 
       getTrash.setData([])
       return { clear_all: true }
     }
-    return { entity_names: data.entities.map((e) => e.name) }
+    return { entity_names: handleClearTrash(data.entities) }
   },
   onSuccess: () => {
     // Buggy for some reason

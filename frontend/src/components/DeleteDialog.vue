@@ -25,7 +25,6 @@
 </template>
 <script setup>
 import { createResource, Dialog } from "frappe-ui"
-import { del } from "idb-keyval"
 import { computed } from "vue"
 
 const emit = defineEmits(["update:modelValue", "success"])
@@ -50,13 +49,30 @@ const open = computed({
   },
 })
 
+const handleClearTrash = (entities)=>{
+  if(!entities?.length) return
+  return entities.map((entity)=>{
+    if (entity.is_shortcut){
+      return {
+        entity: entity.shortcut_name,
+        is_shortcut: true
+      }
+    }else{
+      return {
+        entity: entity.name,
+        is_shortcut: false
+      }
+    }
+  })
+}
+
 const deleteEntities = createResource({
   url: "drive.api.files.delete_entities",
   params: {
-    entity_names: JSON.stringify(props.entities?.map((entity) => entity.name)),
+    entity_names: JSON.stringify(handleClearTrash(props.entities)),
   },
   onSuccess(data) {
-    props.entities.map((entity) => del(entity.name))
+    // props.entities.map((entity) => del(entity.name))
     emit("success", data)
   },
 })

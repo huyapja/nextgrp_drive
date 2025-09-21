@@ -14,6 +14,7 @@
   "is_shortcut",
   "is_favourite",
   "parent_folder",
+  "is_active",
   "file_properties_section",
   "file_type",
   "mime_type",
@@ -159,11 +160,17 @@
    "fieldtype": "Datetime",
    "label": "Modified On",
    "read_only": 1
+  },
+  {
+   "default": "1",
+   "fieldname": "is_active",
+   "fieldtype": "Check",
+   "label": "Is Active"
   }
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2025-09-18 13:51:47.689778",
+ "modified": "2025-09-21 23:37:04.035943",
  "modified_by": "hoa00001@gmail.com",
  "module": "Drive",
  "name": "Drive Shortcut",

@@ -529,6 +529,7 @@ def files_multi_team(
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
                         & (DriveShortcut.shortcut_owner == frappe.session.user)
+                        & (DriveShortcut.is_active == is_active)
                     )
                 )
 
@@ -559,6 +560,7 @@ def files_multi_team(
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
                         & (DriveFile.is_private == 0)
+                        & (DriveShortcut.is_active == is_active)
                     )
                 )
                 shortcut_query = None
@@ -591,7 +593,10 @@ def files_multi_team(
                         fn.Coalesce(DrivePermission.write, user_access["write"]).as_("write"),
                         DriveFile.team,
                     )
-                    .where(fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                    .where(
+                        (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                        & (DriveShortcut.is_active == is_active)
+                    )
                 )
                 shortcut_query = None
 
@@ -707,7 +712,8 @@ def files_multi_team(
                 q = apply_tag_filter(q, tag_list)
 
                 # Apply active status filter
-                q = q.where(DriveFile.is_active == is_active)
+                if not has_shortcut:
+                    q = q.where(DriveFile.is_active == is_active)
 
                 # Apply file kinds filtering
                 q = apply_file_kinds_filter(q, file_kinds)

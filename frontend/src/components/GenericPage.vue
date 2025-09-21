@@ -124,7 +124,7 @@ import LucideInfo from "~icons/lucide/info"
 import LucideRotateCcw from "~icons/lucide/rotate-ccw"
 import LucideStar from "~icons/lucide/star"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
-import { createShortcut, removeShortcut } from "../utils/files"
+import { createShortcut } from "../utils/files"
 
 const props = defineProps({
   grouper: { type: Function, default: (d) => d },
@@ -261,13 +261,13 @@ const actionItems = computed(() => {
         important: true,
         isEnabled: ()=> !store.state.activeEntity?.is_shortcut
       },
-      {
-        label: "Bỏ lối tắt",
-        icon: ShortcutIcon,
-        action: ([entity]) => removeShortcut(entity),
-        important: true,
-        isEnabled: ()=> store.state.activeEntity?.is_shortcut 
-      },
+      // {
+      //   label: "Bỏ lối tắt",
+      //   icon: ShortcutIcon,
+      //   action: ([entity]) => removeShortcut(entity),
+      //   important: true,
+      //   isEnabled: ()=> store.state.activeEntity?.is_shortcut 
+      // },
       {
         label: "Tải xuống",
         icon: CloudIconBlack,
@@ -353,7 +353,7 @@ const actionItems = computed(() => {
         label: "Xóa",
         icon: TrashIcon,
         action: () => (dialog.value = "remove"),
-        isEnabled: (e) => e.write && (!store.state.activeEntity?.is_shortcut || route.name !== 'Home'),
+        isEnabled: (e) => e.write,
         important: true,
         multi: true,
         danger: true,
