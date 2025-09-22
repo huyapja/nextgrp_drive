@@ -243,10 +243,10 @@ const formattedRows = computed(() => {
 // Data display methods
 const getDisplayName = (row) => {
   if (row.is_shortcut){
-    if (row.shortcut_title.lastIndexOf(".") === -1 || row.is_group || row.document) {
+    if (row.shortcut_title?.lastIndexOf(".") === -1 || row.is_group || row.document) {
     return row.shortcut_title
     }
-    return row.shortcut_title.slice(0, row.shortcut_title.lastIndexOf("."))
+    return row.shortcut_title?.slice(0, row.shortcut_title.lastIndexOf("."))
   }else{
     if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
       return row.title

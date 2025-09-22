@@ -509,6 +509,9 @@ class DriveFile(Document):
 
     @frappe.whitelist()
     def remove_shortcut(self):
+        """
+        Soft delete shortcut by setting is_active = 0
+        """
         # Kiểm tra quyền đọc file
         if not frappe.has_permission(
             doctype="Drive File",
@@ -519,24 +522,24 @@ class DriveFile(Document):
             frappe.throw("You don't have permission to access this file", frappe.PermissionError)
 
         try:
-            # Tìm shortcut của user hiện tại cho file này
+            # Tìm shortcut của user hiện tại cho file này (chỉ lấy shortcut đang active)
             shortcut = frappe.db.get_value(
                 "Drive Shortcut",
-                {"file": self.name, "shortcut_owner": frappe.session.user},
+                {"file": self.name, "shortcut_owner": frappe.session.user, "is_active": 1},
                 ["name", "shortcut_owner", "file"],
                 as_dict=True,
             )
 
             if not shortcut:
-                frappe.throw("Shortcut not found or you don't have permission to remove it")
+                frappe.throw("Active shortcut not found or you don't have permission to remove it")
 
-            # Xóa shortcut
-            frappe.delete_doc("Drive Shortcut", shortcut.name, ignore_permissions=True)
+            # Soft delete shortcut bằng cách set is_active = 0
+            frappe.db.set_value("Drive Shortcut", shortcut.name, "is_active", 0)
             frappe.db.commit()
 
             return {
                 "success": True,
-                "message": "Shortcut removed successfully",
+                "message": "Shortcut moved to trash successfully",
                 "removed_shortcut": shortcut.name,
             }
 
