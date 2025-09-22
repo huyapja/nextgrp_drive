@@ -187,14 +187,14 @@
     </div>
 
     <!-- Context Menu -->
-    <ContextMenu
+    <!-- <ContextMenu
       v-if="moreEvent && selectedEntity"
       :key="selectedEntity?.name || 'context-menu'"
       v-on-outside-click="() => (moreEvent = false)"
       :close="() => (moreEvent = false)"
       :action-items="dropdownActionItems(selectedEntity)"
       :event="moreEvent"
-    />
+    /> -->
 
     <Dialogs
       v-if="$route.name === 'File' || $route.name === 'Document'"
@@ -258,7 +258,6 @@ import LucideTrash from "~icons/lucide/trash"
 import LucideUsers from "~icons/lucide/users"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import ShortcutIcon from "../assets/Icons/ShortcutIcon.vue"
-import ContextMenu from "./ContextMenu.vue"
 import Dialogs from "./Dialogs.vue"
 import UsersBar from "./UsersBar.vue"
 

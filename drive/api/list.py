@@ -560,7 +560,7 @@ def files_multi_team(
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
                         & (DriveFile.is_private == 0)
-                        & (DriveShortcut.is_active == is_active)
+                        
                     )
                 )
                 shortcut_query = None
