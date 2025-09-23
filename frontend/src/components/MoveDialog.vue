@@ -266,10 +266,6 @@ const props = defineProps({
   },
 })
 
-const handleMove = ()=>{
-
-}
-
 // Dynamic tree structures that will be updated from API responses
 const homeRoot = reactive({
   name: "",
@@ -395,7 +391,7 @@ const folderPermissions = createResource({
 })
 
 const folderContents = createResource({
-  url: "drive.api.list.files_multi_team",
+  url: "drive.api.list.files",
   makeParams: (params) => ({
     team: route.params.team,
     is_active: 1,

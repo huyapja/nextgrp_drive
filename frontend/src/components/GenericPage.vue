@@ -123,6 +123,7 @@ import LucideExternalLink from "~icons/lucide/external-link"
 import LucideInfo from "~icons/lucide/info"
 import LucideRotateCcw from "~icons/lucide/rotate-ccw"
 import LucideStar from "~icons/lucide/star"
+import CopyIcon from "../assets/Icons/CopyIcon.vue"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import { createShortcut } from "../utils/files"
 
@@ -251,7 +252,7 @@ const actionItems = computed(() => {
         label: "Chuyển quyền sở hữu tài liệu",
         icon: MoveOwnerIcon,
         action: () => (dialog.value = "move_owner"),
-        isEnabled: (e) => currentUserEmail.value === e?.owner && !store.state.activeEntity?.is_shortcut || route.name !== 'Home',
+        isEnabled: (e) => currentUserEmail.value === e?.owner && !store.state.activeEntity?.is_shortcut,
         important: true,
       },
       {
@@ -261,13 +262,13 @@ const actionItems = computed(() => {
         important: true,
         isEnabled: ()=> !store.state.activeEntity?.is_shortcut
       },
-      // {
-      //   label: "Bỏ lối tắt",
-      //   icon: ShortcutIcon,
-      //   action: ([entity]) => removeShortcut(entity),
-      //   important: true,
-      //   isEnabled: ()=> store.state.activeEntity?.is_shortcut 
-      // },
+      {
+        label: "Tạo bản sao",
+        icon: CopyIcon,
+        action: () => (dialog.value = "copy"),
+        important: true,
+        isEnabled: ()=> !store.state.activeEntity?.is_shortcut && !store.state.activeEntity?.shortcut_owner
+      },
       {
         label: "Tải xuống",
         icon: CloudIconBlack,
@@ -353,7 +354,7 @@ const actionItems = computed(() => {
         label: "Xóa",
         icon: TrashIcon,
         action: () => (dialog.value = "remove"),
-        isEnabled: (e) => e.write,
+        //isEnabled: (e) => e.write,
         important: true,
         multi: true,
         danger: true,

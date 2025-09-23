@@ -1,6 +1,6 @@
 import os, re, json, mimetypes
 import unicodedata
-
+from frappe.utils import get_files_path
 import frappe
 from frappe import _
 from pypika import Order, functions as fn
@@ -13,6 +13,7 @@ import mimemapper
 import jwt
 import boto3
 import requests
+import shutil
 
 from drive.utils.files import (
     get_home_folder,
@@ -417,18 +418,14 @@ def create_folder(team, title, personal=False, parent=None):
             "parent_entity": parent,
             "color": "#525252",
             "is_private": personal,
+            "file_type": "Folder",
         }
     )
     drive_file.insert()
+    response = drive_file.as_dict()
+    response["file_type"] = "Folder"  # Đảm bảo file_type được set
 
-    # Send team notifications for new folder (only for public folders)
-    if not personal:
-        try:
-            notify_team_file_upload(drive_file)
-        except Exception as e:
-            print(f"Error sending team notifications for folder: {e}")
-
-    return drive_file
+    return response
 
 
 @frappe.whitelist()
@@ -1395,3 +1392,151 @@ def get_file_signed_url(docname: str):
         "signed_url": signed_url,
         "title": doc.title,
     }
+
+
+# @frappe.whitelist()
+# def get_copy_destinations(source_entity_name):
+#     """Lấy danh sách các đích đến có thể sao chép dựa trên quyền của user"""
+#     user = frappe.session.user
+#     destinations = []
+
+#     # Home directory
+#     home_folders = get_folders_by_parent(None, user_filter=user)
+#     destinations.append(
+#         {"name": "Home", "entity_name": None, "type": "home", "folders": home_folders}
+#     )
+
+#     # Groups mà user tham gia
+#     user_groups = frappe.get_all(
+#         "Drive Entity Group Member", filters={"user": user}, fields=["parent"]
+#     )
+
+#     for group in user_groups:
+#         group_entity = frappe.get_doc("Drive Entity", group.parent)
+#         group_folders = get_folders_by_parent(group.parent)
+
+#         destinations.append(
+#             {
+#                 "name": group_entity.title,
+#                 "entity_name": group.parent,
+#                 "type": "group",
+#                 "folders": group_folders,
+#             }
+#         )
+
+#     return destinations
+
+
+def get_folders_by_parent(parent_entity_name, user_filter=None):
+    """Lấy danh sách folders theo parent entity"""
+    filters = {"is_group": 1, "parent_entity": parent_entity_name}
+
+    if user_filter:
+        filters["owner"] = user_filter
+
+    folders = frappe.get_all(
+        "Drive Entity", filters=filters, fields=["name", "title"], order_by="title"
+    )
+
+    # Thêm subfolders cho mỗi folder
+    for folder in folders:
+        folder["subfolders"] = get_folders_by_parent(folder["name"])
+
+    return folders
+
+
+@frappe.whitelist()
+def copy_file_or_folder(source_name, destination_parent):
+    """Sao chép file hoặc folder đến parent entity đích"""
+    try:
+        # Lấy thông tin file/folder gốc
+        source = frappe.get_doc("Drive File", source_name)
+
+        # Tạo tên mới với (bản sao)
+        new_title = f"{source.title} (bản sao)"
+
+        # Kiểm tra xem tên đã tồn tại chưa trong destination
+        existing = frappe.db.exists(
+            "Drive File", {"title": new_title, "parent_entity": destination_parent}
+        )
+
+        counter = 1
+        original_title = new_title
+        while existing:
+            new_title = f"{original_title} ({counter})"
+            existing = frappe.db.exists(
+                "Drive File", {"title": new_title, "parent_entity": destination_parent}
+            )
+            counter += 1
+
+        if source.is_group:
+            # Sao chép folder
+            return copy_folder(source, destination_parent, new_title)
+        else:
+            # Sao chép file
+            return copy_file(source, destination_parent, new_title)
+
+    except Exception as e:
+        frappe.throw(_("Lỗi khi sao chép: {0}").format(str(e)))
+
+
+def copy_file(source, destination_parent, new_title):
+    """Sao chép file"""
+    # Tạo bản sao của Drive Entity
+    new_file = frappe.copy_doc(source)
+    new_file.title = new_title
+    new_file.parent_entity = destination_parent
+    new_file.name = None  # Để Frappe tự tạo name mới
+
+    # Sao chép file vật lý nếu có
+    if source.path:
+        source_file_path = frappe.get_site_path() + source.path
+        if os.path.exists(source_file_path):
+            # Lấy extension từ file gốc
+            file_extension = os.path.splitext(source.path)[1]
+
+            # Tạo tên file mới duy nhất
+            import time
+
+            timestamp = str(int(time.time()))
+            new_file_name = f"{frappe.scrub(new_title)}_{timestamp}{file_extension}"
+
+            # Đường dẫn file mới
+            files_path = get_files_path()
+            new_file_path = os.path.join(files_path, new_file_name)
+
+            # Sao chép file
+            shutil.copy2(source_file_path, new_file_path)
+
+            # Cập nhật file_url
+            new_file.path = f"/files/{new_file_name}"
+
+    new_file.save()
+    return new_file.as_dict()
+
+
+def copy_folder(source, destination_parent, new_title):
+    """Sao chép folder và tất cả nội dung bên trong"""
+    # Tạo folder mới
+    new_folder = frappe.copy_doc(source)
+    new_folder.title = new_title
+    new_folder.parent_entity = destination_parent
+    new_folder.name = None
+    new_folder.save()
+
+    # Lấy tất cả items trong folder gốc
+    children = frappe.get_all(
+        "Drive File", filters={"parent_entity": source.name}, fields=["name"]
+    )
+
+    # Sao chép từng item con
+    for child in children:
+        child_doc = frappe.get_doc("Drive File", child.name)
+        child_new_title = child_doc.title
+
+        if child_doc.is_group:
+            copy_folder(child_doc, new_folder.name, child_new_title)
+        else:
+            copy_file(child_doc, new_folder.name, child_new_title)
+
+    return new_folder.as_dict()

@@ -19,7 +19,6 @@
     :entity="selections[0]"
     @success="
       ({ name, title, is_shortcut = false }) => {
-        console.log(name, is_shortcut, title, 'name, is_shortcut, title')
         if (selections[0] !== rootResource?.data && props.getEntities){
           if (is_shortcut){
             props.getEntities.data.find((k) => k.shortcut_name === name).title = title
@@ -73,6 +72,13 @@
     :entities="selections"
     @success="removeFromList(selections)"
   />
+  <CopyDialog
+    v-if="dialog === 'copy'"
+    v-model="dialog"
+    :entities="selections"
+    @success="resetDialog"
+  />
+
   <DeleteDialog
     v-if="dialog === 'd'"
     v-model="dialog"
@@ -102,6 +108,7 @@ import { sortEntities } from "@/utils/files"
 import { useTimeAgo } from "@vueuse/core"
 import { openEntity } from "../utils/files"
 import MoveOwnerDialog from "@/components/MoveOwnerDialog.vue"
+import CopyDialog from "@/components/CopyDialog.vue"
 
 const dialog = defineModel(String)
 const store = useStore()
@@ -129,7 +136,8 @@ emitter.on("remove", () => (dialog.value = "remove"))
 emitter.on("move", () => (dialog.value = "m"))
 emitter.on("newLink", () => (dialog.value = "l"))
 emitter.on("move_owner", () => (dialog.value = "move_owner"))
-
+emitter.on("copy", () => (dialog.value = "copy"))
+console.log("sssssssssssssseeeee", dialog.value)
 const setTitle = (title) =>
   (document.title = (route.name === "Folder" ? "Folder - " : "") + title)
 function addToList(data, file_type) {

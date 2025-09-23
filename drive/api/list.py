@@ -497,7 +497,6 @@ def files_multi_team(
                     )
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
-                        & (DriveFile.owner == frappe.session.user)
                     )
                 )
 
@@ -528,13 +527,12 @@ def files_multi_team(
                     )
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
-                        & (DriveShortcut.shortcut_owner == frappe.session.user)
                         & (DriveShortcut.is_active == is_active)
                     )
                 )
 
                 if personal == 1:
-                    original_files_query = original_files_query.where(DriveFile.is_private == 1)
+                    original_files_query = original_files_query.where((DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user))
                 query = original_files_query
                 shortcut_query = shortcut_files_query
 
@@ -560,7 +558,7 @@ def files_multi_team(
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
                         & (DriveFile.is_private == 0)
-                        & (DriveShortcut.is_active == is_active)
+                        
                     )
                 )
                 shortcut_query = None
@@ -625,7 +623,7 @@ def files_multi_team(
                             return query.where(DriveFile.parent_entity == current_entity_name)
                     else:
                         print(
-                            "DEBUG - No DriveShortcut table in query, only filtering by parent_entity"
+                            "DEBUG - No DriveShortcut table in query, only filtering by parent_entity", current_entity_name
                         )
                         return query.where(DriveFile.parent_entity == current_entity_name)
 
@@ -635,14 +633,13 @@ def files_multi_team(
 
                     if has_shortcut_table:
                         try:
-                            return query.where(fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0)
+                           query = query.where(fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0)
                         except Exception as e:
                             print(f"DEBUG - Failed to add shortcut filter: {e}")
                     else:
                         print(
-                            "DEBUG - No DriveShortcut table in query, only filtering by is_group"
+                            "DEBUG - No DriveShortcut table in query, only filtering by is_group", has_shortcut_table
                         )
-
                     return query
 
                 def apply_file_kinds_filter(query, file_kinds):
@@ -723,6 +720,7 @@ def files_multi_team(
                     has_shortcut_table = has_shortcut_table_in_query(
                         q
                     )  # Re-check after previous filters
+                    print("DEBUG - has_shortcut_table", has_shortcut_table)
                     q = apply_folder_filter(q, has_shortcut_table)
 
                 return q
@@ -748,12 +746,6 @@ def files_multi_team(
                 # Đánh dấu results từ shortcut query
                 for result in shortcut_results:
                     result["_source"] = "shortcut"
-                    print(
-                        "DEBUG -shortcut",
-                        result.get("shortcut_name"),
-                        result.get("entity_shortcut"),
-                        result.get("is_favourite"),
-                    )
                 team_results.extend(shortcut_results)
 
             print(f"DEBUG - Total team_results for {team}: {len(team_results)}")
