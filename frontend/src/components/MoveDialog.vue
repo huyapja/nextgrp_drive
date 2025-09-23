@@ -266,10 +266,6 @@ const props = defineProps({
   },
 })
 
-const handleMove = ()=>{
-
-}
-
 // Dynamic tree structures that will be updated from API responses
 const homeRoot = reactive({
   name: "",

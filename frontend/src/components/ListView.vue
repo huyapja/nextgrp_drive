@@ -246,12 +246,12 @@ const getDisplayName = (row) => {
     if (row.shortcut_title?.lastIndexOf(".") === -1 || row.is_group || row.document) {
     return row.shortcut_title
     }
-    return row.shortcut_title?.slice(0, row.shortcut_title.lastIndexOf("."))
+    return row.shortcut_title?.slice(0, row.shortcut_title.lastIndexOf(".")) + row.shortcut_title?.slice(row.shortcut_title.lastIndexOf("."))
   }else{
     if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
       return row.title
     }
-    return row.title.slice(0, row.title.lastIndexOf("."))
+    return row.title.slice(0, row.title.lastIndexOf("."))  + row.title?.slice(row.title.lastIndexOf("."))
   }
 }
 
@@ -457,7 +457,7 @@ onKeyDown("Escape", (e) => {
 /* Table Cell Styling */
 .name-cell {
   @apply flex items-center gap-3 min-w-0 w-full;
-  max-width: 320px;
+  max-width: 420px;
 }
 
 .file-icon {
@@ -466,7 +466,7 @@ onKeyDown("Escape", (e) => {
 
 .file-name {
   @apply text-sm font-medium text-gray-900 truncate;
-  max-width: 320px;
+  max-width: 400px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -240,6 +240,7 @@
 
 <script setup>
 import { allFolders } from "@/resources/files"
+import { openEntity as openEntityAfterCopy } from "@/utils/files"
 import {
   Button,
   createResource,
@@ -298,7 +299,7 @@ const teamRoot = reactive({
 })
 
 const in_home = store.state.breadcrumbs[0].name == "Home"
-const tabIndex = ref(in_home ? 1 : 2) // 1 = Tài liệu của tôi, 2 = Nhóm
+const tabIndex = ref(in_home ? 0 : 1) // 1 = Tài liệu của tôi, 2 = Nhóm
 
 const currentTree = computed(() => {
   switch (tabIndex.value) {
@@ -486,7 +487,22 @@ const moveResource = createResource({
   onSuccess: (data) => {
     copyLoading.value = false
     // Show success message
-    toast(data.data?.message || __('Tạo bản sao thành công'))
+    toast({
+      title: __("Moved to") + " " + data.title,
+      buttons: [
+        {
+          label: __("Go"),
+          action: () => {
+            openEntityAfterCopy(null, {
+              name: data.parent_entity,
+              team: data.team,
+              is_group: true,
+              is_private: data.is_private,
+            })
+          },
+        },
+      ],
+    })
     emit('success')
     open.value = false
    
@@ -594,7 +610,7 @@ const createFolder = createResource({
     // Refresh current tree
     if (tabIndex.value === 0) {
       getPersonal.setData((dataPersonal)=>{
-        dataPersonal.push(data)
+        dataPersonal.unshift(data)
         
         return dataPersonal
       })
@@ -603,7 +619,7 @@ const createFolder = createResource({
       buildTreeStructure(homeFolders, homeRoot)
     } else if (tabIndex.value === 1) {
       getHome.setData((dataHome)=>{
-        dataHome.push(data)
+        dataHome.unshift(data)
         return dataHome
       })
       const teamFolders = allFolders.data.filter(f => !f.is_private)
@@ -752,16 +768,16 @@ function createNewFolder() {
 }
 
 function openEntity(node) {
-  if (store.state.currentFolder.name === node.value) return
-  if (!node.value) {
+  if (store.state.currentFolder.name === node?.value) return
+  if (!node?.value) {
     createdNode.value = node
     createFolder.fetch({
-      title: node.label,
+      title: node?.label,
       personal: tabIndex.value === 0 || tabIndex.value === 1,
-      parent: node.parent,
+      parent: node?.parent,
     })
   } else {
-    currentFolder.value = node.value
+    currentFolder.value = node?.value
     folderPermissions.fetch({
       entity_name: currentFolder.value,
     })

@@ -418,12 +418,12 @@ def create_folder(team, title, personal=False, parent=None):
             "parent_entity": parent,
             "color": "#525252",
             "is_private": personal,
-            "file_type": "Folder"
+            "file_type": "Folder",
         }
     )
     drive_file.insert()
     response = drive_file.as_dict()
-    response['file_type'] = "Folder"  # Đảm bảo file_type được set
+    response["file_type"] = "Folder"  # Đảm bảo file_type được set
 
     return response
 
@@ -1512,7 +1512,7 @@ def copy_file(source, destination_parent, new_title):
             new_file.path = f"/files/{new_file_name}"
 
     new_file.save()
-    return new_file.name
+    return new_file.as_dict()
 
 
 def copy_folder(source, destination_parent, new_title):
@@ -1539,4 +1539,4 @@ def copy_folder(source, destination_parent, new_title):
         else:
             copy_file(child_doc, new_folder.name, child_new_title)
 
-    return new_folder.name
+    return new_folder.as_dict()
