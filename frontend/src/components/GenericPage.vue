@@ -354,7 +354,7 @@ const actionItems = computed(() => {
         label: "Xóa",
         icon: TrashIcon,
         action: () => (dialog.value = "remove"),
-        isEnabled: (e) => e.write,
+        //isEnabled: (e) => e.write,
         important: true,
         multi: true,
         danger: true,

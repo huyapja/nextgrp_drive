@@ -418,18 +418,14 @@ def create_folder(team, title, personal=False, parent=None):
             "parent_entity": parent,
             "color": "#525252",
             "is_private": personal,
+            "file_type": "Folder"
         }
     )
     drive_file.insert()
+    response = drive_file.as_dict()
+    response['file_type'] = "Folder"  # Đảm bảo file_type được set
 
-    # Send team notifications for new folder (only for public folders)
-    if not personal:
-        try:
-            notify_team_file_upload(drive_file)
-        except Exception as e:
-            print(f"Error sending team notifications for folder: {e}")
-
-    return drive_file
+    return response
 
 
 @frappe.whitelist()

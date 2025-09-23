@@ -1,17 +1,18 @@
 <template>
   <Dialog
-    v-model="open"
-    :options="{
-      size: '2xl',
-      // Ngăn auto-close khi dialog tạo thư mục đang mở
-      dismissible: !showCreateFolderDialog,
-      closeOnOutsideClick: !showCreateFolderDialog,
-      closeOnEscape: !showCreateFolderDialog
-    }"
-    :class="['copy-dialog', { 'with-child-open': showCreateFolderDialog }]"
+    v-model:visible="open"
+    :modal="true"
+    :dismissableMask="!showCreateFolderDialog"
+    :closable="true"
+    :closeOnEscape="!showCreateFolderDialog"
+    :blockScroll="true"
+    :appendTo="'body'"
+    :baseZIndex="1000"
+    class="copy-dialog"
+    :showHeader="false"
   >
-    <template #body-main>
-      <div class="!h-[630px] flex flex-col">
+    <!-- <template #body-main> -->
+      <div class="!h-[630px] !w-[560px] flex flex-col">
         <!-- Header -->
         <div class="flex items-center justify-between p-6 px-4 pb-0 flex-shrink-0">
           <h2 class="text-xl font-semibold text-gray-900">
@@ -37,9 +38,9 @@
         <div class="p-4 pb-0  flex-shrink-0">
           <div class="flex items-center pb-4 border-b border-gray-200">
             <span class="text-sm font-medium text-gray-700 mr-2">{{ __('Vị trí hiện tại:') }}</span>
-            <div class="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md">
-              <LucideFolder class="w-4 h-4 text-gray-500 mr-2" />
-              <span class="text-sm text-gray-900">{{ currentLocationName }}</span>
+            <div class="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md truncate">
+             <TeamDrive class="w-4 h-4 text-gray-900 mr-2" v-if="currentLocationName === 'Nhóm'"/>  <TeamIcon class="w-4 h-4 text-gray-900 mr-2"  v-else/>  
+              <span class="text-sm text-gray-900 truncate">{{ currentLocationName }}</span>
             </div>
           </div>
         </div>
@@ -72,7 +73,7 @@
               >
                 <LucideChevronLeft class="w-5 h-5" />
               </button>
-              <h3 class="text-lg font-semibold text-gray-900">
+              <h3 class="text-lg font-semibold text-gray-900 truncate">
                 {{ getCurrentLocationTitle() }}
               </h3>
             </div>
@@ -88,10 +89,10 @@
                   :key="team.name"
                   class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
                   :class="{ 'bg-[#D4E1F9]': currentFolder === team.name }"
-                  @click="selectTeam(team)"
+                  @click="navigateToTeam(team)"
                 >
-                  <TeamIcon class="w-5 h-5 text-gray-500 mr-2" />
-                  <span class="flex-1 font-[500] text-[14px] text-gray-900">{{ team.title }}</span>
+                  <TeamDrive class="w-5 h-5 text-gray-900 mr-2" />
+                  <span class="flex-1 font-[500] text-[14px] text-gray-900 truncate">{{ team.title }}</span>
                   <button
                     class=" hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
                     @click.stop="navigateToTeam(team)"
@@ -112,7 +113,7 @@
                   @click.stop.prevent="selectFolder(folder)"
                 >
                   <TeamIcon class="w-5 h-5 text-gray-500 mr-2" />
-                  <span class="flex-1 font-[500] text-[14px] text-gray-900">{{ folder.label }}</span>
+                  <span class="flex-1 font-[500] text-[14px] text-gray-900 truncate">{{ folder.label }}</span>
                   <button
                     class=" hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
                     @click.stop.prevent="navigateToFolder(folder)"
@@ -188,25 +189,30 @@
           </div>
         </div>
       </div>
-    </template>
+    <!-- </template> -->
   </Dialog>
 
   <!-- Create Folder Dialog (teleport ra body để tách khỏi Dialog cha) -->
-  <Teleport to="body">
   <div class="create-folder-teleport">
     <Dialog
-      v-model="showCreateFolderDialog"
-      :options="{ size: 'sm' }"
+      v-model:visible="showCreateFolderDialog"
+      header="Tạo thư mục mới"
+      :modal="true"
+      :dismissableMask="true"
+      :closable="true"
+      :closeOnEscape="true"
+      :blockScroll="true"
+      :appendTo="'body'"
+      :baseZIndex="2000"
       class="create-folder-dialog"
-      >
-      <!-- @keydown.esc.stop.prevent -->
-      <template #body-main>
-        <div class="p-6">
+      @show="onChildDialogShow" 
+      :showHeader="false"
+    >
+        <div class="pt-5 w-[300px]">
           <h3 class="text-lg font-semibold mb-4">{{ __('Tạo thư mục mới') }}</h3>
           <form class="mb-4">
             <input
-              id="newFolderInput"
-              name="newFolderInput"
+              ref="newFolderInput"
               v-model="newFolderName"
               type="text"
               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -220,7 +226,7 @@
             </Button>
             <Button
               variant="solid"
-              class="bg-[#0149C1] text-white"
+              class="!bg-[#0149C1] text-white"
               :disabled="!newFolderName.trim()"
               @click.stop="createNewFolder"
             >
@@ -228,10 +234,8 @@
             </Button>
           </div>
         </div>
-      </template>
     </Dialog>
   </div>
-</Teleport>
 </template>
 
 <script setup>
@@ -239,18 +243,19 @@ import { allFolders } from "@/resources/files"
 import {
   Button,
   createResource,
-  Dialog
 } from "frappe-ui"
+import { Dialog } from "primevue"
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import LucideChevronLeft from "~icons/lucide/chevron-left"
 import LucideChevronRight from "~icons/lucide/chevron-right"
 import LucideCopy from "~icons/lucide/copy"
-import LucideFolder from "~icons/lucide/folder"
 import LucideX from "~icons/lucide/x"
 import FolderPlusIcon from "../assets/Icons/FolderPlusIcon.vue"
+import TeamDrive from "../assets/Icons/TeamDrive.vue"
 import TeamIcon from "../assets/Icons/TeamIcon.vue"
+import { getHome, getPersonal } from "../resources/files"
 import { toast } from "../utils/toasts"
 
 const route = useRoute()
@@ -275,6 +280,7 @@ const props = defineProps({
 console.log("Copy Dialog loaded", props.entities)
 
 const copyLoading = ref(false)
+const currentTeam = ref(null)
 
 // Tree structures
 const homeRoot = reactive({
@@ -587,9 +593,19 @@ const createFolder = createResource({
     
     // Refresh current tree
     if (tabIndex.value === 0) {
+      getPersonal.setData((dataPersonal)=>{
+        dataPersonal.push(data)
+        
+        return dataPersonal
+      })
       const homeFolders = allFolders.data.filter(f => f.is_private)
+      
       buildTreeStructure(homeFolders, homeRoot)
     } else if (tabIndex.value === 1) {
+      getHome.setData((dataHome)=>{
+        dataHome.push(data)
+        return dataHome
+      })
       const teamFolders = allFolders.data.filter(f => !f.is_private)
       buildTreeStructure(teamFolders, teamRoot)
     }
@@ -615,30 +631,30 @@ function selectFolder(folder) {
   // }
 }
 
-function selectTeam(team) {
-  currentFolder.value = team.name
-  folderPermissions.fetch({
-    entity_name: currentFolder.value,
-  })
+// function selectTeam(team) {
+//   currentFolder.value = team.name
+//   folderPermissions.fetch({
+//     entity_name: currentFolder.value,
+//   })
   
-  // Update breadcrumbs to show we're inside the team
-  breadcrumbs.value = [
-    { name: "", title: __('Nhóm'), is_private: 0 },
-    { name: team.name, title: team.title, is_private: 0 }
-  ]
+//   // Update breadcrumbs to show we're inside the team
+//   breadcrumbs.value = [
+//     { name: "", title: __('Nhóm'), is_private: 0 },
+//     { name: team.name, title: team.title, is_private: 0 }
+//   ]
   
-  // Fetch folders for this team
-  folderContents.fetch({
-    entity_name: team.name,
-    personal: 0,
-  })
-}
+//   // Fetch folders for this team
+//   folderContents.fetch({
+//     entity_name: team.name,
+//     personal: 0,
+//   })
+// }
 
 function navigateToFolder(folder) {
   // Navigate into the folder
   currentFolder.value = folder.value
   folderPermissions.fetch({
-    entity_name: currentFolder.value,
+    entity_name: folder.value,
   })
   
   // Update breadcrumbs to show we're inside the folder
@@ -659,6 +675,7 @@ function navigateToFolder(folder) {
     })
   } else {
     folderContents.fetch({
+      team: currentTeam.value,
       entity_name: folder.value,
       personal: 0,
     })
@@ -667,11 +684,11 @@ function navigateToFolder(folder) {
 
 function navigateToTeam(team) {
   // Update breadcrumbs to show we're inside the team
+  currentTeam.value = team.name
   breadcrumbs.value = [
     { name: "", title: __('Nhóm'), is_private: 0 },
     { name: team.name, title: team.title, is_private: 0 }
   ]
-  
   // Fetch all folders for this team
   folderContents.fetch({
     team: team.name,
@@ -684,7 +701,11 @@ function navigateToBreadcrumb(crumb, index) {
     // Navigate to the selected breadcrumb
     breadcrumbs.value = breadcrumbs.value.slice(0, index + 1)
     currentFolder.value = breadcrumbs.value[breadcrumbs.value.length - 1].name
-    
+
+    if (index === 0 && tabIndex.value === 1) {
+      currentTeam.value = null
+    }
+
     // Fetch folders for the selected breadcrumb
     if (tabIndex.value === 0) {
       folderMultiContents.fetch({
@@ -888,6 +909,51 @@ watch(showCreateFolderDialog, (isOpen) => {
     })
   }
 })
+watch(showCreateFolderDialog, (isOpen) => {
+  console.log('Dialog state changed:', isOpen)
+  if (isOpen) {
+    console.log('Attempting to focus input...')
+    nextTick(() => {
+      console.log('nextTick executed, input ref:', newFolderInput.value)
+      if (newFolderInput.value) {
+        console.log('Focusing input...')
+        newFolderInput.value.focus()
+        console.log('Input focused, active element:', document.activeElement)
+      } else {
+        console.log('Input ref is null!')
+      }
+    })
+  }
+})
+
+function focusNewFolderInput(attempts = 6) {
+  if (!showCreateFolderDialog.value) return
+  const inputEl = newFolderInput.value
+  if (inputEl) {
+    inputEl.focus()
+    inputEl.select?.()
+  }
+  // Nếu vẫn bị giật focus về nút, thử lại vài lần
+  setTimeout(() => {
+    if (
+      attempts > 0 &&
+      document.activeElement !== inputEl
+    ) {
+      focusNewFolderInput(attempts - 1)
+    }
+  }, 50)
+}
+
+watch(showCreateFolderDialog, (isOpen) => {
+  if (isOpen) {
+    // Reset rồi focus với retry
+    newFolderName.value = ""
+    nextTick(() => {
+      // chạy nhiều “nhịp” để thắng mọi auto-focus khác
+      requestAnimationFrame(() => focusNewFolderInput())
+    })
+  }
+})
 
 </script>
 
@@ -1000,18 +1066,5 @@ watch(showCreateFolderDialog, (isOpen) => {
 .copy-dialog.with-child-open :deep(.dialog-overlay),
 .copy-dialog.with-child-open :deep(.dialog-backdrop) {
   pointer-events: none;
-}
-
-/* Tăng z-index cho dialog con và backdrop của nó để nổi hẳn lên trên */
-.create-folder-teleport :deep(.dialog),
-.create-folder-dialog :deep(.dialog) {
-  z-index: 10020;
-}
-
-.create-folder-teleport :deep(.dialog-overlay),
-.create-folder-dialog :deep(.dialog-overlay),
-.create-folder-teleport :deep(.dialog-backdrop),
-.create-folder-dialog :deep(.dialog-backdrop) {
-  z-index: 10 !important;
 }
 </style>
