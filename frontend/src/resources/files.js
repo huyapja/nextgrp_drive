@@ -68,7 +68,7 @@ export const getFavourites = createResource({
   url: "drive.api.list.files_multi_team",
   cache: "favourite-folder-contents",
   makeParams: (params) => {
-    return { ...params, favourites_only: true }
+    return { ...params, favourites_only: true, personal: -2 }
   },
 })
 

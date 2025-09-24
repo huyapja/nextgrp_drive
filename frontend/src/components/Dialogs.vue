@@ -67,7 +67,7 @@
   />
 
   <MoveDialog
-    v-if="dialog === 'm'"
+    v-if="dialog === 'move'"
     v-model="dialog"
     :entities="selections"
     @success="removeFromList(selections)"

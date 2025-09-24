@@ -70,19 +70,17 @@ class DriveShortcut(Document):
         Move shortcut to different folder (like Google Drive)
         Instance method - operates on current shortcut document
         """
-        if self.shortcut_owner != frappe.session.user:
-            frappe.throw("You can only move your own shortcuts", frappe.PermissionError)
 
         # Validate new parent folder exists and user has access
         if parent_folder:
             if not frappe.db.exists("Drive File", parent_folder):
                 frappe.throw("Target folder does not exist")
 
-            folder = frappe.get_doc("Drive File", parent_folder)
-            if not frappe.has_permission(
-                "Drive File", doc=folder, ptype="write", user=self.shortcut_owner
-            ):
-                frappe.throw("No permission to add shortcuts to this folder")
+            # folder = frappe.get_doc("Drive File", parent_folder)
+            # if not frappe.has_permission(
+            #     "Drive File", doc=folder, ptype="write", user=self.shortcut_owner
+            # ):
+            #     frappe.throw("No permission to add shortcuts to this folder")
 
         # Check if shortcut already exists in target location
         # existing = frappe.db.exists(
@@ -105,15 +103,6 @@ class DriveShortcut(Document):
         # Thêm các cách để đảm bảo save được commit
         self.save()
         frappe.db.commit()  # Force commit transaction
-
-        # Hoặc dùng cách khác:
-        # self.db_update()  # Direct database update
-
-        # Verify update đã thành công
-        updated_parent = frappe.db.get_value("Drive Shortcut", self.name, "parent_folder")
-        print(
-            f"Old parent: {old_parent}, New parent: {parent_folder}, Updated parent: {updated_parent}"
-        )
 
         # Lấy thông tin từ thư mục đích, bao gồm team
         if parent_folder:

@@ -91,7 +91,7 @@ class DriveFile(Document):
                 "Cannot move into itself",
                 frappe.PermissionError,
             )
-
+        print("Debug, Permission User File")
         is_group = frappe.db.get_value("Drive File", new_parent, "is_group")
         if not is_group:
             raise NotADirectoryError()

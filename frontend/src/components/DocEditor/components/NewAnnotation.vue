@@ -3,7 +3,7 @@
     <slot v-bind="{ onClick: openDialog }" />
     <Dialog
       v-model="showNewCommentDialog"
-      :options="{ title: 'New Annotation', size: 'sm' }"
+      :options="{ title: 'Thêm chú thích', size: 'sm' }"
       @after-leave="reset"
     >
       <template #body-content>
@@ -18,10 +18,10 @@
         />
         <Button
           variant="solid"
-          class="w-full mt-6"
+          class="w-full mt-6 bg-[#2563EB] hover:bg-[#1E40AF] text-white"
           @click="setComment(commentText)"
         >
-          Post
+          Thêm chú thích
         </Button>
       </template>
       <!-- //https://github.com/ueberdosis/tiptap/issues/369 -->
@@ -29,13 +29,13 @@
   </div>
 </template>
 <script>
-import { Dialog, Button } from "frappe-ui"
-import { ref } from "vue"
-import { useFocus } from "@vueuse/core"
-import { v4 as uuidv4 } from "uuid"
-import { DOMSerializer } from "prosemirror-model"
-import * as Y from "yjs"
 import TiptapInput from "@/components/TiptapInput.vue"
+import { useFocus } from "@vueuse/core"
+import { Button, Dialog } from "frappe-ui"
+import { DOMSerializer } from "prosemirror-model"
+import { v4 as uuidv4 } from "uuid"
+import { ref } from "vue"
+import * as Y from "yjs"
 
 export default {
   name: "NewComment",

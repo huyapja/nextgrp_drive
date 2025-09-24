@@ -1,11 +1,10 @@
+import { Code, LucideLink2, LucideMessageCirclePlus, TableCellsMerge, TableCellsSplit } from "lucide-vue-next"
 import { defineAsyncComponent } from "vue"
-import { Code, LucideLink2, LucideMessageCirclePlus } from "lucide-vue-next"
 import Bold from "./icons/Bold.vue"
 import Italic from "./icons/Italic.vue"
 import Strikethrough from "./icons/StrikeThrough.vue"
-import Underline from "./icons/Underline.vue"
-import { TableCellsSplit, TableCellsMerge } from "lucide-vue-next"
 import ToggleHeaderCell from "./icons/ToggleHeaderCell.vue"
+import Underline from "./icons/Underline.vue"
 
 export default {
   Bold: {

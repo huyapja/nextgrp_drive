@@ -81,8 +81,8 @@
     :get-entities="getEntities"
   />
   <FileUploader
-  v-if="$store.state.user.id"
-  @success="getEntities.fetch()"
+    v-if="$store.state.user.id"
+    @success="getEntities.fetch()"
   />
 </template>
 <script setup>
@@ -125,6 +125,7 @@ import LucideRotateCcw from "~icons/lucide/rotate-ccw"
 import LucideStar from "~icons/lucide/star"
 import CopyIcon from "../assets/Icons/CopyIcon.vue"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
+import { getTeams } from "../resources/files"
 import { createShortcut } from "../utils/files"
 
 const props = defineProps({
@@ -138,7 +139,7 @@ const props = defineProps({
 })
 
 // Define emits
-const emit = defineEmits(['show-team-members'])
+const emit = defineEmits(["show-team-members"])
 
 const route = useRoute()
 const store = useStore()
@@ -206,6 +207,17 @@ const onDrop = (targetFile, draggedItem) => {
 
 const currentUserEmail = computed(() => store.state.user.id)
 
+const isMember = computed(() => {
+  console.log("Re-evaluating isMember",  getTeams.data?.[team]);
+
+  return (
+    getTeams.data?.[team]?.users?.some((k) => k.user === currentUserEmail.value) &&
+    getTeams.data?.[team]?.owner !== currentUserEmail.value &&
+    store.state.activeEntity?.owner !== currentUserEmail.value 
+    &&
+    !store.state.activeEntity?.is_shortcut
+  )
+})
 // Action Items
 const actionItems = computed(() => {
   if (route.name === "Trash") {
@@ -252,7 +264,9 @@ const actionItems = computed(() => {
         label: "Chuyển quyền sở hữu tài liệu",
         icon: MoveOwnerIcon,
         action: () => (dialog.value = "move_owner"),
-        isEnabled: (e) => currentUserEmail.value === e?.owner && !store.state.activeEntity?.is_shortcut,
+        isEnabled: (e) =>
+          currentUserEmail.value === e?.owner &&
+          !store.state.activeEntity?.is_shortcut,
         important: true,
       },
       {
@@ -260,14 +274,16 @@ const actionItems = computed(() => {
         icon: ShortcutIcon,
         action: ([entity]) => createShortcut(entity),
         important: true,
-        isEnabled: ()=> !store.state.activeEntity?.is_shortcut
+        isEnabled: () => !store.state.activeEntity?.is_shortcut,
       },
       {
         label: "Tạo bản sao",
         icon: CopyIcon,
         action: () => (dialog.value = "copy"),
         important: true,
-        isEnabled: ()=> !store.state.activeEntity?.is_shortcut && !store.state.activeEntity?.shortcut_owner
+        isEnabled: () =>
+          !store.state.activeEntity?.is_shortcut &&
+          !store.state.activeEntity?.shortcut_owner,
       },
       {
         label: "Tải xuống",
@@ -276,7 +292,8 @@ const actionItems = computed(() => {
         action: (entities) => entitiesDownload(team, entities),
         multi: true,
         important: true,
-        isEnabled:()=> !store.state.activeEntity?.is_shortcut || route.name !== 'Home'
+        isEnabled: () =>
+          !store.state.activeEntity?.is_shortcut || route.name !== "Home",
       },
       {
         label: "Sao chép liên kết",
@@ -288,8 +305,8 @@ const actionItems = computed(() => {
       {
         label: "Di chuyển",
         icon: MoveIcon,
-        action: () => (dialog.value = "m"),
-        isEnabled: (e) => e.write,
+        action: () => (dialog.value = "move"),
+        isEnabled: (e) => e.write && !isMember.value,
         multi: true,
         important: true,
       },
@@ -363,7 +380,6 @@ const actionItems = computed(() => {
     ]
   }
 })
-
 
 const userData = computed(() =>
   allUsers.data ? Object.fromEntries(allUsers.data.map((k) => [k.name, k])) : {}

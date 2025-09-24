@@ -12,183 +12,224 @@
     :showHeader="false"
   >
     <!-- <template #body-main> -->
-      <div class="!h-[630px] !w-[560px] flex flex-col">
-        <!-- Header -->
-        <div class="flex items-center justify-between p-6 px-4 pb-0 flex-shrink-0">
-          <h2 class="text-xl font-semibold text-gray-900">
-            <template v-if="props.entities.length > 1">
-              {{ __('Tạo bản sao') }} {{ props.entities.length }} {{ __('mục') }}
-            </template>
-            <template v-else>
-              {{ __('Tạo bản sao') }} "{{ props.entities[0]?.shortcut_title || props.entities[0]?.title }}"
-            </template>
-          </h2>
-          <Button
-            variant="ghost"
-            size="sm"
-            @click="$emit('update:modelValue', false)"
+    <div class="!h-[630px] !w-[560px] flex flex-col">
+      <!-- Header -->
+      <div
+        class="flex items-center justify-between p-6 px-4 pb-0 flex-shrink-0"
+      >
+        <h2 class="text-xl font-semibold text-gray-900">
+          <template v-if="props.entities.length > 1">
+            {{ __("Tạo bản sao") }} {{ props.entities.length }} {{ __("mục") }}
+          </template>
+          <template v-else>
+            {{ __("Tạo bản sao") }} "{{
+              props.entities[0]?.shortcut_title || props.entities[0]?.title
+            }}"
+          </template>
+        </h2>
+        <Button
+          variant="ghost"
+          size="sm"
+          @click="$emit('update:modelValue', false)"
+        >
+          <template #icon>
+            <LucideX class="w-5 h-5" />
+          </template>
+        </Button>
+      </div>
+
+      <!-- Current Location -->
+      <div class="p-4 pb-0 flex-shrink-0">
+        <div class="flex items-center pb-4 border-b border-gray-200">
+          <span class="text-sm font-medium text-gray-700 mr-2">{{
+            __("Vị trí hiện tại:")
+          }}</span>
+          <div
+            class="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md truncate"
           >
-            <template #icon>
-              <LucideX class="w-5 h-5" />
-            </template>
-          </Button>
-        </div>
-
-        <!-- Current Location -->
-        <div class="p-4 pb-0  flex-shrink-0">
-          <div class="flex items-center pb-4 border-b border-gray-200">
-            <span class="text-sm font-medium text-gray-700 mr-2">{{ __('Vị trí hiện tại:') }}</span>
-            <div class="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md truncate">
-             <TeamDrive class="w-4 h-4 text-gray-900 mr-2" v-if="currentLocationName === 'Nhóm'"/>  <TeamIcon class="w-4 h-4 text-gray-900 mr-2"  v-else/>  
-              <span class="text-sm text-gray-900 truncate">{{ currentLocationName }}</span>
-            </div>
+            <TeamDrive
+              class="w-4 h-4 text-gray-900 mr-2"
+              v-if="currentLocationName === 'Nhóm'"
+            />
+            <TeamIcon
+              class="w-4 h-4 text-gray-900 mr-2"
+              v-else
+            />
+            <span class="text-sm text-gray-900 truncate">{{
+              currentLocationName
+            }}</span>
           </div>
         </div>
+      </div>
 
-        <!-- Tabs -->
-        <div class="p-4 px-0 flex-shrink-0">
-          <div class="flex space-x-1">
+      <!-- Tabs -->
+      <div class="p-4 px-0 flex-shrink-0">
+        <div class="flex space-x-1">
+          <button
+            v-for="(tab, index) in tabs"
+            :key="index"
+            @click="tabIndex = index"
+            class="tab-button px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="
+              tabIndex === index
+                ? 'text-blue-600 border-blue-600'
+                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+            "
+          >
+            {{ tab.label }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Main Content Area - This will expand to fill available space -->
+      <div class="flex flex-col flex-1 min-h-0">
+        <!-- Navigation Header -->
+        <div
+          v-if="breadcrumbs.length > 1"
+          class="p-4 pt-0 flex-shrink-0"
+        >
+          <div class="flex items-center">
             <button
-              v-for="(tab, index) in tabs"
-              :key="index"
-              @click="tabIndex = index"
-              class="tab-button px-4 py-2 text-sm font-medium border-b-2 transition-colors"
-              :class="tabIndex === index 
-                ? 'text-blue-600 border-blue-600' 
-                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'"
+              @click="goBack"
+              class="flex items-center text-gray-600 hover:text-gray-900 mr-2"
             >
-              {{ tab.label }}
+              <LucideChevronLeft class="w-5 h-5" />
             </button>
+            <h3 class="text-lg font-semibold text-gray-900 truncate">
+              {{ getCurrentLocationTitle() }}
+            </h3>
           </div>
         </div>
 
-        <!-- Main Content Area - This will expand to fill available space -->
-        <div class="flex flex-col flex-1 min-h-0">
-          <!-- Navigation Header -->
-          <div v-if=" breadcrumbs.length > 1" class="p-4 pt-0 flex-shrink-0">
-            <div class="flex items-center">
-              <button
-                @click="goBack"
-                class="flex items-center text-gray-600 hover:text-gray-900 mr-2"
+        <!-- Scrollable Folder List Area -->
+        <div class="px-4 pb-4 flex-1 min-h-0 flex flex-col">
+          <div class="flex-1 overflow-y-auto rounded-md">
+            <!-- Teams List for Team Tab -->
+            <div
+              v-if="
+                tabIndex === 1 &&
+                teams.data &&
+                teams.data.length > 0 &&
+                breadcrumbs.length === 1
+              "
+              class=""
+            >
+              <div
+                v-for="team in teams.data"
+                :key="team.name"
+                class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
+                :class="{ 'bg-[#D4E1F9]': currentFolder === team.name }"
+                @click="navigateToTeam(team)"
               >
-                <LucideChevronLeft class="w-5 h-5" />
-              </button>
-              <h3 class="text-lg font-semibold text-gray-900 truncate">
-                {{ getCurrentLocationTitle() }}
-              </h3>
-            </div>
-          </div>
-
-          <!-- Scrollable Folder List Area -->
-          <div class="px-4 pb-4 flex-1 min-h-0 flex flex-col">
-            <div class="flex-1 overflow-y-auto rounded-md">
-              <!-- Teams List for Team Tab -->
-              <div v-if="tabIndex === 1 && teams.data && teams.data.length > 0 && breadcrumbs.length === 1" class="">
-                <div
-                  v-for="team in teams.data"
-                  :key="team.name"
-                  class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
-                  :class="{ 'bg-[#D4E1F9]': currentFolder === team.name }"
-                  @click="navigateToTeam(team)"
+                <TeamDrive class="w-5 h-5 text-gray-900 mr-2" />
+                <span
+                  class="flex-1 font-[500] text-[14px] text-gray-900 truncate"
+                  >{{ team.title }}</span
                 >
-                  <TeamDrive class="w-5 h-5 text-gray-900 mr-2" />
-                  <span class="flex-1 font-[500] text-[14px] text-gray-900 truncate">{{ team.title }}</span>
-                  <button
-                    class=" hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
-                    @click.stop="navigateToTeam(team)"
-                    title="Mở nhóm"
-                  >
-                    <LucideChevronRight class="w-5 h-5 text-[#525252]" />
-                  </button>
-                </div>
-              </div>
-              
-              <!-- Folders List -->
-              <div v-else-if="currentTree.children.length > 0" >
-                <div
-                  v-for="folder in currentTree.children"
-                  :key="folder.value"
-                  class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
-                  :class="{ 'bg-[#D4E1F9]': currentFolder === folder.value }"
-                  @click.stop.prevent="selectFolder(folder)"
-                >
-                  <TeamIcon class="w-5 h-5 text-gray-500 mr-2" />
-                  <span class="flex-1 font-[500] text-[14px] text-gray-900 truncate">{{ folder.label }}</span>
-                  <button
-                    class=" hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
-                    @click.stop.prevent="navigateToFolder(folder)"
-                    title="Mở thư mục"
-                  >
-                    <LucideChevronRight class="w-5 h-5 text-[#525252]" />
-                  </button>
-                </div>
-              </div>
-              
-              <!-- Empty State -->
-              <div v-else class="flex items-center justify-center h-full">
-                <p class="text-sm text-gray-500">
-                  Chưa có dữ liệu
-                </p>
-              </div>
-              
-            </div>
-            
-            <!-- Create Folder Button -->
-            <div v-if="(tabIndex === 0) || (tabIndex === 1 && breadcrumbs.length > 1)" class="mt-2 flex justify-start flex-shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                class="flex items-center gap-2 hover:border-[#0149C1]"
-                @click.stop="showCreateFolderDialog = true"
-              >
-                <FolderPlusIcon class="w-4 h-4" />
-              </Button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Fixed Bottom Section - Breadcrumbs and Action Button -->
-        <div class="px-4 py-3 border-t border-gray-200 flex-shrink-0">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center">
-              <div class="flex items-center flex-wrap max-w-full gap-1">
                 <button
-                  v-for="(crumb, index) in breadcrumbs"
-                  :key="index"
-                  class="breadcrumb-item flex items-center text-sm max-w-[220px]"
-                  @click="navigateToBreadcrumb(crumb, index)"
+                  class="hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
+                  @click.stop="navigateToTeam(team)"
+                  title="Mở nhóm"
                 >
-                  <span
-                    :title="crumb.title"
-                    class=" transition-colors text-[11.5px] inline-block truncate max-w-[200px] align-bottom"
-                    :class="index === breadcrumbs.length - 1 
-                      ? 'text-gray-900 font-medium' 
-                      : 'text-gray-600'"
-                  >
-                    {{ crumb.title }}
-                  </span>
-                  <LucideChevronRight 
-                    v-if="index < breadcrumbs.length - 1" 
-                    class="w-4 h-4 text-gray-900" 
-                  />
+                  <LucideChevronRight class="w-5 h-5 text-[#525252]" />
                 </button>
               </div>
             </div>
-            <Button
-              variant="solid"
-              class="action-button !bg-[#0149C1] text-white min-w-[130px]"
-              :disabled="!canPerformAction"
-              :loading="copyLoading"
-              @click="performCopy"
+
+            <!-- Folders List -->
+            <div v-else-if="currentTree.children.length > 0">
+              <div
+                v-for="folder in currentTree.children"
+                :key="folder.value"
+                class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
+                :class="{ 'bg-[#D4E1F9]': currentFolder === folder.value }"
+                @click.stop.prevent="selectFolder(folder)"
+              >
+                <TeamIcon class="w-5 h-5 text-gray-500 mr-2" />
+                <span
+                  class="flex-1 font-[500] text-[14px] text-gray-900 truncate"
+                  >{{ folder.label }}</span
+                >
+                <button
+                  class="hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
+                  @click.stop.prevent="navigateToFolder(folder)"
+                  title="Mở thư mục"
+                >
+                  <LucideChevronRight class="w-5 h-5 text-[#525252]" />
+                </button>
+              </div>
+            </div>
+
+            <!-- Empty State -->
+            <div
+              v-else
+              class="flex items-center justify-center h-full"
             >
-              <template #prefix>
-                <LucideCopy class="w-4 h-4" />
-              </template>
-              {{ __('Tạo bản sao') }}
+              <p class="text-sm text-gray-500">Chưa có dữ liệu</p>
+            </div>
+          </div>
+
+          <!-- Create Folder Button -->
+          <div
+            v-if="tabIndex === 0 || (tabIndex === 1 && breadcrumbs.length > 1)"
+            class="mt-2 flex justify-start flex-shrink-0"
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              class="flex items-center gap-2 hover:border-[#0149C1]"
+              @click.stop="showCreateFolderDialog = true"
+            >
+              <FolderPlusIcon class="w-4 h-4" />
             </Button>
           </div>
         </div>
       </div>
+
+      <!-- Fixed Bottom Section - Breadcrumbs and Action Button -->
+      <div class="px-4 py-3 border-t border-gray-200 flex-shrink-0">
+        <div class="flex items-center justify-between">
+          <div class="flex items-center">
+            <div class="flex items-center flex-wrap max-w-full gap-1">
+              <button
+                v-for="(crumb, index) in breadcrumbs"
+                :key="index"
+                class="breadcrumb-item flex items-center text-sm max-w-[220px]"
+                @click="navigateToBreadcrumb(crumb, index)"
+              >
+                <span
+                  :title="crumb.title"
+                  class="transition-colors text-[11.5px] inline-block truncate max-w-[200px] align-bottom"
+                  :class="
+                    index === breadcrumbs.length - 1
+                      ? 'text-gray-900 font-medium'
+                      : 'text-gray-600'
+                  "
+                >
+                  {{ crumb.title }}
+                </span>
+                <LucideChevronRight
+                  v-if="index < breadcrumbs.length - 1"
+                  class="w-4 h-4 text-gray-900"
+                />
+              </button>
+            </div>
+          </div>
+          <Button
+            variant="solid"
+            class="action-button !bg-[#0149C1] text-white min-w-[130px]"
+            :disabled="!canPerformAction"
+            :loading="copyLoading"
+            @click="performCopy"
+          >
+            <template #prefix>
+              <LucideCopy class="w-4 h-4" />
+            </template>
+            {{ __("Tạo bản sao") }}
+          </Button>
+        </div>
+      </div>
+    </div>
     <!-- </template> -->
   </Dialog>
 
@@ -205,35 +246,38 @@
       :appendTo="'body'"
       :baseZIndex="2000"
       class="create-folder-dialog"
-      @show="onChildDialogShow" 
+      @show="onChildDialogShow"
       :showHeader="false"
     >
-        <div class="pt-5 w-[300px]">
-          <h3 class="text-lg font-semibold mb-4">{{ __('Tạo thư mục mới') }}</h3>
-          <form class="mb-4">
-            <input
-              ref="newFolderInput"
-              v-model="newFolderName"
-              type="text"
-              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-              :placeholder="__('Nhập tên thư mục')"
-              @keydown.enter="createNewFolder"
-            />
-          </form>
-          <div class="flex justify-end gap-2">
-            <Button variant="outline" @click.stop="showCreateFolderDialog = false">
-              {{ __('Hủy') }}
-            </Button>
-            <Button
-              variant="solid"
-              class="!bg-[#0149C1] text-white"
-              :disabled="!newFolderName.trim()"
-              @click.stop="createNewFolder"
-            >
-              {{ __('Tạo') }}
-            </Button>
-          </div>
+      <div class="pt-5 w-[300px]">
+        <h3 class="text-lg font-semibold mb-4">{{ __("Tạo thư mục mới") }}</h3>
+        <form class="mb-4">
+          <input
+            ref="newFolderInput"
+            v-model="newFolderName"
+            type="text"
+            class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
+            :placeholder="__('Nhập tên thư mục')"
+            @keydown.enter="createNewFolder"
+          />
+        </form>
+        <div class="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            @click.stop="showCreateFolderDialog = false"
+          >
+            {{ __("Hủy") }}
+          </Button>
+          <Button
+            variant="solid"
+            class="!bg-[#0149C1] text-white"
+            :disabled="!newFolderName.trim()"
+            @click.stop="createNewFolder"
+          >
+            {{ __("Tạo") }}
+          </Button>
         </div>
+      </div>
     </Dialog>
   </div>
 </template>
@@ -241,10 +285,7 @@
 <script setup>
 import { allFolders } from "@/resources/files"
 import { openEntity as openEntityAfterCopy } from "@/utils/files"
-import {
-  Button,
-  createResource,
-} from "frappe-ui"
+import { Button, createResource } from "frappe-ui"
 import { Dialog } from "primevue"
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
 import { useRoute } from "vue-router"
@@ -278,8 +319,6 @@ const props = defineProps({
   },
 })
 
-console.log("Copy Dialog loaded", props.entities)
-
 const copyLoading = ref(false)
 const currentTeam = ref(null)
 
@@ -303,7 +342,7 @@ const tabIndex = ref(in_home ? 0 : 1) // 1 = Tài liệu của tôi, 2 = Nhóm
 
 const currentTree = computed(() => {
   switch (tabIndex.value) {
-    case 0:  // Tài liệu của tôi
+    case 0: // Tài liệu của tôi
       return homeRoot
     case 1: // Nhóm
       return teamRoot
@@ -344,7 +383,7 @@ const dropDownBreadcrumbs = computed(() => {
 
 const tabs = computed(() => [
   { label: __("Tài liệu của tôi"), value: "personal" },
-  { label: __("Nhóm"), value: "team" }
+  { label: __("Nhóm"), value: "team" },
 ])
 
 // Current location name for display
@@ -357,7 +396,7 @@ const currentLocationName = computed(() => {
 
 // Check if action can be performed
 const canPerformAction = computed(() => {
-  return currentFolder.value !== '' || breadcrumbs.value[0].title !== route.name
+  return currentFolder.value !== "" || breadcrumbs.value[0].title !== route.name
 })
 
 // Get current location title for navigation header
@@ -377,39 +416,43 @@ function goBack() {
 }
 
 const breadcrumbs = ref([
-  { name: "", title: in_home ? __("Tài liệu của tôi") : __("Nhóm"), is_private: in_home ? 1 : 0 },
+  {
+    name: "",
+    title: in_home ? __("Tài liệu của tôi") : __("Nhóm"),
+    is_private: in_home ? 1 : 0,
+  },
 ])
 const folderSearch = ref(null)
 
 // Build tree structure
 function buildTreeStructure(folders, targetRoot) {
   targetRoot.children = []
-  
+
   const folderMap = {}
   const rootChildren = []
-  
-  folders.forEach(folder => {
+
+  folders.forEach((folder) => {
     folderMap[folder.value || folder.name] = {
       value: folder.value || folder.name,
       name: folder.name || folder.value,
       label: folder.label || folder.title,
       children: [],
       isCollapsed: true,
-      is_private: folder.is_private
+      is_private: folder.is_private,
     }
   })
-  
-  folders.forEach(folder => {
+
+  folders.forEach((folder) => {
     const node = folderMap[folder.value || folder.name]
     const parentKey = folder.parent
-    
+
     if (parentKey && folderMap[parentKey]) {
       folderMap[parentKey].children.push(node)
     } else {
       rootChildren.push(node)
     }
   })
-  
+
   targetRoot.children = rootChildren
 }
 
@@ -420,7 +463,12 @@ const folderPermissions = createResource({
     entity_name: currentFolder.value,
   },
   onSuccess: (data) => {
-    let first = [{ name: "", title: data.is_private ? __('Tài liệu của tôi') : __('Team') }]
+    let first = [
+      {
+        name: "",
+        title: data.is_private ? __("Tài liệu của tôi") : __("Team"),
+      },
+    ]
     breadcrumbs.value = first.concat(data.breadcrumbs.slice(1))
   },
 })
@@ -435,12 +483,12 @@ const folderContents = createResource({
   }),
   onSuccess: (data) => {
     if (data && Array.isArray(data)) {
-      const folders = data.filter(item => item.is_group)
+      const folders = data.filter((item) => item.is_group)
       if (tabIndex.value === 1) {
         buildTreeStructure(folders, teamRoot)
       }
     }
-  }
+  },
 })
 
 const folderMultiContents = createResource({
@@ -451,12 +499,12 @@ const folderMultiContents = createResource({
       is_active: 1,
       folders: 1,
       ...params,
-    };
-    return finalParams;
+    }
+    return finalParams
   },
   onSuccess: (data) => {
     if (data && Array.isArray(data)) {
-      const folders = data.filter(item => item.is_group)
+      const folders = data.filter((item) => item.is_group)
       if (tabIndex.value === 0) {
         buildTreeStructure(folders, homeRoot)
       } else if (tabIndex.value === 1) {
@@ -464,21 +512,21 @@ const folderMultiContents = createResource({
         buildTreeStructure(folders, teamRoot)
       }
     }
-  }
+  },
 })
 
 // Teams resource
 const teams = createResource({
   url: "drive.api.permissions.get_teams",
   params: {
-    details: 1
+    details: 1,
   },
   onSuccess: (data) => {
     // Convert teams object to array
-    if (data && typeof data === 'object') {
+    if (data && typeof data === "object") {
       teams.data = Object.values(data)
     }
-  }
+  },
 })
 
 // Move API resource
@@ -503,45 +551,51 @@ const moveResource = createResource({
         },
       ],
     })
-    emit('success')
+    emit("success")
     open.value = false
-   
   },
   onError: (error) => {
     copyLoading.value = false
-    console.error('Move error:', error)
-    toast(__('Tạo bản sao thất bại'))
-  }
+    console.error("Move error:", error)
+    toast(__("Tạo bản sao thất bại"))
+  },
 })
 
 // Initialize on mount
 onMounted(() => {
   if (allFolders.data) {
-    const homeFolders = allFolders.data.filter(f => f.is_private)
-    const teamFolders = allFolders.data.filter(f => !f.is_private)
-    
+    const homeFolders = allFolders.data.filter((f) => f.is_private)
+    const teamFolders = allFolders.data.filter((f) => !f.is_private)
+
     buildTreeStructure(homeFolders, homeRoot)
     buildTreeStructure(teamFolders, teamRoot)
   }
 })
 
 // Watch for allFolders changes
-watch(() => allFolders.data, (newData) => {
-  if (newData) {
-    const homeFolders = newData.filter(f => f.is_private)
-    const teamFolders = newData.filter(f => !f.is_private)
-    
-    buildTreeStructure(homeFolders, homeRoot)
-    buildTreeStructure(teamFolders, teamRoot)
-  }
-}, { deep: true })
+watch(
+  () => allFolders.data,
+  (newData) => {
+    if (newData) {
+      const homeFolders = newData.filter((f) => f.is_private)
+      const teamFolders = newData.filter((f) => !f.is_private)
+
+      buildTreeStructure(homeFolders, homeRoot)
+      buildTreeStructure(teamFolders, teamRoot)
+    }
+  },
+  { deep: true }
+)
 
 // Watch route changes
-watch(() => route.name, (newRouteName) => {
-  if (newRouteName === 'Home') {
-    tabIndex.value = 1 // Tài liệu của tôi
+watch(
+  () => route.name,
+  (newRouteName) => {
+    if (newRouteName === "Home") {
+      tabIndex.value = 1 // Tài liệu của tôi
+    }
   }
-})
+)
 
 watch(
   tabIndex,
@@ -549,14 +603,16 @@ watch(
     currentFolder.value = ""
     switch (newValue) {
       case 0: // Tài liệu của tôi
-        breadcrumbs.value = [{ name: "", title: __('Tài liệu của tôi'), is_private: 1 }]
+        breadcrumbs.value = [
+          { name: "", title: __("Tài liệu của tôi"), is_private: 1 },
+        ]
         folderMultiContents.fetch({
           entity_name: "",
           personal: 1,
         })
         break
       case 1: // Nhóm
-        breadcrumbs.value = [{ name: "", title: __('Nhóm'), is_private: 0 }]
+        breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
         // Fetch teams when switching to team tab
         teams.fetch()
         break
@@ -587,13 +643,13 @@ const createFolder = createResource({
       name: data.name,
       title: data.title,
       parent: createdNode.value.parent,
-      is_private: tabIndex.value === 0
+      is_private: tabIndex.value === 0,
     })
     folderPermissions.fetch({
       entity_name: data.name,
     })
     createdNode.value = null
-    
+
     if (tabIndex.value === 0) {
       folderMultiContents.fetch({
         entity_name: currentFolder.value,
@@ -606,23 +662,23 @@ const createFolder = createResource({
         personal: 0,
       })
     }
-    
+
     // Refresh current tree
     if (tabIndex.value === 0) {
-      getPersonal.setData((dataPersonal)=>{
+      getPersonal.setData((dataPersonal) => {
         dataPersonal.unshift(data)
-        
+
         return dataPersonal
       })
-      const homeFolders = allFolders.data.filter(f => f.is_private)
-      
+      const homeFolders = allFolders.data.filter((f) => f.is_private)
+
       buildTreeStructure(homeFolders, homeRoot)
     } else if (tabIndex.value === 1) {
-      getHome.setData((dataHome)=>{
+      getHome.setData((dataHome) => {
         dataHome.unshift(data)
         return dataHome
       })
-      const teamFolders = allFolders.data.filter(f => !f.is_private)
+      const teamFolders = allFolders.data.filter((f) => !f.is_private)
       buildTreeStructure(teamFolders, teamRoot)
     }
   },
@@ -635,7 +691,7 @@ function selectFolder(folder) {
   // folderPermissions.fetch({
   //   entity_name: currentFolder.value,
   // })
-  
+
   // // Update breadcrumbs to show we're inside the folder
   // const currentBreadcrumb = breadcrumbs.value[breadcrumbs.value.length - 1]
   // if (currentBreadcrumb && currentBreadcrumb.name !== folder.value) {
@@ -652,13 +708,13 @@ function selectFolder(folder) {
 //   folderPermissions.fetch({
 //     entity_name: currentFolder.value,
 //   })
-  
+
 //   // Update breadcrumbs to show we're inside the team
 //   breadcrumbs.value = [
 //     { name: "", title: __('Nhóm'), is_private: 0 },
 //     { name: team.name, title: team.title, is_private: 0 }
 //   ]
-  
+
 //   // Fetch folders for this team
 //   folderContents.fetch({
 //     entity_name: team.name,
@@ -672,17 +728,17 @@ function navigateToFolder(folder) {
   folderPermissions.fetch({
     entity_name: folder.value,
   })
-  
+
   // Update breadcrumbs to show we're inside the folder
   const currentBreadcrumb = breadcrumbs.value[breadcrumbs.value.length - 1]
   if (currentBreadcrumb && currentBreadcrumb.name !== folder.value) {
     breadcrumbs.value.push({
       name: folder.value,
       title: folder.label,
-      is_private: tabIndex.value === 0 ? 1 : 0
+      is_private: tabIndex.value === 0 ? 1 : 0,
     })
   }
-  
+
   // Fetch folders inside this folder
   if (tabIndex.value === 0) {
     folderMultiContents.fetch({
@@ -702,8 +758,8 @@ function navigateToTeam(team) {
   // Update breadcrumbs to show we're inside the team
   currentTeam.value = team.name
   breadcrumbs.value = [
-    { name: "", title: __('Nhóm'), is_private: 0 },
-    { name: team.name, title: team.title, is_private: 0 }
+    { name: "", title: __("Nhóm"), is_private: 0 },
+    { name: team.name, title: team.title, is_private: 0 },
   ]
   // Fetch all folders for this team
   folderContents.fetch({
@@ -746,22 +802,22 @@ function navigateToBreadcrumb(crumb, index) {
 
 function createNewFolder() {
   if (!newFolderName.value.trim()) return
-  
+
   const parentValue = currentFolder.value || ""
-  
+
   // Set the created node for the API call
   createdNode.value = {
     parent: parentValue,
     value: null,
-    label: newFolderName.value.trim()
+    label: newFolderName.value.trim(),
   }
-  
+
   createFolder.fetch({
     title: newFolderName.value.trim(),
     personal: tabIndex.value === 0,
     parent: parentValue,
   })
-  
+
   // Reset form
   newFolderName.value = ""
   showCreateFolderDialog.value = false
@@ -803,7 +859,7 @@ const expandNode = (obj, name) => {
 
 watch(folderSearch, (val) => {
   if (!val) return
-  
+
   tabIndex.value = val.is_private ? 1 : 2 // 1 = Tài liệu của tôi, 2 = Nhóm
   expandNode(currentTree.value, val.value)
 
@@ -816,7 +872,7 @@ function closeEntity(name) {
   if (breadcrumbs.value.length > 1 && index !== breadcrumbs.value.length - 1) {
     breadcrumbs.value = breadcrumbs.value.slice(0, index + 1)
     currentFolder.value = breadcrumbs.value[breadcrumbs.value.length - 1].name
-    
+
     if (tabIndex.value === 0 || tabIndex.value === 1) {
       folderMultiContents.fetch({
         entity_name: currentFolder.value,
@@ -833,19 +889,19 @@ function closeEntity(name) {
 
 function translateAutocompleteText() {
   nextTick(() => {
-    const elements = document.querySelectorAll('*')
-    elements.forEach(el => {
-      if (el.textContent === 'No results found') {
-        el.textContent = 'Không tìm thấy kết quả'
+    const elements = document.querySelectorAll("*")
+    elements.forEach((el) => {
+      if (el.textContent === "No results found") {
+        el.textContent = "Không tìm thấy kết quả"
       }
-      if (el.textContent === 'Search') {
-        el.textContent = 'Tìm kiếm'
+      if (el.textContent === "Search") {
+        el.textContent = "Tìm kiếm"
       }
     })
-    
+
     const inputs = document.querySelectorAll('input[placeholder="Search"]')
-    inputs.forEach(input => {
-      input.placeholder = 'Tìm kiếm thư mục...'
+    inputs.forEach((input) => {
+      input.placeholder = "Tìm kiếm thư mục..."
     })
   })
 }
@@ -853,35 +909,34 @@ function translateAutocompleteText() {
 // Perform move operation
 function performCopy() {
   if (!props.entities || props.entities.length === 0) {
-    toast(__('Không có mục nào được chọn'))
+    toast(__("Không có mục nào được chọn"))
     return
   }
 
-  if (currentFolder.value === '' && breadcrumbs.value[0].title == route.name) {
-    toast(__('Vui lòng chọn một đích đến khác'))
+  if (currentFolder.value === "" && breadcrumbs.value[0].title == route.name) {
+    toast(__("Vui lòng chọn một đích đến khác"))
     return
   }
 
   copyLoading.value = true
-  
+
   // Move each entity
-  const movePromises = props.entities.map(entity => {
+  const movePromises = props.entities.map((entity) => {
     return moveResource.fetch({
       source_name: entity.shortcut_name || entity.name,
-      destination_parent: currentFolder.value || null
+      destination_parent: currentFolder.value || null,
     })
   })
 
   Promise.all(movePromises)
     .then(() => {
       copyLoading.value = false
-      emit('success')
+      emit("success")
       open.value = false
     })
     .catch((error) => {
       copyLoading.value = false
-      console.error('Move failed:', error)
-      frappe.msgprint(__('Không thể tạo bản sao một số mục'))
+      console.error("Move failed:", error)
     })
 }
 
@@ -893,15 +948,15 @@ watch(open, (isOpen) => {
       const observer = new MutationObserver(() => {
         translateAutocompleteText()
       })
-      
+
       const dialog = document.querySelector('[role="dialog"]')
       if (dialog) {
         observer.observe(dialog, {
           childList: true,
           subtree: true,
-          characterData: true
+          characterData: true,
         })
-        
+
         watch(open, (stillOpen) => {
           if (!stillOpen) {
             observer.disconnect()
@@ -926,17 +981,11 @@ watch(showCreateFolderDialog, (isOpen) => {
   }
 })
 watch(showCreateFolderDialog, (isOpen) => {
-  console.log('Dialog state changed:', isOpen)
   if (isOpen) {
-    console.log('Attempting to focus input...')
     nextTick(() => {
-      console.log('nextTick executed, input ref:', newFolderInput.value)
       if (newFolderInput.value) {
-        console.log('Focusing input...')
         newFolderInput.value.focus()
-        console.log('Input focused, active element:', document.activeElement)
       } else {
-        console.log('Input ref is null!')
       }
     })
   }
@@ -951,10 +1000,7 @@ function focusNewFolderInput(attempts = 6) {
   }
   // Nếu vẫn bị giật focus về nút, thử lại vài lần
   setTimeout(() => {
-    if (
-      attempts > 0 &&
-      document.activeElement !== inputEl
-    ) {
+    if (attempts > 0 && document.activeElement !== inputEl) {
       focusNewFolderInput(attempts - 1)
     }
   }, 50)
@@ -970,7 +1016,6 @@ watch(showCreateFolderDialog, (isOpen) => {
     })
   }
 })
-
 </script>
 
 <style scoped>
@@ -1037,7 +1082,8 @@ watch(showCreateFolderDialog, (isOpen) => {
 
 .action-button:hover {
   /* transform: scale(1.05); */
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
+    0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
 
 .action-button:active {
