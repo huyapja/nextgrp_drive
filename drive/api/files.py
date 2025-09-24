@@ -1031,9 +1031,7 @@ def remove_or_restore(team, entity_shortcuts=None, entity_names=None):
 
         for entity in entity_names:
             doc = frappe.get_doc("Drive File", entity)
-            if not frappe.has_permission(
-                doctype="Drive File", user=frappe.session.user, doc=doc, ptype="write"
-            ):
+            if not user_has_permission(doc, "write", frappe.session.user):
                 raise frappe.PermissionError("You do not have permission to remove this file")
             depth_zero_toggle_is_active(doc)
 
@@ -1454,6 +1452,9 @@ def copy_file_or_folder(source_name, destination_parent):
 
         # Tạo tên mới với (bản sao)
         new_title = f"{source.title} (bản sao)"
+
+        if not destination_parent:
+            frappe.throw(_("Vui lòng chọn thư mục đích"))
 
         # Kiểm tra xem tên đã tồn tại chưa trong destination
         existing = frappe.db.exists(

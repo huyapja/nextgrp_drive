@@ -967,8 +967,8 @@ function performCopy() {
     return
   }
 
-  if (currentFolder.value === "" && breadcrumbs.value[0].title == route.name) {
-    toast(__("Vui lòng chọn một đích đến khác"))
+  if (currentFolder.value === "" && breadcrumbs.value[0].title == route.name || !currentFolder.value) {
+    toast(__("Vui lòng chọn một thư mục đích"))
     return
   }
 

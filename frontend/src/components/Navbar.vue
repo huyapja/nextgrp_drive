@@ -239,8 +239,7 @@ import {
   Breadcrumbs,
   Button,
   Dropdown,
-  LoadingIndicator,
-  createResource,
+  LoadingIndicator
 } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
@@ -258,6 +257,7 @@ import LucideTrash from "~icons/lucide/trash"
 import LucideUsers from "~icons/lucide/users"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import ShortcutIcon from "../assets/Icons/ShortcutIcon.vue"
+import { getTeamMembers } from "../resources/team"
 import Dialogs from "./Dialogs.vue"
 import UsersBar from "./UsersBar.vue"
 
@@ -288,6 +288,13 @@ console.log("Navbar getEntities prop:", props.getEntities)
 const store = useStore()
 const route = useRoute()
 const router = useRouter()
+
+// Fetch khi team thay đổi
+watch(() => route.params.team, (team) => {
+  if (team) {
+    getTeamMembers.fetch()
+  }
+}, { immediate: true })
 
 //current user
 const currentUserEmail = computed(() => store.state.user.id)
@@ -457,14 +464,6 @@ watch(selectedEntity, (k) => {
   }
 })
 
-// Team members resource
-const getTeamMembers = createResource({
-  url: "drive.api.product.get_all_users",
-  params: {
-    team: route.params.team,
-  },
-  auto: true,
-})
 
 // Button logic
 const possibleButtons = [

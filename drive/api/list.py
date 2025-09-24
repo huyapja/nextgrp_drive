@@ -486,7 +486,7 @@ def files_multi_team(
 
             print(f"DEBUG - Building queries for personal={personal}")
 
-            if personal == 1 or personal == -2:
+            if personal == 1 or personal == -2 or personal == -3:
                 print("DEBUG - Building queries for personal=1 (My Drive)")
                 # Query 1: Lấy file gốc thuộc về user
                 original_files_query = (
@@ -507,6 +507,7 @@ def files_multi_team(
                     )
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                        & (DriveFile.is_active == is_active)
                     )
                 )
 
@@ -538,12 +539,19 @@ def files_multi_team(
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
                         & (DriveShortcut.is_active == is_active)
+                        & (DriveShortcut.shortcut_owner == user)
                     )
                 )
 
                 if personal == 1:
                     original_files_query = original_files_query.where(
                         (DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user)
+                    )
+                if personal == -3:
+                    # Chỉ lấy file gốc công khai và file của user (thùng rác cá nhân)
+                    original_files_query = original_files_query.where(
+                        (DriveFile.is_private == 0)
+                        & (DriveFile.modified_by == frappe.session.user)
                     )
                 query = original_files_query
                 shortcut_query = shortcut_files_query
@@ -604,7 +612,9 @@ def files_multi_team(
                     )
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                        & (DriveFile.is_active == is_active)
                         & (DriveShortcut.is_active == is_active)
+                        & (DriveShortcut.shortcut_owner == user)
                     )
                 )
                 shortcut_query = None
@@ -723,6 +733,7 @@ def files_multi_team(
 
                 # Apply active status filter
                 if not has_shortcut:
+                    print("DEBUG - Applying is_active filter to DriveFile only")
                     q = q.where(DriveFile.is_active == is_active)
 
                 # Apply file kinds filtering

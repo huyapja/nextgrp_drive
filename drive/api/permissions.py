@@ -90,7 +90,7 @@ def is_admin(team):
 
 def get_access(team):
     drive_team = {k.user: k for k in frappe.get_doc("Drive Team", team).users}
-    print("DRIVE TEAMMMMMMM", drive_team[frappe.session.user], team)
+    print("DRIVE TEAMMMMMMM", drive_team[frappe.session.user], frappe.session.user, team)
     return drive_team[frappe.session.user].access_level
 
 

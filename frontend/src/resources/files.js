@@ -86,7 +86,7 @@ export const getTrash = createResource({
   url: "drive.api.list.files_multi_team",
   cache: "trash-folder-contents",
   makeParams: (params) => {
-    return { ...params, is_active: 0, only_parent: 0, personal: 1 }
+    return { ...params, is_active: 0, only_parent: 0, personal: -3 }
   },
 })
 

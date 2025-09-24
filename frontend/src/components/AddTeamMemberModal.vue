@@ -436,6 +436,7 @@ import LucideSearch from "~icons/lucide/search"
 import LucideUser from "~icons/lucide/user"
 import LucideUserPlus from "~icons/lucide/user-plus"
 import LucideX from "~icons/lucide/x"
+import { getTeamMembers } from "../resources/team"
 
 const props = defineProps({
   modelValue: {
@@ -476,7 +477,9 @@ const currentMembers = createResource({
 
 const addMemberResource = createResource({
   url: "drive.api.product.add_user_directly_to_team",
-  onSuccess: () => {},
+  onSuccess: () => {
+    getTeamMembers.reload()
+  },
   onError: (error) => {
     toast(`Lỗi: ${error.message}`)
   },
@@ -599,6 +602,7 @@ const removeUserSelection = (user) => {
   const index = selectedUsers.value.findIndex((u) => u.email === user.email)
   if (index > -1) {
     selectedUsers.value.splice(index, 1)
+
   }
 }
 
@@ -642,6 +646,8 @@ const removeMember = (email) => {
   removeMemberResource.submit({
     team: route.params.team,
     user_id: email,
+  }).then(() => {
+    getTeamMembers.reload()
   })
 }
 
