@@ -486,7 +486,7 @@ const addMemberResource = createResource({
 })
 
 const removeMemberResource = createResource({
-  url: "drive.api.product.remove_user",
+  url: "drive.api.product.remove_user", 
   onSuccess: () => {
     toast("Thành viên đã được xóa!")
     currentMembers.reload()
