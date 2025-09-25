@@ -20,8 +20,8 @@ const shareView = computed(() => store.state.shareView)
 watch(
   shareView,
   (val) => {
-    getShared.fetch({ by: val === "with" ? 0 : 1 })
-    console.log("Fetch shared files with by =", getShared.data)
+    const params = { by: val === "with" ? 0 : 1 }
+    getShared.fetch(params)
   },
   { immediate: true }
 )

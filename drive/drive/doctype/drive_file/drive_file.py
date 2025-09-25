@@ -12,6 +12,7 @@ from drive.utils.files import (
 from drive.api.files import get_ancestors_of
 from drive.utils.files import generate_upward_path
 from drive.api.activity import create_new_activity_log
+from drive.api.permissions import user_has_permission
 
 
 class DriveFile(Document):
@@ -411,65 +412,62 @@ class DriveFile(Document):
         :param new_owner: User to whom ownership is to be transferred
         """
 
-        permission_old = int(old_owner_permissions) if old_owner_permissions else 0
-        old_owner = self.owner  # Lưu owner cũ
+        try:
 
-        if self.owner == new_owner:
-            return
+            permission_old = int(old_owner_permissions) if old_owner_permissions else 0
+            old_owner = self.owner  # Lưu owner cũ
 
-        if not frappe.has_permission(
-            doctype="Drive File",
-            doc=self,
-            ptype="share",
-            user=frappe.session.user,
-        ):
-            frappe.throw("Not permitted", frappe.PermissionError)
+            if self.owner == new_owner:
+                return
+            print("Debug, Permission User File", self.owner, frappe.session.user)
+            if not user_has_permission(self, "share", frappe.session.user):
+                frappe.throw("Not permitted", frappe.PermissionError)
 
-        if self.is_group:
-            for child in self.get_children():
-                child.move_owner(new_owner)
+            if self.is_group:
+                for child in self.get_children():
+                    child.move_owner(new_owner)
 
-        # Sử dụng frappe.db.set_value thay vì self.owner = new_owner
-        frappe.db.set_value("Drive File", self.name, "owner", new_owner)
-        frappe.db.commit()
-
-        if self.document:
-            doc = frappe.get_doc("Drive Document", self.document)
-            # Sử dụng frappe.db.set_value cho Drive Document
-            frappe.db.set_value("Drive Document", doc.name, "owner", new_owner)
+            # Sử dụng frappe.db.set_value thay vì self.owner = new_owner
+            frappe.db.set_value("Drive File", self.name, "owner", new_owner)
             frappe.db.commit()
 
-        # remove all permissions as they are no longer valid
-        frappe.db.delete("Drive Permission", {"entity": self.name, "user": new_owner})
-        frappe.db.delete("Drive Permission", {"entity": self.name, "user": old_owner})
+            if self.document:
+                doc = frappe.get_doc("Drive Document", self.document)
+                # Sử dụng frappe.db.set_value cho Drive Document
+                frappe.db.set_value("Drive Document", doc.name, "owner", new_owner)
+                frappe.db.commit()
 
-        # Reload document để có owner mới
-        self.reload()
+            # remove all permissions as they are no longer valid
+            frappe.db.delete("Drive Permission", {"entity": self.name, "user": new_owner})
+            frappe.db.delete("Drive Permission", {"entity": self.name, "user": old_owner})
 
-        # share with new owner with full permissions
-        self.share(
-            user=new_owner,
-            read=1,
-            write=1,
-            share=1,
-            comment=1,
-        )
+            # share with new owner with full permissions
+            self.share(
+                user=new_owner,
+                read=1,
+                write=1,
+                share=1,
+                comment=1,
+            )
 
-        # Share với user hiện tại (người thực hiện move)
-        self.share(
-            user=frappe.session.user,
-            read=1,
-            write=permission_old,
-            share=1,
-            comment=1,
-        )
+            # Share với user hiện tại (người thực hiện move)
+            self.share(
+                user=frappe.session.user,
+                read=1,
+                write=permission_old,
+                share=1,
+                comment=1,
+            )
 
-        return {
-            "status": "success",
-            "message": f"File ownership moved from {old_owner} to {new_owner}",
-            "old_owner": old_owner,
-            "new_owner": new_owner,
-        }
+            return {
+                "status": "success",
+                "message": f"File ownership moved from {old_owner} to {new_owner}",
+                "old_owner": old_owner,
+                "new_owner": new_owner,
+            }
+        except Exception as e:
+            frappe.db.rollback()
+            frappe.throw(f"Failed to move ownership: {str(e)}")
 
     # @frappe.whitelist()
     # def create_shortcut(self):

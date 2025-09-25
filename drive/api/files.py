@@ -378,36 +378,36 @@ def create_folder(team, title, personal=False, parent=None):
             frappe.PermissionError,
         )
 
-    if not personal:
-        entity_exists = frappe.db.exists(
-            {
-                "doctype": "Drive File",
-                "parent_entity": parent,
-                "is_group": 1,
-                "title": title,
-                "is_active": 1,
-                "is_private": 0,
-            }
-        )
-    else:
-        entity_exists = frappe.db.exists(
-            {
-                "doctype": "Drive File",
-                "parent_entity": parent,
-                "title": title,
-                "is_group": 1,
-                "is_active": 1,
-                "owner": frappe.session.user,
-                "is_private": 1,
-            }
-        )
-    # BROKEN: capitlization?
-    if entity_exists:
-        suggested_name = get_new_title(title, parent, folder=True)
-        frappe.throw(
-            f"Folder '{title}' already exists.\n Suggested: {suggested_name}",
-            FileExistsError,
-        )
+    # if not personal:
+    #     entity_exists = frappe.db.exists(
+    #         {
+    #             "doctype": "Drive File",
+    #             "parent_entity": parent,
+    #             "is_group": 1,
+    #             "title": title,
+    #             "is_active": 1,
+    #             "is_private": 0,
+    #         }
+    #     )
+    # else:
+    #     entity_exists = frappe.db.exists(
+    #         {
+    #             "doctype": "Drive File",
+    #             "parent_entity": parent,
+    #             "title": title,
+    #             "is_group": 1,
+    #             "is_active": 1,
+    #             "owner": frappe.session.user,
+    #             "is_private": 1,
+    #         }
+    #     )
+    # # BROKEN: capitlization?
+    # if entity_exists:
+    #     suggested_name = get_new_title(title, parent, folder=True)
+    #     frappe.throw(
+    #         f"Folder '{title}' already exists.\n Suggested: {suggested_name}",
+    #         FileExistsError,
+    #     )
 
     drive_file = frappe.get_doc(
         {
@@ -970,7 +970,7 @@ def set_favourite(entities=None, clear_all=False):
 
 
 @frappe.whitelist()
-def remove_or_restore(team, entity_shortcuts=None, entity_names=None):
+def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
     """
     To move entities (files and shortcuts) to or restore entities from the trash
 
@@ -980,7 +980,8 @@ def remove_or_restore(team, entity_shortcuts=None, entity_names=None):
     :type entity_shortcuts: list[str]
     :param team: Team name
     """
-    storage_data = storage_bar_data(team)
+    if team:
+        storage_data = storage_bar_data(team)
 
     # Process files
     if entity_names:
@@ -1029,11 +1030,19 @@ def remove_or_restore(team, entity_shortcuts=None, entity_names=None):
             )
             doc.save()
 
+        success_files = []  # Danh sách file xóa thành công
+        failed_files = []  # Danh sách file không có quyền
         for entity in entity_names:
-            doc = frappe.get_doc("Drive File", entity)
-            if not user_has_permission(doc, "write", frappe.session.user):
-                raise frappe.PermissionError("You do not have permission to remove this file")
-            depth_zero_toggle_is_active(doc)
+            try:
+                doc = frappe.get_doc("Drive File", entity)
+                if user_has_permission(doc, "write", frappe.session.user):
+                    depth_zero_toggle_is_active(doc)
+                    success_files.append(doc.title or doc.name)
+                else:
+                    failed_files.append(doc.title or doc.name)
+            except Exception as e:
+                failed_files.append(entity)
+                continue
 
     # Process shortcuts
     if entity_shortcuts:
@@ -1102,12 +1111,29 @@ def remove_or_restore(team, entity_shortcuts=None, entity_names=None):
 
     frappe.db.commit()
 
-    return {
-        "success": True,
-        "message": "Operation completed successfully",
-        "processed_files": len(entity_names) if entity_names else 0,
-        "processed_shortcuts": len(entity_shortcuts) if entity_shortcuts else 0,
+    # Trả về kết quả
+    result = {
+        "success": len(success_files) > 0,
+        "message": "",
+        "success_files": success_files,
+        "failed_files": failed_files,
     }
+
+    if len(failed_files) > 0:
+        # Nếu có file thất bại
+        if len(success_files) > 0:
+            # Có cả file thành công và thất bại
+            result["message"] = (
+                f"Đã xóa {len(success_files)} file thành công. {len(failed_files)} file không có quyền xóa: {', '.join(failed_files)}"
+            )
+        else:
+            # Tất cả đều thất bại
+            result["message"] = f"Không có quyền xóa các file: {', '.join(failed_files)}"
+    else:
+        # Tất cả thành công
+        result["message"] = f"Đã xóa {len(success_files)} file thành công"
+
+    return result
 
 
 @frappe.whitelist(allow_guest=True)

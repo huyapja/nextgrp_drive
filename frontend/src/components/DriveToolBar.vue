@@ -180,6 +180,7 @@ import { ICON_TYPES, MIME_LIST_MAP, sortEntities } from "@/utils/files"
 import { useStore } from "vuex"
 import { onKeyDown } from "@vueuse/core"
 import { onClickOutside } from "@vueuse/core"
+import { useRoute } from "vue-router"
 
 const rows = defineModel(Array)
 const props = defineProps({
@@ -240,6 +241,8 @@ watch(search, (val) => {
   const search = new RegExp(val, "i")
   rows.value = props.getEntities.data.filter((k) => search.test(k.title))
 })
+
+const route = useRoute()
 
 onKeyDown("Escape", () => {
   searchInput.value.el.blur()
