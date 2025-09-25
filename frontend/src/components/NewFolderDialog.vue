@@ -28,12 +28,12 @@
           <LucideFolderClosed class="size-4" />
         </template>
       </TextInput>
-      <div
+      <!-- <div
         v-if="createFolder.error"
         class="pt-4 text-base font-sm text-ink-red-3"
       >
         {{ __("This folder already exists.") }}
-      </div>
+      </div> -->
     </template>
   </Dialog>
 </template>

@@ -46,7 +46,7 @@ const store = createStore({
       team: getJson("currentFolderTeam", {}),
       entities: getJson("currentEntitites", []),
     },
-    breadcrumbs: getJson("breadcrumbs", [{ label: "Home", route: "/" }]),
+    breadcrumbs: getJson("breadcrumbs", [{ label: "Tài liệu của tôi", route: "/" }]),
     // Writer ones
     hasWriteAccess: false,
     allComments: "",

@@ -37,7 +37,6 @@ def get_user_access(entity, user=frappe.session.user):
 
     if user == entity.owner:
         return {"read": 1, "comment": 1, "share": 1, "write": 1, "type": "admin"}
-
     teams = get_teams(user)
 
     # Quyền mặc định
@@ -90,7 +89,6 @@ def is_admin(team):
 
 def get_access(team):
     drive_team = {k.user: k for k in frappe.get_doc("Drive Team", team).users}
-    print("DRIVE TEAMMMMMMM", drive_team[frappe.session.user], frappe.session.user, team)
     return drive_team[frappe.session.user].access_level
 
 
@@ -405,22 +403,10 @@ def auto_delete_expired_perms():
 
 
 def user_has_permission(doc, ptype, user):
-    print(f"=== Permission Check ===")
-    print(f"User: {user}")
-    print(f"Doc name: {doc.name}")
-    print(f"Doc owner: {doc.owner}")
-    print(f"Permission type: {ptype}")
-
     if doc.owner == user or user == "Administrator":
-        print("✓ User is owner or Administrator")
         return True
-
     access = get_user_access(doc, user)
-    print(f"User access: {access}")
-
     if ptype in access:
-        print(f"✓ Has {ptype} permission: {access[ptype]}")
         return access[ptype]
     else:
-        print(f"✗ No {ptype} permission found")
         return False

@@ -4,7 +4,7 @@ from frappe import _
 from frappe.rate_limiter import rate_limit
 from frappe.utils import escape_html
 from frappe.utils import split_emails, validate_email_address
-from drive.api.permissions import is_admin
+from drive.api.permissions import is_admin, user_has_permission
 from frappe.translate import get_all_translations
 import re
 import csv
@@ -414,10 +414,17 @@ def set_user_access(team, user_id, access_level):
 
 @frappe.whitelist()
 def remove_user(team, user_id):
-    drive_team = {k.user: k for k in frappe.get_doc("Drive Team", team).users}
+    team_doc = frappe.get_doc("Drive Team", team)
+    drive_team = {member.user: member for member in team_doc.users}
+
     if frappe.session.user not in drive_team:
         frappe.throw("User doesn't belong to team")
-    frappe.delete_doc("Drive Team Member", drive_team[user_id].name)
+
+    # Only owner with admin access can remove users
+    if drive_team[frappe.session.user].access_level == 2 and team_doc.owner == frappe.session.user:
+        frappe.delete_doc("Drive Team Member", drive_team[user_id].name, ignore_permissions=True)
+    else:
+        frappe.throw("You don't have permission to remove users from this team")
 
 
 @frappe.whitelist()
@@ -499,55 +506,40 @@ def check_users_permissions(entity_name, user_emails):
 
     result = []
 
+    # Lấy document của file
+    try:
+        entity_doc = frappe.get_doc("Drive File", entity_name)
+    except Exception as e:
+        frappe.log_error(f"Error getting Drive File document: {str(e)}")
+        return []
+
     for email in user_emails:
-        has_permission = False
-
         try:
-            # Check if user has read permission for the entity
-            entity_doc = frappe.get_doc("Drive File", entity_name)
+            # Sử dụng user_has_permission để kiểm tra quyền
+            has_read_permission = user_has_permission(entity_doc, "read", email)
+            has_write_permission = user_has_permission(entity_doc, "write", email)
+            has_share_permission = user_has_permission(entity_doc, "share", email)
 
-            # Check if user is owner
-            if entity_doc.owner == email:
-                has_permission = True
-            else:
-                # Check Drive Permission permissions
-                share_doc = frappe.db.exists(
-                    "Drive Permission", {"entity": entity_name, "user": email}
-                )
+            print(f"Permission check for user {email} on file {entity_name}:")
+            print(f"- Read: {has_read_permission}")
+            print(f"- Write: {has_write_permission}")
+            print(f"- Share: {has_share_permission}")
 
-                if share_doc:
-                    share = frappe.get_doc("Drive Permission", share_doc)
-                    if share.read == 1:
-                        has_permission = True
-
-                # Check if user is in a team that has access
-                if not has_permission:
-                    # Check team permissions via Drive Permission with team user format
-                    team_shares = frappe.get_all(
-                        "Drive Permission",
-                        {"entity": entity_name, "user": ("like", "$TEAM%"), "read": 1},
-                        ["user"],
-                    )
-
-                    for team_share in team_shares:
-                        # Extract team name from user field (format: $TEAM:team_name)
-                        team_name = (
-                            team_share.user.replace("$TEAM:", "")
-                            if team_share.user.startswith("$TEAM:")
-                            else team_share.user
-                        )
-                        team_members = frappe.get_all(
-                            "Drive Team User", {"parent": team_name, "user": email}
-                        )
-                        if team_members:
-                            has_permission = True
-                            break
+            result.append(
+                {
+                    "email": email,
+                    "has_permission": has_read_permission,  # Backward compatibility
+                    "permissions": {
+                        "read": has_read_permission,
+                        "write": has_write_permission,
+                        "share": has_share_permission,
+                    },
+                }
+            )
 
         except Exception as e:
             frappe.log_error(f"Error checking permission for {email}: {str(e)}")
-            has_permission = False
-
-        result.append({"email": email, "has_permission": has_permission})
+            result.append({"email": email, "has_permission": False, "error": str(e)})
 
     return result
 

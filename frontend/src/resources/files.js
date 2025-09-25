@@ -75,9 +75,19 @@ export const getFavourites = createResource({
 export const getShared = createResource({
   ...COMMON_OPTIONS,
   url: "drive.api.list.shared_multi_team",
-  cache: "shared-folder-contents",
+  // cache: "shared-folder-contents",
   makeParams: (params) => {
-    return { ...params }
+    return {
+      ...params,
+    }
+  },
+  transform(data) {
+    if (!data) return data
+
+    return data.map((item) => ({
+      ...item,
+      team_name: item.is_private === 1 ? null : item.team,
+    }))
   },
 })
 
@@ -105,12 +115,12 @@ export const mutate = (entities, func) => {
       entities.forEach(({ name, ...params }) => {
         let el = {}
 
-        if (params.is_shortcut){
+        if (params.is_shortcut) {
           el = d.find((k) => k.shortcut_name === params.shortcut_name)
           if (el) {
             func(el, params)
           }
-        }else{
+        } else {
           el = d.find((k) => k.name === name)
           if (el) {
             func(el, params)
@@ -166,33 +176,33 @@ export const toggleFav = createResource({
       handleFilterFavourite(entity)
     )
     getFavourites.setData((d) => {
-      const currentFavourites = new Set(d.map(item => 
-        item.is_shortcut ? item.shortcut_name : item.name
-      ));
-      
-      let updatedFavourites = [...d];
-      
-      data.entities.forEach(entity => {
-        const entityId = entity.is_shortcut ? entity.shortcut_name : entity.name;
-        
+      const currentFavourites = new Set(
+        d.map((item) => (item.is_shortcut ? item.shortcut_name : item.name))
+      )
+
+      let updatedFavourites = [...d]
+
+      data.entities.forEach((entity) => {
+        const entityId = entity.is_shortcut ? entity.shortcut_name : entity.name
+
         if (entity.is_favourite) {
           // Thêm vào favourites nếu chưa có
           if (!currentFavourites.has(entityId)) {
-            updatedFavourites.push(entity);
-            currentFavourites.add(entityId);
+            updatedFavourites.push(entity)
+            currentFavourites.add(entityId)
           }
         } else {
           // Xóa khỏi favourites nếu có
-          updatedFavourites = updatedFavourites.filter(item => {
-            const itemId = item.is_shortcut ? item.shortcut_name : item.name;
-            return itemId !== entityId;
-          });
-          currentFavourites.delete(entityId);
+          updatedFavourites = updatedFavourites.filter((item) => {
+            const itemId = item.is_shortcut ? item.shortcut_name : item.name
+            return itemId !== entityId
+          })
+          currentFavourites.delete(entityId)
         }
-      });
-      
-      return updatedFavourites;
-    });
+      })
+
+      return updatedFavourites
+    })
     // mutate(
     //   data.entities,
     //   (el, { is_favourite }) => (el.is_favourite = is_favourite)
@@ -241,27 +251,27 @@ export const clearRecent = createResource({
   },
 })
 
-const handleClearTrash = (entities)=>{
-  if(!entities?.length) return
-  return entities.map((entity)=>{
-    if (entity.is_shortcut){
+const handleClearTrash = (entities) => {
+  if (!entities?.length) return
+  return entities.map((entity) => {
+    if (entity.is_shortcut) {
       return {
         entity: entity.shortcut_name,
-        is_shortcut: true
+        is_shortcut: true,
       }
-    }else{
+    } else {
       return {
         entity: entity.name,
-        is_shortcut: false
+        is_shortcut: false,
       }
     }
   })
 }
-                    
+
 export const clearTrash = createResource({
   url: "drive.api.files.delete_entities",
   makeParams: (data) => {
-    if (!data) { 
+    if (!data) {
       getTrash.setData([])
       return { clear_all: true }
     }

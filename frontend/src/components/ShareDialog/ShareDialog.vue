@@ -4,7 +4,7 @@
     :options="{ size: 'lg' }"
   >
     <template #body-main>
-      <div class="space-y-4 p-4">
+      <div class="space-y-4 p-4 min-h-[400px] pb-[80px]">
         <div class="">
           <div class="text-lg font-medium text-gray-900">
             Chia sẻ "{{ entity?.title || entity?.name }}"
@@ -330,24 +330,26 @@
             </div>
           </div>
         </div>
-        <div class="flex justify-between items-center w-full gap-2">
-          <!-- Copy Link Button -->
-          <Button
-            variant="outline"
-            @click="getLink(entity)"
-            class="h-[40px] max-w-[50%] w-full !bg-[#D4E1F9] text-[#2563EB] !hover:bg-[#D4E1F9] !border-[#0149C1] !text-[#0149C1]"
-          >
-            Sao chép liên kết
-          </Button>
-    
-          <!-- Share Button -->
-          <Button
-            :variant="sharedUsers.length > 0 ? 'solid' : 'outline'"
-            @click="sharedUsers.length > 0 ? addShares() : closeDialog()"
-            class="h-[40px] max-w-[50%] w-full !bg-[#0149C1] !text-white !hover:bg-[#01337A] !border-[#01337A]"
-          >
-            {{ updateAccess.loading ? "Đang chia sẻ..." : sharedUsers.length > 0 ? "Chia sẻ" : "Đóng" }}
-          </Button>
+        <div class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200">
+          <div class="flex justify-between items-center w-full gap-2">
+            <!-- Copy Link Button -->
+            <Button
+              variant="outline"
+              @click="getLink(entity)"
+              class="h-[40px] max-w-[50%] w-full !bg-[#D4E1F9] text-[#2563EB] !hover:bg-[#D4E1F9] !border-[#0149C1] !text-[#0149C1]"
+            >
+              Sao chép liên kết
+            </Button>
+
+            <!-- Share Button -->
+            <Button
+              :variant="sharedUsers.length > 0 ? 'solid' : 'outline'"
+              @click="sharedUsers.length > 0 ? addShares() : closeDialog()"
+              class="h-[40px] max-w-[50%] w-full !bg-[#0149C1] !text-white !hover:bg-[#01337A] !border-[#01337A]"
+            >
+              {{ updateAccess.loading ? "Đang chia sẻ..." : sharedUsers.length > 0 ? "Chia sẻ" : "Đóng" }}
+            </Button>
+          </div>
         </div>
       </div>
     </template>

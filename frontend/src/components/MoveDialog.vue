@@ -336,14 +336,39 @@ const teamRoot = reactive({
   isCollapsed: true,
 })
 
+// Thêm reactive object để quản lý cây thư mục của team hiện tại
+const currentTeamFolders = reactive({
+  name: "",
+  label: "",
+  children: [],
+  isCollapsed: false,
+})
+
 const in_home = store.state.breadcrumbs[0].name == "Home"
 const tabIndex = ref(in_home ? 0 : 1) // 0 = Tài liệu của tôi, 1 = Nhóm
 
+// Sửa lại currentTree computed để xử lý đúng trường hợp team
 const currentTree = computed(() => {
   switch (tabIndex.value) {
-    case 0: // Tài liệu của tôi
+    case 0:
+      // Kiểm tra tab hiện tại là gì
+      const currentTab = tabs.value[0]
+      if (currentTab?.value === "personal") {
+        return homeRoot
+      } else if (currentTab?.value === "team") {
+        // Nếu đang ở trong một team (breadcrumbs > 1), hiển thị folder của team đó
+        if (breadcrumbs.value.length > 1) {
+          return currentTeamFolders
+        }
+        // Nếu ở root team, hiển thị danh sách teams (không cần tree structure)
+        return { children: [], name: "", label: "Teams" }
+      }
       return homeRoot
-    case 1: // Nhóm
+    case 1: // Tab thứ 2 (khi có 2 tabs)
+      // Nếu đang ở trong một team, hiển thị folder của team đó
+      if (breadcrumbs.value.length > 1) {
+        return currentTeamFolders
+      }
       return teamRoot
     default:
       return homeRoot
@@ -484,6 +509,7 @@ const folderPermissions = createResource({
   },
 })
 
+// Sửa lại folderContents.onSuccess để build đúng tree
 const folderContents = createResource({
   url: "drive.api.list.files",
   makeParams: (params) => ({
@@ -493,9 +519,15 @@ const folderContents = createResource({
     ...params,
   }),
   onSuccess: (data) => {
+    console.log("folderContents.onSuccess:", data, "currentTeam:", currentTeam.value)
     if (data && Array.isArray(data)) {
       const folders = data.filter((item) => item.is_group)
-      if (tabIndex.value === 1) {
+      
+      // Nếu đang trong một team cụ thể, build vào currentTeamFolders
+      if (currentTeam.value && breadcrumbs.value.length > 1) {
+        buildTreeStructure(folders, currentTeamFolders)
+      } else {
+        // Ngược lại build vào teamRoot (cho trường hợp có 2 tabs)
         buildTreeStructure(folders, teamRoot)
       }
     }
@@ -574,6 +606,17 @@ watch(
         { label: __("Nhóm"), value: "team" },
       ]
       tabIndex.value = 0 // Đặt về index 0 vì chỉ có 1 tab
+      
+      // Quan trọng: Trigger lại watcher để load dữ liệu đúng
+      nextTick(() => {
+        // Force trigger tab change với giá trị mới
+        const currentTab = tabs.value[0]
+        if (currentTab?.value === "team") {
+          breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
+          currentTeam.value = null
+          teams.fetch()
+        }
+      })
       return
     }
     
@@ -585,7 +628,6 @@ watch(
   },
   { immediate: true }
 )
-
 
 watch(
   tabIndex,
@@ -608,6 +650,10 @@ watch(
       // Tab "Nhóm"
       console.log("Switching to team tab");
       breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
+      // Reset currentTeam khi chuyển về tab nhóm
+      currentTeam.value = null
+      // Reset currentTeamFolders
+      currentTeamFolders.children = []
       // Fetch teams when switching to team tab
       teams.fetch()
     }
@@ -651,30 +697,6 @@ watch(
   }
 )
 
-watch(
-  tabIndex,
-  (newValue) => {
-    currentFolder.value = ""
-    switch (newValue) {
-      case 0: // Tài liệu của tôi
-        breadcrumbs.value = [
-          { name: "", title: __("Tài liệu của tôi"), is_private: 1 },
-        ]
-        folderMultiContents.fetch({
-          entity_name: "",
-          personal: 1,
-        })
-        break
-      case 1: // Nhóm
-        breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
-        // Fetch teams when switching to team tab
-        teams.fetch()
-        break
-    }
-  },
-  { immediate: true }
-)
-
 const createdNode = ref(null)
 const createFolder = createResource({
   url: "drive.api.files.create_folder",
@@ -697,43 +719,51 @@ const createFolder = createResource({
       name: data.name,
       title: data.title,
       parent: createdNode.value.parent,
-      is_private: tabIndex.value === 0,
+      is_private: tabs.value[tabIndex.value]?.value === "personal",
     })
     folderPermissions.fetch({
       entity_name: data.name,
     })
     createdNode.value = null
 
-    if (tabIndex.value === 0) {
+    const currentTab = tabs.value[tabIndex.value]
+    if (currentTab?.value === "personal") {
       folderMultiContents.fetch({
         entity_name: currentFolder.value,
         personal: 1,
       })
-    } else if (tabIndex.value === 1) {
+    } else if (currentTab?.value === "team") {
       // Refresh team folders
       folderContents.fetch({
+        team: currentTeam.value,
         entity_name: currentFolder.value,
         personal: 0,
       })
     }
 
     // Refresh current tree
-    if (tabIndex.value === 0) {
+    const currentTab2 = tabs.value[tabIndex.value]
+    if (currentTab2?.value === "personal") {
       getPersonal.setData((dataPersonal) => {
         dataPersonal.unshift(data)
-
         return dataPersonal
       })
       const homeFolders = allFolders.data.filter((f) => f.is_private)
-
       buildTreeStructure(homeFolders, homeRoot)
-    } else if (tabIndex.value === 1) {
+    } else if (currentTab2?.value === "team") {
       getHome.setData((dataHome) => {
         dataHome.unshift(data)
         return dataHome
       })
-      const teamFolders = allFolders.data.filter((f) => !f.is_private)
-      buildTreeStructure(teamFolders, teamRoot)
+      
+      // Build vào đúng tree
+      if (currentTeam.value && breadcrumbs.value.length > 1) {
+        const teamFolders = allFolders.data.filter((f) => !f.is_private && f.team === currentTeam.value)
+        buildTreeStructure(teamFolders, currentTeamFolders)
+      } else {
+        const teamFolders = allFolders.data.filter((f) => !f.is_private)
+        buildTreeStructure(teamFolders, teamRoot)
+      }
     }
   },
 })
@@ -742,39 +772,7 @@ const createFolder = createResource({
 function selectFolder(folder) {
   if (store.state.currentFolder.name === folder.value) return
   currentFolder.value = folder.value
-  // folderPermissions.fetch({
-  //   entity_name: currentFolder.value,
-  // })
-
-  // // Update breadcrumbs to show we're inside the folder
-  // const currentBreadcrumb = breadcrumbs.value[breadcrumbs.value.length - 1]
-  // if (currentBreadcrumb && currentBreadcrumb.name !== folder.value) {
-  //   breadcrumbs.value.push({
-  //     name: folder.value,
-  //     title: folder.label,
-  //     is_private: tabIndex.value === 0 ? 1 : 0
-  //   })
-  // }
 }
-
-// function selectTeam(team) {
-//   currentFolder.value = team.name
-//   folderPermissions.fetch({
-//     entity_name: currentFolder.value,
-//   })
-
-//   // Update breadcrumbs to show we're inside the team
-//   breadcrumbs.value = [
-//     { name: "", title: __('Nhóm'), is_private: 0 },
-//     { name: team.name, title: team.title, is_private: 0 }
-//   ]
-
-//   // Fetch folders for this team
-//   folderContents.fetch({
-//     entity_name: team.name,
-//     personal: 0,
-//   })
-// }
 
 function navigateToFolder(folder) {
   // Navigate into the folder
@@ -789,12 +787,13 @@ function navigateToFolder(folder) {
     breadcrumbs.value.push({
       name: folder.value,
       title: folder.label,
-      is_private: tabIndex.value === 0 ? 1 : 0,
+      is_private: tabs.value[tabIndex.value]?.value === "personal" ? 1 : 0,
     })
   }
 
   // Fetch folders inside this folder
-  if (tabIndex.value === 0) {
+  const currentTab = tabs.value[tabIndex.value]
+  if (currentTab?.value === "personal") {
     folderMultiContents.fetch({
       entity_name: folder.value,
       personal: 1,
@@ -803,42 +802,59 @@ function navigateToFolder(folder) {
     folderContents.fetch({
       team: currentTeam.value,
       entity_name: folder.value,
+      folders: 1,
       personal: 0,
     })
   }
 }
 
+// Sửa lại navigateToTeam function
 function navigateToTeam(team) {
+  console.log("Navigating to team:", team)
   // Update breadcrumbs to show we're inside the team
   currentTeam.value = team.name
   breadcrumbs.value = [
     { name: "", title: __("Nhóm"), is_private: 0 },
     { name: team.name, title: team.title, is_private: 0 },
   ]
+  
+  // Reset currentFolder khi vào team mới
+  currentFolder.value = ""
+  
+  // Reset currentTeamFolders trước khi fetch
+  currentTeamFolders.children = []
+  currentTeamFolders.name = team.name
+  currentTeamFolders.label = team.title
+  
   // Fetch all folders for this team
   folderContents.fetch({
     team: team.name,
     personal: 0,
+    entity_name: "", // Load từ root của team
   })
 }
 
+// Sửa lại navigateToBreadcrumb để xử lý đúng việc quay về
 function navigateToBreadcrumb(crumb, index) {
   if (index < breadcrumbs.value.length - 1) {
     // Navigate to the selected breadcrumb
     breadcrumbs.value = breadcrumbs.value.slice(0, index + 1)
     currentFolder.value = breadcrumbs.value[breadcrumbs.value.length - 1].name
 
-    if (index === 0 && tabIndex.value === 1) {
+    if (index === 0 && tabs.value[tabIndex.value]?.value === "team") {
+      // Quay về danh sách teams
       currentTeam.value = null
+      currentTeamFolders.children = []
     }
 
     // Fetch folders for the selected breadcrumb
-    if (tabIndex.value === 0) {
+    const currentTab = tabs.value[tabIndex.value]
+    if (currentTab?.value === "personal") {
       folderMultiContents.fetch({
         entity_name: currentFolder.value,
         personal: 1,
       })
-    } else if (tabIndex.value === 1) {
+    } else if (currentTab?.value === "team") {
       // For team tab, check if we're in a team or folder
       if (breadcrumbs.value.length === 1) {
         // We're back at team list
@@ -846,6 +862,7 @@ function navigateToBreadcrumb(crumb, index) {
       } else {
         // We're in a team folder
         folderContents.fetch({
+          team: currentTeam.value,
           entity_name: currentFolder.value,
           personal: 0,
         })
@@ -866,9 +883,10 @@ function createNewFolder() {
     label: newFolderName.value.trim(),
   }
 
+  const currentTab = tabs.value[tabIndex.value]
   createFolder.fetch({
     title: newFolderName.value.trim(),
-    personal: tabIndex.value === 0,
+    personal: currentTab?.value === "personal",
     parent: parentValue,
   })
 
@@ -881,9 +899,10 @@ function openEntity(node) {
   if (store.state.currentFolder.name === node?.value) return
   if (!node?.value) {
     createdNode.value = node
+    const currentTab = tabs.value[tabIndex.value]
     createFolder.fetch({
       title: node?.label,
-      personal: tabIndex.value === 0 || tabIndex.value === 1,
+      personal: currentTab?.value === "personal",
       parent: node?.parent,
     })
   } else {
@@ -914,7 +933,12 @@ const expandNode = (obj, name) => {
 watch(folderSearch, (val) => {
   if (!val) return
 
-  tabIndex.value = val.is_private ? 1 : 2 // 1 = Tài liệu của tôi, 2 = Nhóm
+  const currentTab = tabs.value[tabIndex.value]
+  if (currentTab?.value === "personal") {
+    tabIndex.value = 0
+  } else {
+    tabIndex.value = 1
+  }
   expandNode(currentTree.value, val.value)
 
   currentFolder.value = val.value
@@ -927,7 +951,8 @@ function closeEntity(name) {
     breadcrumbs.value = breadcrumbs.value.slice(0, index + 1)
     currentFolder.value = breadcrumbs.value[breadcrumbs.value.length - 1].name
 
-    if (tabIndex.value === 0 || tabIndex.value === 1) {
+    const currentTab = tabs.value[tabIndex.value]
+    if (currentTab?.value === "personal") {
       folderMultiContents.fetch({
         entity_name: currentFolder.value,
         personal: currentFolder.value === "" ? 1 : -1,
@@ -1032,6 +1057,7 @@ watch(showCreateFolderDialog, (isOpen) => {
     })
   }
 })
+
 watch(showCreateFolderDialog, (isOpen) => {
   if (isOpen) {
     nextTick(() => {
@@ -1063,7 +1089,7 @@ watch(showCreateFolderDialog, (isOpen) => {
     // Reset rồi focus với retry
     newFolderName.value = ""
     nextTick(() => {
-      // chạy nhiều “nhịp” để thắng mọi auto-focus khác
+      // chạy nhiều "nhịp" để thắng mọi auto-focus khác
       requestAnimationFrame(() => focusNewFolderInput())
     })
   }

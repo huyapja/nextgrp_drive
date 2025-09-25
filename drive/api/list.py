@@ -549,9 +549,10 @@ def files_multi_team(
                     )
                 if personal == -3:
                     # Chỉ lấy file gốc công khai và file của user (thùng rác cá nhân)
+                    # (DriveFile.is_private == 0)
                     original_files_query = original_files_query.where(
-                        (DriveFile.is_private == 0)
-                        & (DriveFile.modified_by == frappe.session.user)
+                        (DriveFile.modified_by == frappe.session.user)
+                        | (DriveFile.owner == frappe.session.user)
                     )
                 query = original_files_query
                 shortcut_query = shortcut_files_query
@@ -918,8 +919,8 @@ def shared_multi_team(
         return []
 
     by = int(by)
-    team_condition = Criterion.any(DriveFile.team == team for team in user_teams)
-
+    # team_condition = Criterion.any(DriveFile.team == team for team in user_teams)
+    # & team_condition
     query = (
         frappe.qb.from_(DriveFile)
         .right_join(DrivePermission)
@@ -927,7 +928,7 @@ def shared_multi_team(
             (DrivePermission.entity == DriveFile.name)
             & ((DrivePermission.owner if by else DrivePermission.user) == frappe.session.user)
         )
-        .where((DrivePermission.read == 1) & (DriveFile.is_active == 1) & team_condition)
+        .where((DrivePermission.read == 1) & (DriveFile.is_active == 1))
         .groupby(
             DriveFile.name,
             DriveFile.team,
@@ -957,7 +958,7 @@ def shared_multi_team(
             DrivePermission.write,
             fn.Max(DriveFile.modified).as_("last_modified"),
         )
-        .limit(limit)
+        # .limit(limit)
     )
 
     # Xử lý order_by
@@ -1012,35 +1013,36 @@ def shared_multi_team(
             team_info[team] = info
 
     # Get additional information
+    # & team_condition
     child_count_query = (
         frappe.qb.from_(DriveFile)
-        .where((DriveFile.is_active == 1) & team_condition)
+        .where((DriveFile.is_active == 1))
         .select(DriveFile.parent_entity, fn.Count("*").as_("child_count"))
         .groupby(DriveFile.parent_entity)
     )
-
+    # & team_condition
     share_query = (
         frappe.qb.from_(DriveFile)
         .right_join(DrivePermission)
         .on(DrivePermission.entity == DriveFile.name)
-        .where((DrivePermission.user != "") & (DrivePermission.user != "$TEAM") & team_condition)
+        .where((DrivePermission.user != "") & (DrivePermission.user != "$TEAM"))
         .select(DriveFile.name, fn.Count("*").as_("share_count"))
         .groupby(DriveFile.name)
     )
-
+    # & team_condition
     public_files_query = (
         frappe.qb.from_(DrivePermission)
         .inner_join(DriveFile)
         .on(DrivePermission.entity == DriveFile.name)
-        .where((DrivePermission.user == "") & team_condition)
+        .where((DrivePermission.user == ""))
         .select(DrivePermission.entity)
     )
-
+    # & team_condition
     team_files_query = (
         frappe.qb.from_(DrivePermission)
         .inner_join(DriveFile)
         .on(DrivePermission.entity == DriveFile.name)
-        .where((DrivePermission.user == "$TEAM") & team_condition)
+        .where((DrivePermission.user == "$TEAM"))
         .select(DrivePermission.entity)
     )
 
