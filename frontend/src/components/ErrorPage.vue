@@ -7,13 +7,13 @@
     >
       <LucideAxe />
     </div>
-    <h1 class="text-3xl font-bold text-ink-gray-8 mt-4">Uh oh!</h1>
+    <!-- <h1 class="text-3xl font-bold text-ink-gray-8 mt-4">Uh oh!</h1> -->
     <p
-      class="text-lg text-ink-gray-5 mt-2"
+      class="text-lg text-ink-gray-5 mt-6"
       v-html="error.messages?.join?.('\n') || error"
     />
-    <div class="w-50 flex gap-10 my-8">
-      <Button
+    <div class="w-50 flex gap-10 my-6">
+      <!-- <Button
         variant="outline"
         size="md"
         @click="$router.go(-1)"
@@ -21,7 +21,7 @@
         <div class="flex gap-2">
           <LucideArrowBigLeft class="size-4" />Go Back
         </div>
-      </Button>
+      </Button> -->
       <Button
         variant="solid"
         size="md"

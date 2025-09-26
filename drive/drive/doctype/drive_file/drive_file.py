@@ -65,21 +65,102 @@ class DriveFile(Document):
         for name in child_names:
             yield frappe.get_doc(self.doctype, name)
 
-    def move(self, new_parent=None, is_private=None):
+    def move(self, new_parent=None, is_private=None, team=None):
         """
         Move file or folder to the new parent folder
         If not owned by current user, copies it.
 
         :param new_parent: Document-name of the new parent folder. Defaults to the user directory
+        :param team: Team ID - if provided, will move to root folder of that team
         :raises NotADirectoryError: If the new_parent is not a folder, or does not exist
         :raises FileExistsError: If a file or folder with the same name already exists in the specified parent folder
         :return: DriveEntity doc once file is moved
         """
-        new_parent = new_parent or get_home_folder(self.team).name
+        print(f"Move called with new_parent={new_parent}, is_private={is_private}, team={team}")
+        # Nếu có team parameter, tìm thư mục gốc của team đó
+        if team:
+            print(f"Team parameter received: {team}, current team: {self.team}")
+            # Tìm thư mục gốc của team đích (bất kể team có giống hiện tại hay không)
+            team_home_folder = get_home_folder(team)
+            if team_home_folder:
+                new_parent = team_home_folder.name
+                print(f"Found team home folder: {new_parent} for team: {team}")
+            else:
+                frappe.throw(f"Cannot find home folder for team {team}")
+
+        # Nếu không có new_parent hợp lệ, sử dụng thư mục gốc của team hiện tại
+        elif not (new_parent and new_parent.strip() and team):
+            new_parent = get_home_folder(self.team).name
+            print(f"Using current team home folder: {new_parent}")
+
+        new_parent_team = frappe.db.get_value("Drive File", new_parent, "team")
+        current_team = self.team  # Lưu team hiện tại để so sánh
+
+        print(
+            f"Move debug: current_team={current_team}, new_parent_team={new_parent_team}, new_parent={new_parent}"
+        )
+
         if new_parent == self.parent_entity:
             if is_private is not None:
                 self.is_private = int(is_private)
                 self.save()
+
+            # Chỉ xóa permission và cập nhật team khi thực sự chuyển sang team khác
+            if current_team != new_parent_team:
+                frappe.db.sql(
+                    """
+                    DELETE FROM `tabDrive Permission`
+                    WHERE entity = %s
+                """,
+                    self.name,
+                )
+
+                # Nếu là folder, xóa permission cho tất cả file con
+                if self.is_group:
+
+                    def get_all_descendants(parent_name):
+                        """Lấy tất cả file con và file cháu đệ quy"""
+                        descendants = []
+
+                        # Lấy file con trực tiếp
+                        direct_children = frappe.db.get_all(
+                            "Drive File",
+                            filters={"parent_entity": parent_name},
+                            fields=["name", "is_group"],
+                        )
+
+                        for child in direct_children:
+                            descendants.append(child.name)
+                            # Nếu là folder, tiếp tục lấy file cháu
+                            if child.is_group:
+                                descendants.extend(get_all_descendants(child.name))
+
+                        return descendants
+
+                    child_names = get_all_descendants(self.name)
+                    if child_names:
+                        frappe.db.sql(
+                            """
+                            DELETE FROM `tabDrive Permission`
+                            WHERE entity IN %(children)s
+                        """,
+                            {"children": child_names},
+                        )
+
+                        # Cập nhật team cho tất cả file con
+                        frappe.db.sql(
+                            """
+                            UPDATE `tabDrive File`
+                            SET team = %(team)s
+                            WHERE name IN %(children)s
+                        """,
+                            {"team": new_parent_team, "children": child_names},
+                        )
+
+                # Cập nhật team cho file chính
+                self.team = new_parent_team
+                self.save()
+
             return frappe.get_value(
                 "Drive File",
                 self.parent_entity,
@@ -92,7 +173,7 @@ class DriveFile(Document):
                 "Cannot move into itself",
                 frappe.PermissionError,
             )
-        print("Debug, Permission User File")
+
         is_group = frappe.db.get_value("Drive File", new_parent, "is_group")
         if not is_group:
             raise NotADirectoryError()
@@ -113,6 +194,68 @@ class DriveFile(Document):
         update_file_size(self.parent_entity, -self.file_size)
         update_file_size(new_parent, +self.file_size)
 
+        # So sánh team hiện tại với team đích để quyết định có xóa permission không
+        will_change_team = current_team != new_parent_team
+        print(
+            f"Will change team: {will_change_team}, Current: {current_team}, New: {new_parent_team}"
+        )
+
+        # Chỉ xóa permissions khi thực sự chuyển sang team khác
+        if will_change_team:
+            frappe.db.sql(
+                """
+                DELETE FROM `tabDrive Permission`
+                WHERE entity = %s
+            """,
+                self.name,
+            )
+
+            # Nếu là folder, xóa permissions cho tất cả file con và cập nhật team
+            if self.is_group:
+
+                def get_all_descendants(parent_name):
+                    """Lấy tất cả file con và file cháu đệ quy"""
+                    descendants = []
+
+                    # Lấy file con trực tiếp
+                    direct_children = frappe.db.get_all(
+                        "Drive File",
+                        filters={"parent_entity": parent_name},
+                        fields=["name", "is_group"],
+                    )
+
+                    for child in direct_children:
+                        descendants.append(child.name)
+                        # Nếu là folder, tiếp tục lấy file cháu
+                        if child.is_group:
+                            descendants.extend(get_all_descendants(child.name))
+
+                    return descendants
+
+                child_names = get_all_descendants(self.name)
+                if child_names:
+                    frappe.db.sql(
+                        """
+                        DELETE FROM `tabDrive Permission`
+                        WHERE entity IN %(children)s
+                    """,
+                        {"children": child_names},
+                    )
+
+                    # Cập nhật team cho tất cả các file con
+                    frappe.db.sql(
+                        """
+                        UPDATE `tabDrive File`
+                        SET team = %(team)s
+                        WHERE name IN %(children)s
+                    """,
+                        {"team": new_parent_team, "children": child_names},
+                    )
+
+            # Cập nhật team cho file chính
+            self.team = new_parent_team
+
+        # Cập nhật thông tin file
         self.parent_entity = new_parent
         self.is_private = frappe.db.get_value("Drive File", new_parent, "is_private")
 
@@ -120,6 +263,8 @@ class DriveFile(Document):
         if title != self.title:
             self.rename(title)
         self.save()
+
+        print(f"Final save: team={self.team}, parent={self.parent_entity}")
 
         return frappe.get_value(
             "Drive File", new_parent, ["title", "team", "name", "is_private"], as_dict=True
@@ -390,7 +535,7 @@ class DriveFile(Document):
         """
         absolute_path = generate_upward_path(self.name)
         for i in absolute_path:
-            print(i)
+
             if i["owner"] == user:
                 frappe.throw("User owns parent folder", frappe.PermissionError)
 

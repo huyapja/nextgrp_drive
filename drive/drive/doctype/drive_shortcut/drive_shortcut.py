@@ -3,98 +3,46 @@
 import frappe
 from frappe.model.document import Document
 from frappe import _
+from drive.utils.files import get_home_folder
 
 
 class DriveShortcut(Document):
-    # def before_insert(self):
-    #     """Set default values and validate before insert"""
-    #     self.validate_shortcut_creation()
-    #     self.set_file_properties()
-    #     self.set_default_title()
-
-    # def before_save(self):
-    #     """Update timestamps on save"""
-    #     if hasattr(self, "modified_date"):
-    #         self.modified_date = frappe.utils.now()
-
-    # def validate_shortcut_creation(self):
-    #     """Validate shortcut can be created"""
-    #     # Check if original file exists
-    #     if not frappe.db.exists("Drive File", self.file):
-    #         frappe.throw(_("Original file does not exist"))
-
-    #     # Check read permission on original file
-    #     original_file = frappe.get_doc("Drive File", self.file)
-    #     if not frappe.has_permission(
-    #         "Drive File", doc=original_file, ptype="read", user=self.shortcut_owner
-    #     ):
-    #         frappe.throw(_("No permission to create shortcut for this file"))
-
-    #     # Check for duplicate shortcut in same location
-    #     existing = frappe.db.exists(
-    #         {
-    #             "doctype": "Drive Shortcut",
-    #             "file": self.file,
-    #             "shortcut_owner": self.shortcut_owner,
-    #             "parent_folder": self.parent_folder or "",
-    #             "name": ["!=", self.name] if self.name else "",
-    #         }
-    #     )
-
-    #     if existing:
-    #         frappe.throw(_("Shortcut already exists in this location"))
-
-    # def set_file_properties(self):
-    #     """Copy properties from original file for display"""
-    #     original_file = frappe.get_doc("Drive File", self.file)
-
-    #     # Copy display properties
-    #     if hasattr(self, "file_type"):
-    #         self.file_type = original_file.file_type
-    #     if hasattr(self, "mime_type"):
-    #         self.mime_type = original_file.mime_type
-    #     if hasattr(self, "is_group"):
-    #         self.is_group = original_file.is_group
-    #     if hasattr(self, "file_size"):
-    #         self.file_size = original_file.file_size if not original_file.is_group else 0
-
-    # def set_default_title(self):
-    #     """Set default title if not provided"""
-    #     if not self.title:
-    #         original_file = frappe.get_doc("Drive File", self.file)
-    #         self.title = original_file.title
 
     @frappe.whitelist()
-    def move_shortcut(self, parent_folder):
+    def move_shortcut(self, parent_folder=None, team=None):
         """
         Move shortcut to different folder (like Google Drive)
         Instance method - operates on current shortcut document
+
+        :param parent_folder: Document-name of the target folder
+        :param team: Team ID - if provided, will move to root folder of that team
         """
+
+        # Nếu có team parameter, tìm thư mục gốc của team đó
+        if team:
+            # Lấy thông tin file gốc để xác định team hiện tại của shortcut
+            original_file_info = frappe.get_value(
+                "Drive File",
+                self.file,
+                ["team", "is_private"],
+                as_dict=True,
+            )
+
+            current_shortcut_team = original_file_info.get("team", "")
+
+            # Chỉ tìm thư mục gốc nếu team khác với team hiện tại
+            if team != current_shortcut_team:
+                # Tìm thư mục gốc của team đích
+                team_home_folder = get_home_folder(team)
+                if team_home_folder:
+                    parent_folder = team_home_folder.name
+                else:
+                    frappe.throw(f"Cannot find home folder for team {team}")
 
         # Validate new parent folder exists and user has access
         if parent_folder:
             if not frappe.db.exists("Drive File", parent_folder):
                 frappe.throw("Target folder does not exist")
-
-            # folder = frappe.get_doc("Drive File", parent_folder)
-            # if not frappe.has_permission(
-            #     "Drive File", doc=folder, ptype="write", user=self.shortcut_owner
-            # ):
-            #     frappe.throw("No permission to add shortcuts to this folder")
-
-        # Check if shortcut already exists in target location
-        # existing = frappe.db.exists(
-        #     {
-        #         "doctype": "Drive Shortcut",
-        #         "file": self.file,
-        #         "shortcut_owner": self.shortcut_owner,
-        #         "parent_folder": parent_folder or "",
-        #         "name": ["!=", self.name],
-        #     }
-        # )
-
-        # if existing:
-        #     frappe.throw("Shortcut already exists in target location")
 
         # Update parent folder
         old_parent = self.parent_folder
@@ -120,13 +68,24 @@ class DriveShortcut(Document):
                 ["team", "is_private"],
                 as_dict=True,
             )
+
+            # Nếu có team parameter, sử dụng team đó
+            target_team = team if team else original_file_info.get("team", "")
+
             parent_info = {
                 "title": "Home" if original_file_info.get("is_private", True) else "Team",
                 "name": None,
                 "is_private": original_file_info.get("is_private", True),
-                "team": original_file_info.get("team", ""),
+                "team": target_team,
             }
+
         parent_info["is_shortcut"] = True
+
+        # Log thông tin di chuyển để debug
+        print(
+            f"Moved shortcut from {old_parent} to {parent_folder}, team: {parent_info.get('team')}"
+        )
+
         return parent_info
 
     @frappe.whitelist()
