@@ -913,8 +913,8 @@ function performCopy() {
     return
   }
 
-  if (currentFolder.value === "" && breadcrumbs.value[0].title == route.name || !currentFolder.value) {
-    toast(__("Vui lòng chọn một thư mục đích"))
+  if (!currentFolder.value && (breadcrumbs.value.length === 1  || currentTeam.value === props.entities[0]?.team)) {
+    toast(__("Vui lòng chọn một mục sao chép đến"))
     return
   }
 
@@ -922,13 +922,10 @@ function performCopy() {
 
   // Move each entity
   const movePromises = props.entities.map((entity) => {
-    if (!currentFolder.value) {
-      toast(__("Vui lòng chọn một thư mục đích"))
-      return
-    }
     return moveResource.fetch({
-      source_name: entity.shortcut_name || entity.name,
-      destination_parent: currentFolder.value || null,
+      entity_name: entity.shortcut_name || entity.name,
+      new_parent: currentFolder.value || null,
+      team: currentTeam.value,
     })
   })
 

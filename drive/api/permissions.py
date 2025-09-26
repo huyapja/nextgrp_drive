@@ -127,11 +127,15 @@ def get_entity_with_permissions(entity_name):
         "Drive File", {"is_active": 1, "name": entity_name}, ENTITY_FIELDS + ["team"], as_dict=1
     )
     if not entity:
-        frappe.throw("We couldn't find what you're looking for.", {"error": frappe.NotFound})
+        frappe.throw(
+            "Tài liệu bạn truy cập đã bị xoá và không còn khả dụng.", {"error": frappe.NotFound}
+        )
 
     user_access = get_user_access(entity, frappe.session.user)
     if user_access.get("read") == 0:
-        frappe.throw("You don't have access to this file.", {"error": frappe.PermissionError})
+        frappe.throw(
+            "Bạn không có quyền truy cập tài liệu này.", {"error": frappe.PermissionError}
+        )
 
     owner_info = (
         frappe.db.get_value("User", entity.owner, ["user_image", "full_name"], as_dict=True) or {}

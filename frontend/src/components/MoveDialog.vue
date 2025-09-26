@@ -118,7 +118,7 @@
                 v-for="team in teams.data"
                 :key="team.name"
                 class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
-                :class="{ 'bg-[#D4E1F9]': currentFolder === team.name }"
+                :class="{ 'bg-[#D4E1F9]': currentTeam === team.name }"
                 @click="navigateToTeam(team)"
               >
                 <TeamDrive class="w-5 h-5 text-gray-900 mr-2" />
@@ -992,17 +992,23 @@ function performCopy() {
     return
   }
 
-  if (currentFolder.value === "" && breadcrumbs.value[0].title == route.name || !currentFolder.value) {
-    toast(__("Vui lòng chọn một thư mục đích"))
+  if (!currentFolder.value && (breadcrumbs.value.length === 1  || currentTeam.value === props.entities[0]?.team)) {
+    toast(__("Vui lòng chọn một mục di chuyển đến"))
     return
   }
 
   copyLoading.value = true
-
+  console.log("Performing move to:", {
+    entities: props.entities,
+    new_parent: currentFolder.value,
+    is_private: breadcrumbs.value[breadcrumbs.value.length - 1].is_private,
+    team: currentTeam.value,
+  })
   const movePromise = move.submit({
     entities: props.entities,
     new_parent: currentFolder.value,
     is_private: breadcrumbs.value[breadcrumbs.value.length - 1].is_private,
+    team: currentTeam.value,
   })
 
   movePromise

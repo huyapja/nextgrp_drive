@@ -1252,7 +1252,7 @@ def get_title(entity_name):
 
 
 @frappe.whitelist()
-def move(entities, new_parent=None, is_private=None):
+def move(entities, new_parent=None, is_private=None, team=None):
     """
     Move file or folder to the new parent folder
 
@@ -1269,7 +1269,7 @@ def move(entities, new_parent=None, is_private=None):
             res = doc.move_shortcut(new_parent)
         else:
             doc = frappe.get_doc("Drive File", entity.get("name"))  # hoặc entity["name"]
-            res = doc.move(new_parent, is_private)
+            res = doc.move(new_parent, is_private, team)
             # if res["title"] == "Drive - " + res["team"]:
             #     res["title"] = "Home" if res["is_private"] else "Team"
 
@@ -1470,40 +1470,96 @@ def get_folders_by_parent(parent_entity_name, user_filter=None):
 
 
 @frappe.whitelist()
-def copy_file_or_folder(source_name, destination_parent):
-    """Sao chép file hoặc folder đến parent entity đích"""
+def copy_file_or_folder(entity_name, new_parent=None, team=None):
+    """
+    Copy file or folder to a new location
+
+    :param entity_name: Name of the file/folder to copy
+    :param new_parent: Document-name of the destination folder
+    :param team: Team ID - if provided, will copy to root folder of that team
+    """
     try:
-        # Lấy thông tin file/folder gốc
-        source = frappe.get_doc("Drive File", source_name)
+        # Lấy thông tin entity gốc
+        source_doc = frappe.get_doc("Drive File", entity_name)
 
-        # Tạo tên mới với (bản sao)
-        new_title = f"{source.title} (bản sao)"
+        # Xử lý parameter team tương tự như trong move
+        if team and team != source_doc.team:
+            # Tìm thư mục gốc của team đích
+            team_home_folder = get_home_folder(team)
+            if team_home_folder:
+                new_parent = team_home_folder.name
+            else:
+                frappe.throw(f"Cannot find home folder for team {team}")
 
-        if not destination_parent:
-            frappe.throw(_("Vui lòng chọn thư mục đích"))
+        # Nếu không có new_parent và không có team, sử dụng thư mục gốc của team hiện tại
+        if not new_parent:
+            if team:
+                # Đã được xử lý ở trên
+                pass
+            else:
+                # Sử dụng thư mục gốc của team hiện tại
+                new_parent = get_home_folder(source_doc.team).name
 
-        # Kiểm tra xem tên đã tồn tại chưa trong destination
-        existing = frappe.db.exists(
-            "Drive File", {"title": new_title, "parent_entity": destination_parent}
+        # Kiểm tra new_parent có tồn tại không
+        if new_parent and not frappe.db.exists("Drive File", new_parent):
+            frappe.throw(_("Thư mục đích không tồn tại"))
+
+        # Kiểm tra new_parent có phải là folder không
+        if new_parent:
+            is_group = frappe.db.get_value("Drive File", new_parent, "is_group")
+            if not is_group:
+                frappe.throw(_("Đích phải là một thư mục"))
+
+        # Kiểm tra quyền truy cập (nếu cần)
+        # if new_parent and not frappe.has_permission("Drive File", doc=new_parent, ptype="write"):
+        #     frappe.throw(_("Không có quyền ghi vào thư mục đích"))
+
+        # Thực hiện copy bằng cách duplicate document
+        copied_doc = frappe.copy_doc(source_doc)
+
+        # Cập nhật parent nếu có
+        if new_parent:
+            copied_doc.parent_entity = new_parent
+
+        # Xử lý team change nếu cần
+        new_parent_team = (
+            frappe.db.get_value("Drive File", new_parent, "team") if new_parent else None
         )
+        if new_parent_team and new_parent_team != source_doc.team:
+            copied_doc.team = new_parent_team
+            # Xóa permissions cũ vì copy sang team khác
+            # (permissions sẽ được tạo lại theo logic của hệ thống)
 
-        counter = 1
-        original_title = new_title
-        while existing:
-            new_title = f"{original_title} ({counter})"
-            existing = frappe.db.exists(
-                "Drive File", {"title": new_title, "parent_entity": destination_parent}
+        # Tạo title mới nếu trùng tên
+        if new_parent:
+            copied_doc.title = get_new_title(copied_doc.title, new_parent)
+
+        # Insert document mới
+        copied_doc.insert(ignore_permissions=True)
+
+        # Trả về thông tin thư mục đích
+        if new_parent:
+            return frappe.get_value(
+                "Drive File",
+                new_parent,
+                ["title", "team", "name", "is_private"],
+                as_dict=True,
             )
-            counter += 1
-
-        if source.is_group:
-            # Sao chép folder
-            return copy_folder(source, destination_parent, new_title)
         else:
-            # Sao chép file
-            return copy_file(source, destination_parent, new_title)
+            # Trả về thông tin home folder
+            home_folder = get_home_folder(team or source_doc.team)
+            return {
+                "title": home_folder.title,
+                "team": home_folder.team,
+                "name": home_folder.name,
+                "is_private": home_folder.is_private,
+            }
 
     except Exception as e:
+        if "Vui lòng chọn thư mục đích" in str(e):
+            # Nếu là lỗi validation cũ, thay thế bằng message mới
+            if not new_parent and not team:
+                frappe.throw(_("Vui lòng chọn thư mục đích hoặc team đích"))
         frappe.throw(_("Lỗi khi sao chép: {0}").format(str(e)))
 
 
