@@ -11,7 +11,7 @@ export function getLinkStem(entity) {
   }/${entity.name}`
 }
 
-export function getLink(entity, copy = true, withDomain = true, asShareable = false) {
+export function getLink(entity, copy = true, withDomain = true, asShareable = true) {
   const team = router.currentRoute.value.params.team
   let link = entity.is_link
     ? entity.path
@@ -23,8 +23,10 @@ export function getLink(entity, copy = true, withDomain = true, asShareable = fa
   if (asShareable) {
     const parentOrigin = getParentAppOrigin()
     const parentPath = "/mtp/my-drive" // Có thể config được
-    const encodedDriveLink = encodeURIComponent(link)
-    link = `${parentOrigin}${parentPath}?drive_copy=${encodedDriveLink}`
+    
+    // Đảm bảo drive_copy parameter được preserve
+    const shareableUrl = buildShareableUrl(parentOrigin, parentPath, link)
+    link = shareableUrl
   }
 
   if (!copy) return link
@@ -46,22 +48,61 @@ export function getLink(entity, copy = true, withDomain = true, asShareable = fa
   }
 }
 
+// Helper function để build shareable URL với query preservation
+function buildShareableUrl(parentOrigin, parentPath, driveLink) {
+  try {
+    const parentUrl = new URL(parentPath, parentOrigin)
+    
+    // Encode drive link để đảm bảo safe
+    const encodedDriveLink = encodeURIComponent(driveLink)
+    
+    // Set drive_copy parameter
+    parentUrl.searchParams.set('drive_copy', encodedDriveLink)
+    
+    return parentUrl.toString()
+  } catch (error) {
+    console.error('Error building shareable URL:', error)
+    // Fallback to simple string concatenation
+    const encodedDriveLink = encodeURIComponent(driveLink)
+    return `${parentOrigin}${parentPath}?drive_copy=${encodedDriveLink}`
+  }
+}
 
-
-// Helper function để detect parent app origin
+// Updated getParentAppOrigin functions
 function getParentAppOrigin() {
   const currentOrigin = window.location.origin
+  const currentHost = window.location.host
+  const protocol = window.location.protocol
   
-  // Nếu đang chạy trên port 8080 (drive service), 
-  // thì parent app thường ở port 8081
+  // Development: localhost với port
   if (currentOrigin.includes(':8080')) {
     return currentOrigin.replace(':8080', ':8081')
   }
   
-  // Nếu không phải localhost hoặc port khác, 
-  // có thể cần config riêng
+  // Production: Frappe framework patterns
+  
+  // Case 1: Drive service chạy trên port khác (domain.com:8080 → domain.com)
+  if (currentHost.includes(':') && !currentHost.includes(':80') && !currentHost.includes(':443')) {
+    const hostname = currentHost.split(':')[0]
+    return `${protocol}//${hostname}`
+  }
+  
+  // Case 2: Drive service là subdomain (drive.domain.com → domain.com)
+  if (currentHost.startsWith('drive.')) {
+    const mainDomain = currentHost.replace('drive.', '')
+    return `${protocol}//${mainDomain}`
+  }
+  
+  // Case 3: Drive service có prefix/suffix khác
+  if (currentHost.includes('-drive.')) {
+    const mainDomain = currentHost.replace('-drive', '')
+    return `${protocol}//${mainDomain}`
+  }
+  
+  // Case 4: Cùng domain, khác path (most common cho Frappe)
   return currentOrigin
 }
+
 
 // Helper function để check xem có đang chạy trong iframe không
 export function isRunningInIframe() {
