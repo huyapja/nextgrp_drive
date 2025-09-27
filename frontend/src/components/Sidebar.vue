@@ -2,9 +2,9 @@
   <div
     :class="[
       isExpanded
-        ? 'w-[260px] min-w-[260px] opacity-100 translate-x-0'
+        ? 'w-[260px] min-w-[260px] opacity-100 translate-x-0  '
         : 'w-[60px] min-w-[60px] ',
-      '!transition-all rounded-[8px] bg-white relative hidden sm:flex h-screen flex-col justify-start',
+      '!transition-all rounded-[8px] bg-white relative hidden sm:flex h-screen flex-col justify-start overflow-y-auto hide-scrollbar',
     ]"
   >
     <!-- Header Section -->
@@ -939,5 +939,15 @@ const onLeave = (el) => {
 }
 .sidebar-tooltip-panel {
   z-index: 2147483647;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Ẩn trên Firefox */
+.hide-scrollbar {
+  scrollbar-width: none; 
+  -ms-overflow-style: none; /* IE 10+ */
 }
 </style>
