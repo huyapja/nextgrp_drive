@@ -612,7 +612,7 @@ const toggleUserAccessDropdown = async (user, event) => {
   }
 }
 
-const addShares = async () => {
+const addShares = async () => { 
   try {
     for (let user of sharedUsers.value) {
       const access =
