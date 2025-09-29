@@ -55,7 +55,6 @@
 <script setup>
 import ErrorPage from "@/components/ErrorPage.vue"
 import FileRender from "@/components/FileRender.vue"
-import InfoSidebar from "@/components/InfoSidebar.vue"
 import { enterFullScreen, prettyData, setBreadCrumbs } from "@/utils/files"
 import { onKeyStroke } from "@vueuse/core"
 import { Button, createResource, LoadingIndicator } from "frappe-ui"
@@ -70,6 +69,7 @@ import {
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideScan from "~icons/lucide/scan"
+import InfoSidebar from "../components/InfoSidebar/InfoSidebar.vue"
 
 const router = useRouter()
 const route = useRoute()
