@@ -3,7 +3,7 @@
     v-model="showModal"
     :options="{
       title: 'Thành viên',
-      // size: 'xl',
+      
     }"
     class="[&_.dialog-content]:mb-4 z-[100]"
   >
@@ -11,7 +11,7 @@
       <div class="space-y-3">
         <!-- Current Members List -->
         <div>
-          <div class="space-y-1 max-h-80 overflow-y-auto">
+          <div class="space-y-1 max-h-60 overflow-y-auto">
             <div
               v-for="member in currentMembers.data || []"
               :key="member.name"
@@ -65,44 +65,8 @@
                     <span>{{
                       member.access_level === 2 ? "Quản lý" : "Thành viên"
                     }}</span>
-                    <!-- <LucideChevronDown
-                      v-if="member.access_level !== 2"
-                      class="h-3 w-3 text-gray-400 transition-transform duration-200"
-                      :class="{
-                        'rotate-180': openRoleDropdown === member.name,
-                      }"
-                    /> -->
+              
                   </button>
-
-                  <!-- Dropdown Menu -->
-                  <!-- <div
-                    v-if="
-                      openRoleDropdown === member.name &&
-                      member.access_level !== 2
-                    "
-                    class="absolute top-full left-0 mt-1 w-36 bg-white border border-gray-200 rounded-lg shadow-lg z-20 py-1"
-                  >
-                    <button
-                      @click="updateMemberAccess(member.email, 1); closeRoleDropdown()"
-                      class="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 flex items-center space-x-2 transition-colors duration-150"
-                      :class="{
-                        'bg-blue-50 text-blue-700': member.access_level === 1,
-                      }"
-                    >
-                      <LucideUser class="h-3 w-3" />
-                      <span>Thành viên</span>
-                    </button>
-                    <button
-                      @click="updateMemberAccess(member.email, 2); closeRoleDropdown()"
-                      class="w-full text-left px-3 py-2 text-sm hover:bg-amber-50 flex items-center space-x-2 transition-colors duration-150"
-                      :class="{
-                        'bg-amber-50 text-amber-700': member.access_level === 2,
-                      }"
-                    >
-                      <LucideCrown class="h-3 w-3" />
-                      <span>Quản lý</span>
-                    </button>
-                  </div> -->
                 </div>
 
                 <Button
@@ -147,7 +111,7 @@
 
                   <!-- Pills for first 5 selected users -->
                   <div
-                    v-for="user in selectedUsers.slice(0, 5)"
+                    v-for="user in selectedUsers.slice(0, 4)"
                     :key="user.email"
                     class="flex items-center space-x-1 bg-blue-100 text-blue-800 px-2 py-1 rounded-full text-sm flex-shrink-0"
                   >
@@ -176,12 +140,12 @@
 
                   <!-- +N pill for remaining users -->
                   <div
-                    v-if="selectedUsers.length > 5"
+                    v-if="selectedUsers.length > 4"
                     @click="showAllSelectedUsers = !showAllSelectedUsers"
                     class="flex items-center space-x-1 bg-gray-100 text-gray-700 px-2 py-1 rounded-full text-sm cursor-pointer hover:bg-gray-200 transition-colors flex-shrink-0"
                   >
                     <span class="text-xs font-medium"
-                      >+{{ selectedUsers.length - 5 }}</span
+                      >+{{ selectedUsers.length - 4 }}</span
                     >
                   </div>
 
@@ -209,13 +173,11 @@
               </div>
 
               <!-- User Dropdown -->
-              <div
-                v-if="showUserDropdown"
-                class="z-50 w-full mt-1"
-                style="z-index: 9999"
-              >
+              <Teleport to="body">
                 <div
-                  class="bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-hidden"
+                  v-if="showUserDropdown"
+                  class="absolute z-[9999] bg-white border border-gray-200 rounded-lg shadow-lg max-h-48 overflow-hidden"
+                  :style="dropdownStyle"
                 >
                   <div class="max-h-48 overflow-y-auto">
                     <div
@@ -228,6 +190,7 @@
                           : "Không có người dùng để thêm"
                       }}
                     </div>
+
                     <div
                       v-for="user in filteredUsers"
                       :key="user.email"
@@ -235,14 +198,6 @@
                       class="flex items-center space-x-3 p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
                       :class="{ 'bg-blue-50': isUserSelected(user) }"
                     >
-                      <!-- Checkbox -->
-                      <!-- <input
-                      type="checkbox"
-                      :checked="isUserSelected(user)"
-                      @mousedown.prevent.stop="toggleUserSelection(user)"
-                      class="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                    /> -->
-
                       <img
                         v-if="user.user_image"
                         :src="user.user_image"
@@ -259,12 +214,11 @@
                         <p class="font-medium text-gray-900 text-[14px]">
                           {{ user.full_name }}
                         </p>
-                        <!-- <p class="text-sm text-gray-500">{{ user.email }}</p> -->
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              </Teleport>
             </div>
 
             <!-- Add Button -->
@@ -400,28 +354,10 @@
                 </div>
               </div>
             </div>
-            <!-- <div class="p-4 border-t border-gray-200">
-              <Button
-                variant="ghost"
-                @click="showAllSelectedUsers = false"
-                class="w-full"
-              >
-                Đóng
-              </Button>
-            </div> -->
           </div>
         </div>
       </div>
     </template>
-
-    <!-- <template #actions>
-      <Button
-        variant="ghost"
-        @click="closeModal"
-      >
-        Đóng
-      </Button>
-    </template> -->
   </Dialog>
 </template>
 
@@ -453,7 +389,6 @@ const showModal = computed({
   set: (value) => emit("update:modelValue", value),
 })
 
-// State
 const searchQuery = ref("")
 const selectedUsers = ref([])
 const showUserDropdown = ref(false)
@@ -461,7 +396,7 @@ const searchContainer = ref(null)
 const openRoleDropdown = ref(null)
 const showAllSelectedUsers = ref(false)
 
-// Resources
+
 const allSiteUsers = createResource({
   url: "drive.api.product.get_all_site_users",
   auto: true,
@@ -502,7 +437,7 @@ const updateAccessResource = createResource({
   },
 })
 
-// Computed
+
 const availableUsers = computed(() => {
   if (!allSiteUsers.data || !currentMembers.data) return []
 
@@ -518,7 +453,7 @@ const filteredUsers = computed(() => {
     (user) => !selectedEmails.includes(user.email)
   )
 
-  // If there's a search query, filter by it
+  
   if (searchQuery.value) {
     const query = searchQuery.value.toLowerCase()
     users = users.filter(
@@ -536,18 +471,18 @@ const accessLevelOptions = [
   { label: "Manager", value: 2 },
 ]
 
-// Methods
+
 const showAllUsers = () => {
   showUserDropdown.value = true
 }
 
 const searchUsers = () => {
-  // Keep dropdown open when typing
+  
   showUserDropdown.value = true
 }
 
 const handleInputBlur = () => {
-  // Use setTimeout to allow click events on dropdown items to fire first
+  
   setTimeout(() => {
     showUserDropdown.value = false
   }, 150)
@@ -592,7 +527,7 @@ const toggleUserSelection = (user) => {
   if (index > -1) {
     selectedUsers.value.splice(index, 1)
   } else {
-    // Add default access level when selecting user
+    
     const userWithAccess = { ...user, access_level: 1 }
     selectedUsers.value.push(userWithAccess)
   }
@@ -617,7 +552,7 @@ const addSelectedUsers = async () => {
       await addMemberResource.submit({
         team: route.params.team,
         email: user.email,
-        access_level: user.access_level, // Use individual access level
+        access_level: user.access_level, 
       })
       successCount++
     } catch (error) {
@@ -626,7 +561,7 @@ const addSelectedUsers = async () => {
     }
   }
 
-  // Show final result
+  
   if (successCount > 0) {
     toast(`Đã thêm thành công ${successCount} thành viên!`)
     currentMembers.reload()
@@ -638,7 +573,7 @@ const addSelectedUsers = async () => {
     toast(`Có ${errorCount} thành viên không thể thêm`)
   }
 
-  // Reset form
+  
   resetForm()
 }
 
@@ -671,20 +606,20 @@ const closeModal = () => {
   showModal.value = false
 }
 
-// Click outside to close dropdown
+
 const handleClickOutside = (event) => {
-  // Check if click is outside the search container
+  
   if (searchContainer.value && !searchContainer.value.contains(event.target)) {
     showUserDropdown.value = false
   }
-  // Close role dropdown when clicking outside
+  
   if (!event.target.closest(".role-dropdown")) {
     openRoleDropdown.value = null
   }
 }
 
 onMounted(() => {
-  // Add a slight delay to ensure the DOM is ready
+  
   setTimeout(() => {
     document.addEventListener("click", handleClickOutside)
   }, 100)
@@ -703,6 +638,38 @@ watch(
     }
   }
 )
+
+const dropdownStyle = ref({})
+
+const updateDropdownPosition = () => {
+  const el = searchContainer.value
+  if (el) {
+    const rect = el.getBoundingClientRect()
+    dropdownStyle.value = {
+      position: 'absolute',
+      top: rect.bottom + window.scrollY + 'px',
+      left: rect.left + window.scrollX + 'px',
+      width: rect.width + 'px',
+    }
+  }
+}
+
+watch(showUserDropdown, (val) => {
+  if (val) {
+    updateDropdownPosition()
+  }
+})
+
+onMounted(() => {
+  window.addEventListener("resize", updateDropdownPosition)
+  window.addEventListener("scroll", updateDropdownPosition, true)
+})
+
+onUnmounted(() => {
+  window.removeEventListener("resize", updateDropdownPosition)
+  window.removeEventListener("scroll", updateDropdownPosition, true)
+})
+
 </script>
 
 <style scoped>

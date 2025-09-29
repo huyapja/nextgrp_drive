@@ -153,7 +153,12 @@
             <!-- Custom Permission Dropdown -->
             <div class="relative w-40" ref="permissionDropdownContainer">
               <button
-                @click="togglePermissionDropdown"
+                @click.stop="() => {
+                  isPermissionDropdownOpen = !isPermissionDropdownOpen
+                  if (isPermissionDropdownOpen) {
+                    activeUserDropdown.value = null
+                  }
+                }"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm min-h-[40px] bg-white text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
               >
                 <span class="text-gray-900">{{
@@ -178,7 +183,10 @@
               <!-- Permission Dropdown -->
               <div
                 v-if="isPermissionDropdownOpen"
-                class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden"
+                ref="permissionDropdownContainer"
+                v-click-outside="() => isPermissionDropdownOpen = false"
+                class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden permission-dropdown-content"
+                @click.stop
               >
                 <div
                   @click="selectPermission('reader')"
@@ -267,7 +275,8 @@
                   ref="userAccessDropdownContainer"
                 >
                   <button
-                    @click="toggleUserAccessDropdown(user)"
+                    @click.stop="toggleUserAccessDropdown(user, $event)"
+                    data-dropdown="user-access"
                     class="flex items-center gap-2 px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 min-w-[120px]"
                   >
                     <span>{{
@@ -290,41 +299,52 @@
                     </svg>
                   </button>
 
-                  <!-- User Access Dropdown -->
-                  <div
-                    v-if="activeUserDropdown === user.user"
-                    class="absolute right-0 z-50 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden"
-                  >
+                  <!-- Teleport dropdown ra ngoài body -->
+                  <Teleport to="body">
                     <div
-                      @click="updateUserAccess(user, 'reader')"
-                      class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
-                      :class="{
-                        'bg-blue-50 border-l-2 border-l-blue-500':
-                          getAccessLevel(user) === 'reader',
+                      v-if="activeUserDropdown === user.user"
+                      class="fixed inset-0 bg-black bg-opacity-0 z-[99999]"
+                      @click="activeUserDropdown = null"
+                    ></div>
+                    <div
+                      v-if="activeUserDropdown === user.user && dropdownPosition"
+                      :style="{
+                        position: 'fixed',
+                        top: dropdownPosition.top + 'px',
+                        left: dropdownPosition.left + 'px',
+                        zIndex: 100000
                       }"
+                      @click.stop
+                      v-click-outside="() => activeUserDropdown = null"
+                      class="w-30 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden dropdown-content user-dropdown"
                     >
-                      <div>
+                      <div
+                        @click="updateUserAccess(user, 'reader')"
+                        class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
+                        :class="{
+                          'bg-blue-50 border-l-2 border-l-blue-500':
+                            getAccessLevel(user) === 'reader',
+                        }"
+                      >
                         <div class="text-sm font-medium text-gray-900">
                           Có thể xem
                         </div>
                       </div>
-                    </div>
-                    <div
-                      v-if="entity.write"
-                      @click="updateUserAccess(user, 'editor')"
-                      class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
-                      :class="{
-                        'bg-blue-50 border-l-2 border-l-blue-500':
-                          getAccessLevel(user) === 'editor',
-                      }"
-                    >
-                      <div>
+                      <div
+                        v-if="entity.write"
+                        @click="updateUserAccess(user, 'editor')"
+                        class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
+                        :class="{
+                          'bg-blue-50 border-l-2 border-l-blue-500':
+                            getAccessLevel(user) === 'editor',
+                        }"
+                      >
                         <div class="text-sm font-medium text-gray-900">
                           Có thể chỉnh sửa
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </Teleport>
                 </div>
               </div>
             </div>
@@ -352,13 +372,18 @@
           </div>
         </div>
       </div>
+    
     </template>
   </Dialog>
 </template>
 
 <script setup>
-import { computed, onMounted, onUnmounted, ref, watch } from "vue"
+import { vOnClickOutside } from '@vueuse/components'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
+
+// Define click-outside directive
+const vClickOutside = vOnClickOutside
 
 // Frappe UI Components
 import { Button, Dialog } from "frappe-ui"
@@ -390,6 +415,38 @@ const shareAccess = ref("reader")
 const dropdownContainer = ref(null)
 const isPermissionDropdownOpen = ref(false)
 const permissionDropdownContainer = ref(null)
+
+// Only one click-outside handler for all dropdowns
+const handleClickOutside = (event) => {
+  // Kiểm tra xem click có phải vào các nút toggle hay không
+  const permissionToggle = permissionDropdownContainer.value?.querySelector('button')
+  const userDropdownToggle = event.target.closest('button[data-dropdown="user-access"]')
+  
+  // Kiểm tra xem click có phải vào nội dung của dropdown hay không
+  const permissionContent = document.querySelector('.permission-dropdown-content')
+  const userDropdownContent = document.querySelector('.user-dropdown')
+  
+  const isInsideDropdown = [
+    permissionToggle,
+    userDropdownToggle,
+    permissionContent,
+    userDropdownContent
+  ].some(el => el?.contains(event.target))
+  
+  if (!isInsideDropdown) {
+    isPermissionDropdownOpen.value = false
+    activeUserDropdown.value = null
+  }
+}
+
+onMounted(() => {
+  document.addEventListener('mousedown', handleClickOutside)
+})
+
+onUnmounted(() => {
+  document.removeEventListener('mousedown', handleClickOutside)
+})
+
 const activeUserDropdown = ref(null)
 const userAccessDropdownContainer = ref(null)
 const showAllUsers = ref(false)
@@ -519,13 +576,40 @@ const togglePermissionDropdown = () => {
 const selectPermission = (permission) => {
   shareAccess.value = permission
   isPermissionDropdownOpen.value = false
+  // Đóng cả user dropdown nếu đang mở
+  activeUserDropdown.value = null
 }
 
-const toggleUserAccessDropdown = (user) => {
-  activeUserDropdown.value =
-    activeUserDropdown.value === user.user ? null : user.user
+const dropdownPosition = ref(null)
+
+// Cập nhật hàm toggleUserAccessDropdown
+const toggleUserAccessDropdown = async (user, event) => {
+  event.stopPropagation()
+  const isClosing = activeUserDropdown.value === user.user
+  
+  // Đóng permission dropdown nếu đang mở
   isPermissionDropdownOpen.value = false
+  
+  // Toggle user dropdown
+  activeUserDropdown.value = isClosing ? null : user.user
   showAllSharedUsers.value = false
+
+  if (!isClosing) {
+    // Đợi DOM update
+    await nextTick()
+    
+    // Tính toán vị trí của button
+    const buttonElement = event.currentTarget
+    const rect = buttonElement.getBoundingClientRect()
+    
+    // Đặt dropdown ngay dưới button, căn phải
+    dropdownPosition.value = {
+      top: rect.bottom + window.scrollY + 4, // 4px gap
+      left: rect.right + window.scrollX -  136// 192px = w-48 (12rem)
+    }
+  } else {
+    dropdownPosition.value = null
+  }
 }
 
 const addShares = async () => {
@@ -561,6 +645,7 @@ const addShares = async () => {
 
 const updateUserAccess = async (user, newAccessLevel) => {
   try {
+    activeUserDropdown.value = null
     const access =
       newAccessLevel === "editor"
         ? { read: 1, comment: 1, share: 1, write: 1 }
@@ -586,44 +671,34 @@ const getAccessLevel = (user) => {
   return user.write ? "editor" : "reader"
 }
 
-const closeDialog = () => {
-  emit("update:modelValue", "")
+const closeAllDropdowns = () => {
+  isPermissionDropdownOpen.value = false
+  activeUserDropdown.value = null
 }
 
-// Handle click outside - Updated to handle all dropdowns
-const handleClickOutside = (event) => {
-  // Handle search input dropdown
-  if (
-    dropdownContainer.value &&
-    !dropdownContainer.value.contains(event.target)
-  ) {
-    isDropdownOpen.value = false
-    showAllUsers.value = false
-    showAllSharedUsers.value = false
-  }
+const closeDialog = () => {
+  emit("update:modelValue", "")
+  // Reset overflow khi đóng dialog
+  document.body.style.overflow = ''
+}
 
-  // Handle permission dropdown
-  if (
-    permissionDropdownContainer.value &&
-    !permissionDropdownContainer.value.contains(event.target)
-  ) {
-    isPermissionDropdownOpen.value = false
-  }
-
-  // Handle user access dropdowns
-  const userAccessContainers = document.querySelectorAll('[ref="userAccessDropdownContainer"]')
-  let clickedOnUserDropdown = false
+// Function to check if an element is inside a dropdown
+const isInsideDropdown = (element) => {
+  const dropdownElements = [
+    permissionDropdownContainer.value?.querySelector('button'),
+    document.querySelector('button[data-dropdown="user-access"]'),
+    document.querySelector('.permission-dropdown-content'),
+    document.querySelector('.user-dropdown')
+  ]
   
-  userAccessContainers.forEach(container => {
-    if (container && container.contains(event.target)) {
-      clickedOnUserDropdown = true
-    }
-  })
-
-  if (!clickedOnUserDropdown) {
+  return dropdownElements.some(el => el?.contains(element))
+  if (!clickedInside) {
+    isPermissionDropdownOpen.value = false
     activeUserDropdown.value = null
   }
 }
+
+
 
 // Lifecycle
 onMounted(async () => {
@@ -639,6 +714,15 @@ onMounted(async () => {
 
 onUnmounted(() => {
   document.removeEventListener("click", handleClickOutside)
+})
+
+// Watch activeUserDropdown to handle body scroll
+watch(activeUserDropdown, (newValue) => {
+  if (newValue) {
+    document.body.style.overflow = 'hidden'
+  } else {
+    document.body.style.overflow = ''
+  }
 })
 
 // Watch for dialog open/close

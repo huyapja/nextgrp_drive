@@ -234,26 +234,20 @@ def get_shared_with_list(entity):
         # Lấy tất cả user đã có trong danh sách
         existing_users = {user["user"] for user in all_users}
 
-        # Nếu không có team permission, sử dụng quyền mặc định theo logic get_user_access
+        # Nếu không có team permission, sử dụng quyền mặc định
         if not team_permission:
-            # Lấy access level của current user để làm reference
+            # FIXED: Quyền mặc định cho tất cả team members là "Có thể xem"
+            # Không phụ thuộc vào quyền của current user
+            team_permission = {
+                "read": 1,
+                "write": 0,  # Mặc định: Chỉ xem, không chỉnh sửa
+                "comment": 1,
+                "share": 0,  # Mặc định: Không share
+            }
+
+            # CHỈ hiển thị team members nếu current user có quyền xem team này
             current_user_teams = get_teams(frappe.session.user)
-            if entity_doc.team in current_user_teams:
-                current_user_access = get_access(entity_doc.team)
-                team_permission = {
-                    "read": 1,
-                    "comment": 1,
-                    "share": 1,
-                    "write": (
-                        1
-                        if (
-                            (entity_doc.is_group and current_user_access)
-                            or current_user_access == 2
-                        )
-                        else 0
-                    ),
-                }
-            else:
+            if entity_doc.team not in current_user_teams:
                 # Current user không trong team, không hiển thị team members
                 team_permission = None
 
@@ -275,14 +269,18 @@ def get_shared_with_list(entity):
 
             print(f"Found {len(team_members)} team members:", [m["user"] for m in team_members])
 
+            # Hiển thị team members với quyền thống nhất
             for member in team_members:
+                # GIẢI PHÁP TẠM: Tất cả team members đều hiển thị là "Có thể xem"
+                # TODO: Implement logic lấy quyền thực tế của từng member sau
+
                 team_member = {
                     "user": member.user,
                     "user_image": member.user_image,
                     "full_name": member.full_name,
                     "email": member.email,
                     "read": team_permission.get("read", 0),
-                    "write": team_permission.get("write", 0),
+                    "write": team_permission.get("write", 0),  # Dùng quyền mặc định (0)
                     "comment": team_permission.get("comment", 0),
                     "share": team_permission.get("share", 0),
                     "source": "team",

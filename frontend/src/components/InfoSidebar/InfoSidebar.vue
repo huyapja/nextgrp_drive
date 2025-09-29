@@ -1308,6 +1308,7 @@ function resize(e) {
 </script>
 
 <style scoped>
+
 .comment-content {
   white-space: pre-wrap;
   word-break: break-word;

@@ -64,7 +64,7 @@ declare module 'vue' {
     Indent: typeof import('./src/components/DocEditor/icons/Indent.vue')['default']
     InfoPanel: typeof import('./src/components/InfoSidebar/InfoPanel.vue')['default']
     InfoPopup: typeof import('./src/components/InfoPopup.vue')['default']
-    InfoSidebar: typeof import('./src/components/InfoSidebar/InfoSidebar.vue')['default']
+    InfoSidebar: typeof import('./src/components/InfoSidebar.vue')['default']
     InsertImage: typeof import('./src/components/DocEditor/components/InsertImage.vue')['default']
     InsertLink: typeof import('./src/components/DocEditor/components/InsertLink.vue')['default']
     InsertVideo: typeof import('./src/components/DocEditor/components/InsertVideo.vue')['default']

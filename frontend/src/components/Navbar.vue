@@ -177,13 +177,13 @@
       </Button>
 
       <!-- Context Menu Button -->
-      <Button
+      <!-- <Button
         class="text-ink-gray-5 !px-0 hover:bg-surface-menu-bar"
         variant="minimal"
         @click="onMoreClick"
       >
         <MoreIcon class="size-6 text-black" />
-      </Button>
+      </Button> -->
     </div>
 
     <!-- Context Menu -->
@@ -220,7 +220,6 @@ import InfoIcon from "@/assets/Icons/InfoIcon.vue"
 import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
 import LinkIcon from "@/assets/Icons/LinkIcon.vue"
 import MessageIcon from "@/assets/Icons/MessageIcon.vue"
-import MoreIcon from "@/assets/Icons/MoreIcon.vue"
 import MoveIcon from "@/assets/Icons/MoveIcon.vue"
 import NewDrive from "@/assets/Icons/NewDrive.vue"
 import RenameIcon from "@/assets/Icons/RenameIcon.vue"
