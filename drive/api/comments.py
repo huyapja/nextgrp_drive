@@ -23,7 +23,7 @@ def react_to_comment(comment_id: str, emoji: str):
     # Validate parent comment
     parent = frappe.get_value(
         "Comment",
-        {"name": comment_id, "comment_type": "Comment", "reference_doctype": "Drive File"},
+        {"name": comment_id, "comment_type": "Comment", "reference_doctype": "Topic Comment"},
         ["name", "reference_name", "comment_email", "content"],
         as_dict=True,
     )

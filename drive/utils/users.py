@@ -40,7 +40,7 @@ from frappe.rate_limiter import rate_limit
 
 
 @frappe.whitelist(allow_guest=True)
-@rate_limit(key="reference_name", limit=10, seconds=60 * 60)
+# @rate_limit(key="reference_name", limit=10, seconds=60 * 60)
 def add_comment(
     reference_name: str, content: str, comment_email: str, comment_by: str, mentions=None
 ):
@@ -98,20 +98,23 @@ def add_comment(
 def create_topic(drive_entity_id: str, content: str, mentions=None):
     """Tạo topic mới cho Drive File"""
     try:
+        # Kiểm tra Drive File có tồn tại không
+        if not frappe.db.exists("Drive File", drive_entity_id):
+            frappe.throw(_("Drive File {0} not found").format(drive_entity_id))
+
         # Tạo Topic Comment (container)
         topic = frappe.get_doc(
             {
                 "doctype": "Topic Comment",
-                "title": content[:100],  # Cần thêm field này vào DocType
+                "title": content[:100],  # Giới hạn độ dài title
                 "reference_doctype": "Drive File",
                 "reference_name": drive_entity_id,
             }
         )
 
         topic.insert()
-        frappe.db.commit()
 
-        # Tạo comment đầu tiên cho topic
+        # Tạo comment đầu tiên cho topic (chưa commit)
         first_comment = add_comment(
             reference_name=topic.name,
             content=content,
@@ -120,38 +123,87 @@ def create_topic(drive_entity_id: str, content: str, mentions=None):
             mentions=mentions,
         )
 
-        return {
-            "success": True,
-            "topic_id": topic.name,
-            "comment_id": first_comment.name,
-            "message": _("Topic created successfully"),
-        }
+        # Commit tất cả cùng lúc
+        frappe.db.commit()
 
+        # Chuẩn bị response data
+        topic_dict = topic.as_dict()
+        topic_dict["comments"] = [first_comment]
+
+        return topic_dict
+
+    except frappe.DoesNotExistError as e:
+        frappe.db.rollback()
+        frappe.throw(_("Referenced document not found: {0}").format(str(e)))
     except Exception as e:
-        frappe.log_error(f"Error creating topic: {str(e)}")
-        return {"success": False, "message": str(e)}
+        frappe.db.rollback()
+        frappe.log_error(f"Error creating topic: {str(e)}", "Create Topic Error")
+        frappe.throw(_("Failed to create topic: {0}").format(str(e)))
 
 
 @frappe.whitelist()
-def delete_comment(comment_id: str):
-    """Xoá comment nếu người dùng là chủ sở hữu hoặc có quyền quản lý"""
+def delete_comment(comment_id: str, entity_id):
+    """Xoá comment nếu người dùng là chủ sở hữu hoặc có quyền quản lý.
+    Nếu là comment cuối cùng trong topic, xóa luôn cả topic."""
     try:
+        # Kiểm tra comment có tồn tại không
+        if not frappe.db.exists("Comment", comment_id):
+            frappe.throw(_("Comment {0} not found").format(comment_id))
+
         comment = frappe.get_doc("Comment", comment_id)
 
-        if comment.comment_email != frappe.session.user:
-            return {
-                "success": False,
-                "message": _("You do not have permission to delete this comment"),
-            }
+        # Kiểm tra quyền: người dùng phải là chủ comment HOẶC chủ file
+        is_comment_owner = comment.comment_email == frappe.session.user
+        is_file_owner = frappe.session.user == frappe.db.get_value(
+            "Drive File", entity_id, "owner"
+        )
 
+        if not (is_comment_owner or is_file_owner):
+            frappe.throw(_("You do not have permission to delete this comment"))
+
+        # Lấy topic_id từ reference_name của comment
+        topic_id = comment.reference_name
+
+        # Kiểm tra xem có phải comment cuối cùng trong topic không
+        remaining_comments = frappe.get_all(
+            "Comment",
+            filters={
+                "reference_doctype": "Topic Comment",
+                "reference_name": topic_id,
+                "name": ["!=", comment_id],  # Không đếm comment hiện tại
+            },
+            limit=1,
+        )
+
+        # Xóa comment
         comment.delete()
+
+        # Nếu không còn comment nào khác, xóa luôn topic
+        topic_deleted = False
+        if not remaining_comments:
+            try:
+                if frappe.db.exists("Topic Comment", topic_id):
+                    topic = frappe.get_doc("Topic Comment", topic_id)
+                    topic.delete()
+                    topic_deleted = True
+            except Exception as te:
+                frappe.log_error(f"Error deleting topic: {str(te)}")
+                # Vẫn tiếp tục vì comment đã xóa thành công
+
         frappe.db.commit()
+        return {
+            "success": True,
+            "message": _("Comment deleted successfully"),
+            "topic_deleted": topic_deleted,
+        }
 
-        return {"success": True, "message": _("Comment deleted successfully")}
-
+    except frappe.DoesNotExistError:
+        frappe.db.rollback()
+        frappe.throw(_("Comment {0} not found").format(comment_id))
     except Exception as e:
+        frappe.db.rollback()
         frappe.log_error(f"Error deleting comment: {str(e)}")
-        return {"success": False, "message": str(e)}
+        frappe.throw(_("Failed to delete comment: {0}").format(str(e)))
 
 
 @frappe.whitelist()
@@ -183,6 +235,9 @@ def edit_comment(comment_id: str, new_content: str):
 def get_topics_for_file(drive_entity_id: str):
     """Lấy tất cả topics cho một Drive File"""
     try:
+        import unicodedata
+        from pypika import Order
+
         topics = frappe.get_all(
             "Topic Comment",
             filters={"reference_doctype": "Drive File", "reference_name": drive_entity_id},
@@ -193,22 +248,128 @@ def get_topics_for_file(drive_entity_id: str):
                 "creation",
                 "modified",
             ],
-            order_by="modified DESC",
+            order_by="modified ASC",
         )
+
         # Thêm thông tin bổ sung
         for topic in topics:
             # Format datetime cho frontend
-
-            topic["comments"] = frappe.get_all(
-                "Comment",
-                filters={"reference_doctype": "Topic Comment", "reference_name": topic["name"]},
-                fields=["*"],
-            )
-
             if topic.get("modified"):
                 topic["modified_ago"] = frappe.utils.pretty_date(topic["modified"])
             if topic.get("creation"):
                 topic["created_ago"] = frappe.utils.pretty_date(topic["creation"])
+
+            # Lấy comments cho topic
+            Comment = frappe.qb.DocType("Comment")
+            User = frappe.qb.DocType("User")
+
+            selectedFields = [
+                Comment.name,
+                Comment.comment_by,
+                Comment.comment_email,
+                Comment.creation,
+                Comment.content,
+                User.user_image,
+            ]
+
+            query = (
+                frappe.qb.from_(Comment)
+                .inner_join(User)
+                .on(Comment.comment_email == User.name)
+                .select(*selectedFields)
+                .where(
+                    (Comment.comment_type == "Comment")
+                    & (Comment.reference_doctype == "Topic Comment")
+                    & (Comment.reference_name == topic["name"])
+                )
+                .orderby(Comment.creation, order=Order.asc)
+            )
+            comments = query.run(as_dict=True)
+
+            # Attach reactions summary for each comment
+            if comments:
+                comment_ids = [c.get("name") for c in comments]
+                if comment_ids:
+                    Reaction = frappe.qb.DocType("Comment")
+                    User = frappe.qb.DocType("User")
+
+                    # Get all reactions without grouping first
+                    reaction_rows = (
+                        frappe.qb.from_(Reaction)
+                        .select(Reaction.reference_name, Reaction.content)
+                        .where(
+                            (Reaction.comment_type == "Like")
+                            & (Reaction.reference_doctype == "Comment")
+                            & (Reaction.reference_name.isin(comment_ids))
+                        )
+                    ).run(as_dict=True)
+
+                    # map: comment_id -> { emoji -> count }
+                    counts = {}
+                    for row in reaction_rows:
+                        normalized_emoji = unicodedata.normalize(
+                            "NFC", (row.content or "").strip()
+                        )
+                        counts.setdefault(row.reference_name, {}).setdefault(normalized_emoji, 0)
+                        counts[row.reference_name][normalized_emoji] += 1
+
+                    # also indicate whether current user has reacted with each emoji
+                    user = frappe.session.user
+                    user_rows = (
+                        frappe.qb.from_(Reaction)
+                        .select(Reaction.reference_name, Reaction.content)
+                        .where(
+                            (Reaction.comment_type == "Like")
+                            & (Reaction.reference_doctype == "Comment")
+                            & (Reaction.reference_name.isin(comment_ids))
+                            & (Reaction.comment_email == user)
+                        )
+                    ).run(as_dict=True)
+
+                    user_map = {}
+                    for row in user_rows:
+                        normalized_emoji = unicodedata.normalize(
+                            "NFC", (row.content or "").strip()
+                        )
+                        user_map.setdefault(row.reference_name, set()).add(normalized_emoji)
+
+                    # get reactor full names for tooltip per emoji
+                    reactors_rows = (
+                        frappe.qb.from_(Reaction)
+                        .left_join(User)
+                        .on(Reaction.comment_email == User.name)
+                        .select(Reaction.reference_name, Reaction.content, User.full_name)
+                        .where(
+                            (Reaction.comment_type == "Like")
+                            & (Reaction.reference_doctype == "Comment")
+                            & (Reaction.reference_name.isin(comment_ids))
+                        )
+                    ).run(as_dict=True)
+
+                    reactors_map = {}
+                    for row in reactors_rows:
+                        normalized_emoji = unicodedata.normalize(
+                            "NFC", (row.content or "").strip()
+                        )
+                        reactors_map.setdefault(row.reference_name, {}).setdefault(
+                            normalized_emoji, []
+                        ).append(row.full_name or "")
+
+                    # Attach reactions to each comment
+                    for c in comments:
+                        c["reactions"] = []
+                        for emoji, cnt in (counts.get(c["name"], {}) or {}).items():
+                            c["reactions"].append(
+                                {
+                                    "emoji": emoji,
+                                    "count": int(cnt),
+                                    "reacted": emoji in user_map.get(c["name"], set()),
+                                }
+                            )
+                        # attach reactor names list for tooltip
+                        c["reaction_users"] = reactors_map.get(c["name"], {})
+
+            topic["comments"] = comments
 
         return {"success": True, "topics": topics, "total_count": len(topics)}
 
