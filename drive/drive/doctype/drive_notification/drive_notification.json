@@ -42,7 +42,7 @@
    "fieldname": "type",
    "fieldtype": "Select",
    "label": "Type",
-   "options": "Share\nMention\nTeam"
+   "options": "Share\nMention\nTeam\nTo Owner File\nReply"
   },
   {
    "fieldname": "message",
@@ -84,8 +84,8 @@
   }
  ],
  "links": [],
- "modified": "2025-08-14 13:44:02.933204",
- "modified_by": "hoadainhan@gmail.com",
+ "modified": "2025-10-02 14:15:59.516147",
+ "modified_by": "hoa00001@gmail.com",
  "module": "Drive",
  "name": "Drive Notification",
  "naming_rule": "Random",

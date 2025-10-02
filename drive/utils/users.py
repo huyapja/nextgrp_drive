@@ -42,7 +42,12 @@ from frappe.rate_limiter import rate_limit
 @frappe.whitelist(allow_guest=True)
 # @rate_limit(key="reference_name", limit=10, seconds=60 * 60)
 def add_comment(
-    reference_name: str, content: str, comment_email: str, comment_by: str, mentions=None
+    reference_name: str,
+    content: str,
+    comment_email: str,
+    comment_by: str,
+    mentions=None,
+    reply_to=None,
 ):
     """Allow logged user with permission to read document to add a comment"""
 
@@ -68,7 +73,44 @@ def add_comment(
     comment.insert(ignore_permissions=True)
 
     # Handle mentions in comments
-    if mentions:
+    topic = frappe.db.get_value("Topic Comment", reference_name, ["reference_name"], as_dict=True)
+    drive_file = frappe.db.get_value(
+        "Drive File", topic.reference_name, ["name", "owner"], as_dict=True
+    )
+
+    if not topic or not drive_file:
+        return comment
+
+    if drive_file.owner != comment_email and reply_to:
+        try:
+            from drive.api.notifications import notify_reply_comment
+
+            if isinstance(reply_to, str):
+                reply_to = json.loads(reply_to)
+            if reply_to:
+                frappe.enqueue(
+                    notify_reply_comment,
+                    queue="long",
+                    job_id=f"fcomment_{comment.name}",
+                    deduplicate=True,
+                    timeout=None,
+                    now=False,
+                    at_front=False,
+                    entity_name=drive_file.name,
+                    comment_doc=comment,
+                    reply_email=reply_to.get("comment_email"),
+                )
+
+                # notify_reply_comment(
+                #     entity_name=drive_file.name,
+                #     comment_doc=comment,
+                #     reply_email=reply_to.get("comment_email"),
+                # )
+        except ImportError:
+            # Fallback nếu không có drive.api.notifications
+            frappe.log_error("notify_comment_mentions not available")
+
+    if len(mentions) > 0 and drive_file.owner != comment_email:
         try:
             from drive.api.notifications import notify_comment_mentions
 
@@ -83,13 +125,41 @@ def add_comment(
                     timeout=None,
                     now=False,
                     at_front=False,
-                    entity_name=reference_name,
+                    entity_name=drive_file.name,
                     comment_doc=comment,
                     mentions=mentions,
                 )
+                # notify_comment_mentions(
+                #     entity_name=drive_file.name, comment_doc=comment, mentions=mentions
+                # )
+                return comment
         except ImportError:
             # Fallback nếu không có drive.api.notifications
             frappe.log_error("notify_comment_mentions not available")
+
+    # Trường hợp bất kỳ ai đó comment và chủ file khác nhau
+    if drive_file.owner != comment_email and not reply_to:
+        try:
+            from drive.api.notifications import notify_comment_to_owner_file
+
+            frappe.enqueue(
+                notify_comment_to_owner_file,
+                queue="long",
+                job_id=f"fcomment_{comment.name}_owner",
+                deduplicate=True,
+                timeout=None,
+                now=False,
+                at_front=False,
+                entity_name=drive_file.name,
+                comment_doc=comment,
+                owner_email=drive_file.owner,
+            )
+            # notify_comment_to_owner_file(
+            #     entity_name=drive_file.name, comment_doc=comment, owner_email=drive_file.owner
+            # )
+        except ImportError:
+            # Fallback nếu không có drive.api.notifications
+            frappe.log_error("notify_comment_to_owner_file not available")
 
     return comment
 
@@ -106,15 +176,14 @@ def create_topic(drive_entity_id: str, content: str, mentions=None):
         topic = frappe.get_doc(
             {
                 "doctype": "Topic Comment",
-                "title": content[:100],  # Giới hạn độ dài title
+                "title": content[:100],
                 "reference_doctype": "Drive File",
                 "reference_name": drive_entity_id,
             }
         )
-
         topic.insert()
 
-        # Tạo comment đầu tiên cho topic (chưa commit)
+        # Tạo comment đầu tiên cho topic
         first_comment = add_comment(
             reference_name=topic.name,
             content=content,
@@ -123,12 +192,31 @@ def create_topic(drive_entity_id: str, content: str, mentions=None):
             mentions=mentions,
         )
 
-        # Commit tất cả cùng lúc
+        # Commit
         frappe.db.commit()
+
+        # LẤY LẠI comment với user_image
+        Comment = frappe.qb.DocType("Comment")
+        User = frappe.qb.DocType("User")
+
+        comment_with_image = (
+            frappe.qb.from_(Comment)
+            .inner_join(User)
+            .on(Comment.comment_email == User.name)
+            .select(
+                Comment.name.as_("name"),
+                Comment.comment_by.as_("comment_by"),
+                Comment.comment_email.as_("comment_email"),
+                Comment.creation.as_("creation"),
+                Comment.content.as_("content"),
+                User.user_image.as_("user_image"),
+            )
+            .where(Comment.name == first_comment.name)
+        ).run(as_dict=True)
 
         # Chuẩn bị response data
         topic_dict = topic.as_dict()
-        topic_dict["comments"] = [first_comment]
+        topic_dict["comments"] = comment_with_image if comment_with_image else []
 
         return topic_dict
 
@@ -207,7 +295,7 @@ def delete_comment(comment_id: str, entity_id):
 
 
 @frappe.whitelist()
-def edit_comment(comment_id: str, new_content: str):
+def edit_comment(comment_id: str, new_content: str, mentions=None):
     """Chỉnh sửa comment nếu người dùng là chủ sở hữu hoặc có quyền quản lý"""
     try:
         comment = frappe.get_doc("Comment", comment_id)
@@ -223,6 +311,31 @@ def edit_comment(comment_id: str, new_content: str):
         comment.content = new_content
         comment.save()
         frappe.db.commit()
+
+        topic = frappe.db.get_value(
+            "Topic Comment", comment.reference_name, ["reference_name"], as_dict=True
+        )
+        drive_file = frappe.db.get_value(
+            "Drive File", topic.reference_name, ["name", "owner"], as_dict=True
+        )
+        # Handle mentions in edited comment
+        if isinstance(mentions, str):
+            from drive.api.notifications import notify_comment_mentions
+
+            mentions = json.loads(mentions)
+            if mentions:
+                frappe.enqueue(
+                    notify_comment_mentions,
+                    queue="long",
+                    job_id=f"fcomment_{comment.name}",
+                    deduplicate=True,
+                    timeout=None,
+                    now=False,
+                    at_front=False,
+                    entity_name=drive_file.name,
+                    comment_doc=comment,
+                    mentions=mentions,
+                )
 
         return {"success": True, "message": _("Comment edited successfully")}
 
@@ -269,7 +382,7 @@ def get_topics_for_file(drive_entity_id: str):
                 Comment.comment_email,
                 Comment.creation,
                 Comment.content,
-                User.user_image,
+                User.user_image.as_("user_image"),
             ]
 
             query = (

@@ -43,7 +43,7 @@ export default {
       required: true,
     },
   },
-  emits: ["update:modelValue", "mentionedUsers"],
+  emits: ["update:modelValue", "mentionedUsers", "input", "resize"],
   data() {
     return {
       editor: null,
@@ -191,6 +191,8 @@ export default {
           // Extract mentions
           const mentions = this.parseMentions(this.editor.getJSON())
           this.$emit("mentionedUsers", mentions)
+          this.$emit("input")
+          this.$emit("resize")
         },
         editorProps: {
           attributes: {
@@ -212,6 +214,48 @@ export default {
         ...new Set(tempMentions.map((item) => item.id)),
       ].map((id) => tempMentions.find((item) => item.id === id))
       return uniqueMentions
+    },
+    // INSERT MENTION - HÀM MỚI
+    insertMention(user) {
+      if (!this.editor) {
+        console.error("Editor not initialized")
+        return
+      }
+
+      // Focus vào editor trước
+      this.editor.commands.focus()
+
+      // Insert mention node với TipTap
+      this.editor
+        .chain()
+        .focus()
+        .insertContent([
+          {
+            type: 'mention',
+            attrs: {
+              id: user.id,
+              label: user.value,
+              author: user.author || this.$store?.state?.user?.id || "Administrator",
+              type: user.type || "user",
+            },
+          },
+          {
+            type: 'text',
+            text: ' ', // Thêm space sau mention
+          },
+        ])
+        .run()
+
+      // Emit update
+      const html = this.editor.getHTML()
+      this.$emit("update:modelValue", html)
+      
+      const mentions = this.parseMentions(this.editor.getJSON())
+      this.$emit("mentionedUsers", mentions)
+      this.$emit("input")
+      this.$emit("resize")
+
+      console.log("Mention inserted:", user)
     },
     focus() {
       if (this.editor) {
