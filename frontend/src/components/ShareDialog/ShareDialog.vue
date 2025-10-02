@@ -56,7 +56,9 @@
                   >
                     <CustomAvatar
                       :image="user.user_image"
-                      :label="(user.full_name || user.email).slice(0, 1).toUpperCase()"
+                      :label="
+                        (user.full_name || user.email).slice(0, 1).toUpperCase()
+                      "
                       size="small"
                       shape="circle"
                       class="!w-5 !h-5 bg-blue-500 text-white"
@@ -88,7 +90,6 @@
                     class="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 rounded-md text-sm text-blue-800 font-medium"
                   >
                     <span>+{{ additionalUsersCount }} khác</span>
-                    
                   </div>
 
                   <!-- Input field -->
@@ -107,7 +108,9 @@
               <!-- Dropdown suggestions with checkboxes -->
               <div
                 v-if="
-                  isDropdownOpen && (filteredUsers.length > 0 || showAllUsers) && !showAllSharedUsers
+                  isDropdownOpen &&
+                  (filteredUsers.length > 0 || showAllUsers) &&
+                  !showAllSharedUsers
                 "
                 class="absolute z-[10000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto !p-0"
                 @click.stop
@@ -118,7 +121,7 @@
                 >
                   Nhập để tìm kiếm người dùng...
                 </div>
-                
+
                 <div
                   v-for="person in filteredUsers"
                   :key="person.email"
@@ -131,12 +134,16 @@
                     :checked="isUserSelected(person)"
                     @change="toggleUserSelection(person)"
                     @click.stop
-                    class="w-4 h-4 mr-3 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2 "
+                    class="w-4 h-4 mr-3 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
                   />
 
                   <CustomAvatar
                     :image="person.user_image"
-                    :label="(person.full_name || person.email).slice(0, 1).toUpperCase()"
+                    :label="
+                      (person.full_name || person.email)
+                        .slice(0, 1)
+                        .toUpperCase()
+                    "
                     size="normal"
                     shape="circle"
                     class="mr-3 !w-6 !h-6 bg-blue-500 text-white"
@@ -151,14 +158,19 @@
             </div>
 
             <!-- Custom Permission Dropdown -->
-            <div class="relative w-40" ref="permissionDropdownContainer">
+            <div
+              class="relative w-40"
+              ref="permissionDropdownContainer"
+            >
               <button
-                @click.stop="() => {
-                  isPermissionDropdownOpen = !isPermissionDropdownOpen
-                  if (isPermissionDropdownOpen) {
-                    activeUserDropdown.value = null
+                @click.stop="
+                  () => {
+                    isPermissionDropdownOpen = !isPermissionDropdownOpen
+                    if (isPermissionDropdownOpen) {
+                      activeUserDropdown.value = null
+                    }
                   }
-                }"
+                "
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm min-h-[40px] bg-white text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
               >
                 <span class="text-gray-900">{{
@@ -184,7 +196,7 @@
               <div
                 v-if="isPermissionDropdownOpen"
                 ref="permissionDropdownContainer"
-                v-click-outside="() => isPermissionDropdownOpen = false"
+                v-click-outside="() => (isPermissionDropdownOpen = false)"
                 class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden permission-dropdown-content"
                 @click.stop
               >
@@ -239,11 +251,10 @@
                   shape="circle"
                   class="mr-3 !w-6 !h-6 bg-blue-500 text-white"
                 />
-                
-                  <div class="text-sm font-medium text-gray-900">
-                    {{ user.full_name || user.user || user.email }}
-                  </div>
-                
+
+                <div class="text-sm font-medium text-gray-900">
+                  {{ user.full_name || user.user || user.email }}
+                </div>
               </div>
 
               <div class="flex items-center gap-2">
@@ -307,15 +318,17 @@
                       @click="activeUserDropdown = null"
                     ></div>
                     <div
-                      v-if="activeUserDropdown === user.user && dropdownPosition"
+                      v-if="
+                        activeUserDropdown === user.user && dropdownPosition
+                      "
                       :style="{
                         position: 'fixed',
                         top: dropdownPosition.top + 'px',
                         left: dropdownPosition.left + 'px',
-                        zIndex: 100000
+                        zIndex: 100000,
                       }"
                       @click.stop
-                      v-click-outside="() => activeUserDropdown = null"
+                      v-click-outside="() => (activeUserDropdown = null)"
                       class="w-30 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden dropdown-content user-dropdown"
                     >
                       <div
@@ -331,7 +344,7 @@
                         </div>
                       </div>
                       <div
-                        v-if="entity.write"
+                        v-if="activeUserDropdown === user.user"
                         @click="updateUserAccess(user, 'editor')"
                         class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
                         :class="{
@@ -343,6 +356,16 @@
                           Có thể chỉnh sửa
                         </div>
                       </div>
+
+                      <div
+                        v-if="activeUserDropdown === user.user && user.source !== 'team'"
+                        @click="updateUserAccess(user, 'unshare')"
+                        class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
+                      >
+                        <div class="text-sm font-medium text-gray-900">
+                          Xóa quyền truy cập
+                        </div>
+                      </div>
                     </div>
                   </Teleport>
                 </div>
@@ -350,7 +373,9 @@
             </div>
           </div>
         </div>
-        <div class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200">
+        <div
+          class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200"
+        >
           <div class="flex justify-between items-center w-full gap-2">
             <!-- Copy Link Button -->
             <Button
@@ -367,18 +392,23 @@
               @click="sharedUsers.length > 0 ? addShares() : closeDialog()"
               class="h-[40px] max-w-[50%] w-full !bg-[#0149C1] !text-white !hover:bg-[#01337A] !border-[#01337A]"
             >
-              {{ updateAccess.loading ? "Đang chia sẻ..." : sharedUsers.length > 0 ? "Chia sẻ" : "Đóng" }}
+              {{
+                updateAccess.loading
+                  ? "Đang chia sẻ..."
+                  : sharedUsers.length > 0
+                  ? "Chia sẻ"
+                  : "Đóng"
+              }}
             </Button>
           </div>
         </div>
       </div>
-    
     </template>
   </Dialog>
 </template>
 
 <script setup>
-import { vOnClickOutside } from '@vueuse/components'
+import { vOnClickOutside } from "@vueuse/components"
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 
@@ -419,20 +449,25 @@ const permissionDropdownContainer = ref(null)
 // Only one click-outside handler for all dropdowns
 const handleClickOutside = (event) => {
   // Kiểm tra xem click có phải vào các nút toggle hay không
-  const permissionToggle = permissionDropdownContainer.value?.querySelector('button')
-  const userDropdownToggle = event.target.closest('button[data-dropdown="user-access"]')
-  
+  const permissionToggle =
+    permissionDropdownContainer.value?.querySelector("button")
+  const userDropdownToggle = event.target.closest(
+    'button[data-dropdown="user-access"]'
+  )
+
   // Kiểm tra xem click có phải vào nội dung của dropdown hay không
-  const permissionContent = document.querySelector('.permission-dropdown-content')
-  const userDropdownContent = document.querySelector('.user-dropdown')
-  
+  const permissionContent = document.querySelector(
+    ".permission-dropdown-content"
+  )
+  const userDropdownContent = document.querySelector(".user-dropdown")
+
   const isInsideDropdown = [
     permissionToggle,
     userDropdownToggle,
     permissionContent,
-    userDropdownContent
-  ].some(el => el?.contains(event.target))
-  
+    userDropdownContent,
+  ].some((el) => el?.contains(event.target))
+
   if (!isInsideDropdown) {
     isPermissionDropdownOpen.value = false
     activeUserDropdown.value = null
@@ -440,11 +475,11 @@ const handleClickOutside = (event) => {
 }
 
 onMounted(() => {
-  document.addEventListener('mousedown', handleClickOutside)
+  document.addEventListener("mousedown", handleClickOutside)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('mousedown', handleClickOutside)
+  document.removeEventListener("mousedown", handleClickOutside)
 })
 
 const activeUserDropdown = ref(null)
@@ -462,7 +497,9 @@ const allUsersData = computed(() => allSiteUsers.data || [])
 
 // Show only first 3 selected users
 const displayedSharedUsers = computed(() => {
-  return showAllSharedUsers.value ? sharedUsers.value : sharedUsers.value.slice(0, 3)
+  return showAllSharedUsers.value
+    ? sharedUsers.value
+    : sharedUsers.value.slice(0, 3)
 })
 
 // Count of additional users beyond the first 3
@@ -475,14 +512,16 @@ const filteredUsers = computed(() => {
   if (!allUsers.length) return []
 
   const currentUserId = store.state.user.id
-  const sharedUserIds = sharedUsers.value.map(u => u.name)
-  const existingUserIds = (getUsersWithAccess.data || []).map(u => u.user)
+  const sharedUserIds = sharedUsers.value.map((u) => u.name)
+  const existingUserIds = (getUsersWithAccess.data || []).map((u) => u.user)
 
   // Filter out current user, shared users, and users with existing access
   const availableUsers = allUsers.filter((k) => {
-    return k.name !== currentUserId && 
-           !sharedUserIds.includes(k.name) && 
-           !existingUserIds.includes(k.name)
+    return (
+      k.name !== currentUserId &&
+      !sharedUserIds.includes(k.name) &&
+      !existingUserIds.includes(k.name)
+    )
   })
 
   if (!query.value.trim()) {
@@ -508,7 +547,10 @@ const handleInputFocus = () => {
 
 const handleInputBlur = (event) => {
   // Don't close if clicking inside dropdown
-  if (dropdownContainer.value && dropdownContainer.value.contains(event.relatedTarget)) {
+  if (
+    dropdownContainer.value &&
+    dropdownContainer.value.contains(event.relatedTarget)
+  ) {
     return
   }
   // Delay to allow click events to fire
@@ -525,12 +567,12 @@ const handleInputChange = () => {
 
 // Check if user is selected and add to shared users directly
 const isUserSelected = (person) => {
-  return sharedUsers.value.some(user => user.name === person.name)
+  return sharedUsers.value.some((user) => user.name === person.name)
 }
 
 // Toggle user selection and add/remove from shared users immediately
 const toggleUserSelection = (person) => {
-  const index = sharedUsers.value.findIndex(user => user.name === person.name)
+  const index = sharedUsers.value.findIndex((user) => user.name === person.name)
   if (index > -1) {
     sharedUsers.value.splice(index, 1)
   } else {
@@ -560,7 +602,7 @@ const removeSharedUser = (index) => {
     // If we're in the normal view, remove from the actual array
     sharedUsers.value.splice(index, 1)
   }
-  
+
   // Close expanded view if no users left or less than 4 users
   if (sharedUsers.value.length <= 3) {
     showAllSharedUsers.value = false
@@ -586,10 +628,10 @@ const dropdownPosition = ref(null)
 const toggleUserAccessDropdown = async (user, event) => {
   event.stopPropagation()
   const isClosing = activeUserDropdown.value === user.user
-  
+
   // Đóng permission dropdown nếu đang mở
   isPermissionDropdownOpen.value = false
-  
+
   // Toggle user dropdown
   activeUserDropdown.value = isClosing ? null : user.user
   showAllSharedUsers.value = false
@@ -597,23 +639,23 @@ const toggleUserAccessDropdown = async (user, event) => {
   if (!isClosing) {
     // Đợi DOM update
     await nextTick()
-    
+
     // Tính toán vị trí của button
     const buttonElement = event.currentTarget
     const rect = buttonElement.getBoundingClientRect()
-    
+
     // Đặt dropdown ngay dưới button, căn phải
     dropdownPosition.value = {
       top: rect.bottom + window.scrollY + 4, // 4px gap
-      left: rect.right + window.scrollX -  136// 192px = w-48 (12rem)
+      left: rect.right + window.scrollX - 150, // 192px = w-48 (12rem)
     }
   } else {
     dropdownPosition.value = null
   }
 }
 
-const addShares = async () => { 
-  try { 
+const addShares = async () => {
+  try {
     for (let user of sharedUsers.value) {
       const access =
         shareAccess.value === "editor"
@@ -646,10 +688,12 @@ const addShares = async () => {
 const updateUserAccess = async (user, newAccessLevel) => {
   try {
     activeUserDropdown.value = null
-    const access =
-      newAccessLevel === "editor"
-        ? { read: 1, comment: 1, share: 1, write: 1 }
-        : { read: 1, comment: 1, share: 1, write: 0 }
+    let access = {}
+    if (newAccessLevel === "editor") {
+      access = { read: 1, comment: 1, share: 1, write: 1 }
+    } else if (newAccessLevel === "reader") {
+      access = { read: 1, comment: 1, share: 1, write: 0 }
+    } else {  access = { method: 'unshare' } } 
 
     await updateAccess.submit({
       entity_name: props.entity.name,
@@ -657,8 +701,17 @@ const updateUserAccess = async (user, newAccessLevel) => {
       ...access,
     })
 
-    // Update local data
-    Object.assign(user, access)
+    // Nếu là unshare, xóa user khỏi danh sách ngay lập tức
+    if (newAccessLevel === 'unshare') {
+      const index = getUsersWithAccess.data.findIndex(u => u.user === user.user)
+      if (index > -1) {
+        getUsersWithAccess.data.splice(index, 1)
+      }
+    } else {
+      // Update local data cho các trường hợp khác
+      Object.assign(user, access)
+    }
+
     emitter.emit("refreshUserList")
     emit("success")
     activeUserDropdown.value = null
@@ -679,26 +732,24 @@ const closeAllDropdowns = () => {
 const closeDialog = () => {
   emit("update:modelValue", "")
   // Reset overflow khi đóng dialog
-  document.body.style.overflow = ''
+  document.body.style.overflow = ""
 }
 
 // Function to check if an element is inside a dropdown
 const isInsideDropdown = (element) => {
   const dropdownElements = [
-    permissionDropdownContainer.value?.querySelector('button'),
+    permissionDropdownContainer.value?.querySelector("button"),
     document.querySelector('button[data-dropdown="user-access"]'),
-    document.querySelector('.permission-dropdown-content'),
-    document.querySelector('.user-dropdown')
+    document.querySelector(".permission-dropdown-content"),
+    document.querySelector(".user-dropdown"),
   ]
-  
-  return dropdownElements.some(el => el?.contains(element))
+
+  return dropdownElements.some((el) => el?.contains(element))
   if (!clickedInside) {
     isPermissionDropdownOpen.value = false
     activeUserDropdown.value = null
   }
 }
-
-
 
 // Lifecycle
 onMounted(async () => {
@@ -719,9 +770,9 @@ onUnmounted(() => {
 // Watch activeUserDropdown to handle body scroll
 watch(activeUserDropdown, (newValue) => {
   if (newValue) {
-    document.body.style.overflow = 'hidden'
+    document.body.style.overflow = "hidden"
   } else {
-    document.body.style.overflow = ''
+    document.body.style.overflow = ""
   }
 })
 
@@ -756,7 +807,7 @@ watch(sharedUsers, (newUsers) => {
 
 // Clear selected users when dropdown closes
 watch(isDropdownOpen, (isOpen) => {
-  if (!isOpen && query.value === '') {
+  if (!isOpen && query.value === "") {
     // Only clear query if dropdown is closing and no search query
   }
 })
