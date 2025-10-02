@@ -34,14 +34,58 @@ class DriveNotification(Document):
                 message=json.dumps(message_data, ensure_ascii=False, default=str),
             )
 
+        comment_doc = frappe.get_doc("Comment", self.comment_id)
+        full_name_to_user = (
+            frappe.db.get_value("User", {"name": self.to_user}, "full_name") or self.to_user
+        )
+        if not full_name_to_user or not comment_doc:
+            return
         if self.type == "Mention":
-            comment_doc = frappe.get_doc("Comment", self.comment_id)
-            full_name_to_user = (
-                frappe.db.get_value("User", {"name": self.to_user}, "full_name") or self.to_user
-            )
             message_data = {
                 "key": "mention_document",
                 "title": f"{full_name} đã nhắc đến bạn trong",
+                "full_name_owner": full_name,
+                "to_user": self.to_user,
+                "full_name_to_user": full_name_to_user,
+                "type": self.type,
+                "entity_type": self.entity_type,
+                "message": self.message,
+                "file_name": self.file_name,
+                "comment_id": comment_doc.name or "",
+                "comment_content": comment_doc.content or "",
+                "link": f"/drive/t/{self.id_team}/{self.entity_type.lower()}/{self.notif_doctype_name}",
+            }
+            RavenBot.send_notification_to_user(
+                bot_name=bot_docs,
+                user_id=self.to_user,
+                message=json.dumps(message_data, ensure_ascii=False, default=str),
+            )
+
+        if self.type == "To Owner File":
+            message_data = {
+                "key": "to_owner_file",
+                "title": f"{full_name} đã bình luận trong {self.file_name}",
+                "full_name_owner": full_name,
+                "to_user": self.to_user,
+                "full_name_to_user": full_name_to_user,
+                "type": self.type,
+                "entity_type": self.entity_type,
+                "message": self.message,
+                "file_name": self.file_name,
+                "comment_id": comment_doc.name or "",
+                "comment_content": comment_doc.content or "",
+                "link": f"/drive/t/{self.id_team}/{self.entity_type.lower()}/{self.notif_doctype_name}",
+            }
+            RavenBot.send_notification_to_user(
+                bot_name=bot_docs,
+                user_id=self.to_user,
+                message=json.dumps(message_data, ensure_ascii=False, default=str),
+            )
+
+        if self.type == "Reply":
+            message_data = {
+                "key": "reply_comment",
+                "title": f"{full_name} đã trả lời bình luận của bạn trong {self.file_name}",
                 "full_name_owner": full_name,
                 "to_user": self.to_user,
                 "full_name_to_user": full_name_to_user,

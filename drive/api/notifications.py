@@ -204,7 +204,7 @@ def notify_share(entity_name, docperm_name):
 
     message = f'{author_full_name} đã chia sẻ một {entity_type} với bạn: "{entity.title}"'
     create_notification(docshare.owner, docshare.user, "Share", entity, message)
-    send_share_email(docshare.user, message, get_link(entity), entity.team, entity_type)
+    # send_share_email(docshare.user, message, get_link(entity), entity.team, entity_type)
 
 
 def create_notification(from_user, to_user, type, entity, message=None, comment_id: str = None):
@@ -266,6 +266,46 @@ def notify_comment_mentions(entity_name, comment_doc, mentions):
             message,
             comment_id=comment_doc.name,
         )
+
+
+def notify_comment_to_owner_file(entity_name, comment_doc, owner_email):
+    """
+    Create a mention notification for each user mentioned in a comment
+    """
+    entity = frappe.get_doc("Drive File", entity_name)
+
+    author_full_name = frappe.db.get_value(
+        "User", {"name": comment_doc.comment_email}, ["full_name"]
+    )
+    message = f'{author_full_name} commented on this file "{entity.title}"'
+    create_notification(
+        comment_doc.comment_email,
+        owner_email,
+        "To Owner File",
+        entity,
+        message,
+        comment_id=comment_doc.name,
+    )
+
+
+def notify_reply_comment(entity_name, comment_doc, reply_email):
+    """
+    Create a mention notification for each user mentioned in a comment
+    """
+    entity = frappe.get_doc("Drive File", entity_name)
+
+    author_full_name = frappe.db.get_value(
+        "User", {"name": comment_doc.comment_email}, ["full_name"]
+    )
+    message = f'{author_full_name} replied to "{entity.title}"'
+    create_notification(
+        comment_doc.comment_email,
+        reply_email,
+        "Reply",
+        entity,
+        message,
+        comment_id=comment_doc.name,
+    )
 
 
 def send_share_email(to, message, link, team, type_):
