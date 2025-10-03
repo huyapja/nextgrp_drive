@@ -137,7 +137,7 @@ emitter.on("move", () => (dialog.value = "m"))
 emitter.on("newLink", () => (dialog.value = "l"))
 emitter.on("move_owner", () => (dialog.value = "move_owner"))
 emitter.on("copy", () => (dialog.value = "copy"))
-console.log("sssssssssssssseeeee", dialog.value)
+
 const setTitle = (title) =>
   (document.title = (route.name === "Folder" ? "Folder - " : "") + title)
 function addToList(data, file_type) {

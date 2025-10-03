@@ -261,7 +261,7 @@ const actionItems = computed(() => {
         important: true,
       },
       {
-        label: "Chuyển quyền sở hữu tài liệu",
+        label: "Chuyển quyền sở hữu",
         icon: MoveOwnerIcon,
         action: () => (dialog.value = "move_owner"),
         isEnabled: (e) =>

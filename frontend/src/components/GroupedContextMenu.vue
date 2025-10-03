@@ -4,10 +4,13 @@
     :model="groupedMenuItems"
     :pt="{
       root: {
-        class: 'min-w-[220px] rounded-lg shadow-lg border border-[#E5E5E5] bg-white'
+        class: '!min-w-[220px] !rounded-lg !shadow-lg !border !border-[#E5E5E5] bg-white !text-[14px] !text-semibold'
       },
       menu: {
-        class: 'py-1'
+        class: '!py-1 !px-2 '
+      },
+      submenu: {
+        class: '!right-full ml-2 !rounded-lg !text-[14px] !text-semibold'
       }
     }"
   />
@@ -35,44 +38,29 @@ const actionGroups = {
   preview: {
     label: 'Xem trước',
     icon: 'pi pi-eye',
-    color: '#f0fdf4',
-    borderColor: '#22c55e',
-    textColor: '#15803d'
   },
   share: {
     label: 'Chia sẻ',
     icon: 'pi pi-share-alt',
-    color: '#fefce8',
-    borderColor: '#eab308',
-    textColor: '#a16207'
   },
   organize: {
     label: 'Sắp xếp',
     icon: 'pi pi-sort-alt',
-    color: '#f0fdf4',
-    borderColor: '#22c55e',
-    textColor: '#15803d'
   },
   download: {
     label: 'Tải xuống',
     icon: 'pi pi-download',
-    color: '#fef2f2',
-    borderColor: '#ef4444',
-    textColor: '#dc2626'
   },
   info: {
     label: 'Thông tin',
     icon: 'pi pi-info-circle',
-    color: '#eff6ff',
-    borderColor: '#3b82f6',
-    textColor: '#1d4ed8'
   },
   delete: {
     label: 'Xóa',
     icon: 'pi pi-trash',
-    color: '#fff7ed',
-    borderColor: '#f97316',
-    textColor: '#ea580c'
+    color: '#fef2f2',
+    borderColor: '#ef4444',
+    textColor: '#dc2626'
   }
 }
 
@@ -237,8 +225,8 @@ const groupedMenuItems = computed(() => {
     } else {
       const item = deleteItems[0]
       items.push({
-        label: item.label,
-        icon: item.icon,
+        label: actionGroups.delete.label,
+        icon: actionGroups.delete.icon,
         command: () => {
           item.action([store.state.activeEntity])
           closeMenu()
@@ -264,11 +252,16 @@ defineExpose({
 </script>
 
 <style scoped>
+/* Base typography - System font stack for better rendering */
 :deep(.p-contextmenu) {
-  min-width: 220px;
+  min-width: 220px !important;
   border-radius: 8px;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
 
 :deep(.p-contextmenu .p-menuitem) {
   margin: 0;
@@ -279,14 +272,24 @@ defineExpose({
   border-bottom: none;
 }
 
+/* Main menu items - Improved typography */
 :deep(.p-contextmenu .p-menuitem-link) {
-  padding: 14px 16px;
+  padding: 8px 12px;
   border-radius: 0;
   border-left: 4px solid transparent;
   display: flex;
   align-items: center;
-  font-weight: 500;
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0.01em !important;
   transition: all 0.2s ease;
+}
+
+:deep(.p-contextmenu .p-menuitem-text) {
+  font-weight: 500 !important;
+  font-size: 14px !important;
+  color: inherit;
 }
 
 /* Styling cho Preview group - màu xanh lá */
@@ -355,19 +358,23 @@ defineExpose({
   background-color: #fed7aa;
 }
 
-/* Icon styling */
+/* Icon styling - Better alignment */
 :deep(.p-contextmenu .p-menuitem-link .p-menuitem-icon) {
   margin-right: 12px;
   font-size: 16px;
+  display: flex;
+  align-items: center;
+  opacity: 0.9;
 }
 
-/* Submenu styling */
+/* Submenu styling - Improved positioning and typography */
 :deep(.p-contextmenu .p-submenu-list) {
   background-color: white;
   border: 1px solid #e5e7eb;
   border-radius: 8px;
   box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
-  margin-left: 8px;
+  margin-right: 8px;
+  min-width: 200px;
 }
 
 :deep(.p-contextmenu .p-submenu-list .p-menuitem) {
@@ -383,12 +390,27 @@ defineExpose({
   border-left: none;
   background-color: white;
   color: #374151;
-  font-weight: 400;
+  font-weight: 400 !important;
+  font-size: 13.5px !important;
+  line-height: 1.5 !important;
+  letter-spacing: 0.01em !important;
+  transition: all 0.15s ease;
+}
+
+:deep(.p-contextmenu .p-submenu-list .p-menuitem-text) {
+  font-weight: 400 !important;
+  font-size: 13.5px !important;
 }
 
 :deep(.p-contextmenu .p-submenu-list .p-menuitem-link:hover) {
   background-color: #f9fafb;
   color: #111827;
+  transform: translateX(-2px);
+}
+
+:deep(.p-contextmenu .p-submenu-list .p-menuitem-link .p-menuitem-icon) {
+  font-size: 14px;
+  margin-right: 10px;
 }
 
 /* Arrow icon for submenu */
@@ -401,5 +423,28 @@ defineExpose({
 :deep(.p-contextmenu .p-menuitem-link:focus) {
   outline: 2px solid #3b82f6;
   outline-offset: -2px;
+}
+
+/* Submenu positioning - Show on left side */
+:deep(.p-contextmenu-submenu) {
+  inset-inline-start: auto !important;
+  inset-inline-end: 100%;
+  margin-right: 4px;
+}
+
+/* Additional override for all text elements */
+:deep(.p-contextmenu .p-menuitem-link span) {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+}
+
+:deep(.p-contextmenu .p-submenu-list .p-menuitem-link span) {
+  font-size: 13.5px !important;
+  font-weight: 400 !important;
+}
+
+/* Override PrimeVue default font size */
+:deep(.p-contextmenu *) {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
 }
 </style>

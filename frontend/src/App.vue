@@ -102,7 +102,7 @@ const KEY_BINDS = {
   u: () => emitter.emit("uploadFile"),
   U: () => emitter.emit("uploadFolder"),
   u: () => emitter.emit("uploadFile"),
-  N: () => emitter.emit("newFolder"),
+  N: () => emitter.emit("newFolder"), // Removed to prevent duplicate dialogs
   m: () => store.state.activeEntity && emitter.emit("move"),
   Enter: () => store.state.activeEntity && emitter.emit("rename"),
 }
