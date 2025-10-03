@@ -112,13 +112,12 @@
         <UsersBar />
       </div>
     </div>
-
     <div
       class="flex flex-row items-center h-full gap-[17px] pt-3 px-2 z-0 bg-surface-white"
-      v-if="route.name === 'File'"
+      v-if="route.name === 'File' "
     >
       <Button
-        v-if="entity?.comment"
+        v-if="entity?.comment && entity && entity.is_active"
         class="text-ink-gray-5 !px-0"
         :class="[
           tab === 1
@@ -138,7 +137,7 @@
       </Button>
 
       <Button
-        v-if="entity?.write"
+        v-if="entity?.write && entity && entity.is_active"
         class="text-ink-gray-5 !px-0"
         :class="[
           tab === 2
@@ -177,13 +176,13 @@
       </Button>
 
       <!-- Context Menu Button -->
-      <Button
+      <!-- <Button
         class="text-ink-gray-5 !px-0 hover:bg-surface-menu-bar"
         variant="minimal"
         @click="onMoreClick"
       >
         <MoreIcon class="size-6 text-black" />
-      </Button>
+      </Button> -->
     </div>
 
     <!-- Context Menu -->
@@ -204,12 +203,12 @@
     />
 
     <!-- Fixed Dialogs for Context Menu -->
-    <Dialogs
+    <!-- <Dialogs
       v-model="dialogContextMenu"
       :selected-rows="entity ? [entity] : []"
       :root-resource="props.rootResource"
       :get-entities="getEntities"
-    />
+    /> -->
   </nav>
 </template>
 
@@ -220,7 +219,6 @@ import InfoIcon from "@/assets/Icons/InfoIcon.vue"
 import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
 import LinkIcon from "@/assets/Icons/LinkIcon.vue"
 import MessageIcon from "@/assets/Icons/MessageIcon.vue"
-import MoreIcon from "@/assets/Icons/MoreIcon.vue"
 import MoveIcon from "@/assets/Icons/MoveIcon.vue"
 import NewDrive from "@/assets/Icons/NewDrive.vue"
 import RenameIcon from "@/assets/Icons/RenameIcon.vue"
@@ -378,7 +376,7 @@ const dropdownActionItems = (row) => {
       },
     },
     {
-      label: "Chuyển quyền sở hữu tài liệu",
+      label: "Chuyển quyền sở hữu",
       icon: MoveOwnerIcon,
       handler: () => {
         moreEvent.value = false

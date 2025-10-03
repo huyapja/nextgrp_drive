@@ -306,20 +306,21 @@
                         stroke-linejoin="round"
                         stroke-width="2"
                         d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
-                  </button>
+                        />
+                      </svg>
+                    </button>
+                    
 
                   <!-- Teleport dropdown ra ngoài body -->
                   <Teleport to="body">
                     <div
-                      v-if="activeUserDropdown === user.user"
+                      v-if="activeUserDropdown === user.user "
                       class="fixed inset-0 bg-black bg-opacity-0 z-[99999]"
                       @click="activeUserDropdown = null"
-                    ></div>
+                    ></div> 
                     <div
                       v-if="
-                        activeUserDropdown === user.user && dropdownPosition
+                        activeUserDropdown === user.user && dropdownPosition  && currentUserId === entity.owner
                       "
                       :style="{
                         position: 'fixed',
@@ -368,11 +369,13 @@
                       </div>
                     </div>
                   </Teleport>
+                  
                 </div>
               </div>
             </div>
           </div>
         </div>
+        
         <div
           class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200"
         >

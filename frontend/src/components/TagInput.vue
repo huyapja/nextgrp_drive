@@ -34,6 +34,7 @@
                   togglePopover()
                 }
               "
+              :disabled="!entity?.is_active"
             >
               Quản lý nhãn
             </Button>
