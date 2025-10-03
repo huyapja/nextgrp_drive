@@ -162,15 +162,15 @@
       </DataTable>
     </div>
 
-    <!-- Context Menu -->
-    <ContextMenu
-      v-if="rowEvent && selectedRow"
-      :key="selectedRow.name"
-      v-on-outside-click="() => (rowEvent = false)"
-      :action-items="dropdownActionItems(selectedRow)"
-      :event="rowEvent"
-      :close="() => {}"
-      />
+    <!-- Grouped Context Menu -->
+    <!-- v-if="selectedRow && rowEvent" -->
+    <GroupedContextMenu
+      ref="groupedContextMenu"
+      :actionItems="selectedRow ? dropdownActionItems(selectedRow) : []"
+      :close="() => { 
+        rowEvent.value = false 
+      }"
+    />
   </div>
 </template>
 
@@ -183,7 +183,7 @@ import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { useStore } from "vuex"
 import { useRoute, useRouter } from "vue-router"
 import { computed, ref, watch, onMounted, onUnmounted } from "vue"
-import ContextMenu from "@/components/ContextMenu.vue"
+import GroupedContextMenu from "@/components/GroupedContextMenu.vue"
 import { openEntity } from "@/utils/files"
 import { formatDate } from "@/utils/format"
 import { onKeyDown } from "@vueuse/core"
@@ -208,6 +208,7 @@ const selectedRow = ref(null)
 const selectedRows = ref([])
 const rowEvent = ref(null)
 const windowWidth = ref(window.innerWidth)
+const groupedContextMenu = ref(null)
 
 // Handle window resize
 const handleResize = () => {
@@ -290,8 +291,15 @@ const getSizeText = (row) => {
 const onRowContextMenu = (event, row) => {
   if (selectedRows.value.length > 0) return
   if (event.ctrlKey) openEntity(route.params.team, row, true)
-  rowEvent.value = event
+  
   selectedRow.value = row
+  rowEvent.value = event
+  
+  // Sử dụng GroupedContextMenu show method
+  if (groupedContextMenu.value) {
+    groupedContextMenu.value.show(event)
+  }
+  
   event.stopPropagation()
   event.preventDefault()
 }
@@ -307,8 +315,14 @@ const onRowClick = (event) => {
 }
 
 const onRowOptions = (event, row) => {
-  rowEvent.value = event
   selectedRow.value = row
+  rowEvent.value = event
+  
+  // Sử dụng GroupedContextMenu show method
+  if (groupedContextMenu.value) {
+    groupedContextMenu.value.show(event)
+  }
+  
   event.stopPropagation()
 }
 
@@ -346,27 +360,39 @@ watch(selectedRow, (k) => {
 
 const dropdownActionItems = (row) => {
   if (!row) return []
-  return props.actionItems
+  
+  // Giữ nguyên action function từ GenericPage
+  const actionItems = props.actionItems
     .filter((a) => !a.isEnabled || a.isEnabled(row))
     .map((a) => {
       let isLoading = false
       if (a.label === 'Tạo lối tắt'){
-        isLoading = createShortcutResource.loading
+        isLoading = createShortcutResource?.loading || false
       }
       if (a.label === 'Bỏ lối tắt'){
-        isLoading = removeShortcutResource.loading
+        isLoading = removeShortcutResource?.loading || false
       }
-      return{
-      ...a,
-      handler: () => {
-        if (!['Tạo lối tắt', 'Bỏ lối tắt'].includes(a.label)){
-          rowEvent.value = false
-        }
-        store.commit("setActiveEntity", row)
-        a.action([row])
-      },
-      loading: isLoading
-    }})
+      
+      return {
+        ...a,
+        // Giữ nguyên action function gốc
+        originalAction: a.action,
+        // Thêm wrapper để handle việc đóng context menu và set active entity
+        action: (entities) => {
+          if (!['Tạo lối tắt', 'Bỏ lối tắt'].includes(a.label)){
+            rowEvent.value = false
+          }
+          store.commit("setActiveEntity", row)
+          // Gọi action gốc
+          if (typeof a.action === 'function') {
+            a.action(entities || [row])
+          }
+        },
+        loading: isLoading
+      }
+    })
+  
+  return actionItems
 }
 
 watch(
