@@ -101,7 +101,7 @@ function calculateY() {
     return (contextMenu.value.style.top =
       props.event?.y - childHeight.value + "px")
   } else {
-    return (contextMenu.value.style.top = props.event?.y + "px")
+    return (contextMenu.value.style.top = props.event.y + "px")
   }
 }
 

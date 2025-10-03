@@ -59,7 +59,7 @@ function performCopy(link, copy, asShareable) {
     document.body.removeChild(textArea);
     
     if (successful) {
-      const successMessage = asShareable ? __("Shareable link copied") : __("Copied link")
+      const successMessage = asShareable ? __("Đã sao chép link") : __("Đã sao chép link")
       toast(successMessage);
     } else {
       throw new Error('execCommand failed');
