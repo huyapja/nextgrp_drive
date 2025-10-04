@@ -4,23 +4,14 @@ from pypika import Order
 
 def create_new_activity_log(
     entity,
-    activity_type,
-    activity_message,
-    document_field=None,
-    field_old_value=None,
-    field_new_value=None,
-    field_meta_value=None,
+    last_interaction,
+    user=None,
 ):
-    doc = frappe.new_doc("Drive Entity Activity Log")
-    doc.entity = entity
-    doc.document_field = document_field
-    doc.action_type = activity_type
-    doc.message = activity_message
+    doc = frappe.new_doc("Drive Entity Log")
+    doc.entity_name = entity
+    doc.user = user or frappe.session.user
+    doc.last_interaction = last_interaction
     doc.owner = frappe.session.user
-    doc.meta_value = field_meta_value
-    if document_field:
-        doc.old_value = field_old_value
-        doc.new_value = field_new_value
     doc.save()
     return
 
@@ -30,21 +21,9 @@ def get_entity_activity_log(entity_name):
     """
     Warning: Assumes `Drive File` only
     """
-    Activity = frappe.qb.DocType("Drive Entity Activity Log")
+    Activity = frappe.qb.DocType("Drive Entity Log")
     User = frappe.qb.DocType("User")
-    selectedFields = [
-        Activity.name,
-        Activity.message,
-        Activity.owner,
-        Activity.document_field,
-        Activity.meta_value,
-        Activity.action_type,
-        Activity.old_value,
-        Activity.new_value,
-        Activity.creation,
-        User.full_name,
-        User.user_image,
-    ]
+    selectedFields = [Activity.entity_name, Activity.user, Activity.last_interaction]
     query = (
         frappe.qb.from_(Activity)
         .select(*selectedFields)

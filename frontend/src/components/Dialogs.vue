@@ -21,9 +21,11 @@
       ({ name, title, is_shortcut = false }) => {
         if (selections[0] !== rootResource?.data && props.getEntities){
           if (is_shortcut){
-            props.getEntities.data.find((k) => k.shortcut_name === name).title = title
+            props.getEntities.data.find((k) => k.shortcut_name === name).shortcut_title = title
+            props.getEntities.data.find((k) => k.shortcut_name === name).accessed = new Date().getTime()
           } else {
             props.getEntities.data.find((k) => k.name === name).title = title
+            props.getEntities.data.find((k) => k.name === name).accessed = new Date().getTime()
           }
         }
         resetDialog()

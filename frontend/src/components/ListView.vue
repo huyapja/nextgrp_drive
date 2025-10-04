@@ -127,12 +127,12 @@
 
         <!-- Last Modified Column -->
         <Column
-          field="modified"
+          field="accessed"
           :header="__('Sửa đổi lần cuối')"
           sortable
         >
           <template #body="slotProps">
-            <span>{{ useTimeAgoVi(slotProps.data.modified) }}</span>
+            <span>{{ useTimeAgoVi(slotProps.data.accessed) }}</span>
           </template>
         </Column>
 
@@ -168,7 +168,7 @@
       ref="groupedContextMenu"
       :actionItems="selectedRow ? dropdownActionItems(selectedRow) : []"
       :close="() => { 
-        rowEvent.value = false 
+        // rowEvent.value = false 
       }"
     />
   </div>

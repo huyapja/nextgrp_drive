@@ -50,7 +50,7 @@ def calculate_days_remaining(modified_date):
 def files(
     team,
     entity_name=None,
-    order_by="modified 1",
+    order_by="accessed 1",
     is_active=1,
     limit=20,
     cursor=None,
@@ -387,7 +387,7 @@ def apply_favourite_join(query, favourites_only=False, has_shortcut_join=False):
 def files_multi_team(
     teams=None,
     entity_name=None,
-    order_by="modified 1",
+    order_by="accessed 1",
     is_active=1,
     limit=20,
     cursor=None,
@@ -726,7 +726,28 @@ def files_multi_team(
                             & (Recents.user == frappe.session.user)
                         )
                         .orderby(Recents.last_interaction, order=Order.desc)
-                        .select("*")
+                        .select(Recents.last_interaction.as_("accessed"))
+                    )
+                else:
+                    # Subquery để lấy lần truy cập gần nhất của mỗi file
+                    recent_subquery = (
+                        frappe.qb.from_(Recents)
+                        .select(
+                            Recents.entity_name,
+                            fn.Max(Recents.last_interaction).as_("last_interaction"),
+                        )
+                        .where(Recents.user == frappe.session.user)
+                        .groupby(Recents.entity_name)
+                    ).as_("recent_subq")
+
+                    q = (
+                        q.left_join(recent_subquery)
+                        .on(recent_subquery.entity_name == DriveFile.name)
+                        .orderby(
+                            recent_subquery.last_interaction,
+                            order=Order.asc if ascending else Order.desc,
+                        )
+                        .select(recent_subquery.last_interaction.as_("accessed"))
                     )
 
                 # Apply tag filtering
@@ -873,11 +894,25 @@ def files_multi_team(
             r["share_count"] = share_count.get(r["name"], 0)
 
     # Sort results
-    if field in ["modified", "creation", "title", "file_size"]:
+    if field in ["modified", "creation", "title", "file_size", "accessed"]:
         reverse = not ascending
-        all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
 
-    # Apply cursor pagination if specified
+        if field == "accessed":
+            print("DEBUG - Sorting by accessed with special None handling", field)
+            # Tách riêng các record có và không có accessed
+            has_accessed = [r for r in all_results if r.get(field) is not None]
+            no_accessed = [r for r in all_results if r.get(field) is None]
+
+            # Sort phần có accessed
+            has_accessed.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            print("DEBUG - has_accessed count:", len(has_accessed))
+            print("DEBUG - no_accessed count:", len(no_accessed))
+            # Gộp lại: phần có accessed trước, phần None sau
+            all_results = has_accessed + no_accessed
+        else:
+            all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+
+    Apply cursor pagination if specified
     if cursor and all_results:
         if field in all_results[0]:
             filtered_results = []
@@ -928,6 +963,8 @@ def shared_multi_team(
             (DrivePermission.entity == DriveFile.name)
             & ((DrivePermission.owner if by else DrivePermission.user) == frappe.session.user)
         )
+        .left_join(Recents)
+        .on((Recents.entity_name == DriveFile.name) & (Recents.user == frappe.session.user))
         .where((DrivePermission.read == 1) & (DriveFile.is_active == 1))
         .groupby(
             DriveFile.name,
@@ -949,6 +986,7 @@ def shared_multi_team(
         )
         .select(
             *ENTITY_FIELDS,
+            Recents.last_interaction.as_("accessed"),
             DriveFile.team,
             DrivePermission.user,
             DrivePermission.owner.as_("sharer"),

@@ -236,26 +236,29 @@ def get_shared_with_list(entity):
 
         # Nếu không có team permission, sử dụng quyền mặc định theo logic get_user_access
         if not team_permission:
-            # Lấy access level của current user để làm reference
-            current_user_teams = get_teams(frappe.session.user)
-            if entity_doc.team in current_user_teams:
-                current_user_access = get_access(entity_doc.team)
-                team_permission = {
-                    "read": 1,
-                    "comment": 1,
-                    "share": 1,
-                    "write": (
-                        1
-                        if (
-                            (entity_doc.is_group and current_user_access)
-                            or current_user_access == 2
-                        )
-                        else 0
-                    ),
-                }
-            else:
-                # Current user không trong team, không hiển thị team members
-                team_permission = None
+            # Không có team permission explicit, cần kiểm tra từng member một
+            team_permission = {
+                "read": 1,  # Quyền read mặc định cho team member
+                "comment": 1,
+                "share": 0,  # Mặc định không có quyền share
+                "write": 0,  # Mặc định không có quyền write
+            }
+
+            # Team member chỉ có quyền write/share nếu họ là admin của team
+            def get_member_permission(member_user):
+                member_access_level = frappe.db.get_value(
+                    "Drive Team Member",
+                    {"parent": entity_doc.team, "user": member_user},
+                    "access_level",
+                )
+                if member_access_level == 2:  # Admin
+                    return {
+                        "read": 1,
+                        "comment": 1,
+                        "share": 1,
+                        "write": 1 if entity_doc.is_group else 1,
+                    }
+                return team_permission.copy()
 
         if team_permission:
             # Lấy tất cả thành viên của Drive Team
@@ -276,15 +279,17 @@ def get_shared_with_list(entity):
             print(f"Found {len(team_members)} team members:", [m["user"] for m in team_members])
 
             for member in team_members:
+                # Lấy quyền cụ thể cho từng member dựa trên vai trò của họ trong team
+                member_permissions = get_member_permission(member.user)
                 team_member = {
                     "user": member.user,
                     "user_image": member.user_image,
                     "full_name": member.full_name,
                     "email": member.email,
-                    "read": team_permission.get("read", 0),
-                    "write": team_permission.get("write", 0),
-                    "comment": team_permission.get("comment", 0),
-                    "share": team_permission.get("share", 0),
+                    "read": member_permissions.get("read", 0),
+                    "write": member_permissions.get("write", 0),
+                    "comment": member_permissions.get("comment", 0),
+                    "share": member_permissions.get("share", 0),
                     "source": "team",
                     "team_name": entity_doc.team,
                     "has_explicit_permission": bool(
