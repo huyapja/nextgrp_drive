@@ -20,11 +20,7 @@ class DriveFile(Document):
         full_name = frappe.db.get_value("User", {"name": frappe.session.user}, ["full_name"])
         message = f"{full_name} created {self.title}"
         create_new_activity_log(
-            entity=self.name,
-            activity_type="create",
-            activity_message=message,
-            document_field="title",
-            field_new_value=self.title,
+            entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
         )
 
     def on_trash(self):
@@ -419,12 +415,7 @@ class DriveFile(Document):
         full_name = frappe.db.get_value("User", {"name": frappe.session.user}, ["full_name"])
         message = f"{full_name} renamed {self.title} to {new_title}"
         create_new_activity_log(
-            entity=self.name,
-            activity_type="rename",
-            activity_message=message,
-            document_field="title",
-            field_old_value=self.title,
-            field_new_value=new_title,
+            entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
         )
         self.title = new_title
         self.save()

@@ -54,6 +54,7 @@ body::-webkit-scrollbar {
 
 body {
   overflow: hidden;
+  font-family: 'Inter', sans-serif;
 }
 
 .fade-in-enter-active {

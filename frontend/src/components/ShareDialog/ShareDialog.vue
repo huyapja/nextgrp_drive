@@ -108,7 +108,8 @@
               <!-- Dropdown suggestions with checkboxes -->
               <div
                 v-if="
-                  isDropdownOpen &&
+                  isDropdownOpen 
+                  &&
                   (filteredUsers.length > 0 || showAllUsers) &&
                   !showAllSharedUsers
                 "
@@ -320,7 +321,7 @@
                     ></div> 
                     <div
                       v-if="
-                        activeUserDropdown === user.user && dropdownPosition  && currentUserId === entity.owner
+                        activeUserDropdown === user.user && dropdownPosition  && store.state.user.id === entity.owner
                       "
                       :style="{
                         position: 'fixed',
@@ -431,6 +432,7 @@ import {
   updateAccess,
 } from "@/resources/permissions"
 import { getLink } from "@/utils/getLink"
+import { toast } from "../../utils/toasts"
 
 const props = defineProps({
   modelValue: String,
@@ -514,14 +516,13 @@ const filteredUsers = computed(() => {
   const allUsers = allUsersData.value || []
   if (!allUsers.length) return []
 
-  const currentUserId = store.state.user.id
   const sharedUserIds = sharedUsers.value.map((u) => u.name)
   const existingUserIds = (getUsersWithAccess.data || []).map((u) => u.user)
 
   // Filter out current user, shared users, and users with existing access
   const availableUsers = allUsers.filter((k) => {
     return (
-      k.name !== currentUserId &&
+      k.name !== store.state.user.id &&
       !sharedUserIds.includes(k.name) &&
       !existingUserIds.includes(k.name)
     )
@@ -584,6 +585,7 @@ const toggleUserSelection = (person) => {
       accessLevel: shareAccess.value,
     })
   }
+  isDropdownOpen.value = true
 }
 
 const selectUser = (person) => {
@@ -683,6 +685,9 @@ const addShares = async () => {
     setTimeout(() => {
       getUsersWithAccess.fetch({ entity: props.entity.name })
     }, 500)
+
+    toast("Chia sẻ thành công", { type: "success" })
+    closeDialog()
   } catch (e) {
     console.error("Error sharing:", e)
   }
@@ -798,22 +803,16 @@ watch(
 )
 
 // Clear query when no shared users
-watch(sharedUsers, (newUsers) => {
-  if (newUsers.length === 0) {
-    query.value = ""
-    showAllSharedUsers.value = false
-    if (!showAllUsers.value) {
-      isDropdownOpen.value = false
-    }
-  }
-})
+// watch(sharedUsers, (newUsers) => {
+//   if (newUsers.length === 0) {
+//     query.value = ""
+//     showAllSharedUsers.value = false
+//     if (!showAllUsers.value) {
+//       isDropdownOpen.value = false
+//     }
+//   }
+// })
 
-// Clear selected users when dropdown closes
-watch(isDropdownOpen, (isOpen) => {
-  if (!isOpen && query.value === "") {
-    // Only clear query if dropdown is closing and no search query
-  }
-})
 </script>
 <style scoped>
 /* Scrollbar styling */

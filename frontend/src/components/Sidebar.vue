@@ -247,48 +247,50 @@
           <Transition name="slide-down">
             <div
               v-if="isExpanded && isTeamsExpanded"
-              class="space-y-0.5 border border-[#E5E5E5] rounded-[8px] p-1"
+              class="space-y-0.5 border border-[#E5E5E5] rounded-[8px] p-1 pr-0.5 overflow-hidden"
             >
-              <!-- Teams List -->
-              <div
-                v-for="teamItem in teamList"
-                :key="teamItem.name"
-                @click="selectTeam(teamItem)"
-                class="flex items-center p-2 rounded-[8px] hover:bg-[#d4e1f9] hover:!text-[#171717] cursor-pointer transition-colors duration-150 group relative"
-                :class="{
-                  'bg-[#d4e1f9] !text-[#171717]': team === teamItem.name && isRouteActive(`/t/${teamItem.name}/team`),
-                }"
-              >
-                <span
-                  v-if="isExpanded"
-                  class="text-[14px] text-[#171717] flex-1 group-hover:text-[#171717] leading-[20px] font-medium truncate sidebar-label"
-                  :class="{ '!text-[#171717]': team === teamItem.name }"
+              <div class="max-h-[310px] overflow-y-auto">
+                <!-- Teams List -->
+                <div
+                  v-for="teamItem in teamList"
+                  :key="teamItem.name"
+                  @click="selectTeam(teamItem)"
+                  class="flex items-center p-2 rounded-[8px] hover:bg-[#d4e1f9] hover:!text-[#171717] cursor-pointer transition-colors duration-150 group relative overflow-hidden"
+                  :class="{
+                    'bg-[#d4e1f9] !text-[#171717]': team === teamItem.name && isRouteActive(`/t/${teamItem.name}/team`),
+                  }"
                 >
-                  {{ teamItem.title }}
-                </span>
-                <button
-                  v-if="canEditTeam(teamItem)"
-                  class="p-1 transition-colors duration-150 flex items-center justify-center absolute right-[2px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 pointer-events-auto z-10 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-blue-50 hover:border-blue-400"
-                  title="Chỉnh sửa tên nhóm"
-                  tabindex="-1"
-                  :disabled="renameTeam.loading"
-                  @click.stop="openRenameTeamDialog(teamItem)"
-                >
-                  <Pencil
-                    class="h-3 w-3 text-gray-500 group-hover:text-blue-600 transition-colors duration-150"
-                  />
-                </button>
+                  <span
+                    v-if="isExpanded"
+                    class="text-[14px] text-[#171717] flex-1 group-hover:text-[#171717] leading-[20px] font-medium truncate sidebar-label"
+                    :class="{ '!text-[#171717]': team === teamItem.name }"
+                  >
+                    {{ teamItem.title }}
+                  </span>
+                  <button
+                    v-if="canEditTeam(teamItem)"
+                    class="p-1 transition-colors duration-150 flex items-center justify-center absolute right-[2px] top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 pointer-events-auto z-10 bg-white border border-gray-200 rounded-full shadow-sm hover:bg-blue-50 hover:border-blue-400"
+                    title="Chỉnh sửa tên nhóm"
+                    tabindex="-1"
+                    :disabled="renameTeam.loading"
+                    @click.stop="openRenameTeamDialog(teamItem)"
+                  >
+                    <Pencil
+                      class="h-3 w-3 text-gray-500 group-hover:text-blue-600 transition-colors duration-150"
+                    />
+                  </button>
+                </div>
+  
               </div>
-
-              <button
-                v-if="isExpanded"
-                @click="createNewTeam"
-                class="flex flex-row items-center p-2 gap-2 justify-start text-[#0149C1] text-[14px] leading-[20px] font-medium hover:bg-[#f0f7ff] rounded-[8px] transition-colors duration-150 w-full"
-                :title="__('Tạo nhóm mới')"
-              >
-                <AddCircleDrive />
-                <p>Tạo nhóm mới</p>
-              </button>
+                <button
+                  v-if="isExpanded"
+                  @click="createNewTeam"
+                  class="flex flex-row items-center p-2 gap-2 justify-start text-[#0149C1] text-[14px] leading-[20px] font-medium hover:bg-[#f0f7ff] rounded-[8px] transition-colors duration-150 w-full"
+                  :title="__('Tạo nhóm mới')"
+                >
+                  <AddCircleDrive />
+                  <p>Tạo nhóm mới</p>
+                </button>
             </div>
           </Transition>
         </div>
@@ -941,13 +943,28 @@ const onLeave = (el) => {
   z-index: 2147483647;
 }
 
+/* Custom scrollbar styles */
 .hide-scrollbar::-webkit-scrollbar {
-  display: none;
+  width: 3px; /* Kích thước thanh cuộn cho Chrome/Safari */
 }
 
-/* Ẩn trên Firefox */
-.hide-scrollbar {
-  scrollbar-width: none; 
-  -ms-overflow-style: none; /* IE 10+ */
+.hide-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 2px;
 }
+
+.hide-scrollbar::-webkit-scrollbar-thumb {
+  background: #E5E7EB;
+  border-radius: 4px;
+}
+
+.hide-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #D1D5DB;
+}
+
+/* Firefox scrollbar */
+/* .hide-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: #E5E7EB transparent;
+} */
 </style>

@@ -13,7 +13,9 @@ let getCookies = () => {
 const { user_id, system_user, full_name, user_image } = getCookies()
 const getJson = (key, initial) => {
   try {
-    return JSON.parse(localStorage.getItem(key)) || initial
+    const value = JSON.parse(localStorage.getItem(key))
+    if (value.field === 'modified') return initial
+    return value || initial
   } catch {
     return initial
   }
@@ -29,8 +31,8 @@ const store = createStore({
     uploads: [],
     connectedUsers: [],
     sortOrder: getJson("sortOrder", {
-      label: "Modified",
-      field: "modified",
+      label: "Accesstime",
+      field: "accessed",
       ascending: false,
     }),
     view: getJson("view", "list"),
