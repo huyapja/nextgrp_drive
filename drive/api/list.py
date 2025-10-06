@@ -912,7 +912,7 @@ def files_multi_team(
         else:
             all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
 
-    Apply cursor pagination if specified
+    # Apply cursor pagination if specified
     if cursor and all_results:
         if field in all_results[0]:
             filtered_results = []
