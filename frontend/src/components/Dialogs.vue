@@ -135,6 +135,7 @@ emitter.on("showShareDialog", () => (dialog.value = "s"))
 emitter.on("newFolder", () => (dialog.value = "f"))
 emitter.on("rename", () => (dialog.value = "rn"))
 emitter.on("remove", () => (dialog.value = "remove"))
+emitter.on("d", () => (dialog.value = "d"))
 emitter.on("move", () => (dialog.value = "m"))
 emitter.on("newLink", () => (dialog.value = "l"))
 emitter.on("move_owner", () => (dialog.value = "move_owner"))
@@ -189,9 +190,9 @@ function removeFromList(entities, move = true) {
     const names = entities.map((o) => o.shortcut_name || o.name)
     props.getEntities.setData(
       props.getEntities.data.filter(({ name, shortcut_name, is_shortcut }) => {
-        if (is_shortcut){
+        if (is_shortcut) {
           return !names.includes(shortcut_name)
-        } else{
+        } else {
           return !names.includes(name)
         }
       })

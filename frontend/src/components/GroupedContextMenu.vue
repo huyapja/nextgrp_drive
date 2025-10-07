@@ -23,7 +23,7 @@
           :class="item.class"
         />
         <i v-else-if="item.icon" :class="item.icon"></i>
-        <span class="ml-1">{{ item.label }}</span>
+        <span class="ml-1 font-[500]">{{ item.label }}</span>
         <i v-if="item.items" class="pi pi-angle-left ml-auto"></i>
       </a>
     </template>

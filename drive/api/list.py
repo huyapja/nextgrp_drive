@@ -954,7 +954,7 @@ def files_multi_team(
 def shared_multi_team(
     teams=None,
     by=1,
-    order_by="modified",
+    order_by="accessed",
     limit=1000,
     tag_list=[],
     mime_type_list=[],
@@ -1029,13 +1029,18 @@ def shared_multi_team(
         if "+" in order_field:
             base_field = order_field.split("+")[0]
             # Sử dụng biểu thức số học
-            order_expr = DriveFile[base_field] + 0
+            order_expr = (
+                DriveFile[base_field] + 0
+                if order_field != "accessed"
+                else Recents.last_interaction
+            )
             query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
         else:
-            # Xử lý order by bình thường
-            query = query.orderby(
-                DriveFile[order_field], order=Order.desc if is_desc else Order.asc
+            order_expr = (
+                DriveFile[order_field] if order_field != "accessed" else Recents.last_interaction
             )
+            # Xử lý order by bình thường
+            query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
 
     if tag_list:
         tag_list = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list

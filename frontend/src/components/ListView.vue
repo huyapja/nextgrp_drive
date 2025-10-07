@@ -16,7 +16,7 @@
         @row-contextmenu="onRowContextMenu"
         @row-click="onRowClick"
         :rowClass="rowClass"
->
+      >
         <!-- Selection Column -->
         <Column
           selectionMode="multiple"
@@ -31,12 +31,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div 
-              class="name-cell" 
+            <div
+              class="name-cell"
               :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
-              v-tooltip.top="isRowDisabled(slotProps.data) ? 'Liên kết không khả dụng: không thể truy cập đến tệp gốc.' : null"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
             >
-              
               <div class="file-container">
                 <img
                   :src="
@@ -63,9 +64,6 @@
               <span class="file-name">{{
                 getDisplayName(slotProps.data)
               }}</span>
-              <!-- <span v-if="isRowDisabled(slotProps.data)" class="disabled-badge">
-                (Đã bị xóa)
-              </span> -->
             </div>
           </template>
         </Column>
@@ -77,7 +75,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="owner-cell" :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">
+            <div
+              class="owner-cell"
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+            >
               <CustomAvatar
                 :image="userData[slotProps.data.owner]?.user_image"
                 :label="userData[slotProps.data.owner]?.full_name.slice(0, 1)"
@@ -100,7 +104,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="owner-cell" :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">
+            <div
+              class="owner-cell"
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+            >
               <span class="owner-name">{{ slotProps.data.team_name }}</span>
             </div>
           </template>
@@ -113,7 +123,13 @@
           sortable
         >
           <template #body="slotProps">
-            <span :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">{{ slotProps.data.days_remaining }}</span>
+            <span
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+              >{{ slotProps.data.days_remaining }}</span
+            >
           </template>
         </Column>
         <!-- Shared Column -->
@@ -123,7 +139,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="shared-cell" :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">
+            <div
+              class="shared-cell"
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+            >
               <i
                 :class="getShareIcon(slotProps.data.share_count)"
                 class="share-icon"
@@ -140,7 +162,13 @@
           sortable
         >
           <template #body="slotProps">
-            <span :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">{{ useTimeAgoVi(slotProps.data.accessed) }}</span>
+            <span
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+              >{{ useTimeAgoVi(slotProps.data.accessed) }}</span
+            >
           </template>
         </Column>
 
@@ -151,30 +179,38 @@
           sortable
         >
           <template #body="slotProps">
-            <span :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">{{ getSizeText(slotProps.data) }}</span>
+            <span
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+              >{{ getSizeText(slotProps.data) }}</span
+            >
           </template>
         </Column>
 
         <!-- Options Column -->
         <Column bodyStyle="width: 2rem; text-align: center;">
           <template #body="slotProps">
-            <Button
-              v-if="isRowDisabled(slotProps.data)"
-              icon="pi pi-trash"
-              text
-              severity="danger"
-              class="options-btn"
-              @click="onDeleteDisabledRow($event, slotProps.data)"
-              title="Xóa"
-            />
-            <Button
-              v-else
-              icon="pi pi-ellipsis-v"
-              text
-              severity="secondary"
-              class="options-btn"
-              @click="onRowOptions($event, slotProps.data)"
-            />
+            <div>
+              <Button
+                v-if="isRowDisabled(slotProps.data)"
+                icon="pi pi-trash"
+                text
+                severity="danger"
+                class="options-btn"
+                @click="onDeleteDisabledRow($event, slotProps.data)"
+                title="Xóa"
+              />
+              <Button
+                v-else
+                icon="pi pi-ellipsis-v"
+                text
+                severity="secondary"
+                class="options-btn"
+                @click="onRowOptions($event, slotProps.data)"
+              />
+            </div>
           </template>
         </Column>
       </DataTable>
@@ -184,10 +220,21 @@
     <GroupedContextMenu
       ref="groupedContextMenu"
       :actionItems="selectedRow ? dropdownActionItems(selectedRow) : []"
-      :close="() => { 
-        // rowEvent.value = false 
-      }"
+      :close="
+        () => {
+          // rowEvent.value = false
+        }
+      "
     />
+
+    <!-- Custom Tooltip -->
+    <div
+      v-if="hoveredDisabledRow"
+      class="custom-tooltip"
+      :style="tooltipStyle"
+    >
+      Liên kết không khả dụng: không thể truy cập đến tệp gốc.
+    </div>
   </div>
 </template>
 
@@ -229,37 +276,42 @@ const selectedRows = ref([])
 const rowEvent = ref(null)
 const windowWidth = ref(window.innerWidth)
 const groupedContextMenu = ref(null)
+const hoveredDisabledRow = ref(null)
+const tooltipStyle = ref({})
+const tooltipOffset = 10 // Khoảng cách từ con trỏ chuột
 
 // Handle window resize
 const handleResize = () => {
   windowWidth.value = window.innerWidth
 }
 
-onMounted(() => {
-  window.addEventListener("resize", handleResize)
-})
-
-onUnmounted(() => {
-  window.removeEventListener("resize", handleResize)
-})
-
 // Check if row should be disabled
 const isRowDisabled = (row) => {
-  return row.is_shortcut && !row.is_active
+  return row.is_shortcut && row.is_active !== 1
 }
 
 // Row class function for styling
 const rowClass = (data) => {
   if (isRowDisabled(data)) return "disabled-row-bg"
-  if (highlightedRow.value === data.id) return "highlighted-row"
+  if (highlightedRow.value === data.uniqueKey) {
+    console.log('Highlighting row:', data.uniqueKey, data.name) // Debug log
+    return "highlighted-row"
+  }
   return ""
 }
 
 // Handle delete for disabled rows
 const onDeleteDisabledRow = (event, row) => {
+  if(route.name !== 'Trash'){
+    store.commit("setActiveEntity", row)
+    emitter.emit("remove")
+    event.stopPropagation()
+    return
+  }
+  
   store.commit("setActiveEntity", row)
-  emitter.emit("remove")
-  event.stopPropagation()
+    emitter.emit("d")
+    event.stopPropagation()
 }
 
 function onThumbnailError(event, row) {
@@ -282,21 +334,31 @@ const formattedRows = computed(() => {
 
 // Data display methods
 const getDisplayName = (row) => {
-  if (row.is_shortcut){
-    if (row.shortcut_title?.lastIndexOf(".") === -1 || row.is_group || row.document) {
-    return row.shortcut_title
+  if (row.is_shortcut) {
+    if (
+      row.shortcut_title?.lastIndexOf(".") === -1 ||
+      row.is_group ||
+      row.document
+    ) {
+      return row.shortcut_title
     }
-    return row.shortcut_title?.slice(0, row.shortcut_title.lastIndexOf(".")) + row.shortcut_title?.slice(row.shortcut_title.lastIndexOf("."))
-  }else{
+    return (
+      row.shortcut_title?.slice(0, row.shortcut_title.lastIndexOf(".")) +
+      row.shortcut_title?.slice(row.shortcut_title.lastIndexOf("."))
+    )
+  } else {
     if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
       return row.title
     }
-    return row.title.slice(0, row.title.lastIndexOf("."))  + row.title?.slice(row.title.lastIndexOf("."))
+    return (
+      row.title.slice(0, row.title.lastIndexOf(".")) +
+      row.title?.slice(row.title.lastIndexOf("."))
+    )
   }
 }
 
 const getOwnerLabel = (row) => {
-  return (row.owner) === store.state.user.id
+  return row.owner === store.state.user.id
     ? __("Bạn")
     : props.userData[row.owner]?.full_name || row.owner
 }
@@ -327,19 +389,87 @@ const getSizeText = (row) => {
 }
 
 // Event handlers
+const onCellMouseEnter = (event, row) => {
+  if (isRowDisabled(row)) {
+    hoveredDisabledRow.value = row
+    updateTooltipPosition(event)
+  }
+}
+
+const onCellMouseMove = (event) => {
+  if (hoveredDisabledRow.value) {
+    updateTooltipPosition(event)
+  }
+}
+
+const onCellMouseLeave = () => {
+  hoveredDisabledRow.value = null
+}
+
+const onRowMouseEnter = (event) => {
+  const row = event.data
+  if (isRowDisabled(row)) {
+    hoveredDisabledRow.value = row
+    updateTooltipPosition(event.originalEvent)
+  }
+}
+
+const onRowMouseLeave = () => {
+  hoveredDisabledRow.value = null
+}
+
+const updateTooltipPosition = (mouseEvent) => {
+  const x = mouseEvent.clientX
+  const y = mouseEvent.clientY
+
+  tooltipStyle.value = {
+    left: `${x + tooltipOffset}px`,
+    top: `${y + tooltipOffset}px`,
+  }
+}
+
+// Theo dõi chuyển động chuột để cập nhật vị trí tooltip
+const handleMouseMove = (event) => {
+  if (hoveredDisabledRow.value) {
+    updateTooltipPosition(event)
+  }
+}
+
+// Thêm listener để bỏ highlight khi click bên ngoài
+const handleClickOutside = (event) => {
+  if (highlightedRow.value && groupedContextMenu.value) {
+    const menuElement = groupedContextMenu.value.$el
+    if (menuElement && !menuElement.contains(event.target)) {
+      highlightedRow.value = null
+    }
+  }
+}
+
+onMounted(() => {
+  window.addEventListener("resize", handleResize)
+  window.addEventListener("mousemove", handleMouseMove)
+  document.addEventListener("click", handleClickOutside)
+})
+
+onUnmounted(() => {
+  window.removeEventListener("resize", handleResize)
+  window.removeEventListener("mousemove", handleMouseMove)
+  document.removeEventListener("click", handleClickOutside)
+})
+
 const onRowContextMenu = (event, row) => {
   if (selectedRows.value.length > 0) return
   if (isRowDisabled(row)) return // Không mở context menu cho disabled rows
   if (event.ctrlKey) openEntity(route.params.team, row, true)
-  
+
   selectedRow.value = row
   rowEvent.value = event
-  
+
   // Sử dụng GroupedContextMenu show method
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
   }
-  
+
   event.stopPropagation()
   event.preventDefault()
 }
@@ -347,7 +477,7 @@ const onRowContextMenu = (event, row) => {
 const onRowClick = (event) => {
   const row = event?.data
   if (isRowDisabled(row)) return // Không mở được disabled rows
-  
+
   console.log("Row clicked:", row)
   if (row && typeof row === "object" && row.name !== undefined) {
     const team = row.team || (route.params && route.params.team) || null
@@ -359,17 +489,41 @@ const highlightedRow = ref(null)
 
 const onRowOptions = (event, row) => {
   if (isRowDisabled(row)) return
-  
+
   selectedRow.value = row
-  highlightedRow.value = row.id
-  
+  console.log('Setting highlighted row:', row.uniqueKey, row.name) // Debug log
+  highlightedRow.value = row.uniqueKey
+
   rowEvent.value = event
-  
+
   // Sử dụng GroupedContextMenu show method
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
+    
+    // Lắng nghe sự kiện đóng context menu để bỏ highlight
+    const menuElement = groupedContextMenu.value.$el
+    if (menuElement) {
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.attributeName === 'style' || mutation.attributeName === 'class') {
+            const isVisible = menuElement.style.display !== 'none' && 
+                            !menuElement.classList.contains('p-hidden')
+            if (!isVisible) {
+              console.log('Removing highlight') // Debug log
+              highlightedRow.value = null
+              observer.disconnect()
+            }
+          }
+        })
+      })
+      
+      observer.observe(menuElement, {
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      })
+    }
   }
-  
+
   event.stopPropagation()
 }
 
@@ -380,17 +534,22 @@ const getRowUniqueId = (row) => {
 
 // Computed property for formatted rows with unique dataKey
 const formattedRowsWithKeys = computed(() => {
-  return formattedRows.value.map(row => ({
+  return formattedRows.value.map((row) => ({
     ...row,
-    uniqueKey: getRowUniqueId(row)
+    uniqueKey: getRowUniqueId(row),
   }))
 })
 
 // Updated watch function
 watch(selectedRows, (newSelections) => {
   const selectionSet = new Set(newSelections.map((row) => getRowUniqueId(row)))
-  console.log("Selection set:", selectionSet, "Selected rows:", selectedRows.value)
-  
+  console.log(
+    "Selection set:",
+    selectionSet,
+    "Selected rows:",
+    selectedRows.value
+  )
+
   selections.value = selectionSet
   if (newSelections.length === 0) {
     selectedRow.value = null
@@ -404,35 +563,35 @@ watch(selectedRow, (k) => {
 
 const dropdownActionItems = (row) => {
   if (!row) return []
-  
+
   // Giữ nguyên action function từ GenericPage
   const actionItems = props.actionItems
     .filter((a) => !a.isEnabled || a.isEnabled(row))
     .map((a) => {
       let isLoading = false
-      if (a.label === 'Tạo lối tắt'){
+      if (a.label === "Tạo lối tắt") {
         isLoading = createShortcutResource?.loading || false
       }
-      if (a.label === 'Bỏ lối tắt'){
+      if (a.label === "Bỏ lối tắt") {
         isLoading = removeShortcutResource?.loading || false
       }
-      
+
       return {
         ...a,
         originalAction: a.action,
         action: (entities) => {
-          if (!['Tạo lối tắt', 'Bỏ lối tắt'].includes(a.label)){
+          if (!["Tạo lối tắt", "Bỏ lối tắt"].includes(a.label)) {
             rowEvent.value = false
           }
           store.commit("setActiveEntity", row)
-          if (typeof a.action === 'function') {
+          if (typeof a.action === "function") {
             a.action(entities || [row])
           }
         },
-        loading: isLoading
+        loading: isLoading,
       }
     })
-  
+
   return actionItems
 }
 
@@ -499,10 +658,17 @@ onKeyDown("Escape", (e) => {
   e.preventDefault()
 })
 </script>
+
 <style scoped>
+/* Highlighted Row - cần có độ ưu tiên cao hơn */
 :deep(.highlighted-row) {
-  /* background-color: #e0f2fe !important; xanh nhạt */
+  background-color: #e0f2fe !important;
 }
+
+:deep(.highlighted-row > td) {
+  background-color: #e0f2fe !important;
+}
+
 :deep(.p-datatable-header-cell:first-child > div) {
   @apply justify-center;
 }
@@ -540,7 +706,7 @@ onKeyDown("Escape", (e) => {
 /* Table Cell Styling */
 .name-cell {
   @apply flex items-center gap-3 min-w-0 w-full;
-  max-width: 420px;
+  /* max-width: 420px; */
 }
 
 .file-icon {
@@ -714,5 +880,35 @@ onKeyDown("Escape", (e) => {
 
 .shortcut-badge i {
   font-size: 8px;
+}
+
+/* Custom Tooltip */
+.custom-tooltip {
+  position: fixed;
+  background-color: white;
+  color: black;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  max-width: 300px;
+  word-wrap: break-word;
+}
+
+.row-hover-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  pointer-events: all;
+}
+
+:deep(.p-datatable-tbody > tr > td:first-child) {
+  position: relative;
 }
 </style>
