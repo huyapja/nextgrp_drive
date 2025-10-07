@@ -4,16 +4,30 @@
     :model="groupedMenuItems"
     :pt="{
       root: {
-        class: '!min-w-[220px] !rounded-lg !shadow-lg !border !border-[#E5E5E5] bg-white !text-[14px] !text-semibold'
+        class: '!min-w-[230px] !rounded-lg !shadow-lg !border !border-[#E5E5E5] bg-white !text-[14px] !text-semibold !gap-0'
       },
       menu: {
-        class: '!py-1 !px-2 '
+        class: '!py-1 !px-2 !min-w-[220px]'
       },
       submenu: {
-        class: '!right-full ml-2 !rounded-lg !text-[14px] !text-semibold'
+        class: '!right-full !rounded-lg !text-[14px] !text-semibold !min-w-[220px]'
       }
     }"
-  />
+  >
+    <template #item="{ item, props }">
+      <a v-ripple class="flex align-items-center" v-bind="props.action">
+        <component 
+          v-if="item.iconComponent" 
+          :is="item.iconComponent" 
+          class="w-4 h-4 menu-icon-svg"
+          :class="item.class"
+        />
+        <i v-else-if="item.icon" :class="item.icon"></i>
+        <span class="ml-1">{{ item.label }}</span>
+        <i v-if="item.items" class="pi pi-angle-left ml-auto"></i>
+      </a>
+    </template>
+  </ContextMenu>
 </template>
 
 <script setup>
@@ -109,7 +123,8 @@ const groupedMenuItems = computed(() => {
   if (shareItems.length > 0) {
     const shareSubItems = shareItems.map(item => ({
       label: item.label,
-      icon: item.icon,
+      icon: typeof item.icon === 'string' ? item.icon : null,
+      iconComponent: typeof item.icon !== 'string' ? item.icon : null,
       command: () => {
         item.action([store.state.activeEntity])
         closeMenu()
@@ -138,7 +153,8 @@ const groupedMenuItems = computed(() => {
   if (organizeItems.length > 0) {
     const organizeSubItems = organizeItems.map(item => ({
       label: item.label,
-      icon: item.icon,
+      icon: typeof item.icon === 'string' ? item.icon : null,
+      iconComponent: typeof item.icon !== 'string' ? item.icon : null,
       class: item.class,
       command: () => {
         item.action([store.state.activeEntity])
@@ -183,7 +199,8 @@ const groupedMenuItems = computed(() => {
   if (infoItems.length > 0) {
     const infoSubItems = infoItems.map(item => ({
       label: item.label,
-      icon: item.icon,
+      icon: typeof item.icon === 'string' ? item.icon : null,
+      iconComponent: typeof item.icon !== 'string' ? item.icon : null,
       command: () => {
         item.action([store.state.activeEntity])
         closeMenu()
@@ -208,7 +225,8 @@ const groupedMenuItems = computed(() => {
     if (deleteItems.length > 1) {
       const deleteSubItems = deleteItems.map(item => ({
         label: item.label,
-        icon: item.icon,
+        icon: typeof item.icon === 'string' ? item.icon : null,
+        iconComponent: typeof item.icon !== 'string' ? item.icon : null,
         command: () => {
           item.action([store.state.activeEntity])
           closeMenu()
@@ -385,7 +403,8 @@ defineExpose({
   border-bottom: none;
 }
 
-:deep(.p-contextmenu .p-submenu-list .p-menuitem-link) {
+:deep(.p-contextmenu .p-submenu-list .p-menuitem-link),
+:deep(.p-contextmenu .p-submenu-list a) {
   padding: 10px 16px;
   border-left: none;
   background-color: white;
@@ -402,15 +421,22 @@ defineExpose({
   font-size: 13.5px !important;
 }
 
-:deep(.p-contextmenu .p-submenu-list .p-menuitem-link:hover) {
+:deep(.p-contextmenu .p-submenu-list .p-menuitem-link:hover),
+:deep(.p-contextmenu .p-submenu-list a:hover) {
   background-color: #f9fafb;
   color: #111827;
   transform: translateX(-2px);
 }
 
-:deep(.p-contextmenu .p-submenu-list .p-menuitem-link .p-menuitem-icon) {
+/* Icon styling for submenu items */
+:deep(.p-contextmenu .p-submenu-list .p-menuitem-link .p-menuitem-icon),
+:deep(.p-contextmenu .p-submenu-list a .p-menuitem-icon),
+:deep(.p-contextmenu .p-submenu-list a i) {
   font-size: 14px;
   margin-right: 10px;
+  opacity: 0.8;
+  display: flex;
+  align-items: center;
 }
 
 /* Arrow icon for submenu */
@@ -438,13 +464,31 @@ defineExpose({
   font-weight: 500 !important;
 }
 
-:deep(.p-contextmenu .p-submenu-list .p-menuitem-link span) {
+:deep(.p-contextmenu .p-submenu-list .p-menuitem-link span),
+:deep(.p-contextmenu .p-submenu-list a span) {
   font-size: 13.5px !important;
   font-weight: 400 !important;
 }
 
-/* Override PrimeVue default font size */
-:deep(.p-contextmenu *) {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif !important;
+.menu-icon-svg,
+.menu-icon-svg svg {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
+  flex-shrink: 0;
+}
+
+:deep(.menu-icon-svg),
+:deep(.menu-icon-svg svg) {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+  max-width: 16px !important;
+  max-height: 16px !important;
+  flex-shrink: 0;
 }
 </style>

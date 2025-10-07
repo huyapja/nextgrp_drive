@@ -99,6 +99,7 @@ def files(
         .select(
             *ENTITY_FIELDS,
             DriveFile.modified,
+            DriveFile.is_active,
             fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
             fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_("comment"),
             fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
@@ -521,6 +522,7 @@ def files_multi_team(
                         fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
                         fn.Coalesce(DrivePermission.write, user_access["write"]).as_("write"),
                         DriveFile.team,
+                        DriveFile.is_active,
                     )
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
@@ -545,6 +547,7 @@ def files_multi_team(
                         DriveShortcut.name.as_("shortcut_name"),
                         DriveShortcut.title.as_("shortcut_title"),
                         DriveShortcut.parent_folder.as_("parent_entity"),
+                        DriveFile.is_active,
                         fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
                         fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
                             "comment"

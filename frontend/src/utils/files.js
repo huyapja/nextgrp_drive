@@ -17,7 +17,8 @@ import PDF from "@/components/MimeIcons/PDF.vue"
 import Presentation from "@/components/MimeIcons/Presentation.vue"
 import Spreadsheet from "@/components/MimeIcons/Spreadsheet.vue"
 import Video from "@/components/MimeIcons/Video.vue"
-import { createResource, toast } from "frappe-ui"
+import { toast } from "@/utils/toasts"
+import { createResource } from "frappe-ui"
 import { getPersonal } from "../resources/files"
 
 export const openEntity = (team = null, entity, new_tab = false) => {
@@ -344,8 +345,8 @@ export const createShortcutResource = createResource({
     url: 'run_doc_method',
     auto: false,
     onSuccess: (data) => {
+      toast('Tạo lối tắt thành công')
       getPersonal.reload()
-      toast('Tạo shortcut thành công')
     },
     onError: (err) => {
       toast(err.message || 'Có lỗi xảy ra khi tạo shortcut')

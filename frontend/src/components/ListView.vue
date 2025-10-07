@@ -15,6 +15,7 @@
         dataKey="uniqueKey"
         @row-contextmenu="onRowContextMenu"
         @row-click="onRowClick"
+        :rowClass="rowClass"
 >
         <!-- Selection Column -->
         <Column
@@ -30,7 +31,11 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="name-cell">
+            <div 
+              class="name-cell" 
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              v-tooltip.top="isRowDisabled(slotProps.data) ? 'Liên kết không khả dụng: không thể truy cập đến tệp gốc.' : null"
+            >
               
               <div class="file-container">
                 <img
@@ -58,6 +63,9 @@
               <span class="file-name">{{
                 getDisplayName(slotProps.data)
               }}</span>
+              <!-- <span v-if="isRowDisabled(slotProps.data)" class="disabled-badge">
+                (Đã bị xóa)
+              </span> -->
             </div>
           </template>
         </Column>
@@ -69,7 +77,7 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="owner-cell">
+            <div class="owner-cell" :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">
               <CustomAvatar
                 :image="userData[slotProps.data.owner]?.user_image"
                 :label="userData[slotProps.data.owner]?.full_name.slice(0, 1)"
@@ -92,7 +100,7 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="owner-cell">
+            <div class="owner-cell" :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">
               <span class="owner-name">{{ slotProps.data.team_name }}</span>
             </div>
           </template>
@@ -105,7 +113,7 @@
           sortable
         >
           <template #body="slotProps">
-            <span>{{ slotProps.data.days_remaining }}</span>
+            <span :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">{{ slotProps.data.days_remaining }}</span>
           </template>
         </Column>
         <!-- Shared Column -->
@@ -115,7 +123,7 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="shared-cell">
+            <div class="shared-cell" :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">
               <i
                 :class="getShareIcon(slotProps.data.share_count)"
                 class="share-icon"
@@ -132,7 +140,7 @@
           sortable
         >
           <template #body="slotProps">
-            <span>{{ useTimeAgoVi(slotProps.data.accessed) }}</span>
+            <span :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">{{ useTimeAgoVi(slotProps.data.accessed) }}</span>
           </template>
         </Column>
 
@@ -143,7 +151,7 @@
           sortable
         >
           <template #body="slotProps">
-            <span>{{ getSizeText(slotProps.data) }}</span>
+            <span :class="{ 'disabled-row': isRowDisabled(slotProps.data) }">{{ getSizeText(slotProps.data) }}</span>
           </template>
         </Column>
 
@@ -151,6 +159,16 @@
         <Column bodyStyle="width: 2rem; text-align: center;">
           <template #body="slotProps">
             <Button
+              v-if="isRowDisabled(slotProps.data)"
+              icon="pi pi-trash"
+              text
+              severity="danger"
+              class="options-btn"
+              @click="onDeleteDisabledRow($event, slotProps.data)"
+              title="Xóa"
+            />
+            <Button
+              v-else
               icon="pi pi-ellipsis-v"
               text
               severity="secondary"
@@ -163,7 +181,6 @@
     </div>
 
     <!-- Grouped Context Menu -->
-    <!-- v-if="selectedRow && rowEvent" -->
     <GroupedContextMenu
       ref="groupedContextMenu"
       :actionItems="selectedRow ? dropdownActionItems(selectedRow) : []"
@@ -179,6 +196,7 @@ import DataTable from "primevue/datatable"
 import Column from "primevue/column"
 import Button from "primevue/button"
 import Avatar from "primevue/avatar"
+import Tooltip from "primevue/tooltip"
 import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { useStore } from "vuex"
 import { useRoute, useRouter } from "vue-router"
@@ -193,6 +211,8 @@ import CustomAvatar from "./CustomAvatar.vue"
 import ShortCutIconFile from "@/assets/Icons/ShortCutIconFile.vue"
 import { createShortcutResource, removeShortcutResource } from "../utils/files"
 
+// Directives
+const vTooltip = Tooltip
 
 const store = useStore()
 const route = useRoute()
@@ -222,6 +242,25 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("resize", handleResize)
 })
+
+// Check if row should be disabled
+const isRowDisabled = (row) => {
+  return row.is_shortcut && !row.is_active
+}
+
+// Row class function for styling
+const rowClass = (data) => {
+  if (isRowDisabled(data)) return "disabled-row-bg"
+  if (highlightedRow.value === data.id) return "highlighted-row"
+  return ""
+}
+
+// Handle delete for disabled rows
+const onDeleteDisabledRow = (event, row) => {
+  store.commit("setActiveEntity", row)
+  emitter.emit("remove")
+  event.stopPropagation()
+}
 
 function onThumbnailError(event, row) {
   // Fallback về icon mặc định nếu thumbnail lỗi
@@ -290,6 +329,7 @@ const getSizeText = (row) => {
 // Event handlers
 const onRowContextMenu = (event, row) => {
   if (selectedRows.value.length > 0) return
+  if (isRowDisabled(row)) return // Không mở context menu cho disabled rows
   if (event.ctrlKey) openEntity(route.params.team, row, true)
   
   selectedRow.value = row
@@ -306,16 +346,23 @@ const onRowContextMenu = (event, row) => {
 
 const onRowClick = (event) => {
   const row = event?.data
+  if (isRowDisabled(row)) return // Không mở được disabled rows
+  
   console.log("Row clicked:", row)
   if (row && typeof row === "object" && row.name !== undefined) {
-    // Truyền đúng tham số team nếu có
     const team = row.team || (route.params && route.params.team) || null
     openEntity(team, row)
   }
 }
 
+const highlightedRow = ref(null)
+
 const onRowOptions = (event, row) => {
+  if (isRowDisabled(row)) return
+  
   selectedRow.value = row
+  highlightedRow.value = row.id
+  
   rowEvent.value = event
   
   // Sử dụng GroupedContextMenu show method
@@ -328,8 +375,6 @@ const onRowOptions = (event, row) => {
 
 // Watch for selection changes
 const getRowUniqueId = (row) => {
-  // If it's a shortcut, use shortcut_name (shortcut ID)
-  // Otherwise, use name (original file ID)
   return row.is_shortcut ? row.shortcut_name : row.name
 }
 
@@ -343,7 +388,6 @@ const formattedRowsWithKeys = computed(() => {
 
 // Updated watch function
 watch(selectedRows, (newSelections) => {
-  // Use the unique identifier for each row type
   const selectionSet = new Set(newSelections.map((row) => getRowUniqueId(row)))
   console.log("Selection set:", selectionSet, "Selected rows:", selectedRows.value)
   
@@ -375,15 +419,12 @@ const dropdownActionItems = (row) => {
       
       return {
         ...a,
-        // Giữ nguyên action function gốc
         originalAction: a.action,
-        // Thêm wrapper để handle việc đóng context menu và set active entity
         action: (entities) => {
           if (!['Tạo lối tắt', 'Bỏ lối tắt'].includes(a.label)){
             rowEvent.value = false
           }
           store.commit("setActiveEntity", row)
-          // Gọi action gốc
           if (typeof a.action === 'function') {
             a.action(entities || [row])
           }
@@ -398,9 +439,8 @@ const dropdownActionItems = (row) => {
 watch(
   () => createShortcutResource.loading,
   (newLoading, oldLoading) => {
-    // Khi loading chuyển từ true sang false (hoàn thành)
     if (oldLoading === true && newLoading === false) {
-      rowEvent.value = false // Đóng context menu
+      rowEvent.value = false
     }
   }
 )
@@ -408,9 +448,8 @@ watch(
 watch(
   () => removeShortcutResource.loading,
   (newLoading, oldLoading) => {
-    // Khi loading chuyển từ true sang false (hoàn thành)
     if (oldLoading === true && newLoading === false) {
-      rowEvent.value = false // Đóng context menu
+      rowEvent.value = false
     }
   }
 )
@@ -461,6 +500,9 @@ onKeyDown("Escape", (e) => {
 })
 </script>
 <style scoped>
+:deep(.highlighted-row) {
+  /* background-color: #e0f2fe !important; xanh nhạt */
+}
 :deep(.p-datatable-header-cell:first-child > div) {
   @apply justify-center;
 }
@@ -472,12 +514,27 @@ onKeyDown("Escape", (e) => {
 /* Table Container */
 .table-container {
   @apply flex-1 overflow-x-auto overflow-y-hidden;
-  /* Cho phép cuộn ngang khi bảng quá rộng */
 }
 
 .file-table {
   @apply h-full min-w-[600px];
-  /* Đảm bảo bảng không bị bóp nhỏ quá */
+}
+
+/* Disabled Row Styles */
+.disabled-row {
+  @apply opacity-50 text-gray-400;
+}
+
+:deep(.disabled-row-bg) {
+  @apply bg-gray-50 cursor-not-allowed;
+}
+
+:deep(.disabled-row-bg:hover) {
+  @apply bg-gray-50 !important;
+}
+
+.disabled-badge {
+  @apply text-xs text-red-500 ml-2 font-normal;
 }
 
 /* Table Cell Styling */
@@ -561,22 +618,20 @@ onKeyDown("Escape", (e) => {
 }
 
 @media (max-width: 1280px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-thead > tr > th:nth-child(3)),
   :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
 }
 
-/* Responsive Design */
-/* Responsive: Ẩn các cột phụ trên tablet/mobile */
 @media (max-width: 1024px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(4)), /* Shared */
+  :deep(.p-datatable-thead > tr > th:nth-child(4)),
   :deep(.p-datatable-tbody > tr > td:nth-child(4)),
-  :deep(.p-datatable-thead > tr > th:nth-child(6)), /* Size */
+  :deep(.p-datatable-thead > tr > th:nth-child(6)),
   :deep(.p-datatable-tbody > tr > td:nth-child(6)),
-  :deep(.p-datatable-thead > tr > th:nth-child(5)), /* Last Modified */
+  :deep(.p-datatable-thead > tr > th:nth-child(5)),
   :deep(.p-datatable-tbody > tr > td:nth-child(5)),
-  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-thead > tr > th:nth-child(3)),
   :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
@@ -608,7 +663,7 @@ onKeyDown("Escape", (e) => {
   .file-icon {
     @apply w-[16px] h-[16px];
   }
-  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-thead > tr > th:nth-child(3)),
   :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
@@ -634,12 +689,10 @@ onKeyDown("Escape", (e) => {
   }
 }
 
-/* Loading State */
 :deep(.p-datatable-loading-overlay) {
   @apply bg-white bg-opacity-75;
 }
 
-/* Empty State */
 :deep(.p-datatable-emptymessage) {
   @apply text-center py-8 text-gray-500;
 }
@@ -653,7 +706,7 @@ onKeyDown("Escape", (e) => {
   position: absolute;
   bottom: 0;
   right: 0;
-  color: #007bff; /* hoặc màu bạn muốn */
+  color: #007bff;
   background-color: white;
   border-radius: 8px;
   padding: 1px;
