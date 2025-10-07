@@ -30,12 +30,11 @@
 </template>
 <script>
 import emitter from "@/emitter"
-import { getTrash, mutate } from "@/resources/files.js"
+import { getTrash } from "@/resources/files.js"
 import { sortEntities } from "@/utils/files.js"
-import { toast } from "@/utils/toasts.js"
 import { useTimeAgo } from "@vueuse/core"
 import { Dialog, ErrorMessage } from "frappe-ui"
-import { del } from "idb-keyval"
+import { toast } from "../utils/toasts"
 
 export default {
   name: "GeneralDialog",
@@ -83,13 +82,14 @@ export default {
           buttonMessage: __("Restore"),
           onSuccess: () => {
             getTrash.setData((d) =>
-              d.filter((k) => !this.entities.map((l) => l.name || l.entity_shortcut).includes(k.name || k.entity_shortcut))
+              d.filter((k) => !this.entities.map((l) => l.shortcut_name || l.name  ).includes(k.shortcut_name || k.name))
             )
+            getTrash.reload()
           },
           variant: "solid",
           buttonIcon: "refresh-ccw",
           methodName: "drive.api.files.remove_or_restore",
-          toastMessage: __("Restored {0}").format(items),
+          toastMessage: __("Khôi phục {0} tài liệu thành công").format(items),
           files: files,
           shortcuts: shortcuts,
         }
@@ -139,7 +139,8 @@ resources: {
     return {
       url: this.dialogData.methodName,
       makeParams: () => {
-        this.$emit("success")
+        // Xóa dòng này
+        // this.$emit("success")
         
         const files = this.dialogData.files || []
         const shortcuts = this.dialogData.shortcuts || []
@@ -160,25 +161,21 @@ resources: {
           params.entity_shortcuts = JSON.stringify(
             shortcuts.map((entity) => entity.shortcut_name)
           )
-          
         }
-        console.log("mmmmmmmmm", shortcuts.map((entity) => entity.shortcut_name));
-        
         return params
       },
       onSuccess(data) {
         this.$emit("success", data)
         emitter.emit("recalculate")
         this.$resources.method.reset()
-        
         // Delete from cache
-        this.entities.map((entity) => del(entity.name || entity.entity_shortcut))
+        // this.entities.map((entity) => del(entity.name || entity.entity_shortcut))
         
         if (this.dialogData.mutate)
           mutate(this.entities, this.dialogData.mutate)
         if (this.dialogData.onSuccess)
-          this.dialogData.onSuccess(this.entities, data)
-        
+        this.dialogData.onSuccess(this.entities, data)
+    
         toast({
           title: this.dialogData.toastMessage,
           position: "bottom-right",

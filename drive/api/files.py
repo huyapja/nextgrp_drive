@@ -983,6 +983,8 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
     if team:
         storage_data = storage_bar_data(team)
 
+    success_files = []  # Danh sách file xóa thành công
+    failed_files = []  # Danh sách file không có quyền
     # Process files
     if entity_names:
         if isinstance(entity_names, str):
@@ -1030,8 +1032,6 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
             )
             doc.save()
 
-        success_files = []  # Danh sách file xóa thành công
-        failed_files = []  # Danh sách file không có quyền
         for entity in entity_names:
             try:
                 doc = frappe.get_doc("Drive File", entity)

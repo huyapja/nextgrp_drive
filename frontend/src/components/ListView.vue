@@ -15,7 +15,8 @@
         dataKey="uniqueKey"
         @row-contextmenu="onRowContextMenu"
         @row-click="onRowClick"
->
+        :rowClass="rowClass"
+      >
         <!-- Selection Column -->
         <Column
           selectionMode="multiple"
@@ -30,8 +31,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="name-cell">
-              
+            <div
+              class="name-cell"
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+            >
               <div class="file-container">
                 <img
                   :src="
@@ -69,7 +75,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="owner-cell">
+            <div
+              class="owner-cell"
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+            >
               <CustomAvatar
                 :image="userData[slotProps.data.owner]?.user_image"
                 :label="userData[slotProps.data.owner]?.full_name.slice(0, 1)"
@@ -92,7 +104,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="owner-cell">
+            <div
+              class="owner-cell"
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+            >
               <span class="owner-name">{{ slotProps.data.team_name }}</span>
             </div>
           </template>
@@ -105,7 +123,13 @@
           sortable
         >
           <template #body="slotProps">
-            <span>{{ slotProps.data.days_remaining }}</span>
+            <span
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+              >{{ slotProps.data.days_remaining }}</span
+            >
           </template>
         </Column>
         <!-- Shared Column -->
@@ -115,7 +139,13 @@
           sortable
         >
           <template #body="slotProps">
-            <div class="shared-cell">
+            <div
+              class="shared-cell"
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+            >
               <i
                 :class="getShareIcon(slotProps.data.share_count)"
                 class="share-icon"
@@ -132,7 +162,13 @@
           sortable
         >
           <template #body="slotProps">
-            <span>{{ useTimeAgoVi(slotProps.data.accessed) }}</span>
+            <span
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+              >{{ useTimeAgoVi(slotProps.data.accessed) }}</span
+            >
           </template>
         </Column>
 
@@ -143,34 +179,62 @@
           sortable
         >
           <template #body="slotProps">
-            <span>{{ getSizeText(slotProps.data) }}</span>
+            <span
+              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              @mouseenter="onCellMouseEnter($event, slotProps.data)"
+              @mousemove="onCellMouseMove"
+              @mouseleave="onCellMouseLeave"
+              >{{ getSizeText(slotProps.data) }}</span
+            >
           </template>
         </Column>
 
         <!-- Options Column -->
         <Column bodyStyle="width: 2rem; text-align: center;">
           <template #body="slotProps">
-            <Button
-              icon="pi pi-ellipsis-v"
-              text
-              severity="secondary"
-              class="options-btn"
-              @click="onRowOptions($event, slotProps.data)"
-            />
+            <div>
+              <Button
+                v-if="isRowDisabled(slotProps.data)"
+                icon="pi pi-trash"
+                text
+                severity="danger"
+                class="options-btn"
+                @click="onDeleteDisabledRow($event, slotProps.data)"
+                title="Xóa"
+              />
+              <Button
+                v-else
+                icon="pi pi-ellipsis-v"
+                text
+                severity="secondary"
+                class="options-btn"
+                @click="onRowOptions($event, slotProps.data)"
+              />
+            </div>
           </template>
         </Column>
       </DataTable>
     </div>
 
     <!-- Grouped Context Menu -->
-    <!-- v-if="selectedRow && rowEvent" -->
     <GroupedContextMenu
       ref="groupedContextMenu"
       :actionItems="selectedRow ? dropdownActionItems(selectedRow) : []"
-      :close="() => { 
-        // rowEvent.value = false 
-      }"
+      :close="
+        () => {
+          // rowEvent.value = false
+        }
+      "
     />
+
+    <!-- Custom Tooltip -->
+    <div
+      v-if="hoveredDisabledRow"
+      class="custom-tooltip"
+      :style="tooltipStyle"
+    >
+      Liên kết không khả dụng: không thể truy cập đến tệp gốc.
+    </div>
   </div>
 </template>
 
@@ -179,6 +243,7 @@ import DataTable from "primevue/datatable"
 import Column from "primevue/column"
 import Button from "primevue/button"
 import Avatar from "primevue/avatar"
+import Tooltip from "primevue/tooltip"
 import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { useStore } from "vuex"
 import { useRoute, useRouter } from "vue-router"
@@ -193,6 +258,8 @@ import CustomAvatar from "./CustomAvatar.vue"
 import ShortCutIconFile from "@/assets/Icons/ShortCutIconFile.vue"
 import { createShortcutResource, removeShortcutResource } from "../utils/files"
 
+// Directives
+const vTooltip = Tooltip
 
 const store = useStore()
 const route = useRoute()
@@ -209,19 +276,43 @@ const selectedRows = ref([])
 const rowEvent = ref(null)
 const windowWidth = ref(window.innerWidth)
 const groupedContextMenu = ref(null)
+const hoveredDisabledRow = ref(null)
+const tooltipStyle = ref({})
+const tooltipOffset = 10 // Khoảng cách từ con trỏ chuột
 
 // Handle window resize
 const handleResize = () => {
   windowWidth.value = window.innerWidth
 }
 
-onMounted(() => {
-  window.addEventListener("resize", handleResize)
-})
+// Check if row should be disabled
+const isRowDisabled = (row) => {
+  return row.is_shortcut && row.is_active !== 1
+}
 
-onUnmounted(() => {
-  window.removeEventListener("resize", handleResize)
-})
+// Row class function for styling
+const rowClass = (data) => {
+  if (isRowDisabled(data)) return "disabled-row-bg"
+  if (highlightedRow.value === data.uniqueKey) {
+    console.log('Highlighting row:', data.uniqueKey, data.name) // Debug log
+    return "highlighted-row"
+  }
+  return ""
+}
+
+// Handle delete for disabled rows
+const onDeleteDisabledRow = (event, row) => {
+  if(route.name !== 'Trash'){
+    store.commit("setActiveEntity", row)
+    emitter.emit("remove")
+    event.stopPropagation()
+    return
+  }
+  
+  store.commit("setActiveEntity", row)
+    emitter.emit("d")
+    event.stopPropagation()
+}
 
 function onThumbnailError(event, row) {
   // Fallback về icon mặc định nếu thumbnail lỗi
@@ -243,21 +334,31 @@ const formattedRows = computed(() => {
 
 // Data display methods
 const getDisplayName = (row) => {
-  if (row.is_shortcut){
-    if (row.shortcut_title?.lastIndexOf(".") === -1 || row.is_group || row.document) {
-    return row.shortcut_title
+  if (row.is_shortcut) {
+    if (
+      row.shortcut_title?.lastIndexOf(".") === -1 ||
+      row.is_group ||
+      row.document
+    ) {
+      return row.shortcut_title
     }
-    return row.shortcut_title?.slice(0, row.shortcut_title.lastIndexOf(".")) + row.shortcut_title?.slice(row.shortcut_title.lastIndexOf("."))
-  }else{
+    return (
+      row.shortcut_title?.slice(0, row.shortcut_title.lastIndexOf(".")) +
+      row.shortcut_title?.slice(row.shortcut_title.lastIndexOf("."))
+    )
+  } else {
     if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
       return row.title
     }
-    return row.title.slice(0, row.title.lastIndexOf("."))  + row.title?.slice(row.title.lastIndexOf("."))
+    return (
+      row.title.slice(0, row.title.lastIndexOf(".")) +
+      row.title?.slice(row.title.lastIndexOf("."))
+    )
   }
 }
 
 const getOwnerLabel = (row) => {
-  return (row.owner) === store.state.user.id
+  return row.owner === store.state.user.id
     ? __("Bạn")
     : props.userData[row.owner]?.full_name || row.owner
 }
@@ -288,65 +389,167 @@ const getSizeText = (row) => {
 }
 
 // Event handlers
+const onCellMouseEnter = (event, row) => {
+  if (isRowDisabled(row)) {
+    hoveredDisabledRow.value = row
+    updateTooltipPosition(event)
+  }
+}
+
+const onCellMouseMove = (event) => {
+  if (hoveredDisabledRow.value) {
+    updateTooltipPosition(event)
+  }
+}
+
+const onCellMouseLeave = () => {
+  hoveredDisabledRow.value = null
+}
+
+const onRowMouseEnter = (event) => {
+  const row = event.data
+  if (isRowDisabled(row)) {
+    hoveredDisabledRow.value = row
+    updateTooltipPosition(event.originalEvent)
+  }
+}
+
+const onRowMouseLeave = () => {
+  hoveredDisabledRow.value = null
+}
+
+const updateTooltipPosition = (mouseEvent) => {
+  const x = mouseEvent.clientX
+  const y = mouseEvent.clientY
+
+  tooltipStyle.value = {
+    left: `${x + tooltipOffset}px`,
+    top: `${y + tooltipOffset}px`,
+  }
+}
+
+// Theo dõi chuyển động chuột để cập nhật vị trí tooltip
+const handleMouseMove = (event) => {
+  if (hoveredDisabledRow.value) {
+    updateTooltipPosition(event)
+  }
+}
+
+// Thêm listener để bỏ highlight khi click bên ngoài
+const handleClickOutside = (event) => {
+  if (highlightedRow.value && groupedContextMenu.value) {
+    const menuElement = groupedContextMenu.value.$el
+    if (menuElement && !menuElement.contains(event.target)) {
+      highlightedRow.value = null
+    }
+  }
+}
+
+onMounted(() => {
+  window.addEventListener("resize", handleResize)
+  window.addEventListener("mousemove", handleMouseMove)
+  document.addEventListener("click", handleClickOutside)
+})
+
+onUnmounted(() => {
+  window.removeEventListener("resize", handleResize)
+  window.removeEventListener("mousemove", handleMouseMove)
+  document.removeEventListener("click", handleClickOutside)
+})
+
 const onRowContextMenu = (event, row) => {
   if (selectedRows.value.length > 0) return
+  if (isRowDisabled(row)) return // Không mở context menu cho disabled rows
   if (event.ctrlKey) openEntity(route.params.team, row, true)
-  
+
   selectedRow.value = row
   rowEvent.value = event
-  
+
   // Sử dụng GroupedContextMenu show method
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
   }
-  
+
   event.stopPropagation()
   event.preventDefault()
 }
 
 const onRowClick = (event) => {
   const row = event?.data
+  if (isRowDisabled(row)) return // Không mở được disabled rows
+
   console.log("Row clicked:", row)
   if (row && typeof row === "object" && row.name !== undefined) {
-    // Truyền đúng tham số team nếu có
     const team = row.team || (route.params && route.params.team) || null
     openEntity(team, row)
   }
 }
 
+const highlightedRow = ref(null)
+
 const onRowOptions = (event, row) => {
+  if (isRowDisabled(row)) return
+
   selectedRow.value = row
+  console.log('Setting highlighted row:', row.uniqueKey, row.name) // Debug log
+  highlightedRow.value = row.uniqueKey
+
   rowEvent.value = event
-  
+
   // Sử dụng GroupedContextMenu show method
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
+    
+    // Lắng nghe sự kiện đóng context menu để bỏ highlight
+    const menuElement = groupedContextMenu.value.$el
+    if (menuElement) {
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+          if (mutation.attributeName === 'style' || mutation.attributeName === 'class') {
+            const isVisible = menuElement.style.display !== 'none' && 
+                            !menuElement.classList.contains('p-hidden')
+            if (!isVisible) {
+              console.log('Removing highlight') // Debug log
+              highlightedRow.value = null
+              observer.disconnect()
+            }
+          }
+        })
+      })
+      
+      observer.observe(menuElement, {
+        attributes: true,
+        attributeFilter: ['style', 'class']
+      })
+    }
   }
-  
+
   event.stopPropagation()
 }
 
 // Watch for selection changes
 const getRowUniqueId = (row) => {
-  // If it's a shortcut, use shortcut_name (shortcut ID)
-  // Otherwise, use name (original file ID)
   return row.is_shortcut ? row.shortcut_name : row.name
 }
 
 // Computed property for formatted rows with unique dataKey
 const formattedRowsWithKeys = computed(() => {
-  return formattedRows.value.map(row => ({
+  return formattedRows.value.map((row) => ({
     ...row,
-    uniqueKey: getRowUniqueId(row)
+    uniqueKey: getRowUniqueId(row),
   }))
 })
 
 // Updated watch function
 watch(selectedRows, (newSelections) => {
-  // Use the unique identifier for each row type
   const selectionSet = new Set(newSelections.map((row) => getRowUniqueId(row)))
-  console.log("Selection set:", selectionSet, "Selected rows:", selectedRows.value)
-  
+  console.log(
+    "Selection set:",
+    selectionSet,
+    "Selected rows:",
+    selectedRows.value
+  )
+
   selections.value = selectionSet
   if (newSelections.length === 0) {
     selectedRow.value = null
@@ -360,47 +563,43 @@ watch(selectedRow, (k) => {
 
 const dropdownActionItems = (row) => {
   if (!row) return []
-  
+
   // Giữ nguyên action function từ GenericPage
   const actionItems = props.actionItems
     .filter((a) => !a.isEnabled || a.isEnabled(row))
     .map((a) => {
       let isLoading = false
-      if (a.label === 'Tạo lối tắt'){
+      if (a.label === "Tạo lối tắt") {
         isLoading = createShortcutResource?.loading || false
       }
-      if (a.label === 'Bỏ lối tắt'){
+      if (a.label === "Bỏ lối tắt") {
         isLoading = removeShortcutResource?.loading || false
       }
-      
+
       return {
         ...a,
-        // Giữ nguyên action function gốc
         originalAction: a.action,
-        // Thêm wrapper để handle việc đóng context menu và set active entity
         action: (entities) => {
-          if (!['Tạo lối tắt', 'Bỏ lối tắt'].includes(a.label)){
+          if (!["Tạo lối tắt", "Bỏ lối tắt"].includes(a.label)) {
             rowEvent.value = false
           }
           store.commit("setActiveEntity", row)
-          // Gọi action gốc
-          if (typeof a.action === 'function') {
+          if (typeof a.action === "function") {
             a.action(entities || [row])
           }
         },
-        loading: isLoading
+        loading: isLoading,
       }
     })
-  
+
   return actionItems
 }
 
 watch(
   () => createShortcutResource.loading,
   (newLoading, oldLoading) => {
-    // Khi loading chuyển từ true sang false (hoàn thành)
     if (oldLoading === true && newLoading === false) {
-      rowEvent.value = false // Đóng context menu
+      rowEvent.value = false
     }
   }
 )
@@ -408,9 +607,8 @@ watch(
 watch(
   () => removeShortcutResource.loading,
   (newLoading, oldLoading) => {
-    // Khi loading chuyển từ true sang false (hoàn thành)
     if (oldLoading === true && newLoading === false) {
-      rowEvent.value = false // Đóng context menu
+      rowEvent.value = false
     }
   }
 )
@@ -460,7 +658,17 @@ onKeyDown("Escape", (e) => {
   e.preventDefault()
 })
 </script>
+
 <style scoped>
+/* Highlighted Row - cần có độ ưu tiên cao hơn */
+:deep(.highlighted-row) {
+  background-color: #e0f2fe !important;
+}
+
+:deep(.highlighted-row > td) {
+  background-color: #e0f2fe !important;
+}
+
 :deep(.p-datatable-header-cell:first-child > div) {
   @apply justify-center;
 }
@@ -472,18 +680,33 @@ onKeyDown("Escape", (e) => {
 /* Table Container */
 .table-container {
   @apply flex-1 overflow-x-auto overflow-y-hidden;
-  /* Cho phép cuộn ngang khi bảng quá rộng */
 }
 
 .file-table {
   @apply h-full min-w-[600px];
-  /* Đảm bảo bảng không bị bóp nhỏ quá */
+}
+
+/* Disabled Row Styles */
+.disabled-row {
+  @apply opacity-50 text-gray-400;
+}
+
+:deep(.disabled-row-bg) {
+  @apply bg-gray-50 cursor-not-allowed;
+}
+
+:deep(.disabled-row-bg:hover) {
+  @apply bg-gray-50 !important;
+}
+
+.disabled-badge {
+  @apply text-xs text-red-500 ml-2 font-normal;
 }
 
 /* Table Cell Styling */
 .name-cell {
   @apply flex items-center gap-3 min-w-0 w-full;
-  max-width: 420px;
+  /* max-width: 420px; */
 }
 
 .file-icon {
@@ -561,22 +784,20 @@ onKeyDown("Escape", (e) => {
 }
 
 @media (max-width: 1280px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-thead > tr > th:nth-child(3)),
   :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
 }
 
-/* Responsive Design */
-/* Responsive: Ẩn các cột phụ trên tablet/mobile */
 @media (max-width: 1024px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(4)), /* Shared */
+  :deep(.p-datatable-thead > tr > th:nth-child(4)),
   :deep(.p-datatable-tbody > tr > td:nth-child(4)),
-  :deep(.p-datatable-thead > tr > th:nth-child(6)), /* Size */
+  :deep(.p-datatable-thead > tr > th:nth-child(6)),
   :deep(.p-datatable-tbody > tr > td:nth-child(6)),
-  :deep(.p-datatable-thead > tr > th:nth-child(5)), /* Last Modified */
+  :deep(.p-datatable-thead > tr > th:nth-child(5)),
   :deep(.p-datatable-tbody > tr > td:nth-child(5)),
-  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-thead > tr > th:nth-child(3)),
   :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
@@ -608,7 +829,7 @@ onKeyDown("Escape", (e) => {
   .file-icon {
     @apply w-[16px] h-[16px];
   }
-  :deep(.p-datatable-thead > tr > th:nth-child(3)), /* Owner */
+  :deep(.p-datatable-thead > tr > th:nth-child(3)),
   :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
     @apply hidden;
   }
@@ -634,12 +855,10 @@ onKeyDown("Escape", (e) => {
   }
 }
 
-/* Loading State */
 :deep(.p-datatable-loading-overlay) {
   @apply bg-white bg-opacity-75;
 }
 
-/* Empty State */
 :deep(.p-datatable-emptymessage) {
   @apply text-center py-8 text-gray-500;
 }
@@ -653,7 +872,7 @@ onKeyDown("Escape", (e) => {
   position: absolute;
   bottom: 0;
   right: 0;
-  color: #007bff; /* hoặc màu bạn muốn */
+  color: #007bff;
   background-color: white;
   border-radius: 8px;
   padding: 1px;
@@ -661,5 +880,35 @@ onKeyDown("Escape", (e) => {
 
 .shortcut-badge i {
   font-size: 8px;
+}
+
+/* Custom Tooltip */
+.custom-tooltip {
+  position: fixed;
+  background-color: white;
+  color: black;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  z-index: 9999;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  border: 1px solid #e5e7eb;
+  max-width: 300px;
+  word-wrap: break-word;
+}
+
+.row-hover-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1;
+  pointer-events: all;
+}
+
+:deep(.p-datatable-tbody > tr > td:first-child) {
+  position: relative;
 }
 </style>

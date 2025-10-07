@@ -73,10 +73,11 @@ class DriveFile(Document):
         :return: DriveEntity doc once file is moved
         """
         print(f"Move called with new_parent={new_parent}, is_private={is_private}, team={team}")
+
         # Nếu có team parameter, tìm thư mục gốc của team đó
         if team:
             print(f"Team parameter received: {team}, current team: {self.team}")
-            # Tìm thư mục gốc của team đích (bất kể team có giống hiện tại hay không)
+            # Tìm thư mục gốc của team đích
             team_home_folder = get_home_folder(team)
             if team_home_folder:
                 new_parent = team_home_folder.name
@@ -84,10 +85,13 @@ class DriveFile(Document):
             else:
                 frappe.throw(f"Cannot find home folder for team {team}")
 
-        # Nếu không có new_parent hợp lệ, sử dụng thư mục gốc của team hiện tại
-        elif not (new_parent and new_parent.strip() and team):
+        # CHỈ sử dụng home folder khi KHÔNG có new_parent
+        elif not new_parent or not new_parent.strip():
             new_parent = get_home_folder(self.team).name
             print(f"Using current team home folder: {new_parent}")
+        else:
+            # Có new_parent hợp lệ, sử dụng nó
+            print(f"Using provided new_parent: {new_parent}")
 
         new_parent_team = frappe.db.get_value("Drive File", new_parent, "team")
         current_team = self.team  # Lưu team hiện tại để so sánh

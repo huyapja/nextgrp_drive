@@ -208,14 +208,14 @@ const onDrop = (targetFile, draggedItem) => {
 const currentUserEmail = computed(() => store.state.user.id)
 
 const isMember = computed(() => {
-  console.log("Re-evaluating isMember",  getTeams.data?.[team]);
+  console.log("Re-evaluating isMember", getTeams.data?.[team])
 
   return (
-    getTeams.data?.[team]?.users?.some((k) => k.user === currentUserEmail.value) &&
+    getTeams.data?.[team]?.users?.some(
+      (k) => k.user === currentUserEmail.value
+    ) &&
     getTeams.data?.[team]?.owner !== currentUserEmail.value &&
-    store.state.activeEntity?.owner !== currentUserEmail.value 
-    &&
-    !store.state.activeEntity?.is_shortcut
+    store.state.activeEntity?.owner !== currentUserEmail.value
   )
 })
 // Action Items
@@ -257,7 +257,7 @@ const actionItems = computed(() => {
         label: "Chia sẻ",
         icon: ShareIconBlack,
         action: () => (dialog.value = "s"),
-        isEnabled: (e) => e.share && !store.state.activeEntity?.is_shortcut,
+        isEnabled: (e) => e.share && !e?.is_shortcut,
         important: true,
       },
       {
@@ -265,8 +265,7 @@ const actionItems = computed(() => {
         icon: MoveOwnerIcon,
         action: () => (dialog.value = "move_owner"),
         isEnabled: (e) =>
-          currentUserEmail.value === e?.owner &&
-          !store.state.activeEntity?.is_shortcut,
+          currentUserEmail.value === e?.owner && !e?.is_shortcut,
         important: true,
       },
       {
@@ -274,16 +273,14 @@ const actionItems = computed(() => {
         icon: ShortcutIcon,
         action: ([entity]) => createShortcut(entity),
         important: true,
-        isEnabled: () => !store.state.activeEntity?.is_shortcut,
+        isEnabled: (e) => !e?.is_shortcut,
       },
       {
         label: "Tạo bản sao",
         icon: CopyIcon,
         action: () => (dialog.value = "copy"),
         important: true,
-        isEnabled: () =>
-          !store.state.activeEntity?.is_shortcut &&
-          !store.state.activeEntity?.shortcut_owner,
+        isEnabled: (e) => !e?.is_shortcut,
       },
       {
         label: "Tải xuống",
@@ -292,21 +289,21 @@ const actionItems = computed(() => {
         action: (entities) => entitiesDownload(team, entities),
         multi: true,
         important: true,
-        isEnabled: () =>
-          !store.state.activeEntity?.is_shortcut || route.name !== "Home",
+        isEnabled: (e) => (!e?.is_shortcut || route.name !== "Home"),
       },
       {
         label: "Sao chép liên kết",
         icon: LinkIcon,
         action: ([entity]) => getLink(entity),
         important: true,
+        isEnabled: (e) => !e?.is_shortcut,
       },
       { divider: true },
       {
         label: "Di chuyển",
         icon: MoveIcon,
         action: () => (dialog.value = "move"),
-        isEnabled: (e) => e.write && !isMember.value,
+        isEnabled: (e) => e.write && isMember && e.is_active,
         multi: true,
         important: true,
       },
@@ -314,7 +311,7 @@ const actionItems = computed(() => {
         label: "Đổi tên",
         icon: RenameIcon,
         action: () => (dialog.value = "rn"),
-        isEnabled: (e) => e.write,
+        isEnabled: ()=> true,
       },
       {
         label: "Hiển thị thông tin",
@@ -337,7 +334,7 @@ const actionItems = computed(() => {
           props.getEntities.setData(props.getEntities.data)
           toggleFav.submit({ entities })
         },
-        isEnabled: (e) => !e.is_favourite,
+        isEnabled: (e) => !e.is_favourite && e.is_active,
         important: true,
         multi: true,
       },
@@ -350,7 +347,7 @@ const actionItems = computed(() => {
           props.getEntities.setData(props.getEntities.data)
           toggleFav.submit({ entities })
         },
-        isEnabled: (e) => e.is_favourite,
+        isEnabled: (e) => e.is_favourite && e.is_active,
         important: true,
         multi: true,
       },

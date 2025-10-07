@@ -99,6 +99,7 @@ def files(
         .select(
             *ENTITY_FIELDS,
             DriveFile.modified,
+            DriveFile.is_active,
             fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
             fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_("comment"),
             fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
@@ -521,6 +522,7 @@ def files_multi_team(
                         fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
                         fn.Coalesce(DrivePermission.write, user_access["write"]).as_("write"),
                         DriveFile.team,
+                        DriveFile.is_active,
                     )
                     .where(
                         (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
@@ -545,6 +547,7 @@ def files_multi_team(
                         DriveShortcut.name.as_("shortcut_name"),
                         DriveShortcut.title.as_("shortcut_title"),
                         DriveShortcut.parent_folder.as_("parent_entity"),
+                        DriveFile.is_active,
                         fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
                         fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
                             "comment"
@@ -951,7 +954,7 @@ def files_multi_team(
 def shared_multi_team(
     teams=None,
     by=1,
-    order_by="modified",
+    order_by="accessed",
     limit=1000,
     tag_list=[],
     mime_type_list=[],
@@ -1026,13 +1029,18 @@ def shared_multi_team(
         if "+" in order_field:
             base_field = order_field.split("+")[0]
             # Sử dụng biểu thức số học
-            order_expr = DriveFile[base_field] + 0
+            order_expr = (
+                DriveFile[base_field] + 0
+                if order_field != "accessed"
+                else Recents.last_interaction
+            )
             query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
         else:
-            # Xử lý order by bình thường
-            query = query.orderby(
-                DriveFile[order_field], order=Order.desc if is_desc else Order.asc
+            order_expr = (
+                DriveFile[order_field] if order_field != "accessed" else Recents.last_interaction
             )
+            # Xử lý order by bình thường
+            query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
 
     if tag_list:
         tag_list = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
