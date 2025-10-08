@@ -583,7 +583,7 @@ def files_multi_team(
                     # (DriveFile.is_private == 0)
                     original_files_query = original_files_query.where(
                         (DriveFile.modified_by == frappe.session.user)
-                        | (DriveFile.owner == frappe.session.user)
+                        # | (DriveFile.owner == frappe.session.user)
                     )
                 query = original_files_query
                 shortcut_query = shortcut_files_query
