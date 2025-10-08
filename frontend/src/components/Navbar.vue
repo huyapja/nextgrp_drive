@@ -115,9 +115,9 @@
     <div
       class="flex flex-row items-center h-full gap-[17px] pt-3 px-2 z-0 bg-surface-white"
       v-if="route.name === 'File' "
-    >
+      >
       <Button
-        v-if="entity?.comment && entity && entity.is_active"
+        v-if="entity"
         class="text-ink-gray-5 !px-0"
         :class="[
           tab === 1
@@ -137,7 +137,7 @@
       </Button>
 
       <Button
-        v-if="entity?.write && entity && entity.is_active"
+        v-if="entity"
         class="text-ink-gray-5 !px-0"
         :class="[
           tab === 2

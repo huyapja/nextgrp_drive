@@ -703,7 +703,7 @@ const createFolder = createResource({
   makeParams(params) {
     return {
       ...params,
-      team: route.params.team,
+      team: currentTeam.value,
     }
   },
   validate(params) {
@@ -750,7 +750,7 @@ const createFolder = createResource({
       })
       const homeFolders = allFolders.data.filter((f) => f.is_private)
       buildTreeStructure(homeFolders, homeRoot)
-    } else if (currentTab2?.value === "team") {
+    } else if (currentTab2?.value === "team" && currentTeam.value === route.params.team) {
       getHome.setData((dataHome) => {
         dataHome.unshift(data)
         return dataHome
@@ -770,7 +770,7 @@ const createFolder = createResource({
 
 // New methods for the redesigned UI
 function selectFolder(folder) {
-  if (store.state.currentFolder.name === folder.value) return
+  // if (store.state.currentFolder.name === folder.value) return
   currentFolder.value = folder.value
 }
 
@@ -992,18 +992,14 @@ function performCopy() {
     return
   }
 
-  if (!currentFolder.value && (breadcrumbs.value.length === 1  || currentTeam.value === props.entities[0]?.team)) {
-    toast(__("Vui lòng chọn một mục di chuyển đến"))
-    return
-  }
+  // if (!currentFolder.value && currentTeam.value === route.params.team) {
+  //     copyLoading.value = false
+  //     emit("success")
+  //     open.value = false
+  //     return
+  //   }
 
   copyLoading.value = true
-  console.log("Performing move to:", {
-    entities: props.entities,
-    new_parent: currentFolder.value,
-    is_private: breadcrumbs.value[breadcrumbs.value.length - 1].is_private,
-    team: currentTeam.value,
-  })
   const movePromise = move.submit({
     entities: props.entities,
     new_parent: currentFolder.value,

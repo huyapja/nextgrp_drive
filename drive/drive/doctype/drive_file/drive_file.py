@@ -62,39 +62,49 @@ class DriveFile(Document):
             yield frappe.get_doc(self.doctype, name)
 
     def move(self, new_parent=None, is_private=None, team=None):
-        """
-        Move file or folder to the new parent folder
-        If not owned by current user, copies it.
+        def get_user_directory():
+            """Get the user's personal home directory"""
+            user = frappe.session.user
+            home_folder = frappe.db.get_value(
+                "Drive File",
+                filters={
+                    "owner": user,
+                    "is_group": 1,
+                    "parent_entity": None,  # hoặc điều kiện để xác định root folder
+                },
+                fieldname="name",
+            )
+            if home_folder:
+                return frappe.get_doc("Drive File", home_folder)
+            return None
 
-        :param new_parent: Document-name of the new parent folder. Defaults to the user directory
-        :param team: Team ID - if provided, will move to root folder of that team
-        :raises NotADirectoryError: If the new_parent is not a folder, or does not exist
-        :raises FileExistsError: If a file or folder with the same name already exists in the specified parent folder
-        :return: DriveEntity doc once file is moved
-        """
         print(f"Move called with new_parent={new_parent}, is_private={is_private}, team={team}")
-
         # Nếu có team parameter, tìm thư mục gốc của team đó
-        if team:
-            print(f"Team parameter received: {team}, current team: {self.team}")
-            # Tìm thư mục gốc của team đích
-            team_home_folder = get_home_folder(team)
-            if team_home_folder:
-                new_parent = team_home_folder.name
-                print(f"Found team home folder: {new_parent} for team: {team}")
+        if not (new_parent and new_parent.strip()):
+            if team:
+                print(f"No new_parent, using team parameter: {team}")
+                team_home_folder = get_home_folder(team)
+                if team_home_folder:
+                    new_parent = team_home_folder.name
+                    print(f"Found team home folder: {new_parent} for team: {team}")
+                else:
+                    frappe.throw(f"Cannot find home folder for team {team}")
+            elif is_private == 1:
+                # Di chuyển về "Tài liệu của tôi" (personal folder)
+                print("Moving to personal folder (is_private=1)")
+                user_home_folder = get_user_directory()
+                if user_home_folder:
+                    new_parent = user_home_folder.name
+                    print(f"Found user home folder: {new_parent}")
+                else:
+                    frappe.throw("Cannot find user home folder")
             else:
-                frappe.throw(f"Cannot find home folder for team {team}")
-
-        # CHỈ sử dụng home folder khi KHÔNG có new_parent
-        elif not new_parent or not new_parent.strip():
-            new_parent = get_home_folder(self.team).name
-            print(f"Using current team home folder: {new_parent}")
-        else:
-            # Có new_parent hợp lệ, sử dụng nó
-            print(f"Using provided new_parent: {new_parent}")
+                # Sử dụng thư mục gốc của team hiện tại
+                new_parent = get_home_folder(self.team).name
+                print(f"Using current team home folder: {new_parent}")
 
         new_parent_team = frappe.db.get_value("Drive File", new_parent, "team")
-        current_team = self.team  # Lưu team hiện tại để so sánh
+        current_team = self.team
 
         print(
             f"Move debug: current_team={current_team}, new_parent_team={new_parent_team}, new_parent={new_parent}"
@@ -257,7 +267,12 @@ class DriveFile(Document):
 
         # Cập nhật thông tin file
         self.parent_entity = new_parent
-        self.is_private = frappe.db.get_value("Drive File", new_parent, "is_private")
+
+        # Chỉ cập nhật is_private nếu không được truyền vào từ parameter
+        if is_private is not None:
+            self.is_private = int(is_private)
+        else:
+            self.is_private = frappe.db.get_value("Drive File", new_parent, "is_private")
 
         title = get_new_title(self.title, new_parent)
         if title != self.title:
@@ -267,7 +282,7 @@ class DriveFile(Document):
         print(f"Final save: team={self.team}, parent={self.parent_entity}")
 
         return frappe.get_value(
-            "Drive File", new_parent, ["title", "team", "name", "is_private"], as_dict=True
+            "Drive File", self.name, ["title", "team", "name", "is_private"], as_dict=True
         )
 
     @frappe.whitelist()

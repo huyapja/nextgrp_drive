@@ -133,29 +133,41 @@ def files(
     #         .on((Recents.entity_name == DriveFile.name) & (Recents.user == frappe.session.user))
     #         .orderby(Recents.last_interaction, order=Order.desc)
     #     )
+    # Thay vì LEFT JOIN trực tiếp với Recents, hãy dùng subquery để lấy accessed mới nhất
+
+    # Tìm đoạn này trong code (khoảng dòng 77-99):
+    # Thay thế phần query với Recents bằng cách sử dụng subquery
+    # Tìm đoạn từ dòng 77-99 và thay thế bằng:
+
+    # Tạo subquery để lấy last_interaction mới nhất cho mỗi entity
+    recent_subquery = (
+        frappe.qb.from_(Recents)
+        .where(Recents.user == user)
+        .select(Recents.entity_name, fn.Max(Recents.last_interaction).as_("last_interaction"))
+        .groupby(Recents.entity_name)
+    ).as_("recent_data")
+
     if recents_only:
         query = (
-            query.right_join(Recents)
-            .on((Recents.entity_name == DriveFile.name) & (Recents.user == frappe.session.user))
-            .orderby(Recents.last_interaction, order=Order.desc)
-            .select(Recents.last_interaction.as_("accessed"))  # Select here for recents_only
+            query.right_join(recent_subquery)
+            .on(recent_subquery.entity_name == DriveFile.name)
+            .orderby(recent_subquery.last_interaction, order=Order.desc)
+            .select(recent_subquery.last_interaction.as_("accessed"))
         )
     elif field != "accessed":
         query = (
-            query.left_join(Recents)
-            .on((Recents.entity_name == DriveFile.name) & (Recents.user == frappe.session.user))
+            query.left_join(recent_subquery)
+            .on(recent_subquery.entity_name == DriveFile.name)
             .orderby(DriveFile[field], order=Order.asc if ascending else Order.desc)
-            .select(Recents.last_interaction.as_("accessed"))  # Select here for non-recents
+            .select(recent_subquery.last_interaction.as_("accessed"))
         )
     else:
-        query = query.left_join(Recents).on(
-            (Recents.entity_name == DriveFile.name) & (Recents.user == frappe.session.user)
-        )
+        query = query.left_join(recent_subquery).on(recent_subquery.entity_name == DriveFile.name)
         if ascending:
-            query = query.orderby(Recents.last_interaction, order=Order.asc)
+            query = query.orderby(recent_subquery.last_interaction, order=Order.asc)
         else:
-            query = query.orderby(Recents.last_interaction, order=Order.desc)
-        query = query.select(Recents.last_interaction.as_("accessed"))
+            query = query.orderby(recent_subquery.last_interaction, order=Order.desc)
+        query = query.select(recent_subquery.last_interaction.as_("accessed"))
 
     if favourites_only or recents_only:
         query = query.where((DriveFile.is_private == 0) | (DriveFile.owner == frappe.session.user))
@@ -177,7 +189,6 @@ def files(
                 )
             )
 
-    query = query.select(Recents.last_interaction.as_("accessed"))
     if tag_list:
         tag_list = json.loads(tag_list)
         query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
