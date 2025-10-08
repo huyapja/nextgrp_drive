@@ -171,12 +171,15 @@ class DriveFile(Document):
                 self.team = new_parent_team
                 self.save()
 
-            return frappe.get_value(
+            result = frappe.get_value(
                 "Drive File",
                 self.parent_entity,
                 ["title", "team", "name", "is_private"],
                 as_dict=True,
             )
+
+            result["is_private"] = self.is_private
+            return result
 
         if new_parent == self.name:
             frappe.throw(
@@ -281,9 +284,11 @@ class DriveFile(Document):
 
         print(f"Final save: team={self.team}, parent={self.parent_entity}")
 
-        return frappe.get_value(
-            "Drive File", self.name, ["title", "team", "name", "is_private"], as_dict=True
+        result = frappe.get_value(
+            "Drive File", self.parent_entity, ["title", "team", "name", "is_private"], as_dict=True
         )
+        result["is_private"] = self.is_private
+        return result
 
     @frappe.whitelist()
     def copy(self, new_parent=None, parent_user_directory=None):

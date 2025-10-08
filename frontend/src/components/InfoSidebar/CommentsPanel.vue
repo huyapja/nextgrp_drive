@@ -451,7 +451,7 @@ const topics = createResource({
   url: "/api/method/drive.utils.users.get_topics_for_file",
   params: { drive_entity_id: props.entity?.name },
   onSuccess(data) {
-    data.topics.forEach((topic) => {
+    data.topics?.forEach((topic) => {
       if (!(topic.name in topicComments)) {
         topicComments[topic.name] = ""
         topicMentionedUsers[topic.name] = []

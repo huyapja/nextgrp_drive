@@ -165,19 +165,20 @@ resources: {
         return params
       },
       onSuccess(data) {
-        this.$emit("success", data)
-        emitter.emit("recalculate")
-        this.$resources.method.reset()
+        if(data.success) {
+          this.$emit("success", data)
+          emitter.emit("recalculate")
+          this.$resources.method.reset()
+          if (this.dialogData.mutate)
+            mutate(this.entities, this.dialogData.mutate)
+          if (this.dialogData.onSuccess)
+            this.dialogData.onSuccess(this.entities, data)
+        }
         // Delete from cache
         // this.entities.map((entity) => del(entity.name || entity.entity_shortcut))
         
-        if (this.dialogData.mutate)
-          mutate(this.entities, this.dialogData.mutate)
-        if (this.dialogData.onSuccess)
-        this.dialogData.onSuccess(this.entities, data)
-    
         toast({
-          title: this.dialogData.toastMessage,
+          title: data.message || this.dialogData.toastMessage,
           position: "bottom-right",
           timeout: 2,
         })

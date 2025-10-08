@@ -86,7 +86,7 @@ export const getShared = createResource({
 
     return data.map((item) => ({
       ...item,
-      team_name: item.is_private === 1 ? null : item.team,
+      team_name: item.is_private === 1 ? null : item.team_name,
     }))
   },
 })
@@ -97,6 +97,14 @@ export const getTrash = createResource({
   cache: "trash-folder-contents",
   makeParams: (params) => {
     return { ...params, is_active: 0, only_parent: 0, personal: -3 }
+  },
+  transform(data) {
+    if (!data) return data
+
+    return data.map((item) => ({
+      ...item,
+      team_name: item.is_private === 1 ? null : item.team_name,
+    }))
   },
 })
 
