@@ -166,7 +166,7 @@ resources: {
       },
       onSuccess(data) {
         if(data.success) {
-          this.$emit("success", data)
+          this.$emit("success", data.success_files)
           emitter.emit("recalculate")
           this.$resources.method.reset()
           if (this.dialogData.mutate)

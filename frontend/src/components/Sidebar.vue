@@ -249,7 +249,7 @@
               v-if="isExpanded && isTeamsExpanded"
               class="space-y-0.5 border border-[#E5E5E5] rounded-[8px] p-1 pr-0.5 overflow-hidden"
             >
-              <div class="max-h-[310px] overflow-y-auto">
+              <div class="max-h-[280px] overflow-y-auto">
                 <!-- Teams List -->
                 <div
                   v-for="teamItem in teamList"

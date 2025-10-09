@@ -143,20 +143,20 @@
                 :key="folder.value"
                 class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
                 :class="{ 'bg-[#D4E1F9]': currentFolder === folder.value }"
-                @click.stop.prevent="selectFolder(folder)"
+                @click.stop.prevent="navigateToFolder(folder)"
               >
                 <TeamIcon class="w-5 h-5 text-gray-500 mr-2" />
                 <span
                   class="flex-1 font-[500] text-[14px] text-gray-900 truncate"
                   >{{ folder.label }}</span
                 >
-                <button
+                <!-- <button
                   class="hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
                   @click.stop.prevent="navigateToFolder(folder)"
                   title="Mở thư mục"
-                >
+                > -->
                   <LucideChevronRight class="w-5 h-5 text-[#525252]" />
-                </button>
+                <!-- </button> -->
               </div>
             </div>
 
@@ -703,68 +703,98 @@ const createFolder = createResource({
   makeParams(params) {
     return {
       ...params,
-      team: currentTeam.value,
+      team: currentTeam.value || route.params.team,
     }
   },
   validate(params) {
     if (!params?.title) return false
   },
   onSuccess(data) {
+    console.log("✅ Folder created:", data.name, "Parent:", createdNode.value.parent)
+    
+    // Lưu lại parent trước khi reset createdNode
+    const parentFolder = createdNode.value.parent
+    const wasPrivate = tabs.value[tabIndex.value]?.value === "personal"
+    
     createdNode.value.value = data.name
-    currentFolder.value = data.name
+    
+    console.log("📍 Current folder stays:", currentFolder.value)
+    
     // Add to allFolders
     allFolders.data.push({
       value: data.name,
       label: data.title,
       name: data.name,
       title: data.title,
-      parent: createdNode.value.parent,
-      is_private: tabs.value[tabIndex.value]?.value === "personal",
+      parent: parentFolder,
+      is_private: wasPrivate,
+      team: currentTeam.value,
     })
-    folderPermissions.fetch({
-      entity_name: data.name,
-    })
+    
     createdNode.value = null
 
+    // Refresh danh sách folder ở vị trí hiện tại
     const currentTab = tabs.value[tabIndex.value]
+    
+    console.log("🔄 Refreshing parent folder:", parentFolder, "Tab:", currentTab?.value, "Team:", currentTeam.value)
+    
     if (currentTab?.value === "personal") {
+      // Refresh personal folders
       folderMultiContents.fetch({
-        entity_name: currentFolder.value,
+        entity_name: parentFolder || "",
         personal: 1,
       })
-    } else if (currentTab?.value === "team") {
-      // Refresh team folders
-      folderContents.fetch({
-        team: currentTeam.value,
-        entity_name: currentFolder.value,
-        personal: 0,
-      })
-    }
-
-    // Refresh current tree
-    const currentTab2 = tabs.value[tabIndex.value]
-    if (currentTab2?.value === "personal") {
-      getPersonal.setData((dataPersonal) => {
-        dataPersonal.unshift(data)
-        return dataPersonal
-      })
+      
+      // Update tree
       const homeFolders = allFolders.data.filter((f) => f.is_private)
       buildTreeStructure(homeFolders, homeRoot)
-    } else if (currentTab2?.value === "team" && currentTeam.value === route.params.team) {
-      getHome.setData((dataHome) => {
-        dataHome.unshift(data)
-        return dataHome
+      
+      // Update store nếu đang ở root personal
+      if (parentFolder === "" || !parentFolder) {
+        getPersonal.setData((dataPersonal) => {
+          dataPersonal.unshift(data)
+          return dataPersonal
+        })
+      }
+    } else if (currentTab?.value === "team") {
+      // QUAN TRỌNG: Kiểm tra xem có đang ở trong một team không
+      if (!currentTeam.value) {
+        console.error("❌ No currentTeam set, cannot refresh")
+        return
+      }
+      
+      // Refresh team folders tại vị trí hiện tại
+      console.log("🔄 Fetching team folders for team:", currentTeam.value, "parent:", parentFolder)
+      
+      folderContents.fetch({
+        team: currentTeam.value,
+        entity_name: parentFolder || "",
+        personal: 0,
       })
       
-      // Build vào đúng tree
-      if (currentTeam.value && breadcrumbs.value.length > 1) {
-        const teamFolders = allFolders.data.filter((f) => !f.is_private && f.team === currentTeam.value)
+      // Update tree structure
+      if (breadcrumbs.value.length > 1) {
+        // Đang ở trong team, update currentTeamFolders
+        const teamFolders = allFolders.data.filter(
+          (f) => !f.is_private && f.team === currentTeam.value
+        )
         buildTreeStructure(teamFolders, currentTeamFolders)
       } else {
+        // Đang ở root team list (không nên xảy ra vì không thể tạo folder ở đây)
         const teamFolders = allFolders.data.filter((f) => !f.is_private)
         buildTreeStructure(teamFolders, teamRoot)
       }
+      
+      // Update store nếu đang ở root của team hiện tại
+      if ((parentFolder === "" || !parentFolder) && currentTeam.value === route.params.team) {
+        getHome.setData((dataHome) => {
+          dataHome.unshift(data)
+          return dataHome
+        })
+      }
     }
+    
+    console.log("✅ Create folder complete, breadcrumbs:", breadcrumbs.value)
   },
 })
 
