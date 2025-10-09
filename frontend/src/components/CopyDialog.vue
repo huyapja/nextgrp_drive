@@ -17,12 +17,12 @@
       <div
         class="flex items-center justify-between p-6 px-4 pb-0 flex-shrink-0"
       >
-        <h2 class="text-xl font-semibold text-gray-900">
+        <h2 class="text-xl font-semibold text-gray-900 truncate">
           <template v-if="props.entities.length > 1">
-            {{ __("Tạo bản sao") }} {{ props.entities.length }} {{ __("mục") }}
+            {{ __("Sao chép") }} {{ props.entities.length }} {{ __("mục") }}
           </template>
           <template v-else>
-            {{ __("Tạo bản sao") }} "{{
+            {{ __("Sao chép") }} "{{
               props.entities[0]?.shortcut_title || props.entities[0]?.title
             }}"
           </template>
@@ -71,12 +71,12 @@
             @click="tabIndex = index"
             class="tab-button px-4 py-2 text-sm font-medium border-b-2 transition-colors"
             :class="
-              tabIndex === index
+              index === tabIndex
                 ? 'text-blue-600 border-blue-600'
                 : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
             "
           >
-            {{ tab.label }}
+            {{ tabs[index]?.label }}
           </button>
         </div>
       </div>
@@ -107,7 +107,7 @@
             <!-- Teams List for Team Tab -->
             <div
               v-if="
-                tabIndex === 1 &&
+                tabs[tabIndex]?.value === 'team' &&
                 teams.data &&
                 teams.data.length > 0 &&
                 breadcrumbs.length === 1
@@ -118,7 +118,7 @@
                 v-for="team in teams.data"
                 :key="team.name"
                 class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
-                :class="{ 'bg-[#D4E1F9]': currentFolder === team.name }"
+                :class="{ 'bg-[#D4E1F9]': currentTeam === team.name }"
                 @click="navigateToTeam(team)"
               >
                 <TeamDrive class="w-5 h-5 text-gray-900 mr-2" />
@@ -143,20 +143,20 @@
                 :key="folder.value"
                 class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
                 :class="{ 'bg-[#D4E1F9]': currentFolder === folder.value }"
-                @click.stop.prevent="selectFolder(folder)"
+                @click.stop.prevent="navigateToFolder(folder)"
               >
                 <TeamIcon class="w-5 h-5 text-gray-500 mr-2" />
                 <span
                   class="flex-1 font-[500] text-[14px] text-gray-900 truncate"
                   >{{ folder.label }}</span
                 >
-                <button
+                <!-- <button
                   class="hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
                   @click.stop.prevent="navigateToFolder(folder)"
                   title="Mở thư mục"
-                >
+                > -->
                   <LucideChevronRight class="w-5 h-5 text-[#525252]" />
-                </button>
+                <!-- </button> -->
               </div>
             </div>
 
@@ -171,7 +171,7 @@
 
           <!-- Create Folder Button -->
           <div
-            v-if="tabIndex === 0 || (tabIndex === 1 && breadcrumbs.length > 1)"
+            v-if="tabs[tabIndex]?.value === 'personal' || (tabs[tabIndex]?.value === 'team' && breadcrumbs.length > 1)"
             class="mt-2 flex justify-start flex-shrink-0"
           >
             <Button
@@ -225,7 +225,7 @@
             <template #prefix>
               <LucideCopy class="w-4 h-4" />
             </template>
-            {{ __("Tạo bản sao") }}
+            {{ __("Sao chép") }}
           </Button>
         </div>
       </div>
@@ -337,14 +337,39 @@ const teamRoot = reactive({
   isCollapsed: true,
 })
 
-const in_home = store.state.breadcrumbs[0].name == "Home"
-const tabIndex = ref(in_home ? 0 : 1) // 1 = Tài liệu của tôi, 2 = Nhóm
+// Thêm reactive object để quản lý cây thư mục của team hiện tại
+const currentTeamFolders = reactive({
+  name: "",
+  label: "",
+  children: [],
+  isCollapsed: false,
+})
 
+const in_home = store.state.breadcrumbs[0].name == "Home"
+const tabIndex = ref(in_home ? 0 : 1) // 0 = Tài liệu của tôi, 1 = Nhóm
+
+// Sửa lại currentTree computed để xử lý đúng trường hợp team
 const currentTree = computed(() => {
   switch (tabIndex.value) {
-    case 0: // Tài liệu của tôi
+    case 0:
+      // Kiểm tra tab hiện tại là gì
+      const currentTab = tabs.value[0]
+      if (currentTab?.value === "personal") {
+        return homeRoot
+      } else if (currentTab?.value === "team") {
+        // Nếu đang ở trong một team (breadcrumbs > 1), hiển thị folder của team đó
+        if (breadcrumbs.value.length > 1) {
+          return currentTeamFolders
+        }
+        // Nếu ở root team, hiển thị danh sách teams (không cần tree structure)
+        return { children: [], name: "", label: "Teams" }
+      }
       return homeRoot
-    case 1: // Nhóm
+    case 1: // Tab thứ 2 (khi có 2 tabs)
+      // Nếu đang ở trong một team, hiển thị folder của team đó
+      if (breadcrumbs.value.length > 1) {
+        return currentTeamFolders
+      }
       return teamRoot
     default:
       return homeRoot
@@ -381,16 +406,28 @@ const dropDownBreadcrumbs = computed(() => {
   })
 })
 
-const tabs = computed(() => [
-  { label: __("Tài liệu của tôi"), value: "personal" },
-  { label: __("Nhóm"), value: "team" },
-])
+const tabs = ref(
+  props.entities[0]?.is_shortcut
+    ? [{ label: __("Tài liệu của tôi"), value: "personal" }]
+    : [
+        { label: __("Tài liệu của tôi"), value: "personal" },
+        { label: __("Nhóm"), value: "team" },
+      ]
+)
 
 // Current location name for display
 const currentLocationName = computed(() => {
   if (breadcrumbs.value.length > 1) {
     return breadcrumbs.value[breadcrumbs.value.length - 1].title
   }
+  
+  // Lấy title từ tab hiện tại thay vì từ breadcrumbs
+  const currentTab = tabs.value[tabIndex.value]
+  if (currentTab) {
+    return currentTab.label
+  }
+  
+  // Fallback
   return breadcrumbs.value[0].title
 })
 
@@ -473,6 +510,7 @@ const folderPermissions = createResource({
   },
 })
 
+// Sửa lại folderContents.onSuccess để build đúng tree
 const folderContents = createResource({
   url: "drive.api.list.files",
   makeParams: (params) => ({
@@ -482,9 +520,15 @@ const folderContents = createResource({
     ...params,
   }),
   onSuccess: (data) => {
+    console.log("folderContents.onSuccess:", data, "currentTeam:", currentTeam.value)
     if (data && Array.isArray(data)) {
       const folders = data.filter((item) => item.is_group)
-      if (tabIndex.value === 1) {
+      
+      // Nếu đang trong một team cụ thể, build vào currentTeamFolders
+      if (currentTeam.value && breadcrumbs.value.length > 1) {
+        buildTreeStructure(folders, currentTeamFolders)
+      } else {
+        // Ngược lại build vào teamRoot (cho trường hợp có 2 tabs)
         buildTreeStructure(folders, teamRoot)
       }
     }
@@ -524,42 +568,99 @@ const teams = createResource({
   onSuccess: (data) => {
     // Convert teams object to array
     if (data && typeof data === "object") {
-      teams.data = Object.values(data)
+      let teamsArray = Object.values(data)
+
+      // Kiểm tra nếu là trưởng nhóm
+      const isLeader = teamsArray.some(
+        (team) =>
+          team.name === route.params.team &&
+          team.owner === store.state.user.id &&
+          props.entities[0]?.owner !== store.state.user.id
+      )
+
+      // Nếu là trưởng nhóm, chỉ hiện nhóm hiện tại
+      if (isLeader) {
+        teamsArray = teamsArray.filter(
+          (team) => team.name === route.params.team
+        )
+      }
+
+      teams.data = teamsArray
     }
   },
 })
 
-// Move API resource
-const moveResource = createResource({
-  url: "drive.api.files.copy_file_or_folder",
-  onSuccess: (data) => {
-    copyLoading.value = false
-    // Show success message
-    toast({
-      title: __("Moved to") + " " + data.title,
-      buttons: [
-        {
-          label: __("Go"),
-          action: () => {
-            openEntityAfterCopy(null, {
-              name: data.parent_entity,
-              team: data.team,
-              is_group: true,
-              is_private: data.is_private,
-            })
-          },
-        },
-      ],
-    })
-    emit("success")
-    open.value = false
+watch(
+  () => props.entities,
+  (newEntities) => {
+    if (newEntities[0]?.is_shortcut) {
+      tabs.value = [{ label: __("Tài liệu của tôi"), value: "personal" }]
+      tabIndex.value = 0
+      return
+    }
+    
+    console.log("Entity belongs to a team where the user is the owner", props.entities[0]);
+    
+    // Nếu không phải là chủ của file, chỉ hiển thị tab nhóm
+    if (props.entities[0]?.owner !== store.state.user.id) {
+      tabs.value = [
+        { label: __("Nhóm"), value: "team" },
+      ]
+      tabIndex.value = 0 // Đặt về index 0 vì chỉ có 1 tab
+      
+      // Quan trọng: Trigger lại watcher để load dữ liệu đúng
+      nextTick(() => {
+        // Force trigger tab change với giá trị mới
+        const currentTab = tabs.value[0]
+        if (currentTab?.value === "team") {
+          breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
+          currentTeam.value = null
+          teams.fetch()
+        }
+      })
+      return
+    }
+    
+    // Nếu là chủ của file, hiển thị cả 2 tab
+    tabs.value = [
+      { label: __("Tài liệu của tôi"), value: "personal" },
+      { label: __("Nhóm"), value: "team" },
+    ]
   },
-  onError: (error) => {
-    copyLoading.value = false
-    console.error("Move error:", error)
-    toast(__("Tạo bản sao thất bại"))
+  { immediate: true }
+)
+
+watch(
+  tabIndex,
+  (newValue) => {
+    currentFolder.value = ""
+    
+    // Lấy tab hiện tại dựa vào index
+    const currentTab = tabs.value[newValue]
+    
+    if (currentTab?.value === "personal") {
+      // Tab "Tài liệu của tôi"
+      breadcrumbs.value = [
+        { name: "", title: __("Tài liệu của tôi"), is_private: 1 },
+      ]
+      folderMultiContents.fetch({
+        entity_name: "",
+        personal: 1,
+      })
+    } else if (currentTab?.value === "team") {
+      // Tab "Nhóm"
+      console.log("Switching to team tab");
+      breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
+      // Reset currentTeam khi chuyển về tab nhóm
+      currentTeam.value = null
+      // Reset currentTeamFolders
+      currentTeamFolders.children = []
+      // Fetch teams when switching to team tab
+      teams.fetch()
+    }
   },
-})
+  { immediate: true }
+)
 
 // Initialize on mount
 onMounted(() => {
@@ -597,130 +698,113 @@ watch(
   }
 )
 
-watch(
-  tabIndex,
-  (newValue) => {
-    currentFolder.value = ""
-    switch (newValue) {
-      case 0: // Tài liệu của tôi
-        breadcrumbs.value = [
-          { name: "", title: __("Tài liệu của tôi"), is_private: 1 },
-        ]
-        folderMultiContents.fetch({
-          entity_name: "",
-          personal: 1,
-        })
-        break
-      case 1: // Nhóm
-        breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
-        // Fetch teams when switching to team tab
-        teams.fetch()
-        break
-    }
-  },
-  { immediate: true }
-)
-
 const createdNode = ref(null)
 const createFolder = createResource({
   url: "drive.api.files.create_folder",
   makeParams(params) {
     return {
       ...params,
-      team: route.params.team,
+      team: currentTeam.value || route.params.team,
     }
   },
   validate(params) {
     if (!params?.title) return false
   },
   onSuccess(data) {
+    console.log("✅ Folder created:", data.name, "Parent:", createdNode.value.parent)
+    
+    // Lưu lại parent trước khi reset createdNode
+    const parentFolder = createdNode.value.parent
+    const wasPrivate = tabs.value[tabIndex.value]?.value === "personal"
+    
     createdNode.value.value = data.name
-    currentFolder.value = data.name
+    
+    console.log("📍 Current folder stays:", currentFolder.value)
+    
     // Add to allFolders
     allFolders.data.push({
       value: data.name,
       label: data.title,
       name: data.name,
       title: data.title,
-      parent: createdNode.value.parent,
-      is_private: tabIndex.value === 0,
+      parent: parentFolder,
+      is_private: wasPrivate,
+      team: currentTeam.value,
     })
-    folderPermissions.fetch({
-      entity_name: data.name,
-    })
+    
     createdNode.value = null
 
-    if (tabIndex.value === 0) {
+    // Refresh danh sách folder ở vị trí hiện tại
+    const currentTab = tabs.value[tabIndex.value]
+    
+    console.log("🔄 Refreshing parent folder:", parentFolder, "Tab:", currentTab?.value, "Team:", currentTeam.value)
+    
+    if (currentTab?.value === "personal") {
+      // Refresh personal folders
       folderMultiContents.fetch({
-        entity_name: currentFolder.value,
+        entity_name: parentFolder || "",
         personal: 1,
       })
-    } else if (tabIndex.value === 1) {
-      // Refresh team folders
+      
+      // Update tree
+      const homeFolders = allFolders.data.filter((f) => f.is_private)
+      buildTreeStructure(homeFolders, homeRoot)
+      
+      // Update store nếu đang ở root personal
+      if (parentFolder === "" || !parentFolder) {
+        getPersonal.setData((dataPersonal) => {
+          dataPersonal.unshift(data)
+          return dataPersonal
+        })
+      }
+    } else if (currentTab?.value === "team") {
+      // QUAN TRỌNG: Kiểm tra xem có đang ở trong một team không
+      if (!currentTeam.value) {
+        console.error("❌ No currentTeam set, cannot refresh")
+        return
+      }
+      
+      // Refresh team folders tại vị trí hiện tại
+      console.log("🔄 Fetching team folders for team:", currentTeam.value, "parent:", parentFolder)
+      
       folderContents.fetch({
-        entity_name: currentFolder.value,
+        team: currentTeam.value,
+        entity_name: parentFolder || "",
         personal: 0,
       })
+      
+      // Update tree structure
+      if (breadcrumbs.value.length > 1) {
+        // Đang ở trong team, update currentTeamFolders
+        const teamFolders = allFolders.data.filter(
+          (f) => !f.is_private && f.team === currentTeam.value
+        )
+        buildTreeStructure(teamFolders, currentTeamFolders)
+      } else {
+        // Đang ở root team list (không nên xảy ra vì không thể tạo folder ở đây)
+        const teamFolders = allFolders.data.filter((f) => !f.is_private)
+        buildTreeStructure(teamFolders, teamRoot)
+      }
+      
+      // Update store nếu đang ở root của team hiện tại
+      if ((parentFolder === "" || !parentFolder) && currentTeam.value === route.params.team) {
+        getHome.setData((dataHome) => {
+          dataHome.unshift(data)
+          return dataHome
+        })
+      }
     }
-
-    // Refresh current tree
-    if (tabIndex.value === 0) {
-      getPersonal.setData((dataPersonal) => {
-        dataPersonal.unshift(data)
-
-        return dataPersonal
-      })
-      const homeFolders = allFolders.data.filter((f) => f.is_private)
-
-      buildTreeStructure(homeFolders, homeRoot)
-    } else if (tabIndex.value === 1) {
-      getHome.setData((dataHome) => {
-        dataHome.unshift(data)
-        return dataHome
-      })
-      const teamFolders = allFolders.data.filter((f) => !f.is_private)
-      buildTreeStructure(teamFolders, teamRoot)
-    }
+    
+    console.log("✅ Create folder complete, breadcrumbs:", breadcrumbs.value)
   },
 })
 
+
 // New methods for the redesigned UI
 function selectFolder(folder) {
-  if (store.state.currentFolder.name === folder.value) return
+  // if (store.state.currentFolder.name === folder.value) return
   currentFolder.value = folder.value
-  // folderPermissions.fetch({
-  //   entity_name: currentFolder.value,
-  // })
-
-  // // Update breadcrumbs to show we're inside the folder
-  // const currentBreadcrumb = breadcrumbs.value[breadcrumbs.value.length - 1]
-  // if (currentBreadcrumb && currentBreadcrumb.name !== folder.value) {
-  //   breadcrumbs.value.push({
-  //     name: folder.value,
-  //     title: folder.label,
-  //     is_private: tabIndex.value === 0 ? 1 : 0
-  //   })
-  // }
 }
-
-// function selectTeam(team) {
-//   currentFolder.value = team.name
-//   folderPermissions.fetch({
-//     entity_name: currentFolder.value,
-//   })
-
-//   // Update breadcrumbs to show we're inside the team
-//   breadcrumbs.value = [
-//     { name: "", title: __('Nhóm'), is_private: 0 },
-//     { name: team.name, title: team.title, is_private: 0 }
-//   ]
-
-//   // Fetch folders for this team
-//   folderContents.fetch({
-//     entity_name: team.name,
-//     personal: 0,
-//   })
-// }
 
 function navigateToFolder(folder) {
   // Navigate into the folder
@@ -735,12 +819,13 @@ function navigateToFolder(folder) {
     breadcrumbs.value.push({
       name: folder.value,
       title: folder.label,
-      is_private: tabIndex.value === 0 ? 1 : 0,
+      is_private: tabs.value[tabIndex.value]?.value === "personal" ? 1 : 0,
     })
   }
 
   // Fetch folders inside this folder
-  if (tabIndex.value === 0) {
+  const currentTab = tabs.value[tabIndex.value]
+  if (currentTab?.value === "personal") {
     folderMultiContents.fetch({
       entity_name: folder.value,
       personal: 1,
@@ -749,42 +834,59 @@ function navigateToFolder(folder) {
     folderContents.fetch({
       team: currentTeam.value,
       entity_name: folder.value,
+      folders: 1,
       personal: 0,
     })
   }
 }
 
+// Sửa lại navigateToTeam function
 function navigateToTeam(team) {
+  console.log("Navigating to team:", team)
   // Update breadcrumbs to show we're inside the team
   currentTeam.value = team.name
   breadcrumbs.value = [
     { name: "", title: __("Nhóm"), is_private: 0 },
     { name: team.name, title: team.title, is_private: 0 },
   ]
+  
+  // Reset currentFolder khi vào team mới
+  currentFolder.value = ""
+  
+  // Reset currentTeamFolders trước khi fetch
+  currentTeamFolders.children = []
+  currentTeamFolders.name = team.name
+  currentTeamFolders.label = team.title
+  
   // Fetch all folders for this team
   folderContents.fetch({
     team: team.name,
     personal: 0,
+    entity_name: "", // Load từ root của team
   })
 }
 
+// Sửa lại navigateToBreadcrumb để xử lý đúng việc quay về
 function navigateToBreadcrumb(crumb, index) {
   if (index < breadcrumbs.value.length - 1) {
     // Navigate to the selected breadcrumb
     breadcrumbs.value = breadcrumbs.value.slice(0, index + 1)
     currentFolder.value = breadcrumbs.value[breadcrumbs.value.length - 1].name
 
-    if (index === 0 && tabIndex.value === 1) {
+    if (index === 0 && tabs.value[tabIndex.value]?.value === "team") {
+      // Quay về danh sách teams
       currentTeam.value = null
+      currentTeamFolders.children = []
     }
 
     // Fetch folders for the selected breadcrumb
-    if (tabIndex.value === 0) {
+    const currentTab = tabs.value[tabIndex.value]
+    if (currentTab?.value === "personal") {
       folderMultiContents.fetch({
         entity_name: currentFolder.value,
         personal: 1,
       })
-    } else if (tabIndex.value === 1) {
+    } else if (currentTab?.value === "team") {
       // For team tab, check if we're in a team or folder
       if (breadcrumbs.value.length === 1) {
         // We're back at team list
@@ -792,6 +894,7 @@ function navigateToBreadcrumb(crumb, index) {
       } else {
         // We're in a team folder
         folderContents.fetch({
+          team: currentTeam.value,
           entity_name: currentFolder.value,
           personal: 0,
         })
@@ -812,9 +915,10 @@ function createNewFolder() {
     label: newFolderName.value.trim(),
   }
 
+  const currentTab = tabs.value[tabIndex.value]
   createFolder.fetch({
     title: newFolderName.value.trim(),
-    personal: tabIndex.value === 0,
+    personal: currentTab?.value === "personal",
     parent: parentValue,
   })
 
@@ -827,9 +931,10 @@ function openEntity(node) {
   if (store.state.currentFolder.name === node?.value) return
   if (!node?.value) {
     createdNode.value = node
+    const currentTab = tabs.value[tabIndex.value]
     createFolder.fetch({
       title: node?.label,
-      personal: tabIndex.value === 0 || tabIndex.value === 1,
+      personal: currentTab?.value === "personal",
       parent: node?.parent,
     })
   } else {
@@ -860,7 +965,12 @@ const expandNode = (obj, name) => {
 watch(folderSearch, (val) => {
   if (!val) return
 
-  tabIndex.value = val.is_private ? 1 : 2 // 1 = Tài liệu của tôi, 2 = Nhóm
+  const currentTab = tabs.value[tabIndex.value]
+  if (currentTab?.value === "personal") {
+    tabIndex.value = 0
+  } else {
+    tabIndex.value = 1
+  }
   expandNode(currentTree.value, val.value)
 
   currentFolder.value = val.value
@@ -873,7 +983,8 @@ function closeEntity(name) {
     breadcrumbs.value = breadcrumbs.value.slice(0, index + 1)
     currentFolder.value = breadcrumbs.value[breadcrumbs.value.length - 1].name
 
-    if (tabIndex.value === 0 || tabIndex.value === 1) {
+    const currentTab = tabs.value[tabIndex.value]
+    if (currentTab?.value === "personal") {
       folderMultiContents.fetch({
         entity_name: currentFolder.value,
         personal: currentFolder.value === "" ? 1 : -1,
@@ -913,23 +1024,22 @@ function performCopy() {
     return
   }
 
-  if (!currentFolder.value && (breadcrumbs.value.length === 1  || currentTeam.value === props.entities[0]?.team)) {
-    toast(__("Vui lòng chọn một mục sao chép đến"))
-    return
-  }
+  // if (!currentFolder.value && currentTeam.value === route.params.team) {
+  //     copyLoading.value = false
+  //     emit("success")
+  //     open.value = false
+  //     return
+  //   }
 
   copyLoading.value = true
-
-  // Move each entity
-  const movePromises = props.entities.map((entity) => {
-    return moveResource.fetch({
-      entity_name: entity.shortcut_name || entity.name,
-      new_parent: currentFolder.value || null,
-      team: currentTeam.value,
-    })
+  const movePromise = moveResource.submit({
+    entity_name: props.entities[0].name,
+    new_parent: currentFolder.value,
+    is_private: breadcrumbs.value[breadcrumbs.value.length - 1].is_private,
+    team: currentTeam.value,
   })
 
-  Promise.all(movePromises)
+  movePromise
     .then(() => {
       copyLoading.value = false
       emit("success")
@@ -940,6 +1050,40 @@ function performCopy() {
       console.error("Move failed:", error)
     })
 }
+
+const moveResource = createResource({
+  url: "drive.api.files.copy_file_or_folder",
+  onSuccess: (data) => {
+    copyLoading.value = false
+    // Show success message
+    console.log("Move success:", breadcrumbs.value, data)
+    toast({
+      title: __("Moved to") + " " + breadcrumbs.value[breadcrumbs.value.length - 1].title,
+      buttons: [
+        {
+          label: __("Go"),
+          action: () => {
+            openEntityAfterCopy(null, {
+              name: breadcrumbs.value[breadcrumbs.value.length - 1].name,
+              team: data.team,
+              is_group: true,
+              is_private: data.is_private,
+            })
+          },
+        },
+      ],
+    })
+    emit("success")
+    open.value = false
+  },
+  onError: (error) => {
+    copyLoading.value = false
+    console.error("Move error:", error)
+    toast(__("Tạo bản sao thất bại"))
+  },
+})
+
+
 
 // Watch dialog open/close
 watch(open, (isOpen) => {
@@ -981,6 +1125,7 @@ watch(showCreateFolderDialog, (isOpen) => {
     })
   }
 })
+
 watch(showCreateFolderDialog, (isOpen) => {
   if (isOpen) {
     nextTick(() => {
@@ -1012,7 +1157,7 @@ watch(showCreateFolderDialog, (isOpen) => {
     // Reset rồi focus với retry
     newFolderName.value = ""
     nextTick(() => {
-      // chạy nhiều “nhịp” để thắng mọi auto-focus khác
+      // chạy nhiều "nhịp" để thắng mọi auto-focus khác
       requestAnimationFrame(() => focusNewFolderInput())
     })
   }

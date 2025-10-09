@@ -11,7 +11,7 @@
   <transition name="slide">
     <div
       v-if="!isDrawer || (isDrawer && visible)"
-      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-50 overflow-y-auto"
+      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-50"
       :class="isDrawer ? 'fixed right-0 top-0 min-w-[276px] max-w-[276px] h-full shadow-lg' : ''"
     >
       <!-- Header -->
@@ -27,6 +27,7 @@
         </div>
         <div class="flex flex-row items-center gap-2">
           <LucideCirclePlus 
+          v-if="manager.email == currentUserEmail"
             @click="showAddMemberModal = true" 
             stroke="#737373" 
             class="h-5 w-5 cursor-pointer hover:stroke-gray-600 transition-colors" 
@@ -40,11 +41,16 @@
       </div>
 
       <!-- Members Grid -->
-      <div class="flex-1 overflow-y-auto mt-[20px]">
+      <div class="flex-1 overflow-x-visible mt-[20px] -mx-4 px-4">
         <!-- Manager Section -->
         <div v-if="manager" class="mb-4">
           <h4 class="text-[14px] font-bold text-black mb-2">Trưởng nhóm</h4>
-          <div class="flex items-center flex-wrap gap-2" :class="isNarrow ? 'flex-column' : 'flex-row'">
+          <div 
+            class="flex items-center flex-wrap gap-2 relative group cursor-pointer" 
+            :class="isNarrow ? 'flex-column' : 'flex-row'"
+            @mouseenter="handleMemberHover($event, manager, 'manager')"
+            @mouseleave="handleMouseLeave"
+          >
             <div>
               <img
                 v-if="manager.user_image"
@@ -72,8 +78,9 @@
           <div
             v-for="member in regularMembers"
             :key="member.name"
-            class="flex flex-col flex-wrap items-center"
-            :title="member.full_name"
+            class="flex flex-col flex-wrap items-center relative group cursor-pointer"
+            @mouseenter="handleMemberHover($event, member, 'member')"
+            @mouseleave="handleMouseLeave"
           >
             <img
               v-if="member.user_image"
@@ -98,26 +105,89 @@
       />
     </div>
   </transition>
+
+  <!-- Tooltip using Teleport -->
+  <teleport to="body">
+    <transition name="tooltip-fade">
+      <div
+        v-if="showTooltip && tooltipMember"
+        class="fixed z-[9999]"
+        :style="tooltipStyle"
+        @mouseenter="handleTooltipMouseEnter"
+        @mouseleave="handleMouseLeave"
+      >
+        <div class="bg-white rounded-lg shadow-lg p-4 min-w-[280px] border" style="background-color: #ffffff; border-color: #0149C1;">
+          <div class="flex items-start gap-3 mb-3">
+            <img
+              v-if="tooltipMember.user_image"
+              :src="tooltipMember.user_image"
+              :alt="tooltipMember.full_name"
+              class="w-12 h-12 rounded-full object-cover flex-shrink-0"
+            />
+            <div
+              v-else
+              class="w-12 h-12 rounded-full flex items-center justify-center text-white font-medium text-sm flex-shrink-0"
+              style="background-color: #0149C1;"
+            >
+              {{ getInitials(tooltipMember.full_name) }}
+            </div>
+            
+            <div class="flex-1 min-w-0">
+              <h4 class="font-semibold text-gray-900 text-sm mb-1">{{ tooltipMember.full_name }}</h4>
+              <p v-if="tooltipMember?.department" class="text-xs text-gray-600 mb-1">
+                <span class="text-gray-900">{{ tooltipMember.department }}</span>
+              </p>
+              <p v-if="tooltipMember?.position" class="text-xs text-gray-600 mb-1">
+                <span class="text-gray-900">{{ tooltipMember.position }}</span>
+              </p>
+            </div>
+          </div>
+          <a 
+          :href="`/mtp/next-connect?to=${encodeURIComponent(tooltipMember.email)}`"
+          target='_top'
+          class="w-full mt-4 ml-auto bg-white rounded-md py-2 px-4 text-sm font-medium transition-colors flex items-center justify-center gap-2"
+          style="border: 1px solid #0149C1; color: #0149C1;"
+          onmouseover="this.style.backgroundColor='#E6F2FF'"
+          onmouseout="this.style.backgroundColor='white'"
+          >
+            <DepartmentMessage class="w-4 h-4 text-[#0149C1]" />
+            Trò chuyện
+          </a>
+        </div>
+      </div>
+    </transition>
+  </teleport>
 </template>
 
 <script setup>
-import { createResource } from "frappe-ui"
-import { X } from 'lucide-vue-next'
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue"
-import { useRoute } from "vue-router"
-import LucideCirclePlus from "~icons/lucide/circle-plus"
-import AddTeamMemberModal from "./AddTeamMemberModal.vue"
+import { X } from 'lucide-vue-next';
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { useRoute } from "vue-router";
+import { useStore } from 'vuex';
+import LucideCirclePlus from "~icons/lucide/circle-plus";
+import DepartmentMessage from '../assets/Icons/DepartmentMessage.vue';
+import { getTeamMembers } from "../resources/team";
+import AddTeamMemberModal from "./AddTeamMemberModal.vue";
 
 const route = useRoute()
 const emit = defineEmits(['close'])
+
+const store = useStore()
+const currentUserEmail = computed(() => store.state.user.id)
 
 const showAddMemberModal = ref(false)
 const headerRef = ref(null)
 const isNarrow = ref(false)
 const isDrawer = ref(false)
 const visible = ref(true)
+const showTooltip = ref(false)
+const tooltipMember = ref(null)
+const tooltipType = ref('')
+const tooltipStyle = ref({})
+const arrowStyle = ref({})
 
 let resizeObserver = null
+let hideTimeout = null
 
 function checkHeaderWidth() {
   if (headerRef.value) {
@@ -144,20 +214,17 @@ onMounted(() => {
     }
     window.addEventListener('resize', checkScreenWidth)
   })
+  
+  if (route.params.team) {
+    getTeamMembers.reload()
+  }
 })
 
 onUnmounted(() => {
   if (resizeObserver && headerRef.value) resizeObserver.unobserve(headerRef.value)
   window.removeEventListener('resize', checkHeaderWidth)
   window.removeEventListener('resize', checkScreenWidth)
-})
-
-const getTeamMembers = createResource({
-  url: "drive.api.product.get_all_users",
-  params: {
-    team: route.params.team,
-  },
-  auto: true,
+  if (hideTimeout) clearTimeout(hideTimeout)
 })
 
 const teamMembers = computed(() => getTeamMembers.data || [])
@@ -190,11 +257,78 @@ const handleClose = () => {
   }
 }
 
-onMounted(() => {
-  if (route.params.team) {
-    getTeamMembers.reload()
+const handleMemberHover = (event, member, type) => {
+  const element = event.currentTarget
+  if (!element) return
+
+  const rect = element.getBoundingClientRect()
+  const tooltipWidth = 280
+  const padding = 16
+  const viewportWidth = window.innerWidth
+  
+  // Tính toán vị trí tối ưu cho tooltip
+  let left = rect.left + rect.width / 2 - tooltipWidth / 2
+  let transformOrigin = 'center'
+  let arrowLeft = '50%'
+  let arrowTransform = '-translate-x-1/2'
+  
+  // Kiểm tra nếu tooltip bị tràn bên phải
+  if (left + tooltipWidth + padding > viewportWidth) {
+    left = rect.right - tooltipWidth
+    transformOrigin = 'right'
+    arrowLeft = `${rect.width / 2 + (rect.right - left - tooltipWidth)}px`
+    arrowTransform = ''
   }
-})
+  
+  // Kiểm tra nếu tooltip bị tràn bên trái
+  if (left < padding) {
+    left = rect.left
+    transformOrigin = 'left'
+    arrowLeft = `${rect.width / 2}px`
+    arrowTransform = ''
+  }
+
+  tooltipMember.value = member
+  tooltipType.value = type
+  tooltipStyle.value = {
+    left: `${left}px`,
+    top: `${rect.bottom + 8}px`,
+    transformOrigin: transformOrigin
+  }
+  arrowStyle.value = {
+    left: arrowLeft,
+    transform: arrowTransform
+  }
+  
+  if (hideTimeout) {
+    clearTimeout(hideTimeout)
+    hideTimeout = null
+  }
+  showTooltip.value = true
+}
+
+const handleMouseLeave = () => {
+  // Tăng thời gian delay để có thời gian di chuột vào tooltip
+  hideTimeout = setTimeout(() => {
+    showTooltip.value = false
+    tooltipMember.value = null
+  }, 200)
+}
+
+const handleTooltipMouseEnter = () => {
+  // Hủy timeout khi di chuột vào tooltip
+  if (hideTimeout) {
+    clearTimeout(hideTimeout)
+    hideTimeout = null
+  }
+}
+
+const handleChat = (email) => {
+  console.log("Start chat with:", email)
+  showTooltip.value = false
+  const encoded = encodeURIComponent(email);
+  return `/mtp/next-connect?to=${encoded}`;
+}
 </script>
 
 <style scoped>
@@ -209,6 +343,14 @@ onMounted(() => {
   transition: opacity 0.2s ease;
 }
 .fade-enter-from, .fade-leave-to {
+  opacity: 0;
+}
+
+/* Tooltip transition */
+.tooltip-fade-enter-active, .tooltip-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.tooltip-fade-enter-from, .tooltip-fade-leave-to {
   opacity: 0;
 }
 </style>

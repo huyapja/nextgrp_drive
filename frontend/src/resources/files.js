@@ -367,13 +367,13 @@ export const move = createResource({
   url: "drive.api.files.move",
   onSuccess(data) {
     toast({
-      title: __("Moved to") + " " + data.title,
+      title: __("Moved to") + " " + breadcrumbs.value[breadcrumbs.value.length - 1].title,
       buttons: [
         {
           label: __("Go"),
           action: () => {
             openEntity(null, {
-              name: data.name,
+              name: breadcrumbs.value[breadcrumbs.value.length - 1].name,
               team: data.team,
               is_group: true,
               is_private: data.is_private,
