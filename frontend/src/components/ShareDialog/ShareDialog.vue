@@ -92,7 +92,7 @@
                     <span>+{{ additionalUsersCount }} khác</span>
                   </div>
 
-                  <!-- Input field -->
+                  <!-- Input field - Removed @blur -->
                   <input
                     v-model="query"
                     type="text"
@@ -100,12 +100,11 @@
                     class="flex-1 min-w-[120px] outline-none border-none bg-transparent text-sm outline-none focus:ring-0 !p-0"
                     @focus="handleInputFocus"
                     @input="handleInputChange"
-                    @blur="handleInputBlur"
                   />
                 </div>
               </div>
 
-              <!-- Dropdown suggestions with checkboxes -->
+              <!-- Dropdown suggestions - Added v-click-outside -->
               <div
                 v-if="
                   isDropdownOpen 
@@ -113,6 +112,7 @@
                   (filteredUsers.length > 0 || showAllUsers) &&
                   !showAllSharedUsers
                 "
+                v-click-outside="handleDropdownClickOutside"
                 class="absolute z-[10000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto !p-0"
                 @click.stop
               >
@@ -129,15 +129,6 @@
                   class="flex items-center p-3 hover:bg-gray-50 cursor-pointer"
                   @click.stop="toggleUserSelection(person)"
                 >
-                  <!-- Simple Checkbox -->
-                  <input
-                    type="checkbox"
-                    :checked="isUserSelected(person)"
-                    @change="toggleUserSelection(person)"
-                    @click.stop
-                    class="w-4 h-4 mr-3 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500 focus:ring-2"
-                  />
-
                   <CustomAvatar
                     :image="person.user_image"
                     :label="
@@ -158,20 +149,13 @@
               </div>
             </div>
 
-            <!-- Custom Permission Dropdown -->
+            <!-- Custom Permission Dropdown - Removed v-click-outside -->
             <div
               class="relative w-40"
               ref="permissionDropdownContainer"
             >
               <button
-                @click.stop="
-                  () => {
-                    isPermissionDropdownOpen = !isPermissionDropdownOpen
-                    if (isPermissionDropdownOpen) {
-                      activeUserDropdown.value = null
-                    }
-                  }
-                "
+                @click.stop="togglePermissionDropdown"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm min-h-[40px] bg-white text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
               >
                 <span class="text-gray-900">{{
@@ -195,9 +179,7 @@
 
               <!-- Permission Dropdown -->
               <div
-                v-if="isPermissionDropdownOpen"
-                ref="permissionDropdownContainer"
-                v-click-outside="() => (isPermissionDropdownOpen = false)"
+                v-if="isPermissionDropdownOpen && entity.owner === store.state.user.id"
                 class="absolute z-50 mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden permission-dropdown-content"
                 @click.stop
               >
@@ -307,21 +289,20 @@
                         stroke-linejoin="round"
                         stroke-width="2"
                         d="M19 9l-7 7-7-7"
-                        />
-                      </svg>
-                    </button>
-                    
+                      />
+                    </svg>
+                  </button>
 
                   <!-- Teleport dropdown ra ngoài body -->
                   <Teleport to="body">
                     <div
-                      v-if="activeUserDropdown === user.user "
+                      v-if="activeUserDropdown === user.user"
                       class="fixed inset-0 bg-black bg-opacity-0 z-[99999]"
                       @click="activeUserDropdown = null"
-                    ></div> 
+                    ></div>
                     <div
                       v-if="
-                        activeUserDropdown === user.user && dropdownPosition  && store.state.user.id === entity.owner
+                        activeUserDropdown === user.user && dropdownPosition && store.state.user.id === entity.owner
                       "
                       :style="{
                         position: 'fixed',
@@ -330,7 +311,6 @@
                         zIndex: 100000,
                       }"
                       @click.stop
-                      v-click-outside="() => (activeUserDropdown = null)"
                       class="w-30 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden dropdown-content user-dropdown"
                     >
                       <div
@@ -346,7 +326,6 @@
                         </div>
                       </div>
                       <div
-                        v-if="activeUserDropdown === user.user"
                         @click="updateUserAccess(user, 'editor')"
                         class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
                         :class="{
@@ -360,7 +339,7 @@
                       </div>
 
                       <div
-                        v-if="activeUserDropdown === user.user && user.source !== 'team'"
+                        v-if="user.source !== 'team'"
                         @click="updateUserAccess(user, 'unshare')"
                         class="flex items-center gap-3 px-3 py-3 hover:bg-gray-50 cursor-pointer"
                       >
@@ -370,13 +349,12 @@
                       </div>
                     </div>
                   </Teleport>
-                  
                 </div>
               </div>
             </div>
           </div>
         </div>
-        
+
         <div
           class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200"
         >
@@ -450,32 +428,49 @@ const shareAccess = ref("reader")
 const dropdownContainer = ref(null)
 const isPermissionDropdownOpen = ref(false)
 const permissionDropdownContainer = ref(null)
+const activeUserDropdown = ref(null)
+const userAccessDropdownContainer = ref(null)
+const showAllUsers = ref(false)
+const showAllSharedUsers = ref(false)
+const dropdownPosition = ref(null)
 
-// Only one click-outside handler for all dropdowns
+// Unified click-outside handler
 const handleClickOutside = (event) => {
-  // Kiểm tra xem click có phải vào các nút toggle hay không
-  const permissionToggle =
-    permissionDropdownContainer.value?.querySelector("button")
-  const userDropdownToggle = event.target.closest(
-    'button[data-dropdown="user-access"]'
-  )
-
-  // Kiểm tra xem click có phải vào nội dung của dropdown hay không
-  const permissionContent = document.querySelector(
-    ".permission-dropdown-content"
-  )
+  // Get references to all dropdown elements
+  const permissionButton = permissionDropdownContainer.value?.querySelector("button")
+  const permissionContent = document.querySelector(".permission-dropdown-content")
+  const userDropdownToggle = event.target.closest('button[data-dropdown="user-access"]')
   const userDropdownContent = document.querySelector(".user-dropdown")
+  const searchDropdown = dropdownContainer.value?.querySelector('.absolute')
 
-  const isInsideDropdown = [
-    permissionToggle,
-    userDropdownToggle,
-    permissionContent,
-    userDropdownContent,
-  ].some((el) => el?.contains(event.target))
+  // Check what was clicked
+  const clickedPermissionButton = permissionButton?.contains(event.target)
+  const clickedPermissionContent = permissionContent?.contains(event.target)
+  const clickedUserButton = userDropdownToggle !== null
+  const clickedUserContent = userDropdownContent?.contains(event.target)
+  const clickedSearchInput = dropdownContainer.value?.querySelector('input')?.contains(event.target)
+  const clickedSearchDropdown = searchDropdown?.contains(event.target)
 
-  if (!isInsideDropdown) {
+  // Close permission dropdown if clicked outside
+  if (!clickedPermissionButton && !clickedPermissionContent) {
     isPermissionDropdownOpen.value = false
+  }
+
+  // Close user dropdown if clicked outside
+  if (!clickedUserButton && !clickedUserContent) {
     activeUserDropdown.value = null
+    dropdownPosition.value = null
+  }
+
+  // Close search dropdown if clicked outside
+  if (!clickedSearchInput && !clickedSearchDropdown) {
+    // Don't close immediately to allow selection
+    setTimeout(() => {
+      if (!searchDropdown?.matches(':hover')) {
+        isDropdownOpen.value = false
+        showAllUsers.value = false
+      }
+    }, 100)
   }
 }
 
@@ -486,11 +481,6 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener("mousedown", handleClickOutside)
 })
-
-const activeUserDropdown = ref(null)
-const userAccessDropdownContainer = ref(null)
-const showAllUsers = ref(false)
-const showAllSharedUsers = ref(false)
 
 // Computed
 const openDialog = computed({
@@ -547,21 +537,8 @@ const handleInputFocus = () => {
   isDropdownOpen.value = true
   showAllUsers.value = true
   showAllSharedUsers.value = false
-}
-
-const handleInputBlur = (event) => {
-  // Don't close if clicking inside dropdown
-  if (
-    dropdownContainer.value &&
-    dropdownContainer.value.contains(event.relatedTarget)
-  ) {
-    return
-  }
-  // Delay to allow click events to fire
-  setTimeout(() => {
-    isDropdownOpen.value = false
-    showAllUsers.value = false
-  }, 200)
+  isPermissionDropdownOpen.value = false
+  activeUserDropdown.value = null
 }
 
 const handleInputChange = () => {
@@ -569,12 +546,15 @@ const handleInputChange = () => {
   showAllSharedUsers.value = false
 }
 
-// Check if user is selected and add to shared users directly
-const isUserSelected = (person) => {
-  return sharedUsers.value.some((user) => user.name === person.name)
+const handleDropdownClickOutside = (event) => {
+  const inputElement = dropdownContainer.value?.querySelector('input')
+  if (inputElement?.contains(event.target)) {
+    return
+  }
+  isDropdownOpen.value = false
+  showAllUsers.value = false
 }
 
-// Toggle user selection and add/remove from shared users immediately
 const toggleUserSelection = (person) => {
   const index = sharedUsers.value.findIndex((user) => user.name === person.name)
   if (index > -1) {
@@ -585,30 +565,17 @@ const toggleUserSelection = (person) => {
       accessLevel: shareAccess.value,
     })
   }
+  // Keep dropdown open
   isDropdownOpen.value = true
 }
 
-const selectUser = (person) => {
-  sharedUsers.value.push({
-    ...person,
-    accessLevel: shareAccess.value,
-  })
-  query.value = ""
-  isDropdownOpen.value = false
-  showAllUsers.value = false
-  showAllSharedUsers.value = false
-}
-
 const removeSharedUser = (index) => {
-  // If we're showing all users and removing from the expanded view
   if (showAllSharedUsers.value) {
     sharedUsers.value.splice(index, 1)
   } else {
-    // If we're in the normal view, remove from the actual array
     sharedUsers.value.splice(index, 1)
   }
 
-  // Close expanded view if no users left or less than 4 users
   if (sharedUsers.value.length <= 3) {
     showAllSharedUsers.value = false
   }
@@ -616,43 +583,43 @@ const removeSharedUser = (index) => {
 
 const togglePermissionDropdown = () => {
   isPermissionDropdownOpen.value = !isPermissionDropdownOpen.value
-  activeUserDropdown.value = null
-  showAllSharedUsers.value = false
+  console.log("Toggled permission dropdown:", isPermissionDropdownOpen.value)
+  
+  if (isPermissionDropdownOpen.value) {
+    activeUserDropdown.value = null
+    dropdownPosition.value = null
+    isDropdownOpen.value = false
+    showAllSharedUsers.value = false
+  }
 }
 
 const selectPermission = (permission) => {
   shareAccess.value = permission
   isPermissionDropdownOpen.value = false
-  // Đóng cả user dropdown nếu đang mở
   activeUserDropdown.value = null
 }
 
-const dropdownPosition = ref(null)
-
-// Cập nhật hàm toggleUserAccessDropdown
 const toggleUserAccessDropdown = async (user, event) => {
   event.stopPropagation()
   const isClosing = activeUserDropdown.value === user.user
 
-  // Đóng permission dropdown nếu đang mở
+  // Close permission dropdown
   isPermissionDropdownOpen.value = false
+  isDropdownOpen.value = false
 
   // Toggle user dropdown
   activeUserDropdown.value = isClosing ? null : user.user
   showAllSharedUsers.value = false
 
   if (!isClosing) {
-    // Đợi DOM update
     await nextTick()
 
-    // Tính toán vị trí của button
     const buttonElement = event.currentTarget
     const rect = buttonElement.getBoundingClientRect()
 
-    // Đặt dropdown ngay dưới button, căn phải
     dropdownPosition.value = {
-      top: rect.bottom + window.scrollY + 4, // 4px gap
-      left: rect.right + window.scrollX - 150, // 192px = w-48 (12rem)
+      top: rect.bottom + window.scrollY + 4,
+      left: rect.right + window.scrollX - 150,
     }
   } else {
     dropdownPosition.value = null
@@ -681,7 +648,6 @@ const addShares = async () => {
     emitter.emit("refreshUserList")
     emit("success")
 
-    // Refresh the users list
     setTimeout(() => {
       getUsersWithAccess.fetch({ entity: props.entity.name })
     }, 500)
@@ -696,12 +662,16 @@ const addShares = async () => {
 const updateUserAccess = async (user, newAccessLevel) => {
   try {
     activeUserDropdown.value = null
+    dropdownPosition.value = null
+    
     let access = {}
     if (newAccessLevel === "editor") {
       access = { read: 1, comment: 1, share: 1, write: 1 }
     } else if (newAccessLevel === "reader") {
       access = { read: 1, comment: 1, share: 1, write: 0 }
-    } else {  access = { method: 'unshare' } } 
+    } else {
+      access = { method: 'unshare' }
+    }
 
     await updateAccess.submit({
       entity_name: props.entity.name,
@@ -709,20 +679,17 @@ const updateUserAccess = async (user, newAccessLevel) => {
       ...access,
     })
 
-    // Nếu là unshare, xóa user khỏi danh sách ngay lập tức
     if (newAccessLevel === 'unshare') {
       const index = getUsersWithAccess.data.findIndex(u => u.user === user.user)
       if (index > -1) {
         getUsersWithAccess.data.splice(index, 1)
       }
     } else {
-      // Update local data cho các trường hợp khác
       Object.assign(user, access)
     }
 
     emitter.emit("refreshUserList")
     emit("success")
-    activeUserDropdown.value = null
   } catch (e) {
     console.error("Error updating access:", e)
   }
@@ -732,31 +699,9 @@ const getAccessLevel = (user) => {
   return user.write ? "editor" : "reader"
 }
 
-const closeAllDropdowns = () => {
-  isPermissionDropdownOpen.value = false
-  activeUserDropdown.value = null
-}
-
 const closeDialog = () => {
   emit("update:modelValue", "")
-  // Reset overflow khi đóng dialog
   document.body.style.overflow = ""
-}
-
-// Function to check if an element is inside a dropdown
-const isInsideDropdown = (element) => {
-  const dropdownElements = [
-    permissionDropdownContainer.value?.querySelector("button"),
-    document.querySelector('button[data-dropdown="user-access"]'),
-    document.querySelector(".permission-dropdown-content"),
-    document.querySelector(".user-dropdown"),
-  ]
-
-  return dropdownElements.some((el) => el?.contains(element))
-  if (!clickedInside) {
-    isPermissionDropdownOpen.value = false
-    activeUserDropdown.value = null
-  }
 }
 
 // Lifecycle
@@ -767,12 +712,6 @@ onMounted(async () => {
   } catch (error) {
     console.error("Error fetching data:", error)
   }
-
-  document.addEventListener("click", handleClickOutside)
-})
-
-onUnmounted(() => {
-  document.removeEventListener("click", handleClickOutside)
 })
 
 // Watch activeUserDropdown to handle body scroll
@@ -798,22 +737,12 @@ watch(
       isPermissionDropdownOpen.value = false
       activeUserDropdown.value = null
       showAllSharedUsers.value = false
+      dropdownPosition.value = null
     }
   }
 )
-
-// Clear query when no shared users
-// watch(sharedUsers, (newUsers) => {
-//   if (newUsers.length === 0) {
-//     query.value = ""
-//     showAllSharedUsers.value = false
-//     if (!showAllUsers.value) {
-//       isDropdownOpen.value = false
-//     }
-//   }
-// })
-
 </script>
+
 <style scoped>
 /* Scrollbar styling */
 .overflow-y-auto::-webkit-scrollbar {
