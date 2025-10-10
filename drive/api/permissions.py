@@ -126,6 +126,7 @@ def get_entity_with_permissions(entity_name):
     entity = frappe.db.get_value(
         "Drive File", {"name": entity_name}, ENTITY_FIELDS + ["team"], as_dict=1
     )
+    print("Fetched entity:", entity)
     if not entity:
         frappe.throw(
             "Tài liệu bạn truy cập đã bị xoá và không còn khả dụng.", {"error": frappe.NotFound}

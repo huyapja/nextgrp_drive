@@ -347,11 +347,11 @@ const getDisplayName = (row) => {
       row.shortcut_title?.slice(row.shortcut_title.lastIndexOf("."))
     )
   } else {
-    if (row.title.lastIndexOf(".") === -1 || row.is_group || row.document) {
+    if (row.title?.lastIndexOf(".") === -1 || row.is_group || row.document) {
       return row.title
     }
     return (
-      row.title.slice(0, row.title.lastIndexOf(".")) +
+      row.title?.slice(0, row.title.lastIndexOf(".")) +
       row.title?.slice(row.title.lastIndexOf("."))
     )
   }

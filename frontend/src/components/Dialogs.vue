@@ -78,7 +78,7 @@
     v-if="dialog === 'copy'"
     v-model="dialog"
     :entities="selections"
-    @success="resetDialog"
+    @success="addFromList(selections)"
   />
 
   <DeleteDialog
@@ -111,6 +111,7 @@ import { useTimeAgo } from "@vueuse/core"
 import { openEntity } from "../utils/files"
 import MoveOwnerDialog from "@/components/MoveOwnerDialog.vue"
 import CopyDialog from "@/components/CopyDialog.vue"
+import { data } from "autoprefixer"
 
 const dialog = defineModel(String)
 const store = useStore()
@@ -170,6 +171,23 @@ const handleRefresh = () => {
   if (props.getEntities?.fetch) {
     props.getEntities.fetch(props.getEntities.params)
   }
+}
+
+function addFromList(entities) {
+  props.getEntities.setData((data) => {
+    console.log('Adding from list', entities, data)
+    const entitiesCustom = entities.map((e) => ({
+      ...e,
+      title: e.title + " (Bản sao)",
+      accessed: new Date().getTime(),
+      relativeModified: useTimeAgo(e.modified),
+    }))
+
+    const newData = [ ...entitiesCustom, ...data]
+    sortEntities(newData, store.state.sortOrder)
+    return newData
+  })
+  resetDialog()
 }
 
 function removeFromList(entities, move = true) {
