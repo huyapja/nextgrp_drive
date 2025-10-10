@@ -118,8 +118,7 @@
 import { userList } from "@/resources/permissions";
 import {
   createResource,
-  Dialog,
-  toast
+  Dialog
 } from "frappe-ui";
 import Button from 'primevue/button';
 import Dropdown from 'primevue/dropdown';
@@ -127,6 +126,7 @@ import ProgressSpinner from 'primevue/progressspinner';
 import RadioButton from 'primevue/radiobutton';
 import { computed, onMounted, ref, watch } from 'vue';
 import { useStore } from "vuex";
+import { toast } from "../utils/toasts";
 import CustomAvatar from "./CustomAvatar.vue";
 
 const props = defineProps({ 
@@ -179,10 +179,10 @@ const moveOwnerResource = createResource({
     resetForm()
     openDialog.value = false
     submitting.value = false
-    toast.success('Chuyển quyền sở hữu thành công')
+    toast('Chuyển quyền sở hữu thành công')
   },
   onError: (err) => {
-    toast.error(err.message || 'Có lỗi xảy ra khi chuyển quyền sở hữu')
+    toast('Có lỗi xảy ra khi chuyển quyền sở hữu')
     openDialog.value = false
     submitting.value = false
   }
