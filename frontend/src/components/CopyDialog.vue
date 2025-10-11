@@ -570,20 +570,20 @@ const teams = createResource({
     if (data && typeof data === "object") {
       let teamsArray = Object.values(data)
 
-      // Kiểm tra nếu là trưởng nhóm
-      const isLeader = teamsArray.some(
-        (team) =>
-          team.name === route.params.team &&
-          team.owner === store.state.user.id &&
-          props.entities[0]?.owner !== store.state.user.id
-      )
+      // // Kiểm tra nếu là trưởng nhóm
+      // const isLeader = teamsArray.some(
+      //   (team) =>
+      //     team.name === route.params.team &&
+      //     team.owner === store.state.user.id &&
+      //     props.entities[0]?.owner !== store.state.user.id
+      // )
 
-      // Nếu là trưởng nhóm, chỉ hiện nhóm hiện tại
-      if (isLeader) {
-        teamsArray = teamsArray.filter(
-          (team) => team.name === route.params.team
-        )
-      }
+      // // Nếu là trưởng nhóm, chỉ hiện nhóm hiện tại
+      // if (isLeader) {
+      //   teamsArray = teamsArray.filter(
+      //     (team) => team.name === route.params.team
+      //   )
+      // }
 
       teams.data = teamsArray
     }
@@ -602,24 +602,24 @@ watch(
     console.log("Entity belongs to a team where the user is the owner", props.entities[0]);
     
     // Nếu không phải là chủ của file, chỉ hiển thị tab nhóm
-    if (props.entities[0]?.owner !== store.state.user.id) {
-      tabs.value = [
-        { label: __("Nhóm"), value: "team" },
-      ]
-      tabIndex.value = 0 // Đặt về index 0 vì chỉ có 1 tab
+    // if (props.entities[0]?.owner !== store.state.user.id) {
+    //   tabs.value = [
+    //     { label: __("Nhóm"), value: "team" },
+    //   ]
+    //   tabIndex.value = 0 // Đặt về index 0 vì chỉ có 1 tab
       
-      // Quan trọng: Trigger lại watcher để load dữ liệu đúng
-      nextTick(() => {
-        // Force trigger tab change với giá trị mới
-        const currentTab = tabs.value[0]
-        if (currentTab?.value === "team") {
-          breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
-          currentTeam.value = null
-          teams.fetch()
-        }
-      })
-      return
-    }
+    //   // Quan trọng: Trigger lại watcher để load dữ liệu đúng
+    //   nextTick(() => {
+    //     // Force trigger tab change với giá trị mới
+    //     const currentTab = tabs.value[0]
+    //     if (currentTab?.value === "team") {
+    //       breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
+    //       currentTeam.value = null
+    //       teams.fetch()
+    //     }
+    //   })
+    //   return
+    // }
     
     // Nếu là chủ của file, hiển thị cả 2 tab
     tabs.value = [
@@ -842,7 +842,6 @@ function navigateToFolder(folder) {
 
 // Sửa lại navigateToTeam function
 function navigateToTeam(team) {
-  console.log("Navigating to team:", team)
   // Update breadcrumbs to show we're inside the team
   currentTeam.value = team.name
   breadcrumbs.value = [

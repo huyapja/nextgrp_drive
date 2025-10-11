@@ -161,7 +161,7 @@
                 <span class="text-gray-900">{{
                   shareAccess === "reader" ? "Người xem" : "Người chỉnh sửa"
                 }}</span>
-                <svg
+                <svg v-if="entity.owner === store.state.user.id"
                   class="w-4 h-4 text-gray-400 transition-transform"
                   :class="{ 'rotate-180': isPermissionDropdownOpen }"
                   fill="none"
