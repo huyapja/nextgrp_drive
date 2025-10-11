@@ -317,6 +317,7 @@ const onDeleteDisabledRow = (event, row) => {
 function onThumbnailError(event, row) {
   // Fallback về icon mặc định nếu thumbnail lỗi
   event.target.src = getThumbnailUrl(row.name, row.file_type)[1]
+  
 }
 
 const formattedRows = computed(() => {
@@ -478,10 +479,9 @@ const onRowClick = (event) => {
   const row = event?.data
   if (isRowDisabled(row)) return // Không mở được disabled rows
 
-  console.log("Row clicked:", row)
   if (row && typeof row === "object" && row.name !== undefined) {
     const team = row.team || (route.params && route.params.team) || null
-    openEntity(team, row)
+    openEntity(team, row, false, false)
   }
 }
 

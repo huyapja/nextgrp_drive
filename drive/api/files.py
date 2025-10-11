@@ -618,7 +618,7 @@ def get_file_content(entity_name, trigger_download=0, jwt_token=None):
     trigger_download = int(trigger_download)
     drive_file = frappe.get_value(
         "Drive File",
-        {"name": entity_name, "is_active": 1},
+        {"name": entity_name},
         [
             "is_group",
             "is_link",
@@ -632,7 +632,7 @@ def get_file_content(entity_name, trigger_download=0, jwt_token=None):
         ],
         as_dict=1,
     )
-    if not drive_file or drive_file.is_group or drive_file.is_link or drive_file.is_active != 1:
+    if not drive_file or drive_file.is_group or drive_file.is_link:
         frappe.throw("Not found", frappe.NotFound)
 
     if drive_file.document:
@@ -818,7 +818,9 @@ def delete_entities(entity_names=None, clear_all=None):
             "Drive Shortcut", {"is_active": 0, "shortcut_owner": frappe.session.user}, pluck="name"
         )
         for shortcut_name in shortcut_names:
-            frappe.db.set_value("Drive Shortcut", shortcut_name, "is_active", -1)
+            frappe.db.set_value(
+                "Drive Shortcut", shortcut_name, "is_active", -1, update_modified=False
+            )
 
     elif isinstance(entity_names, str):
         entity_names = json.loads(entity_names)
@@ -856,8 +858,10 @@ def delete_entities(entity_names=None, clear_all=None):
                             f"Shortcut {entity_name} not found in trash or you don't have permission to delete it"
                         )
 
-                    # Soft delete: set is_active = -1
-                    frappe.db.set_value("Drive Shortcut", entity_name, "is_active", -1)
+                    # Soft delete: set is_active = -1 với ignore_permissions
+                    frappe.db.set_value(
+                        "Drive Shortcut", entity_name, "is_active", -1, update_modified=False
+                    )
 
                 except frappe.DoesNotExistError:
                     frappe.throw(f"Shortcut {entity_name} not found")
@@ -1500,32 +1504,20 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
         # Xử lý parameter: ưu tiên new_parent, nếu không có mới dùng team
         if not new_parent or not new_parent.strip():
             if team:
-                # Không có new_parent, dùng home folder của team được chỉ định
                 team_home_folder = get_home_folder(team)
                 if team_home_folder:
                     new_parent = team_home_folder.name
-                    print(f"Using team home folder: {new_parent} for team: {team}")
                 else:
                     frappe.throw(f"Cannot find home folder for team {team}")
             else:
-                # Không có cả new_parent và team, dùng home folder của team hiện tại
                 new_parent = get_home_folder(source_doc.team).name
-                print(f"Using current team home folder: {new_parent}")
         else:
-            # Có new_parent rồi - ưu tiên sử dụng new_parent
-            # Nếu có team parameter, chỉ dùng để validation (optional)
-            print(f"Using provided new_parent: {new_parent}")
             if team:
                 new_parent_team = frappe.db.get_value("Drive File", new_parent, "team")
                 if new_parent_team != team:
-                    # Chỉ warning, không throw error vì new_parent đã được chỉ định rõ ràng
                     print(
                         f"Warning: new_parent team ({new_parent_team}) != provided team ({team})"
                     )
-                    # Hoặc nếu muốn strict validation, uncomment dòng dưới:
-                    # frappe.throw(_(
-                    #     "Thư mục đích thuộc team {0} nhưng bạn chỉ định team {1}"
-                    # ).format(new_parent_team, team))
 
         # Kiểm tra new_parent có tồn tại không
         if not frappe.db.exists("Drive File", new_parent):
@@ -1540,13 +1532,14 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
         new_parent_team = frappe.db.get_value("Drive File", new_parent, "team")
         will_change_team = source_doc.team != new_parent_team
 
-        print(
-            f"Copy: source_team={source_doc.team}, dest_team={new_parent_team}, will_change_team={will_change_team}"
-        )
-
         # Hàm đệ quy để copy folder và tất cả nội dung bên trong
         def copy_recursive(source_name, dest_parent, dest_team):
             """Copy file/folder và tất cả con của nó"""
+            import shutil
+            from pathlib import Path
+            import os
+            import tempfile
+
             source = frappe.get_doc("Drive File", source_name)
 
             # Tạo bản copy
@@ -1564,13 +1557,178 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
 
             # Xóa permissions nếu chuyển team
             if will_change_team:
-                # Clear permissions - sẽ được tạo lại theo logic của hệ thống
                 copied.permissions = []
 
-            # Insert document
-            copied.insert(ignore_permissions=True)
+            # ===== COPY FILE VẬT LÝ =====
+            if not source.is_group and not source.is_link:
+                source_path = getattr(source, "path", None)
 
-            print(f"Copied {source.title} -> {copied.name} in {dest_parent}")
+                if source_path:
+                    # Insert trước để có ID
+                    copied.insert(ignore_permissions=True)
+
+                    # Tạo path mới
+                    home_folder = get_home_folder(dest_team)
+                    file_ext = Path(source_path).suffix
+                    new_path_relative = f"{home_folder['name']}/{copied.name}{file_ext}"
+
+                    manager = FileManager()
+                    file_copied = False
+
+                    # Get file from S3
+                    try:
+                        file_obj = manager.get_file(source_path)
+                        file_content = file_obj.read()
+
+                        # Create temporary file
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=file_ext) as tmp:
+                            tmp.write(file_content)
+                            tmp_path = tmp.name
+
+                        try:
+                            # Upload via FileManager
+                            manager.upload_file(tmp_path, new_path_relative, copied)
+
+                            copied.path = new_path_relative
+                            copied.save(ignore_permissions=True)
+                            file_copied = True
+
+                        finally:
+                            # Clean up temp file
+                            if os.path.exists(tmp_path):
+                                os.unlink(tmp_path)
+
+                    except Exception as e:
+                        import traceback
+
+                        copied.path = ""
+                        copied.save(ignore_permissions=True)
+
+                    # Copy thumbnail only if file was copied successfully
+                    if file_copied:
+                        try:
+                            thumbnail_copied = False
+                            thumbnail_content = None
+
+                            # Try to get existing thumbnail
+                            try:
+                                thumbnail = manager.get_thumbnail(source.team, source_name)
+                                thumbnail_content = thumbnail.read()
+
+                                # Create temp file for thumbnail
+                                with tempfile.NamedTemporaryFile(
+                                    delete=False, suffix=".jpg"
+                                ) as tmp_thumb:
+                                    tmp_thumb.write(thumbnail_content)
+                                    tmp_thumb_path = tmp_thumb.name
+
+                                try:
+                                    # Check if save_thumbnail method exists
+                                    if hasattr(manager, "save_thumbnail"):
+                                        # Try with file path
+                                        manager.save_thumbnail(
+                                            dest_team, copied.name, tmp_thumb_path
+                                        )
+
+                                        thumbnail_copied = True
+                                    else:
+                                        # Upload directly to S3 thumbnails path
+                                        thumb_s3_path = f"thumbnails/{dest_team}/{copied.name}.jpg"
+
+                                        # Use upload_file method
+                                        manager.upload_file(tmp_thumb_path, thumb_s3_path, None)
+                                        thumbnail_copied = True
+
+                                finally:
+                                    # Clean up temp thumbnail
+                                    if os.path.exists(tmp_thumb_path):
+                                        os.unlink(tmp_thumb_path)
+
+                                # Cache thumbnail
+                                if thumbnail_copied:
+                                    frappe.cache().set_value(
+                                        copied.name,
+                                        BytesIO(thumbnail_content),
+                                        expires_in_sec=60 * 60,
+                                    )
+                                    print(f"✓ Thumbnail cached")
+
+                            except FileNotFoundError:
+                                print(f"⚠ No existing thumbnail found")
+                            except Exception as e:
+                                print(f"⚠ Get existing thumbnail failed: {str(e)}")
+
+                            # Generate thumbnail for images if not copied
+                            if (
+                                not thumbnail_copied
+                                and source.mime_type
+                                and source.mime_type.startswith("image/")
+                            ):
+                                try:
+                                    from PIL import Image
+
+                                    # Generate from file_content
+                                    img = Image.open(BytesIO(file_content))
+                                    thumbnail_size = (300, 300)
+                                    img.thumbnail(thumbnail_size, Image.Resampling.LANCZOS)
+
+                                    # Save to temp file
+                                    with tempfile.NamedTemporaryFile(
+                                        delete=False, suffix=".jpg"
+                                    ) as tmp_thumb:
+                                        img.save(tmp_thumb, format="JPEG", quality=85)
+                                        tmp_thumb_path = tmp_thumb.name
+
+                                    try:
+                                        if hasattr(manager, "save_thumbnail"):
+                                            manager.save_thumbnail(
+                                                dest_team, copied.name, tmp_thumb_path
+                                            )
+                                        else:
+                                            thumb_s3_path = (
+                                                f"thumbnails/{dest_team}/{copied.name}.jpg"
+                                            )
+                                            manager.upload_file(
+                                                tmp_thumb_path, thumb_s3_path, None
+                                            )
+
+                                        # Cache it
+                                        with open(tmp_thumb_path, "rb") as f:
+                                            thumb_content = f.read()
+                                            frappe.cache().set_value(
+                                                copied.name,
+                                                BytesIO(thumb_content),
+                                                expires_in_sec=60 * 60,
+                                            )
+
+                                    finally:
+                                        if os.path.exists(tmp_thumb_path):
+                                            os.unlink(tmp_thumb_path)
+
+                                except ImportError:
+                                    print(f"⚠ PIL not available for thumbnail generation")
+                                except Exception as gen_error:
+                                    print(f"⚠ Thumbnail generation failed: {str(gen_error)}")
+                                    import traceback
+
+                                    print(traceback.format_exc())
+
+                        except Exception as thumb_error:
+                            print(f"⚠ Thumbnail handling error: {str(thumb_error)}")
+                            import traceback
+
+                            print(traceback.format_exc())
+
+                    return copied
+                else:
+                    print(f"✗ No path for {source.title}")
+                    copied.insert(ignore_permissions=True)
+                    return copied
+            else:
+                # Folder hoặc link
+                copied.insert(ignore_permissions=True)
+
+            print(f"\nCopied {source.title} -> {copied.name} in {dest_parent}")
 
             # Nếu là folder, copy tất cả file/folder con
             if source.is_group:

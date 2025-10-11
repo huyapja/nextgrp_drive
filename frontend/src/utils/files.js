@@ -21,17 +21,17 @@ import { toast } from "@/utils/toasts"
 import { createResource } from "frappe-ui"
 import { getPersonal } from "../resources/files"
 
-export const openEntity = (team = null, entity, new_tab = false) => {
+export const openEntity = (team = null, entity, new_tab = false, is_view = true) => {
   store.commit("setActiveEntity", entity)
   if (!team) team = entity.team
-  if (!entity.is_group) {
+  if (!entity.is_group && is_view) {
     if (!getRecents.data?.some?.((k) => k.name === entity.name))
       getRecents.setData((data) => [...(data || []), entity])
-    mutate([entity], (e) => {
-      e.accessed = Date() 
-      entity.relativeAccessed = useTimeAgoVi(entity.accessed)
-    })
-  }
+      mutate([entity], (e) => {
+        e.accessed = Date() 
+        entity.relativeAccessed = useTimeAgoVi(entity.accessed)
+      })
+    }
   if (new_tab) {
     return window.open(getLink(entity, false), "_blank")
   }

@@ -178,7 +178,7 @@ function addFromList(entities) {
     console.log('Adding from list', entities, data)
     const entitiesCustom = entities.map((e) => ({
       ...e,
-      title: e.title + " (Bản sao)",
+      title: e.title.includes("(Bản sao)") ? e.title : e.title + " (Bản sao)",
       accessed: new Date().getTime(),
       relativeModified: useTimeAgo(e.modified),
     }))
