@@ -110,6 +110,27 @@ export default {
     }
   },
   methods: {
+    // Hàm bỏ dấu tiếng Việt
+    removeVietnameseTones(str) {
+      if (!str) return ''
+      
+      str = str.toLowerCase()
+      
+      // Bỏ dấu các ký tự tiếng Việt
+      str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, 'a')
+      str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g, 'e')
+      str = str.replace(/ì|í|ị|ỉ|ĩ/g, 'i')
+      str = str.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g, 'o')
+      str = str.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g, 'u')
+      str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g, 'y')
+      str = str.replace(/đ/g, 'd')
+      
+      // Bỏ các ký tự đặc biệt
+      str = str.replace(/[^a-z0-9\s]/g, '')
+      
+      return str
+    },
+    
     initEditor() {
       this.editor = new Editor({
         content: this.modelValue,
@@ -126,15 +147,57 @@ export default {
               class: "mention",
             },
             suggestion: {
+              // CHO PHÉP DẤU CÁCH TRONG MENTION
+              char: '@',
+              allowSpaces: true,
+              
               items: ({ query }) => {
                 console.log("Mention items function called, query:", query, "data:", this.usersData)
                 const users = this.usersData || []
+                
+                // Tìm kiếm linh hoạt hơn với nhiều từ
+                const queryLower = query.toLowerCase().trim()
+                
+                if (!queryLower) {
+                  // Nếu không có query, hiển thị tất cả
+                  return users.slice(0, 10)
+                }
+                
+                // Bỏ dấu query để tìm kiếm
+                const queryNoTones = this.removeVietnameseTones(queryLower)
+                
                 return users
-                  .filter((item) =>
-                    item.label.toLowerCase().includes(query.toLowerCase())
-                  )
+                  .filter((item) => {
+                    const labelLower = item.label.toLowerCase()
+                    const labelNoTones = this.removeVietnameseTones(labelLower)
+                    
+                    // Tìm kiếm theo từng từ trong query
+                    // Hỗ trợ cả CÓ DẤU và KHÔNG DẤU
+                    // VD: "tran quang" hoặc "trần quang" đều tìm được "Trần Quang"
+                    const queryWords = queryNoTones.split(/\s+/).filter(w => w)
+                    
+                    return queryWords.every(word => {
+                      // Tìm cả trong bản có dấu và không dấu
+                      return labelLower.includes(word) || labelNoTones.includes(word)
+                    })
+                  })
+                  .sort((a, b) => {
+                    // Ưu tiên kết quả khớp chính xác hơn
+                    const aLabel = this.removeVietnameseTones(a.label.toLowerCase())
+                    const bLabel = this.removeVietnameseTones(b.label.toLowerCase())
+                    
+                    const aStartsWith = aLabel.startsWith(queryNoTones)
+                    const bStartsWith = bLabel.startsWith(queryNoTones)
+                    
+                    if (aStartsWith && !bStartsWith) return -1
+                    if (!aStartsWith && bStartsWith) return 1
+                    
+                    // Nếu cả 2 đều starts with hoặc đều không, giữ nguyên thứ tự
+                    return 0
+                  })
                   .slice(0, 10)
               },
+              
               render: () => {
                 let component
                 let popup

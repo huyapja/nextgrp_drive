@@ -4,7 +4,7 @@
     ondrop="return false;"
     class="bg-surface-white border-b w-full px-5 py-2.5 flex items-center flex-wrap gap-2 justify-between min-h-[72px]"
   >
-    <div class="flex flex-row flex-wrap">
+    <div class="flex flex-row flex-wrap gap-2">
       <Breadcrumbs
         :items="store.state.breadcrumbs"
         class="select-none !truncate breadcrumbs-custom"
@@ -26,6 +26,12 @@
           </div>
         </template>
       </Breadcrumbs>
+      <LucideStar
+        v-if="rootEntity?.is_favourite"
+        width="16"
+        height="16"
+        class="my-auto stroke-amber-500 fill-amber-500"
+      />
     </div>
 
     <div class="flex gap-2 justify-between">
@@ -42,13 +48,6 @@
           {{ getTeamMembers?.data?.length }} thành viên
         </p>
       </button>
-
-      <LucideStar
-        v-if="rootEntity?.is_favourite"
-        width="16"
-        height="16"
-        class="my-auto stroke-amber-500 fill-amber-500"
-      />
 
       <div
         v-if="

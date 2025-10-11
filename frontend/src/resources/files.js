@@ -52,6 +52,14 @@ export const getRecents = createResource({
   makeParams: (params) => {
     return { ...params, recents_only: true }
   },
+  transform(data) {
+    if (!data) return data
+
+    return data.map((item) => ({
+      ...item,
+      team_name: item.is_private === 1 ? null : item.team_name,
+    }))
+  },
 })
 
 export const getPersonal = createResource({
@@ -69,6 +77,14 @@ export const getFavourites = createResource({
   cache: "favourite-folder-contents",
   makeParams: (params) => {
     return { ...params, favourites_only: true, personal: -2 }
+  },
+  transform(data) {
+    if (!data) return data
+
+    return data.map((item) => ({
+      ...item,
+      team_name: item.is_private === 1 ? null : item.team_name,
+    }))
   },
 })
 
@@ -279,11 +295,11 @@ const handleClearTrash = (entities) => {
 export const clearTrash = createResource({
   url: "drive.api.files.delete_entities",
   makeParams: (data) => {
-    if (!data) {
+    // if (!data) {
       getTrash.setData([])
-      return { clear_all: true }
-    }
-    return { entity_names: handleClearTrash(data.entities) }
+    //   return { clear_all: true }
+    // }
+    return { entity_names: handleClearTrash(getTrash.data) }
   },
   onSuccess: () => {
     // Buggy for some reason
@@ -367,13 +383,13 @@ export const move = createResource({
   url: "drive.api.files.move",
   onSuccess(data) {
     toast({
-      title: __("Moved to") + " " + breadcrumbs.value[breadcrumbs.value.length - 1].title,
+      title: __("Moved to") + " " + data.title,
       buttons: [
         {
           label: __("Go"),
           action: () => {
             openEntity(null, {
-              name: breadcrumbs.value[breadcrumbs.value.length - 1].name,
+              name: data.name,
               team: data.team,
               is_group: true,
               is_private: data.is_private,

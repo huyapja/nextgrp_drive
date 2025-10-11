@@ -150,7 +150,7 @@ def get_entity_with_permissions(entity_name):
         },
         ["entity as is_favourite"],
     )
-    mark_as_viewed(entity)
+    # mark_as_viewed(entity)
     file_type = get_file_type(entity)
     return_obj = (
         entity
