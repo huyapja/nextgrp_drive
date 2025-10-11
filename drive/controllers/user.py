@@ -4,9 +4,9 @@ from frappe.utils import cint
 
 @frappe.whitelist()
 def add_user_to_drive_team(doc, method):
-    if doc.user_type != "System User" or not cint(doc.enabled):
+    print("Adding user to Drive Team...", doc.user_type, cint(doc.enabled))
+    if not cint(doc.enabled):
         return
-
     try:
         if "nextgrp" not in frappe.get_installed_apps():
             return
