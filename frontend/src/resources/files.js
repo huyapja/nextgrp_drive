@@ -1,4 +1,3 @@
-import { openEntity } from "@/utils/files"
 import { toast } from "@/utils/toasts"
 import { createResource } from "frappe-ui"
 
@@ -296,12 +295,13 @@ export const clearTrash = createResource({
   url: "drive.api.files.delete_entities",
   makeParams: (data) => {
     // if (!data) {
-      getTrash.setData([])
-    //   return { clear_all: true }
+      
+      // return { clear_all: true }
     // }
     return { entity_names: handleClearTrash(getTrash.data) }
   },
   onSuccess: () => {
+    getTrash.setData([])
     // Buggy for some reason
     const files = clearTrash.params.entity_names?.length
     toast(
@@ -310,7 +310,7 @@ export const clearTrash = createResource({
             files,
             files === 1 ? "" : "s"
           )
-        : __("Permanently deleted all files.")
+        : __("Permanently deleted all file.")
     )
   },
 })
@@ -381,27 +381,27 @@ export const togglePersonal = createResource({
 
 export const move = createResource({
   url: "drive.api.files.move",
-  onSuccess(data) {
-    toast({
-      title: __("Moved to") + " " + data.title,
-      buttons: [
-        {
-          label: __("Go"),
-          action: () => {
-            openEntity(null, {
-              name: data.name,
-              team: data.team,
-              is_group: true,
-              is_private: data.is_private,
-            })
-          },
-        },
-      ],
-    })
+  // onSuccess(data) {
+  //   toast({
+  //     title: __("Moved to") + " " + data.title,
+  //     buttons: [
+  //       {
+  //         label: __("Go"),
+  //         action: () => {
+  //           openEntity(null, {
+  //             name: data.name,
+  //             team: data.team,
+  //             is_group: true,
+  //             is_private: data.is_private,
+  //           })
+  //         },
+  //       },
+  //     ],
+  //   })
 
-    // Update moved-into folder
-    // updateMoved(data.name, data.team, data.is_private, data.is_shortcut)
-  },
+  //   // Update moved-into folder
+  //   // updateMoved(data.name, data.team, data.is_private, data.is_shortcut)
+  // },
   onError() {
     toast(__("There was an error."))
   },

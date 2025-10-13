@@ -141,22 +141,51 @@
               <div
                 v-for="folder in currentTree.children"
                 :key="folder.value"
-                class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
-                :class="{ 'bg-[#D4E1F9]': currentFolder === folder.value }"
-                @click.stop.prevent="navigateToFolder(folder)"
+                @click.stop.prevent="
+                  isFolderDisabled(folder.value)
+                    ? null
+                    : navigateToFolder(folder)
+                "
               >
-                <TeamIcon class="w-5 h-5 text-gray-500 mr-2" />
-                <span
-                  class="flex-1 font-[500] text-[14px] text-gray-900 truncate"
-                  >{{ folder.label }}</span
+                <div
+                  class="folder-item flex items-center p-2 rounded group"
+                  :class="{
+                    '!bg-[#D4E1F9]':
+                      currentFolder === folder.value &&
+                      !isFolderDisabled(folder.value),
+                    'opacity-70 !bg-[#f0f0f0] cursor-not-allowed':
+                      isFolderDisabled(folder.value),
+                    'hover:bg-[#D4E1F9] cursor-pointer': !isFolderDisabled(
+                      folder.value
+                    ),
+                  }"
                 >
-                <!-- <button
-                  class="hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
-                  @click.stop.prevent="navigateToFolder(folder)"
-                  title="Mở thư mục"
-                > -->
-                  <LucideChevronRight class="w-5 h-5 text-[#525252]" />
-                <!-- </button> -->
+                  <TeamIcon
+                    class="w-5 h-5 mr-2"
+                    :class="
+                      isFolderDisabled(folder.value)
+                        ? 'text-gray-400'
+                        : 'text-gray-500'
+                    "
+                  />
+                  <span
+                    class="flex-1 font-[500] text-[14px] truncate"
+                    :class="
+                      isFolderDisabled(folder.value)
+                        ? 'text-gray-400'
+                        : 'text-gray-900'
+                    "
+                    >{{ folder.label }}</span
+                  >
+                  <LucideChevronRight
+                    class="w-5 h-5"
+                    :class="
+                      isFolderDisabled(folder.value)
+                        ? 'text-gray-400'
+                        : 'text-[#525252]'
+                    "
+                  />
+                </div>
               </div>
             </div>
 
@@ -171,7 +200,10 @@
 
           <!-- Create Folder Button -->
           <div
-            v-if="tabs[tabIndex]?.value === 'personal' || (tabs[tabIndex]?.value === 'team' && breadcrumbs.length > 1)"
+            v-if="
+              tabs[tabIndex]?.value === 'personal' ||
+              (tabs[tabIndex]?.value === 'team' && breadcrumbs.length > 1)
+            "
             class="mt-2 flex justify-start flex-shrink-0"
           >
             <Button
@@ -218,7 +250,6 @@
           <Button
             variant="solid"
             class="action-button !bg-[#0149C1] text-white min-w-[130px]"
-            :disabled="!canPerformAction"
             :loading="copyLoading"
             @click="performCopy"
           >
@@ -284,6 +315,7 @@
 
 <script setup>
 import { allFolders } from "@/resources/files"
+import { openEntity as openEntityAfterMove } from "@/utils/files"
 import { Button, createResource } from "frappe-ui"
 import { Dialog } from "primevue"
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
@@ -375,6 +407,10 @@ const currentTree = computed(() => {
   }
 })
 
+function isFolderDisabled(folderValue) {
+  return props.entities.some((entity) => entity.name === folderValue)
+}
+
 const open = computed({
   get() {
     return props.modelValue === "move"
@@ -419,21 +455,17 @@ const currentLocationName = computed(() => {
   if (breadcrumbs.value.length > 1) {
     return breadcrumbs.value[breadcrumbs.value.length - 1].title
   }
-  
+
   // Lấy title từ tab hiện tại thay vì từ breadcrumbs
   const currentTab = tabs.value[tabIndex.value]
   if (currentTab) {
     return currentTab.label
   }
-  
+
   // Fallback
   return breadcrumbs.value[0].title
 })
 
-// Check if action can be performed
-const canPerformAction = computed(() => {
-  return currentFolder.value !== "" || breadcrumbs.value[0].title !== route.name
-})
 
 // Get current location title for navigation header
 function getCurrentLocationTitle() {
@@ -501,8 +533,9 @@ const folderPermissions = createResource({
   onSuccess: (data) => {
     let first = [
       {
-        name: "",
+        name: data.is_private ? "" : "",
         title: data.is_private ? __("Tài liệu của tôi") : __("Team"),
+        is_private: data.is_private ? 1 : 0,
       },
     ]
     breadcrumbs.value = first.concat(data.breadcrumbs.slice(1))
@@ -519,10 +552,15 @@ const folderContents = createResource({
     ...params,
   }),
   onSuccess: (data) => {
-    console.log("folderContents.onSuccess:", data, "currentTeam:", currentTeam.value)
+    console.log(
+      "folderContents.onSuccess:",
+      data,
+      "currentTeam:",
+      currentTeam.value
+    )
     if (data && Array.isArray(data)) {
       const folders = data.filter((item) => item.is_group)
-      
+
       // Nếu đang trong một team cụ thể, build vào currentTeamFolders
       if (currentTeam.value && breadcrumbs.value.length > 1) {
         buildTreeStructure(folders, currentTeamFolders)
@@ -597,16 +635,17 @@ watch(
       tabIndex.value = 0
       return
     }
-    
-    console.log("Entity belongs to a team where the user is the owner", props.entities[0]);
-    
+
+    console.log(
+      "Entity belongs to a team where the user is the owner",
+      props.entities[0]
+    )
+
     // Nếu không phải là chủ của file, chỉ hiển thị tab nhóm
     if (props.entities[0]?.owner !== store.state.user.id) {
-      tabs.value = [
-        { label: __("Nhóm"), value: "team" },
-      ]
+      tabs.value = [{ label: __("Nhóm"), value: "team" }]
       tabIndex.value = 0 // Đặt về index 0 vì chỉ có 1 tab
-      
+
       // Quan trọng: Trigger lại watcher để load dữ liệu đúng
       nextTick(() => {
         // Force trigger tab change với giá trị mới
@@ -619,7 +658,7 @@ watch(
       })
       return
     }
-    
+
     // Nếu là chủ của file, hiển thị cả 2 tab
     tabs.value = [
       { label: __("Tài liệu của tôi"), value: "personal" },
@@ -633,10 +672,10 @@ watch(
   tabIndex,
   (newValue) => {
     currentFolder.value = ""
-    
+
     // Lấy tab hiện tại dựa vào index
     const currentTab = tabs.value[newValue]
-    
+
     if (currentTab?.value === "personal") {
       // Tab "Tài liệu của tôi"
       breadcrumbs.value = [
@@ -648,7 +687,7 @@ watch(
       })
     } else if (currentTab?.value === "team") {
       // Tab "Nhóm"
-      console.log("Switching to team tab");
+      console.log("Switching to team tab")
       breadcrumbs.value = [{ name: "", title: __("Nhóm"), is_private: 0 }]
       // Reset currentTeam khi chuyển về tab nhóm
       currentTeam.value = null
@@ -710,16 +749,21 @@ const createFolder = createResource({
     if (!params?.title) return false
   },
   onSuccess(data) {
-    console.log("✅ Folder created:", data.name, "Parent:", createdNode.value.parent)
-    
+    console.log(
+      "✅ Folder created:",
+      data.name,
+      "Parent:",
+      createdNode.value.parent
+    )
+
     // Lưu lại parent trước khi reset createdNode
     const parentFolder = createdNode.value.parent
     const wasPrivate = tabs.value[tabIndex.value]?.value === "personal"
-    
+
     createdNode.value.value = data.name
-    
+
     console.log("📍 Current folder stays:", currentFolder.value)
-    
+
     // Add to allFolders
     allFolders.data.push({
       value: data.name,
@@ -730,25 +774,32 @@ const createFolder = createResource({
       is_private: wasPrivate,
       team: currentTeam.value,
     })
-    
+
     createdNode.value = null
 
     // Refresh danh sách folder ở vị trí hiện tại
     const currentTab = tabs.value[tabIndex.value]
-    
-    console.log("🔄 Refreshing parent folder:", parentFolder, "Tab:", currentTab?.value, "Team:", currentTeam.value)
-    
+
+    console.log(
+      "🔄 Refreshing parent folder:",
+      parentFolder,
+      "Tab:",
+      currentTab?.value,
+      "Team:",
+      currentTeam.value
+    )
+
     if (currentTab?.value === "personal") {
       // Refresh personal folders
       folderMultiContents.fetch({
         entity_name: parentFolder || "",
         personal: 1,
       })
-      
+
       // Update tree
       const homeFolders = allFolders.data.filter((f) => f.is_private)
       buildTreeStructure(homeFolders, homeRoot)
-      
+
       // Update store nếu đang ở root personal
       if (parentFolder === "" || !parentFolder) {
         getPersonal.setData((dataPersonal) => {
@@ -762,16 +813,21 @@ const createFolder = createResource({
         console.error("❌ No currentTeam set, cannot refresh")
         return
       }
-      
+
       // Refresh team folders tại vị trí hiện tại
-      console.log("🔄 Fetching team folders for team:", currentTeam.value, "parent:", parentFolder)
-      
+      console.log(
+        "🔄 Fetching team folders for team:",
+        currentTeam.value,
+        "parent:",
+        parentFolder
+      )
+
       folderContents.fetch({
         team: currentTeam.value,
         entity_name: parentFolder || "",
         personal: 0,
       })
-      
+
       // Update tree structure
       if (breadcrumbs.value.length > 1) {
         // Đang ở trong team, update currentTeamFolders
@@ -784,16 +840,19 @@ const createFolder = createResource({
         const teamFolders = allFolders.data.filter((f) => !f.is_private)
         buildTreeStructure(teamFolders, teamRoot)
       }
-      
+
       // Update store nếu đang ở root của team hiện tại
-      if ((parentFolder === "" || !parentFolder) && currentTeam.value === route.params.team) {
+      if (
+        (parentFolder === "" || !parentFolder) &&
+        currentTeam.value === route.params.team
+      ) {
         getHome.setData((dataHome) => {
           dataHome.unshift(data)
           return dataHome
         })
       }
     }
-    
+
     console.log("✅ Create folder complete, breadcrumbs:", breadcrumbs.value)
   },
 })
@@ -847,15 +906,15 @@ function navigateToTeam(team) {
     { name: "", title: __("Nhóm"), is_private: 0 },
     { name: team.name, title: team.title, is_private: 0 },
   ]
-  
+
   // Reset currentFolder khi vào team mới
   currentFolder.value = ""
-  
+
   // Reset currentTeamFolders trước khi fetch
   currentTeamFolders.children = []
   currentTeamFolders.name = team.name
   currentTeamFolders.label = team.title
-  
+
   // Fetch all folders for this team
   folderContents.fetch({
     team: team.name,
@@ -898,6 +957,8 @@ function navigateToBreadcrumb(crumb, index) {
         })
       }
     }
+
+    console.log("Navigated to breadcrumb:", breadcrumbs.value)
   }
 }
 
@@ -1029,6 +1090,16 @@ function performCopy() {
   //     return
   //   }
 
+  if (props.entities.every((e) => e.parent_entity === currentFolder.value)) {
+    toast(__("Thư mục đang ở vị trí này"))
+    return
+  }
+
+  // if (breadcrumbs.value[breadcrumbs.value.length - 1].is_private === 1 && !currentFolder.value && !currentTeam.value) {
+  //   toast(__("Không thể di chuyển thư mục vào chính nó"))
+  //   return
+  // }
+
   copyLoading.value = true
   const movePromise = move.submit({
     entities: props.entities,
@@ -1038,9 +1109,34 @@ function performCopy() {
   })
 
   movePromise
-    .then(() => {
+    .then((data) => {
       copyLoading.value = false
-      emit("success")
+        if (props.entities.every((e) => e.parent_entity !== data.name)) {
+          emit("success")
+        }
+      
+      toast({
+        title: __("Moved to") + " " + breadcrumbs.value[breadcrumbs.value.length - 1].title,
+        buttons: [
+          {
+            label: __("Go"),
+            action: () => {
+              openEntityAfterMove(null, {
+                name:
+                  breadcrumbs.value[breadcrumbs.value.length - 1].title ===
+                    "Nhóm" ||
+                  breadcrumbs.value[breadcrumbs.value.length - 1].title ===
+                    "Tài liệu của tôi"
+                    ? ""
+                    : data.name,
+                team: data.team,
+                is_group: true,
+                is_private: data.is_private,
+              })
+            },
+          },
+        ],
+      })
       open.value = false
     })
     .catch((error) => {

@@ -369,9 +369,8 @@ export const removeShortcutResource = createResource({
     url: 'run_doc_method',
     auto: false,
     onSuccess: (data) => {
-      console.log("KKKKKKKKKKK", data)
       getPersonal.reload()
-      toast('Tạo shortcut thành công')
+      toast('Tạo shortcut thành công (xem tại Tài liệu của tôi)')
     },
     onError: (err) => {
       toast(err.message || 'Có lỗi xảy ra khi tạo shortcut')

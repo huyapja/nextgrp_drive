@@ -76,7 +76,13 @@
 
   <Dialogs
     v-model="dialog"
-    :selected-rows="activeEntity ? [activeEntity] : selectedEntitities"
+    :selected-rows="
+      selectedEntitities.length
+        ? selectedEntitities
+        : activeEntity
+        ? [activeEntity]
+        : []
+    "
     :root-resource="verify"
     :get-entities="getEntities"
   />
@@ -228,6 +234,7 @@ const actionItems = computed(() => {
         action: () => (dialog.value = "restore"),
         multi: true,
         important: true,
+        isEnabled: (e) => !e?.is_shortcut,
       },
       {
         label: "Xóa vĩnh viễn",
@@ -289,7 +296,7 @@ const actionItems = computed(() => {
         action: (entities) => entitiesDownload(team, entities),
         multi: true,
         important: true,
-        isEnabled: (e) => (!e?.is_shortcut || route.name !== "Home"),
+        isEnabled: (e) => !e?.is_shortcut || route.name !== "Home",
       },
       {
         label: "Sao chép liên kết",
@@ -311,7 +318,7 @@ const actionItems = computed(() => {
         label: "Đổi tên",
         icon: RenameIcon,
         action: () => (dialog.value = "rn"),
-        isEnabled: ()=> true,
+        isEnabled: () => true,
       },
       {
         label: "Hiển thị thông tin",
