@@ -15,6 +15,7 @@
         dataKey="uniqueKey"
         @row-contextmenu="onRowContextMenu"
         @row-click="onRowClick"
+        @row-dblclick="onRowDoubleClick"
         :rowClass="rowClass"
       >
         <!-- Selection Column -->
@@ -220,11 +221,7 @@
     <GroupedContextMenu
       ref="groupedContextMenu"
       :actionItems="selectedRow ? dropdownActionItems(selectedRow) : []"
-      :close="
-        () => {
-          // rowEvent.value = false
-        }
-      "
+      :close="onContextMenuClose"
     />
 
     <!-- Custom Tooltip -->
@@ -247,7 +244,7 @@ import Tooltip from "primevue/tooltip"
 import { getThumbnailUrl } from "@/utils/getIconUrl"
 import { useStore } from "vuex"
 import { useRoute, useRouter } from "vue-router"
-import { computed, ref, watch, onMounted, onUnmounted } from "vue"
+import { computed, ref, watch, onMounted, onUnmounted, nextTick } from "vue"
 import GroupedContextMenu from "@/components/GroupedContextMenu.vue"
 import { openEntity } from "@/utils/files"
 import { formatDate } from "@/utils/format"
@@ -278,7 +275,9 @@ const windowWidth = ref(window.innerWidth)
 const groupedContextMenu = ref(null)
 const hoveredDisabledRow = ref(null)
 const tooltipStyle = ref({})
-const tooltipOffset = 10 // Khoảng cách từ con trỏ chuột
+const tooltipOffset = 10
+const highlightedRow = ref(null)
+const isContextMenuOpen = ref(false)
 
 // Handle window resize
 const handleResize = () => {
@@ -294,7 +293,6 @@ const isRowDisabled = (row) => {
 const rowClass = (data) => {
   if (isRowDisabled(data)) return "disabled-row-bg"
   if (highlightedRow.value === data.uniqueKey) {
-    console.log('Highlighting row:', data.uniqueKey, data.name) // Debug log
     return "highlighted-row"
   }
   return ""
@@ -302,6 +300,8 @@ const rowClass = (data) => {
 
 // Handle delete for disabled rows
 const onDeleteDisabledRow = (event, row) => {
+  highlightedRow.value = row.uniqueKey
+  
   if(route.name !== 'Trash'){
     store.commit("setActiveEntity", row)
     emitter.emit("remove")
@@ -310,14 +310,12 @@ const onDeleteDisabledRow = (event, row) => {
   }
   
   store.commit("setActiveEntity", row)
-    emitter.emit("d")
-    event.stopPropagation()
+  emitter.emit("d")
+  event.stopPropagation()
 }
 
 function onThumbnailError(event, row) {
-  // Fallback về icon mặc định nếu thumbnail lỗi
   event.target.src = getThumbnailUrl(row.name, row.file_type)[1]
-  
 }
 
 const formattedRows = computed(() => {
@@ -327,7 +325,6 @@ const formattedRows = computed(() => {
     return props.folderContents
   }
 
-  // Handle grouped data
   return Object.keys(props.folderContents).flatMap(
     (k) => props.folderContents[k] || []
   )
@@ -407,18 +404,6 @@ const onCellMouseLeave = () => {
   hoveredDisabledRow.value = null
 }
 
-const onRowMouseEnter = (event) => {
-  const row = event.data
-  if (isRowDisabled(row)) {
-    hoveredDisabledRow.value = row
-    updateTooltipPosition(event.originalEvent)
-  }
-}
-
-const onRowMouseLeave = () => {
-  hoveredDisabledRow.value = null
-}
-
 const updateTooltipPosition = (mouseEvent) => {
   const x = mouseEvent.clientX
   const y = mouseEvent.clientY
@@ -429,44 +414,104 @@ const updateTooltipPosition = (mouseEvent) => {
   }
 }
 
-// Theo dõi chuyển động chuột để cập nhật vị trí tooltip
 const handleMouseMove = (event) => {
   if (hoveredDisabledRow.value) {
     updateTooltipPosition(event)
   }
 }
 
-// Thêm listener để bỏ highlight khi click bên ngoài
+// Handle context menu close
+const onContextMenuClose = () => {
+  isContextMenuOpen.value = false
+}
+
+// Kiểm tra xem có dialog nào đang mở không
+const hasActiveDialog = () => {
+  // Kiểm tra các dialog phổ biến trong Vue/PrimeVue
+  const dialogSelectors = [
+    '.p-dialog-mask',
+    '.p-dialog',
+    '[role="dialog"]',
+    '.modal',
+    '.v-dialog',
+    '.el-dialog',
+    // Thêm selector của Dialog component trong dự án
+    '.frappe-dialog',
+  ]
+  
+  return dialogSelectors.some(selector => {
+    const element = document.querySelector(selector)
+    return element && element.style.display !== 'none'
+  })
+}
+
+// Handle click outside - CHỈ bỏ highlight khi không có menu/dialog nào mở
 const handleClickOutside = (event) => {
-  if (highlightedRow.value && groupedContextMenu.value) {
-    const menuElement = groupedContextMenu.value.$el
-    if (menuElement && !menuElement.contains(event.target)) {
-      highlightedRow.value = null
+  // Delay một chút để đảm bảo dialog đã render
+  nextTick(() => {
+    // Nếu context menu đang mở, không làm gì
+    if (isContextMenuOpen.value) return
+    
+    // Kiểm tra xem có dialog nào đang mở không
+    if (hasActiveDialog()) return
+    
+    const tableElement = document.querySelector('.file-table')
+    const menuElement = groupedContextMenu.value?.$el
+    const isClickInMenu = menuElement && menuElement.contains(event.target)
+    
+    // Kiểm tra xem click có phải vào button/dialog elements không
+    const isClickOnDialog = event.target.closest('.p-dialog, [role="dialog"], .modal, .frappe-dialog')
+    const isClickOnButton = event.target.closest('button, .p-button')
+    
+    // Chỉ bỏ highlight khi:
+    // 1. Click bên ngoài bảng
+    // 2. Không có menu mở
+    // 3. Không click vào dialog
+    // 4. Không click vào button
+    if (highlightedRow.value && !isClickInMenu && !isClickOnDialog && !isClickOnButton) {
+      if (tableElement && !tableElement.contains(event.target)) {
+        highlightedRow.value = null
+      }
     }
-  }
+  })
 }
 
 onMounted(() => {
   window.addEventListener("resize", handleResize)
   window.addEventListener("mousemove", handleMouseMove)
-  document.addEventListener("click", handleClickOutside)
+  
+  // Sử dụng capture phase để bắt sự kiện sớm hơn
+  document.addEventListener("click", handleClickOutside, true)
+  
+  // Listen for custom events nếu component khác emit
+  emitter.on("dialog-opened", () => {
+    isContextMenuOpen.value = true
+  })
+  
+  emitter.on("dialog-closed", () => {
+    isContextMenuOpen.value = false
+  })
 })
 
 onUnmounted(() => {
   window.removeEventListener("resize", handleResize)
   window.removeEventListener("mousemove", handleMouseMove)
-  document.removeEventListener("click", handleClickOutside)
+  document.removeEventListener("click", handleClickOutside, true)
+  
+  emitter.off("dialog-opened")
+  emitter.off("dialog-closed")
 })
 
 const onRowContextMenu = (event, row) => {
   if (selectedRows.value.length > 0) return
-  if (isRowDisabled(row)) return // Không mở context menu cho disabled rows
+  if (isRowDisabled(row)) return
   if (event.ctrlKey) openEntity(route.params.team, row, true)
 
   selectedRow.value = row
   rowEvent.value = event
+  highlightedRow.value = row.uniqueKey
+  isContextMenuOpen.value = true
 
-  // Sử dụng GroupedContextMenu show method
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
   }
@@ -477,7 +522,15 @@ const onRowContextMenu = (event, row) => {
 
 const onRowClick = (event) => {
   const row = event?.data
-  if (isRowDisabled(row)) return // Không mở được disabled rows
+  if (isRowDisabled(row)) return
+  highlightedRow.value = row.uniqueKey
+  selectedRow.value = row
+  store.commit("setActiveEntity", row)
+}
+
+const onRowDoubleClick = (event) => {
+  const row = event?.data
+  if (isRowDisabled(row)) return
 
   if (row && typeof row === "object" && row.name !== undefined) {
     const team = row.team || (route.params && route.params.team) || null
@@ -485,54 +538,27 @@ const onRowClick = (event) => {
   }
 }
 
-const highlightedRow = ref(null)
-
 const onRowOptions = (event, row) => {
   if (isRowDisabled(row)) return
-
+  
   selectedRow.value = row
-  console.log('Setting highlighted row:', row.uniqueKey, row.name) // Debug log
+  store.commit("setActiveEntity", row)
   highlightedRow.value = row.uniqueKey
+  isContextMenuOpen.value = true
 
   rowEvent.value = event
 
-  // Sử dụng GroupedContextMenu show method
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
-    
-    // Lắng nghe sự kiện đóng context menu để bỏ highlight
-    const menuElement = groupedContextMenu.value.$el
-    if (menuElement) {
-      const observer = new MutationObserver((mutations) => {
-        mutations.forEach((mutation) => {
-          if (mutation.attributeName === 'style' || mutation.attributeName === 'class') {
-            const isVisible = menuElement.style.display !== 'none' && 
-                            !menuElement.classList.contains('p-hidden')
-            if (!isVisible) {
-              console.log('Removing highlight') // Debug log
-              highlightedRow.value = null
-              observer.disconnect()
-            }
-          }
-        })
-      })
-      
-      observer.observe(menuElement, {
-        attributes: true,
-        attributeFilter: ['style', 'class']
-      })
-    }
   }
 
   event.stopPropagation()
 }
 
-// Watch for selection changes
 const getRowUniqueId = (row) => {
   return row.is_shortcut ? row.shortcut_name : row.name
 }
 
-// Computed property for formatted rows with unique dataKey
 const formattedRowsWithKeys = computed(() => {
   return formattedRows.value.map((row) => ({
     ...row,
@@ -540,7 +566,6 @@ const formattedRowsWithKeys = computed(() => {
   }))
 })
 
-// Updated watch function
 watch(selectedRows, (newSelections) => {
   const selectionSet = new Set(newSelections.map((row) => getRowUniqueId(row)))
   console.log(
@@ -564,7 +589,6 @@ watch(selectedRow, (k) => {
 const dropdownActionItems = (row) => {
   if (!row) return []
 
-  // Giữ nguyên action function từ GenericPage
   const actionItems = props.actionItems
     .filter((a) => !a.isEnabled || a.isEnabled(row))
     .map((a) => {
@@ -580,6 +604,7 @@ const dropdownActionItems = (row) => {
         ...a,
         originalAction: a.action,
         action: (entities) => {
+          // Giữ highlight khi thực hiện action
           if (!["Tạo lối tắt", "Bỏ lối tắt"].includes(a.label)) {
             rowEvent.value = false
           }
@@ -600,6 +625,7 @@ watch(
   (newLoading, oldLoading) => {
     if (oldLoading === true && newLoading === false) {
       rowEvent.value = false
+      isContextMenuOpen.value = false
     }
   }
 )
@@ -609,6 +635,7 @@ watch(
   (newLoading, oldLoading) => {
     if (oldLoading === true && newLoading === false) {
       rowEvent.value = false
+      isContextMenuOpen.value = false
     }
   }
 )
@@ -655,18 +682,19 @@ onKeyDown("Escape", (e) => {
   )
     return
   selectedRows.value = []
+  highlightedRow.value = null
   e.preventDefault()
 })
 </script>
 
 <style scoped>
-/* Highlighted Row - cần có độ ưu tiên cao hơn */
+/* Highlighted Row - priority cao nhất */
 :deep(.highlighted-row) {
-  background-color: #e0f2fe !important;
+  background-color: #dbeafe !important;
 }
 
 :deep(.highlighted-row > td) {
-  background-color: #e0f2fe !important;
+  background-color: #dbeafe !important;
 }
 
 :deep(.p-datatable-header-cell:first-child > div) {
@@ -677,16 +705,14 @@ onKeyDown("Escape", (e) => {
   @apply flex flex-col h-full bg-white;
 }
 
-/* Table Container */
 .table-container {
   @apply flex-1 overflow-x-auto overflow-y-hidden;
 }
 
 .file-table {
-  @apply h-full min-w-[600px];
+  @apply h-fit min-w-[600px];
 }
 
-/* Disabled Row Styles */
 .disabled-row {
   @apply opacity-50 text-gray-400;
 }
@@ -703,10 +729,8 @@ onKeyDown("Escape", (e) => {
   @apply text-xs text-red-500 ml-2 font-normal;
 }
 
-/* Table Cell Styling */
 .name-cell {
   @apply flex items-center gap-3 min-w-0 w-full;
-  /* max-width: 420px; */
 }
 
 .file-icon {
@@ -742,7 +766,6 @@ onKeyDown("Escape", (e) => {
   @apply p-1 rounded hover:bg-gray-100;
 }
 
-/* PrimeVue DataTable Customization */
 :deep(.p-checkbox-input) {
   @apply min-w-[20px] max-w-[20px] min-h-[20px] max-h-[20px] rounded-[4px];
 }
@@ -881,8 +904,6 @@ onKeyDown("Escape", (e) => {
 .shortcut-badge i {
   font-size: 8px;
 }
-
-/* Custom Tooltip */
 .custom-tooltip {
   position: fixed;
   background-color: white;

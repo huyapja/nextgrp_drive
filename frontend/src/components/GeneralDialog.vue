@@ -34,6 +34,8 @@ import { getTrash } from "@/resources/files.js"
 import { sortEntities } from "@/utils/files.js"
 import { useTimeAgo } from "@vueuse/core"
 import { Dialog, ErrorMessage } from "frappe-ui"
+import { del } from "idb-keyval"
+import { mutate } from "../resources/files"
 import { toast } from "../utils/toasts"
 
 export default {
@@ -89,11 +91,12 @@ export default {
           variant: "solid",
           buttonIcon: "refresh-ccw",
           methodName: "drive.api.files.remove_or_restore",
-          toastMessage: __("Khôi phục {0} tài liệu thành công").format(items),
+          toastMessage: __("Khôi phục tài liệu thành công"),
           files: files,
           shortcuts: shortcuts,
         }
       case "remove":
+        console.log('Dialog for remove:', this.entities)
         return {
           title: __("Move to Trash"),
           message: __("{0} will be moved to Trash. Items in trash are deleted forever after 30 days.").format(
@@ -117,7 +120,7 @@ export default {
           variant: "subtle",
           buttonIcon: "trash-2",
           methodName: "drive.api.files.remove_or_restore",
-          toastMessage: __("Moved {0} to Trash").format(items),
+          toastMessage: __("Đã di chuyển {0} vào thùng rác").format(items),
           files: files,
           shortcuts: shortcuts,
         }
@@ -175,10 +178,10 @@ resources: {
             this.dialogData.onSuccess(this.entities, data)
         }
         // Delete from cache
-        // this.entities.map((entity) => del(entity.name || entity.entity_shortcut))
+        this.entities.map((entity) => del(entity.name || entity.entity_shortcut))
         
         toast({
-          title: data.message || this.dialogData.toastMessage,
+          title: this.dialogData.toastMessage,
           position: "bottom-right",
           timeout: 2,
         })

@@ -61,42 +61,51 @@
                         entity.owner === userId
                       "
                     >
-                      <button
-                        @click="comment.showActions = !comment.showActions"
-                        class="p-1 m-[-4px] hover:bg-gray-100 rounded-full transition-colors"
-                      >
-                        <LucideMoreHorizontal class="w-4 h-4 text-gray-500" />
-                      </button>
-
                       <!-- Dropdown menu -->
                       <div
-                        v-if="comment.showActions"
-                        class="absolute right-0 mt-1 w-30 bg-white rounded-md shadow-lg border border-gray-200 z-50 overflow-hidden"
-                        v-on-click-outside="() => (comment.showActions = false)"
+                        class="relative ml-2"
+                        v-if="
+                          comment.comment_email === userId ||
+                          entity.owner === userId
+                        "
+                        v-on-click-outside="() => (openDropdownFor = null)"
                       >
-                        <div>
-                          <!-- Reply Button - CHỈ hiện cho comment KHÔNG phải của mình -->
+                        <button
+                          @click.stop="
+                            toggleCommentActions(comment, topic, $event)
+                          "
+                          class="p-1 m-[-4px] hover:bg-gray-100 rounded-full transition-colors"
+                        >
+                          <LucideMoreHorizontal class="w-4 h-4 text-gray-500" />
+                        </button>
 
-                          <button
-                            v-if="comment.comment_email === userId"
-                            @click="handleEditComment(comment, topic.name)"
-                            class="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
-                          >
-                            <LucideEdit2 class="w-4 h-4 mr-2" />
-                            {{ __("Sửa") }}
-                          </button>
+                        <!-- Dropdown menu -->
+                        <div
+                          v-if="openDropdownFor === comment.name"
+                          class="absolute right-0 mt-1 w-30 bg-white rounded-md shadow-lg border border-gray-200 z-50 overflow-hidden"
+                        >
+                          <div>
+                            <button
+                              v-if="comment.comment_email === userId"
+                              @click="handleEditComment(comment, topic.name)"
+                              class="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
+                            >
+                              <LucideEdit2 class="w-4 h-4 mr-2" />
+                              {{ __("Sửa") }}
+                            </button>
 
-                          <button
-                            v-if="
-                              comment.comment_email === userId ||
-                              entity.owner === userId
-                            "
-                            @click="confirmDelete(comment.name, entity.name)"
-                            class="w-full px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center"
-                          >
-                            <LucideTrash2 class="w-4 h-4 mr-2" />
-                            {{ __("Xóa") }}
-                          </button>
+                            <button
+                              v-if="
+                                comment.comment_email === userId ||
+                                entity.owner === userId
+                              "
+                              @click="confirmDelete(comment.name, entity.name)"
+                              class="w-full px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center"
+                            >
+                              <LucideTrash2 class="w-4 h-4 mr-2" />
+                              {{ __("Xóa") }}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -525,7 +534,7 @@ const handleReply = async (comment, topicName) => {
   replyingTo[topicName] = {
     comment_by: comment.comment_by,
     comment_email: comment.comment_email,
-    user_image: comment.user_image,  
+    user_image: comment.user_image,
   }
 
   // Đóng dropdown
@@ -749,6 +758,27 @@ async function submitComment(topicName) {
   } catch (e) {
     console.log(e)
     topics.fetch()
+  }
+}
+
+// THÊM: Hàm helper để đóng tất cả dropdown khác khi mở một dropdown mới
+const openDropdownFor = ref(null)
+
+// Sau đó thay thế hàm toggleCommentActions:
+function toggleCommentActions(comment, topic, event) {
+  event.stopPropagation() // Ngăn event bubble up
+  
+  if (openDropdownFor.value === comment.name) {
+    openDropdownFor.value = null
+  } else {
+    openDropdownFor.value = comment.name
+  }
+}
+
+// Hàm close dropdown khi click outside
+function closeDropdown(commentName) {
+  if (openDropdownFor.value === commentName) {
+    openDropdownFor.value = null
   }
 }
 

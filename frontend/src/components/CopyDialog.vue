@@ -502,8 +502,9 @@ const folderPermissions = createResource({
   onSuccess: (data) => {
     let first = [
       {
-        name: "",
+        name: data.is_private ? "" : "",
         title: data.is_private ? __("Tài liệu của tôi") : __("Team"),
+        is_private: data.is_private ? 1 : 0,
       },
     ]
     breadcrumbs.value = first.concat(data.breadcrumbs.slice(1))
@@ -1063,7 +1064,12 @@ const moveResource = createResource({
           label: __("Go"),
           action: () => {
             openEntityAfterCopy(null, {
-              name: breadcrumbs.value[breadcrumbs.value.length - 1].name,
+              name: breadcrumbs.value[breadcrumbs.value.length - 1].title ===
+                    "Nhóm" ||
+                  breadcrumbs.value[breadcrumbs.value.length - 1].title ===
+                    "Tài liệu của tôi"
+                    ? ""
+                    : data.name,
               team: data.team,
               is_group: true,
               is_private: data.is_private,

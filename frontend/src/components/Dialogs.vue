@@ -78,7 +78,7 @@
     v-if="dialog === 'copy'"
     v-model="dialog"
     :entities="selections"
-    @success="addFromList(selections)"
+    @success="addFromList()"
   />
 
   <DeleteDialog
@@ -173,20 +173,8 @@ const handleRefresh = () => {
   }
 }
 
-function addFromList(entities) {
-  props.getEntities.setData((data) => {
-    console.log('Adding from list', entities, data)
-    const entitiesCustom = entities.map((e) => ({
-      ...e,
-      title: e.title.includes("(Bản sao)") ? e.title : e.title + " (Bản sao)",
-      accessed: new Date().getTime(),
-      relativeModified: useTimeAgo(e.modified),
-    }))
-
-    const newData = [ ...entitiesCustom, ...data]
-    sortEntities(newData, store.state.sortOrder)
-    return newData
-  })
+function addFromList() {
+  props.getEntities.fetch()
   resetDialog()
 }
 

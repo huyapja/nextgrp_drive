@@ -152,7 +152,7 @@
             outlined
             :severity="item.danger ? 'danger' : 'secondary'"
             v-tooltip="item.label"
-            @click.once="item.action(selections)"
+            @click="item.action(selections)"
             class="!h-[40px]"
           >
             <template #icon>
