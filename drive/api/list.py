@@ -970,23 +970,9 @@ def shared_multi_team(
     tag_list=[],
     mime_type_list=[],
 ):
-    if not teams:
-        user_teams = get_teams()
-    else:
-        if isinstance(teams, str):
-            user_teams = [t.strip() for t in teams.split(",")]
-        else:
-            user_teams = teams
-
-    accessible_teams = get_teams()
-    user_teams = [team for team in user_teams if team in accessible_teams]
-
-    if not user_teams:
-        return []
-
     by = int(by)
-    # team_condition = Criterion.any(DriveFile.team == team for team in user_teams)
-    # & team_condition
+
+    # Query chính - lấy tất cả file được chia sẻ, không lọc theo team của user
     query = (
         frappe.qb.from_(DriveFile)
         .right_join(DrivePermission)
@@ -996,7 +982,11 @@ def shared_multi_team(
         )
         .left_join(Recents)
         .on((Recents.entity_name == DriveFile.name) & (Recents.user == frappe.session.user))
-        .where((DrivePermission.read == 1) & (DriveFile.is_active == 1))
+        .where(
+            (DrivePermission.read == 1)
+            & (DriveFile.is_active == 1)
+            # Bỏ điều kiện lọc theo team của user
+        )
         .groupby(
             DriveFile.name,
             DriveFile.team,
@@ -1027,7 +1017,6 @@ def shared_multi_team(
             DrivePermission.write,
             fn.Max(DriveFile.modified).as_("last_modified"),
         )
-        # .limit(limit)
     )
 
     # Xử lý order_by
@@ -1036,10 +1025,8 @@ def shared_multi_team(
         order_field = order_parts[0]
         is_desc = len(order_parts) > 1 and order_parts[1].lower() == "0"
 
-        # Xử lý trường hợp đặc biệt modified+0
         if "+" in order_field:
             base_field = order_field.split("+")[0]
-            # Sử dụng biểu thức số học
             order_expr = (
                 DriveFile[base_field] + 0
                 if order_field != "accessed"
@@ -1050,7 +1037,6 @@ def shared_multi_team(
             order_expr = (
                 DriveFile[order_field] if order_field != "accessed" else Recents.last_interaction
             )
-            # Xử lý order by bình thường
             query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
 
     if tag_list:
@@ -1079,22 +1065,23 @@ def shared_multi_team(
 
     res = list(unique_files.values())
 
-    # Get team information for all teams
+    # Lấy thông tin TẤT CẢ các team từ các file trong kết quả
+    # Không quan tâm user có thuộc team hay không
+    file_teams = {r.get("team") for r in res if r.get("team")}
     team_info = {}
-    for team in user_teams:
+    for team in file_teams:
         info = frappe.get_value("Drive Team", team, ["name", "title"], as_dict=1)
         if info:
             team_info[team] = info
 
-    # Get additional information
-    # & team_condition
+    # Get additional information - không cần lọc theo team nữa
     child_count_query = (
         frappe.qb.from_(DriveFile)
         .where((DriveFile.is_active == 1))
         .select(DriveFile.parent_entity, fn.Count("*").as_("child_count"))
         .groupby(DriveFile.parent_entity)
     )
-    # & team_condition
+
     share_query = (
         frappe.qb.from_(DriveFile)
         .right_join(DrivePermission)
@@ -1103,7 +1090,7 @@ def shared_multi_team(
         .select(DriveFile.name, fn.Count("*").as_("share_count"))
         .groupby(DriveFile.name)
     )
-    # & team_condition
+
     public_files_query = (
         frappe.qb.from_(DrivePermission)
         .inner_join(DriveFile)
@@ -1111,7 +1098,7 @@ def shared_multi_team(
         .where((DrivePermission.user == ""))
         .select(DrivePermission.entity)
     )
-    # & team_condition
+
     team_files_query = (
         frappe.qb.from_(DrivePermission)
         .inner_join(DriveFile)
@@ -1136,12 +1123,13 @@ def shared_multi_team(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
-        # Add team information
+        # Add team information - Luôn hiển thị tên team của file
         current_team = r.get("team")
         if current_team and current_team in team_info:
             r["team"] = team_info[current_team]["name"]
             r["team_name"] = team_info[current_team]["title"]
         else:
+            # Nếu không tìm thấy thông tin team, vẫn giữ nguyên
             r["team"] = current_team
             r["team_name"] = current_team
 

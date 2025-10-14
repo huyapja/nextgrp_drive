@@ -3,6 +3,7 @@
     v-model="showModal"
     :options="{
       title: 'Thành viên',
+      size: 'xl',
     }"
     class="[&_.dialog-content]:mb-4 z-[100]"
   >
@@ -145,7 +146,6 @@
                     @input="searchUsers"
                     @focus="showAllUsers"
                     @click="showAllUsers"
-                    @blur="handleInputBlur"
                     class="flex-1 min-w-0 outline-none border-none focus:border-none focus:outline-none focus:ring-0 text-sm placeholder-gray-400 bg-transparent"
                     style="
                       border: none !important;
@@ -183,6 +183,7 @@
   <Teleport to="body">
     <div
       v-if="showUserDropdown && dropdownPosition"
+      ref="userDropdown"
       :style="{
         position: 'fixed',
         top: `${dropdownPosition.top}px`,
@@ -387,6 +388,7 @@ const searchQuery = ref("")
 const selectedUsers = ref([])
 const showUserDropdown = ref(false)
 const searchContainer = ref(null)
+const userDropdown = ref(null)
 const openRoleDropdown = ref(null)
 const showAllSelectedUsers = ref(false)
 const dropdownPosition = ref(null)
@@ -477,12 +479,6 @@ const searchUsers = () => {
   nextTick(() => {
     calculateDropdownPosition()
   })
-}
-
-const handleInputBlur = () => {
-  setTimeout(() => {
-    showUserDropdown.value = false
-  }, 150)
 }
 
 const toggleRoleDropdown = (memberName) => {
@@ -585,13 +581,24 @@ const closeModal = () => {
 }
 
 const handleClickOutside = (event) => {
-  if (searchContainer.value && !searchContainer.value.contains(event.target)) {
-    const dropdown = document.querySelector('[style*="z-index: 99999"]')
-    if (dropdown && dropdown.contains(event.target)) {
+  // Nếu dropdown đang mở
+  if (showUserDropdown.value) {
+    // Kiểm tra xem click có vào dropdown hoặc search container không
+    if (userDropdown.value && userDropdown.value.contains(event.target)) {
       return
     }
+    if (searchContainer.value && searchContainer.value.contains(event.target)) {
+      return
+    }
+    
+    // Click ra ngoài dropdown -> Đóng dropdown và ngăn đóng dialog
     showUserDropdown.value = false
+    event.stopPropagation()
+    event.preventDefault()
+    return
   }
+  
+  // Xử lý đóng role dropdown
   if (!event.target.closest(".role-dropdown")) {
     openRoleDropdown.value = null
   }
@@ -611,14 +618,15 @@ const handleResize = () => {
 
 onMounted(() => {
   setTimeout(() => {
-    document.addEventListener("click", handleClickOutside)
+    // Sử dụng capture phase để bắt event trước khi nó đến dialog backdrop
+    document.addEventListener("click", handleClickOutside, true)
     window.addEventListener("scroll", handleScroll, true)
     window.addEventListener("resize", handleResize)
   }, 100)
 })
 
 onUnmounted(() => {
-  document.removeEventListener("click", handleClickOutside)
+  document.removeEventListener("click", handleClickOutside, true)
   window.removeEventListener("scroll", handleScroll, true)
   window.removeEventListener("resize", handleResize)
 })

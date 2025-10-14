@@ -36,7 +36,7 @@ const store = createStore({
       ascending: false,
     }),
     view: getJson("view", "list"),
-    shareView: getJson("shareView", "by"),
+    shareView: "by",
     activeTags: [],
     activeEntity: null,
     notifCount: 0,
@@ -111,7 +111,7 @@ const store = createStore({
       state.view = payload
     },
     toggleShareView(state, payload) {
-      localStorage.setItem("shareView", JSON.stringify(payload))
+      // localStorage.setItem("shareView", JSON.stringify(payload))
       state.shareView = payload
     },
     setActiveEntity(state, payload) {
