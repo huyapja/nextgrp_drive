@@ -315,7 +315,6 @@
 
 <script setup>
 import { allFolders } from "@/resources/files"
-import { openEntity as openEntityAfterMove } from "@/utils/files"
 import { Button, createResource } from "frappe-ui"
 import { Dialog } from "primevue"
 import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
@@ -1115,28 +1114,7 @@ function performCopy() {
           emit("success")
         }
       
-      toast({
-        title: __("Moved to") + " " + breadcrumbs.value[breadcrumbs.value.length - 1].title,
-        buttons: [
-          {
-            label: __("Go"),
-            action: () => {
-              openEntityAfterMove(null, {
-                name:
-                  breadcrumbs.value[breadcrumbs.value.length - 1].title ===
-                    "Nhóm" ||
-                  breadcrumbs.value[breadcrumbs.value.length - 1].title ===
-                    "Tài liệu của tôi"
-                    ? ""
-                    : data.name,
-                team: data.team,
-                is_group: true,
-                is_private: data.is_private,
-              })
-            },
-          },
-        ],
-      })
+      toast( __("Moved to") + " " + breadcrumbs.value[breadcrumbs.value.length - 1].title)
       open.value = false
     })
     .catch((error) => {

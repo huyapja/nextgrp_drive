@@ -345,7 +345,7 @@ export const createShortcutResource = createResource({
     url: 'run_doc_method',
     auto: false,
     onSuccess: (data) => {
-      toast('Tạo lối tắt thành công')
+      toast('Tạo lối tắt thành công (xem tại Tài liệu của tôi)')
       getPersonal.reload()
     },
     onError: (err) => {
@@ -370,7 +370,7 @@ export const removeShortcutResource = createResource({
     auto: false,
     onSuccess: (data) => {
       getPersonal.reload()
-      toast('Tạo shortcut thành công (xem tại Tài liệu của tôi)')
+      toast('Xóa lối tắt thành công')
     },
     onError: (err) => {
       toast(err.message || 'Có lỗi xảy ra khi tạo shortcut')

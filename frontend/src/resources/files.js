@@ -308,7 +308,7 @@ export const clearTrash = createResource({
       files
         ? __("Permanently deleted {0} file{1}.").format(
             files,
-            files === 1 ? "" : "s"
+            files === 1 ? "" : ""
           )
         : __("Permanently deleted all file.")
     )
