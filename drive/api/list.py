@@ -140,9 +140,9 @@ def files(
     # Tìm đoạn từ dòng 77-99 và thay thế bằng:
 
     # Tạo subquery để lấy last_interaction mới nhất cho mỗi entity
+    # Subquery để lấy lần truy cập gần nhất của mỗi file
     recent_subquery = (
         frappe.qb.from_(Recents)
-        .where(Recents.user == user)
         .select(Recents.entity_name, fn.Max(Recents.last_interaction).as_("last_interaction"))
         .groupby(Recents.entity_name)
     ).as_("recent_data")
@@ -760,14 +760,13 @@ def files_multi_team(
                         .select(Recents.last_interaction.as_("accessed"))
                     )
                 else:
-                    # Subquery để lấy lần truy cập gần nhất của mỗi file
+
                     recent_subquery = (
-                        frappe.qb.from_(Recents)
-                        .select(
+                        frappe.qb.from_(Recents).select(
                             Recents.entity_name,
                             fn.Max(Recents.last_interaction).as_("last_interaction"),
                         )
-                        .where(Recents.user == frappe.session.user)
+                        # .where(Recents.user == frappe.session.user)
                         .groupby(Recents.entity_name)
                     ).as_("recent_subq")
 
@@ -981,7 +980,8 @@ def shared_multi_team(
             & ((DrivePermission.owner if by else DrivePermission.user) == frappe.session.user)
         )
         .left_join(Recents)
-        .on((Recents.entity_name == DriveFile.name) & (Recents.user == frappe.session.user))
+        # & (Recents.user == frappe.session.user)
+        .on((Recents.entity_name == DriveFile.name))
         .where(
             (DrivePermission.read == 1)
             & (DriveFile.is_active == 1)

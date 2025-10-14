@@ -145,7 +145,10 @@ class FileManager:
                 aws_access_key_id=aws_key,
                 aws_secret_access_key=aws_secret,
                 endpoint_url=endpoint_url,
-                config=Config(signature_version=signature_version),
+                config=Config(
+                    signature_version=signature_version,
+                    s3={"addressing_style": "path"},  # THÊM dòng này
+                ),
             )
 
     def can_create_thumbnail(self, file):

@@ -1385,13 +1385,22 @@ def export_media(entity_name):
 
 
 def get_s3_signed_url(path, mime_type, expires_in=3600):
+    from botocore.client import Config
+
+    # Lấy settings từ Drive S3 Settings
+    settings = frappe.get_doc("Drive S3 Settings")
+
     s3 = boto3.client(
         "s3",
-        aws_access_key_id=frappe.conf.aws_access_key_id,
-        aws_secret_access_key=frappe.conf.aws_secret_access_key,
-        region_name=frappe.conf.get("aws_default_region"),
+        aws_access_key_id=settings.aws_key,
+        aws_secret_access_key=settings.get_password("aws_secret"),
+        endpoint_url=settings.endpoint_url,  # THÊM
+        config=Config(
+            signature_version=settings.signature_version or "s3",  # THÊM
+            s3={"addressing_style": "path"},  # THÊM
+        ),
     )
-    bucket_name = frappe.conf.s3_bucket
+    bucket_name = settings.bucket  # SỬA từ frappe.conf.s3_bucket
 
     return s3.generate_presigned_url(
         ClientMethod="get_object",

@@ -6,12 +6,12 @@
     <template #body-main>
       <div class="space-y-4 p-4 min-h-[400px] pb-[80px]">
         <div class="">
-          <div class="text-lg font-medium text-gray-900">
+          <div class="text-lg font-medium text-gray-900 truncate max-w-[92%]">
             Chia sẻ "{{ entity?.title || entity?.name }}"
           </div>
           <div
             @click="closeDialog"
-            class="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 cursor-pointer"
+            class="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 cursor-pointer w-8 h-8"
           >
             <svg
               class="w-5 h-5"
@@ -157,6 +157,7 @@
               <button
                 @click.stop="togglePermissionDropdown"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm min-h-[40px] bg-white text-left flex items-center justify-between hover:bg-gray-50 transition-colors"
+                :disabled="entity.owner !== store.state.user.id"
               >
                 <span class="text-gray-900">{{
                   shareAccess === "reader" ? "Người xem" : "Người chỉnh sửa"
@@ -272,6 +273,7 @@
                     @click.stop="toggleUserAccessDropdown(user, $event)"
                     data-dropdown="user-access"
                     class="flex items-center gap-2 px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-50 min-w-[120px]"
+                    :disabled="store.state.user.id !== entity.owner"
                   >
                     <span>{{
                       getAccessLevel(user) === "reader"
