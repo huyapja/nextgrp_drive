@@ -335,7 +335,7 @@ const route = useRoute()
 const store = useStore()
 const currentFolder = ref("")
 const showCreateFolderDialog = ref(false)
-const newFolderName = ref("")
+const newFolderName = ref("Thư mục mới")
 
 const emit = defineEmits(["update:modelValue", "success"])
 const props = defineProps({
@@ -1215,7 +1215,7 @@ function focusNewFolderInput(attempts = 6) {
 watch(showCreateFolderDialog, (isOpen) => {
   if (isOpen) {
     // Reset rồi focus với retry
-    newFolderName.value = ""
+    newFolderName.value = "Thư mục mới"
     nextTick(() => {
       // chạy nhiều "nhịp" để thắng mọi auto-focus khác
       requestAnimationFrame(() => focusNewFolderInput())

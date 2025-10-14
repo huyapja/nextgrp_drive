@@ -319,9 +319,8 @@ const columnHeaders = [
 ]
 
 watch(shareView, (newValue) => {
-  console.log('shareView changed:', newValue)
   store.commit('toggleShareView', newValue)
-}, { immediate: true })
+})
 </script>
 
 <style scoped>
