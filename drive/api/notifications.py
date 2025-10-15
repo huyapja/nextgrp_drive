@@ -288,6 +288,28 @@ def notify_comment_to_owner_file(entity_name, comment_doc, owner_email):
     )
 
 
+def notify_comment_to_all_members(entity_name, comment_doc, team_members):
+    """
+    Create a mention notification for each user mentioned in a comment
+    """
+    entity = frappe.get_doc("Drive File", entity_name)
+
+    author_full_name = frappe.db.get_value(
+        "User", {"name": comment_doc.comment_email}, ["full_name"]
+    )
+    message = f'{author_full_name} commented on this file "{entity.title}"'
+    for member in team_members:
+        if member != comment_doc.comment_email:
+            create_notification(
+                comment_doc.comment_email,
+                member,
+                "To Owner File",
+                entity,
+                message,
+                comment_id=comment_doc.name,
+            )
+
+
 def notify_reply_comment(entity_name, comment_doc, reply_email):
     """
     Create a mention notification for each user mentioned in a comment

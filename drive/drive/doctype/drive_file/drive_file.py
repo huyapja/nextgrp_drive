@@ -621,9 +621,7 @@ class DriveFile(Document):
 
             return {
                 "status": "success",
-                "message": _("File ownership moved from {old_owner} to {new_owner}").format(
-                    old_owner=old_owner, new_owner=new_owner
-                ),
+                "message": "File ownership moved from {old_owner} to {new_owner}",
                 "old_owner": old_owner,
                 "new_owner": new_owner,
             }

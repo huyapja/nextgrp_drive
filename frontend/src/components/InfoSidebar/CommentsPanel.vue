@@ -24,12 +24,17 @@
         <div
           v-for="topic in topics.data?.topics || []"
           :key="topic.name"
-          class="p-4 border border-gray-200 rounded-lg mb-6 shadow-[0_2px_4px_rgba(0,0,0,0.1)]"
+          class="p-4 border border-gray-200 rounded-lg mb-6 shadow-[0_2px_4px_rgba(0,0,0,0.1)] cursor-pointer transition-all hover:shadow-md topic-container"
+          @mouseenter="hoveredTopic = topic.name"
+          @mouseleave="hoveredTopic = null"
+          @click="toggleReplyInput(topic.name)"
+          v-on-click-outside="() => closeTopicInput(topic.name)"
         >
           <div
-            v-for="comment in topic.comments"
+            v-for="(comment, index) in topic.comments"
             :key="comment.id"
-            class="flex flex-col mb-5"
+            class="flex flex-col mb-4"
+            :class="{ '!mb-1': index === topic.comments.length - 1 && !showReplyInput[topic.name] }"
           >
             <div class="flex items-start justify-start">
               <CustomAvatar
@@ -49,7 +54,7 @@
                   <div class="flex flex-row items-center">
                     <button
                       v-if="comment.comment_email !== userId"
-                      @click="handleReply(comment, topic.name)"
+                      @click.stop="handleReply(comment, topic.name)"
                       class="text-sm text-gray-700 hover:text-blue-600 flex items-center justify-end w-6 h-6 transition-colors duration-200"
                     >
                       <LucideMessageSquare class="w-4 h-4" />
@@ -87,7 +92,7 @@
                           <div>
                             <button
                               v-if="comment.comment_email === userId"
-                              @click="handleEditComment(comment, topic.name)"
+                              @click.stop="handleEditComment(comment, topic.name)"
                               class="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
                             >
                               <LucideEdit2 class="w-4 h-4 mr-2" />
@@ -99,7 +104,7 @@
                                 comment.comment_email === userId ||
                                 entity.owner === userId
                               "
-                              @click="confirmDelete(comment.name, entity.name)"
+                              @click.stop="confirmDelete(comment.name, entity.name)"
                               class="w-full px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center"
                             >
                               <LucideTrash2 class="w-4 h-4 mr-2" />
@@ -136,7 +141,7 @@
                           ? 'bg-blue-50 border border-blue-200 text-blue-700 shadow-sm'
                           : 'bg-gray-50 border border-gray-200 text-gray-600 hover:bg-gray-100 hover:border-gray-300'
                       "
-                      @click="toggleReaction(comment, r.emoji)"
+                      @click.stop="toggleReaction(comment, r.emoji)"
                     >
                       <span class="text-base leading-none">{{ r.emoji }}</span>
                       <span class="text-xs font-semibold">{{ r.count }}</span>
@@ -183,85 +188,98 @@
           </div>
 
           <!-- Comment input for each topic -->
-          <div class="py-2">
-            <!-- Reply indicator -->
+          <div class="min-h-[16px]">
+            <!-- Hover hint -->
             <div
-              v-if="replyingTo[topic.name]"
-              class="mb-2 px-2 py-1.5 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between"
+              v-if="!showReplyInput[topic.name] && hoveredTopic === topic.name"
+              class="text-center text-sm text-blue-600 hover:text-blue-700 font-medium transition-colors cursor-pointer"
+              @click.stop="toggleReplyInput(topic.name)"
             >
-              <div class="flex items-center gap-2">
-                <LucideMessageCircle class="w-4 h-4 text-blue-600" />
-                <span class="text-sm text-blue-700">
-                  {{ __("Đang trả lời") }}
-                  <span class="font-medium truncate">{{
-                    replyingTo[topic.name].comment_by
-                  }}</span>
-                </span>
-              </div>
-              <button
-                @click="cancelReply(topic.name)"
-                class="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                {{ __("Hủy") }}
-              </button>
+              {{ __("Trả lời...") }}
             </div>
 
-            <!-- Edit indicator -->
-            <div
-              v-if="isEditMode(topic.name)"
-              class="mb-2 px-2 py-1.5 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between"
-            >
-              <div class="flex items-center gap-2">
-                <LucideEdit2 class="w-4 h-4 text-blue-600" />
-                <span class="text-sm text-blue-700 font-medium">
-                  {{ __("Đang chỉnh sửa bình luận") }}
-                </span>
-              </div>
-              <button
-                @click="cancelEdit(topic.name)"
-                class="text-sm text-blue-600 hover:text-blue-800 font-medium"
+            <!-- Reply/Edit section -->
+            <div v-if="showReplyInput[topic.name]">
+              <!-- Reply indicator -->
+              <div
+                v-if="replyingTo[topic.name]"
+                class="mb-2 px-2 py-1.5 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between"
               >
-                {{ __("Hủy") }}
-              </button>
-            </div>
-
-            <div
-              class="flex flex-row items-center justify-start pl-1 pr-2 bg-white sticky z-[10] top-[100%] left-0 right-0 border border-[#E5E5E5] rounded-[8px]"
-            >
-              <div class="flex-1 min-w-0">
-                <RichCommentEditor
-                  :ref="setTopicEditorRef(topic.name)"
-                  v-model="topicComments[topic.name]"
-                  :entity-name="entity.name"
-                  :placeholder="
-                    isEditMode(topic.name)
-                      ? __('Chỉnh sửa bình luận...')
-                      : __('Trả lời...')
-                  "
-                  @mentioned-users="
-                    (val) => (topicMentionedUsers[topic.name] = val)
-                  "
-                  @input="updateCommentInputHeight"
-                  @resize="updateCommentInputHeight"
-                />
-              </div>
-              <div class="flex-shrink-0 self-start mt-[1px]">
-                <Button
-                  class="hover:bg-transparent !p-2 !bg-transparent !border-none cursor-pointer ml-[-8px]"
-                  variant="ghost"
-                  :disabled="isTopicCommentEmpty(topic.name)"
-                  @click="() => postComment(topic.name)"
-                  :title="getButtonText(topic.name)"
+                <div class="flex items-center gap-2">
+                  <LucideMessageCircle class="w-4 h-4 text-blue-600" />
+                  <span class="text-sm text-blue-700">
+                    {{ __("Đang trả lời") }}
+                    <span class="font-medium truncate">{{
+                      replyingTo[topic.name].comment_by
+                    }}</span>
+                  </span>
+                </div>
+                <button
+                  @click.stop="cancelReply(topic.name)"
+                  class="text-sm text-blue-600 hover:text-blue-800 font-medium"
                 >
-                  <SendIcon
-                    v-if="!isEditMode(topic.name)"
-                    class="w-5 h-5"
+                  {{ __("Hủy") }}
+                </button>
+              </div>
+
+              <!-- Edit indicator -->
+              <div
+                v-if="isEditMode(topic.name)"
+                class="mb-2 px-2 py-1.5 bg-blue-50 border border-blue-200 rounded-md flex items-center justify-between"
+              >
+                <div class="flex items-center gap-2">
+                  <LucideEdit2 class="w-4 h-4 text-blue-600" />
+                  <span class="text-sm text-blue-700 font-medium">
+                    {{ __("Đang chỉnh sửa bình luận") }}
+                  </span>
+                </div>
+                <button
+                  @click.stop="cancelEdit(topic.name)"
+                  class="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                >
+                  {{ __("Hủy") }}
+                </button>
+              </div>
+
+              <div
+                class="flex flex-row items-center justify-start pl-1 pr-2 bg-white sticky z-[10] top-[100%] left-0 right-0 mt-1 border border-[#E5E5E5] rounded-[8px]"
+                @click.stop
+              >
+                <div class="flex-1 min-w-0">
+                  <RichCommentEditor
+                    :ref="setTopicEditorRef(topic.name)"
+                    v-model="topicComments[topic.name]"
+                    :entity-name="entity.name"
+                    :placeholder="
+                      isEditMode(topic.name)
+                        ? __('Chỉnh sửa bình luận...')
+                        : __('Trả lời...')
+                    "
+                    @mentioned-users="
+                      (val) => (topicMentionedUsers[topic.name] = val)
+                    "
+                    @input="updateCommentInputHeight"
+                    @resize="updateCommentInputHeight"
                   />
-                  <LucideCheck
-                    v-else
-                    class="w-5 h-5 text-blue-600"
-                  />
-                </Button>
+                </div>
+                <div class="flex-shrink-0 self-start mt-[1px]">
+                  <Button
+                    class="hover:bg-transparent !p-2 !bg-transparent !border-none cursor-pointer ml-[-8px]"
+                    variant="ghost"
+                    :disabled="isTopicCommentEmpty(topic.name)"
+                    @click.stop="() => postComment(topic.name)"
+                    :title="getButtonText(topic.name)"
+                  >
+                    <SendIcon
+                      v-if="!isEditMode(topic.name)"
+                      class="w-5 h-5"
+                    />
+                    <LucideCheck
+                      v-else
+                      class="w-5 h-5 text-blue-600"
+                    />
+                  </Button>
+                </div>
               </div>
             </div>
           </div>
@@ -371,6 +389,7 @@ import {
   LucideAlertTriangle,
   LucideCheck,
   LucideEdit2,
+  LucideMessageCircle,
   LucideMessageSquare,
   LucideMoreHorizontal,
   LucideSmilePlus,
@@ -416,7 +435,9 @@ const topicMentionedUsers = reactive({})
 const topicEditor = ref(null)
 const topicCommentEditors = ref({})
 const editingComment = reactive({})
-const replyingTo = reactive({}) // THÊM: Theo dõi reply state
+const replyingTo = reactive({})
+const showReplyInput = reactive({})
+const hoveredTopic = ref(null)
 
 // Dialog state
 const showPermissionDialog = ref(false)
@@ -539,25 +560,22 @@ function updateCommentInputHeight() {
   }
 }
 
-// THÊM: Reply functions
+// Reply functions
 const handleReply = async (comment, topicName) => {
-  // Lưu thông tin người được reply
   replyingTo[topicName] = {
     comment_by: comment.comment_by,
     comment_email: comment.comment_email,
     user_image: comment.user_image,
   }
 
-  // Đóng dropdown
+  showReplyInput[topicName] = true
+
   comment.showActions = false
 
-  // Chờ DOM update
   await nextTick()
 
-  // Lấy editor reference
   const editorRef = topicCommentEditors.value[topicName]
   if (editorRef) {
-    // Gọi hàm insertMention từ RichCommentEditor
     if (typeof editorRef.insertMention === "function") {
       editorRef.insertMention({
         id: comment.comment_email,
@@ -566,7 +584,6 @@ const handleReply = async (comment, topicName) => {
       })
     }
 
-    // Focus vào editor
     if (typeof editorRef.focus === "function") {
       editorRef.focus()
     }
@@ -575,6 +592,51 @@ const handleReply = async (comment, topicName) => {
 
 const cancelReply = (topicName) => {
   delete replyingTo[topicName]
+  showReplyInput[topicName] = false
+}
+
+const toggleReplyInput = async (topicName) => {
+  // Nếu đang đóng thì không cần focus
+  // if (showReplyInput[topicName]) {
+  //   showReplyInput[topicName] = false
+  //   return
+  // }
+  
+  // Mở input
+  showReplyInput[topicName] = true
+  
+  // Đợi DOM cập nhật xong rồi focus
+  await nextTick()
+  
+  // Thêm một chút delay để đảm bảo editor đã mount hoàn toàn
+  setTimeout(() => {
+    const editorRef = topicCommentEditors.value[topicName]
+    if (editorRef) {
+      if (typeof editorRef.focus === "function") {
+        editorRef.focus()
+      } else if (editorRef.$el && editorRef.$el.querySelector) {
+        // Fallback: tìm input/textarea trong editor
+        const input = editorRef.$el.querySelector('input, textarea, [contenteditable="true"]')
+        if (input) {
+          input.focus()
+        }
+      }
+    }
+  }, 100)
+}
+
+// Hàm đóng input khi click ra ngoài
+const closeTopicInput = (topicName) => {
+  if (showReplyInput[topicName]) {
+    // Chỉ đóng nếu không có nội dung và không đang edit/reply
+    const hasContent = !isTopicCommentEmpty(topicName)
+    const isEditing = isEditMode(topicName)
+    const isReplying = replyingTo[topicName]
+    
+    if (!hasContent && !isEditing && !isReplying) {
+      showReplyInput[topicName] = false
+    }
+  }
 }
 
 // Edit mode functions
@@ -593,6 +655,8 @@ const handleEditComment = async (comment, topicName) => {
   }
 
   topicComments[topicName] = comment.content
+
+  showReplyInput[topicName] = true
 
   await nextTick()
   const editorRef = topicCommentEditors.value[topicName]
@@ -613,6 +677,7 @@ const cancelEdit = (topicName) => {
   }
 
   delete editingComment[topicName]
+  showReplyInput[topicName] = false
 }
 
 const setTopicEditorRef = (topicName) => {
@@ -706,7 +771,6 @@ async function postComment(topicName) {
 
     await submitComment(topicName)
 
-    // THÊM: Clear reply state sau khi post
     cancelReply(topicName)
   } catch (e) {
     console.error(e)
@@ -761,6 +825,7 @@ async function submitComment(topicName) {
     topicComments[topicName] = ""
     topicMentionedUsers[topicName] = []
     cancelReply(topicName)
+    showReplyInput[topicName] = false
 
     const editorRef = topicCommentEditors.value[topicName]
     if (editorRef && typeof editorRef.clear === "function") {
@@ -772,12 +837,10 @@ async function submitComment(topicName) {
   }
 }
 
-// THÊM: Hàm helper để đóng tất cả dropdown khác khi mở một dropdown mới
 const openDropdownFor = ref(null)
 
-// Sau đó thay thế hàm toggleCommentActions:
 function toggleCommentActions(comment, topic, event) {
-  event.stopPropagation() // Ngăn event bubble up
+  event.stopPropagation()
   
   if (openDropdownFor.value === comment.name) {
     openDropdownFor.value = null
@@ -786,7 +849,6 @@ function toggleCommentActions(comment, topic, event) {
   }
 }
 
-// Hàm close dropdown khi click outside
 function closeDropdown(commentName) {
   if (openDropdownFor.value === commentName) {
     openDropdownFor.value = null
