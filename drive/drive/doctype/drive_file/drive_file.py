@@ -70,7 +70,7 @@ class DriveFile(Document):
                 filters={
                     "owner": user,
                     "is_group": 1,
-                    "parent_entity": None,  # hoặc điều kiện để xác định root folder
+                    "parent_entity": None,
                 },
                 fieldname="name",
             )
@@ -79,7 +79,7 @@ class DriveFile(Document):
             return None
 
         print(f"Move called with new_parent={new_parent}, is_private={is_private}, team={team}")
-        # Nếu có team parameter, tìm thư mục gốc của team đó
+
         if not (new_parent and new_parent.strip()):
             if team:
                 print(f"No new_parent, using team parameter: {team}")
@@ -90,7 +90,6 @@ class DriveFile(Document):
                 else:
                     frappe.throw(f"Cannot find home folder for team {team}")
             elif is_private == 1:
-                # Di chuyển về "Tài liệu của tôi" (personal folder)
                 print("Moving to personal folder (is_private=1)")
                 user_home_folder = get_user_directory()
                 if user_home_folder:
@@ -99,7 +98,6 @@ class DriveFile(Document):
                 else:
                     frappe.throw("Cannot find user home folder")
             else:
-                # Sử dụng thư mục gốc của team hiện tại
                 new_parent = get_home_folder(self.team).name
                 print(f"Using current team home folder: {new_parent}")
 
@@ -110,65 +108,91 @@ class DriveFile(Document):
             f"Move debug: current_team={current_team}, new_parent_team={new_parent_team}, new_parent={new_parent}"
         )
 
-        if new_parent == self.parent_entity:
-            if is_private is not None:
-                self.is_private = int(is_private)
-                self.save()
-
-            # Chỉ xóa permission và cập nhật team khi thực sự chuyển sang team khác
-            if current_team != new_parent_team:
-                frappe.db.sql(
-                    """
-                    DELETE FROM `tabDrive Permission`
-                    WHERE entity = %s
+        # Hàm helper để xóa tất cả permissions
+        def delete_all_permissions(entity_name, include_children=False):
+            """Xóa tất cả permissions của file và file con (nếu có)"""
+            # Xóa permission của file chính
+            frappe.db.sql(
+                """
+                DELETE FROM `tabDrive Permission`
+                WHERE entity = %s
                 """,
-                    self.name,
-                )
+                entity_name,
+            )
 
-                # Nếu là folder, xóa permission cho tất cả file con
-                if self.is_group:
+            # Nếu cần xóa permission của file con
+            if include_children:
+
+                def get_all_descendants(parent_name):
+                    """Lấy tất cả file con và file cháu đệ quy"""
+                    descendants = []
+                    direct_children = frappe.db.get_all(
+                        "Drive File",
+                        filters={"parent_entity": parent_name},
+                        fields=["name", "is_group"],
+                    )
+                    for child in direct_children:
+                        descendants.append(child.name)
+                        if child.is_group:
+                            descendants.extend(get_all_descendants(child.name))
+                    return descendants
+
+                child_names = get_all_descendants(entity_name)
+                if child_names:
+                    frappe.db.sql(
+                        """
+                        DELETE FROM `tabDrive Permission`
+                        WHERE entity IN %(children)s
+                        """,
+                        {"children": child_names},
+                    )
+
+        if new_parent == self.parent_entity:
+            # **LUÔN XÓA PERMISSIONS** khi có thay đổi is_private hoặc team
+            should_clear_permissions = (
+                self.is_private != is_private  # Có thay đổi private status
+                or current_team != new_parent_team  # Hoặc có chuyển team
+            )
+
+            if should_clear_permissions:
+                print(
+                    f"Clearing permissions: is_private={is_private}, team change={current_team} != {new_parent_team}"
+                )
+                delete_all_permissions(self.name, include_children=self.is_group)
+
+                # Cập nhật team cho file con nếu cần
+                if self.is_group and current_team != new_parent_team:
 
                     def get_all_descendants(parent_name):
-                        """Lấy tất cả file con và file cháu đệ quy"""
                         descendants = []
-
-                        # Lấy file con trực tiếp
                         direct_children = frappe.db.get_all(
                             "Drive File",
                             filters={"parent_entity": parent_name},
                             fields=["name", "is_group"],
                         )
-
                         for child in direct_children:
                             descendants.append(child.name)
-                            # Nếu là folder, tiếp tục lấy file cháu
                             if child.is_group:
                                 descendants.extend(get_all_descendants(child.name))
-
                         return descendants
 
                     child_names = get_all_descendants(self.name)
                     if child_names:
                         frappe.db.sql(
                             """
-                            DELETE FROM `tabDrive Permission`
-                            WHERE entity IN %(children)s
-                        """,
-                            {"children": child_names},
-                        )
-
-                        # Cập nhật team cho tất cả file con
-                        frappe.db.sql(
-                            """
                             UPDATE `tabDrive File`
                             SET team = %(team)s
                             WHERE name IN %(children)s
-                        """,
+                            """,
                             {"team": new_parent_team, "children": child_names},
                         )
 
-                # Cập nhật team cho file chính
-                self.team = new_parent_team
+                if current_team != new_parent_team:
+                    self.team = new_parent_team
+
+                if is_private is not None:
+                    self.is_private = int(is_private)
+
                 self.save()
 
             result = frappe.get_value(
@@ -177,7 +201,6 @@ class DriveFile(Document):
                 ["title", "team", "name", "is_private"],
                 as_dict=True,
             )
-
             result["is_private"] = self.is_private
             return result
 
@@ -207,79 +230,52 @@ class DriveFile(Document):
         update_file_size(self.parent_entity, -self.file_size)
         update_file_size(new_parent, +self.file_size)
 
-        # So sánh team hiện tại với team đích để quyết định có xóa permission không
         will_change_team = current_team != new_parent_team
         print(
             f"Will change team: {will_change_team}, Current: {current_team}, New: {new_parent_team}"
         )
 
-        # Chỉ xóa permissions khi thực sự chuyển sang team khác
-        if will_change_team:
-            frappe.db.sql(
-                """
-                DELETE FROM `tabDrive Permission`
-                WHERE entity = %s
-            """,
-                self.name,
-            )
+        # **THAY ĐỔI CHÍNH:** Luôn xóa permissions khi di chuyển file
+        # delete_all_permissions(self.name, include_children=self.is_group)
 
-            # Nếu là folder, xóa permissions cho tất cả file con và cập nhật team
+        # Cập nhật team nếu cần
+        if will_change_team:
             if self.is_group:
 
                 def get_all_descendants(parent_name):
-                    """Lấy tất cả file con và file cháu đệ quy"""
                     descendants = []
-
-                    # Lấy file con trực tiếp
                     direct_children = frappe.db.get_all(
                         "Drive File",
                         filters={"parent_entity": parent_name},
                         fields=["name", "is_group"],
                     )
-
                     for child in direct_children:
                         descendants.append(child.name)
-                        # Nếu là folder, tiếp tục lấy file cháu
                         if child.is_group:
                             descendants.extend(get_all_descendants(child.name))
-
                     return descendants
 
                 child_names = get_all_descendants(self.name)
                 if child_names:
                     frappe.db.sql(
                         """
-                        DELETE FROM `tabDrive Permission`
-                        WHERE entity IN %(children)s
-                    """,
-                        {"children": child_names},
-                    )
-
-                    # Cập nhật team cho tất cả các file con
-                    frappe.db.sql(
-                        """
                         UPDATE `tabDrive File`
                         SET team = %(team)s
                         WHERE name IN %(children)s
-                    """,
+                        """,
                         {"team": new_parent_team, "children": child_names},
                     )
 
-            # Cập nhật team cho file chính
             self.team = new_parent_team
 
         # Cập nhật thông tin file
         self.parent_entity = new_parent
 
-        # Chỉ cập nhật is_private nếu không được truyền vào từ parameter
         if is_private is not None:
             self.is_private = int(is_private)
         else:
             self.is_private = frappe.db.get_value("Drive File", new_parent, "is_private")
 
-        title = get_new_title(self.title, new_parent)
-        if title != self.title:
-            self.rename(title)
         self.save()
 
         print(f"Final save: team={self.team}, parent={self.parent_entity}")
