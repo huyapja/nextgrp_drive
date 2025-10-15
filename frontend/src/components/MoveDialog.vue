@@ -1090,7 +1090,7 @@ function performCopy() {
   //   }
 
   if (props.entities.every((e) => e.parent_entity === currentFolder.value)) {
-    toast(__("Thư mục đang ở vị trí này"))
+    toast(__("Tài liệu đang ở vị trí này"))
     return
   }
 
@@ -1110,7 +1110,7 @@ function performCopy() {
   movePromise
     .then((data) => {
       copyLoading.value = false
-        if (props.entities.every((e) => e.parent_entity !== data.name)) {
+        if (props.entities.every((e) => e.parent_entity !== data.name || e.is_private !== data.is_private)) {
           emit("success")
         }
       

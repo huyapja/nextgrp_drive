@@ -1,5 +1,5 @@
-import { h, reactive, TransitionGroup, ref, Teleport } from "vue"
 import Toast from "@/components/Toast.vue"
+import { h, reactive, ref, Teleport, TransitionGroup } from "vue"
 
 let toasts = ref([])
 
@@ -97,6 +97,7 @@ export function toast(options) {
     key: id,
     position: "bottom-right",
     ...options,
+    timeout:  2,
   })
   toasts.value.push(toast)
   return id
@@ -108,6 +109,6 @@ export function toastError(title) {
     icon: "alert-circle",
     background: "bg-surface-red-3",
     text: "Reload page",
-    timeout: 50,
+    timeout: 10,
   })
 }

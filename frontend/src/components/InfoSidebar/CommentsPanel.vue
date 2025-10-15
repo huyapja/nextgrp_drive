@@ -236,7 +236,7 @@
                   :placeholder="
                     isEditMode(topic.name)
                       ? __('Chỉnh sửa bình luận...')
-                      : __('Nhập bình luận...')
+                      : __('Trả lời...')
                   "
                   @mentioned-users="
                     (val) => (topicMentionedUsers[topic.name] = val)
@@ -282,7 +282,7 @@
             ref="topicEditor"
             v-model="newTopicComment"
             :entity-name="entity.name"
-            :placeholder="__('Tạo chủ đề mới...')"
+            :placeholder="__('Nhập bình luận...')"
             @mentioned-users="(val) => (newTopicMentionedUsers = val)"
             @input="updateCommentInputHeight"
             @resize="updateCommentInputHeight"
@@ -388,7 +388,9 @@ import {
   watch,
 } from "vue"
 import { useStore } from "vuex"
+import { handleResourceError } from "../../utils/errorHandler"
 import { formatDate } from "../../utils/format"
+import { toast } from "../../utils/toasts"
 import CustomAvatar from "../CustomAvatar.vue"
 
 const props = defineProps({
@@ -479,8 +481,12 @@ const deleteComment = createResource({
     if (result.success) {
       return result
     }
-    throw new Error(result.message)
   },
+  onError(error) {
+    if (!handleResourceError(error)) {
+      toast( error.message || "Đã có lỗi xảy ra" )
+    }
+  }
 })
 
 const updateComment = createResource({
@@ -490,6 +496,11 @@ const updateComment = createResource({
       return result
     }
     throw new Error(result.message)
+  },
+  onError(error) {
+    if (!handleResourceError(error)) {
+      toast( error.message || "Đã có lỗi xảy ra" )
+    }
   },
 })
 

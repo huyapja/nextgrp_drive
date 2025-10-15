@@ -11,6 +11,7 @@
           </div>
           <div
             @click="closeDialog"
+
             class="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 cursor-pointer w-8 h-8"
           >
             <svg
@@ -281,6 +282,7 @@
                         : "Có thể chỉnh sửa"
                     }}</span>
                     <svg
+                      v-if="store.state.user.id === entity.owner"
                       class="w-4 h-4 text-gray-400 ml-auto"
                       fill="none"
                       stroke="currentColor"

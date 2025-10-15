@@ -214,14 +214,11 @@ const onDrop = (targetFile, draggedItem) => {
 const currentUserEmail = computed(() => store.state.user.id)
 
 const isMember = computed(() => {
-  console.log("Re-evaluating isMember", getTeams.data?.[team])
+  console.log("Re-evaluating isMember", store.state.activeEntity,  currentUserEmail.value)
 
   return (
-    getTeams.data?.[team]?.users?.some(
-      (k) => k.user === currentUserEmail.value
-    ) &&
-    getTeams.data?.[team]?.owner !== currentUserEmail.value &&
-    store.state.activeEntity?.owner !== currentUserEmail.value
+    getTeams.data?.[team]?.owner === currentUserEmail.value ||
+    store.state.activeEntity?.owner === currentUserEmail.value
   )
 })
 // Action Items
@@ -310,7 +307,7 @@ const actionItems = computed(() => {
         label: "Di chuyển",
         icon: MoveIcon,
         action: () => (dialog.value = "move"),
-        isEnabled: (e) => e.write && isMember && e.is_active,
+        isEnabled: (e) => e.write && isMember.value && e.is_active,
         multi: true,
         important: true,
       },

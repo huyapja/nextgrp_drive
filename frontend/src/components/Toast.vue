@@ -54,7 +54,7 @@
   </div>
 </template>
 <script>
-import { FeatherIcon, Avatar } from "frappe-ui"
+import { Avatar, FeatherIcon } from "frappe-ui";
 
 export default {
   name: "Toast",
@@ -100,7 +100,7 @@ export default {
     },
     timeout: {
       type: Number,
-      default: 10,
+      default: 3,
     },
   },
   emits: ["close"],
