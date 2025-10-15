@@ -73,7 +73,9 @@ def add_comment(
     comment.insert(ignore_permissions=True)
 
     # Handle mentions in comments
-    topic = frappe.db.get_value("Topic Comment", reference_name, ["reference_name"], as_dict=True)
+    topic = frappe.db.get_value(
+        "Topic Comment", reference_name, ["reference_name", "name"], as_dict=True
+    )
     drive_file = frappe.db.get_value(
         "Drive File", topic.reference_name, ["name", "owner"], as_dict=True
     )
@@ -81,85 +83,131 @@ def add_comment(
     if not topic or not drive_file:
         return comment
 
-    if drive_file.owner != comment_email and reply_to:
-        try:
-            from drive.api.notifications import notify_reply_comment
-
-            if isinstance(reply_to, str):
-                reply_to = json.loads(reply_to)
-            if reply_to:
-                frappe.enqueue(
-                    notify_reply_comment,
-                    queue="long",
-                    job_id=f"fcomment_{comment.name}",
-                    deduplicate=True,
-                    timeout=None,
-                    now=False,
-                    at_front=False,
-                    entity_name=drive_file.name,
-                    comment_doc=comment,
-                    reply_email=reply_to.get("comment_email"),
-                )
-
-                # notify_reply_comment(
-                #     entity_name=drive_file.name,
-                #     comment_doc=comment,
-                #     reply_email=reply_to.get("comment_email"),
-                # )
-        except ImportError:
-            # Fallback nếu không có drive.api.notifications
-            frappe.log_error("notify_comment_mentions not available")
-
-    if len(mentions) > 0 and drive_file.owner != comment_email:
+    if len(mentions) > 0:
+        member_emails = set(mentions)
+        # for reply_mention in reply_to or []:
+        #     if reply_mention in member_emails:
+        #         member_emails.remove(reply_mention)
+        if drive_file.owner in member_emails:
+            member_emails.remove(drive_file.owner)
         try:
             from drive.api.notifications import notify_comment_mentions
 
             if isinstance(mentions, str):
                 mentions = json.loads(mentions)
             if mentions:
-                frappe.enqueue(
-                    notify_comment_mentions,
-                    queue="long",
-                    job_id=f"fcomment_{comment.name}",
-                    deduplicate=True,
-                    timeout=None,
-                    now=False,
-                    at_front=False,
+                # frappe.enqueue(
+                #     notify_comment_mentions,
+                #     queue="long",
+                #     job_id=f"fcomment_{comment.name}",
+                #     deduplicate=True,
+                #     timeout=None,
+                #     now=False,
+                #     at_front=False,
+                #     entity_name=drive_file.name,
+                #     comment_doc=comment,
+                #     mentions=mentions,
+                # )
+                notify_comment_mentions(
+                    entity_name=drive_file.name, comment_doc=comment, mentions=mentions
+                )
+        except ImportError:
+            # Fallback nếu không có drive.api.notifications
+            frappe.log_error("notify_comment_mentions not available")
+
+    if reply_to and drive_file.owner != reply_to.comment_email:
+        try:
+            from drive.api.notifications import notify_reply_comment
+
+            if isinstance(reply_to, str):
+                reply_to = json.loads(reply_to)
+            if reply_to:
+                # frappe.enqueue(
+                #     notify_reply_comment,
+                #     queue="long",
+                #     job_id=f"fcomment_{comment.name}",
+                #     deduplicate=True,
+                #     timeout=None,
+                #     now=False,
+                #     at_front=False,
+                #     entity_name=drive_file.name,
+                #     comment_doc=comment,
+                #     reply_email=reply_to.get("comment_email"),
+                # )
+
+                notify_reply_comment(
                     entity_name=drive_file.name,
                     comment_doc=comment,
-                    mentions=mentions,
+                    reply_email=reply_to.get("comment_email"),
                 )
-                # notify_comment_mentions(
-                #     entity_name=drive_file.name, comment_doc=comment, mentions=mentions
-                # )
-                return comment
         except ImportError:
             # Fallback nếu không có drive.api.notifications
             frappe.log_error("notify_comment_mentions not available")
 
     # Trường hợp bất kỳ ai đó comment và chủ file khác nhau
-    if drive_file.owner != comment_email and not reply_to:
-        try:
-            from drive.api.notifications import notify_comment_to_owner_file
 
-            frappe.enqueue(
-                notify_comment_to_owner_file,
-                queue="long",
-                job_id=f"fcomment_{comment.name}_owner",
-                deduplicate=True,
-                timeout=None,
-                now=False,
-                at_front=False,
-                entity_name=drive_file.name,
-                comment_doc=comment,
-                owner_email=drive_file.owner,
+    try:
+        from drive.api.notifications import (
+            notify_comment_to_owner_file,
+            notify_comment_to_all_members,
+        )
+
+        comments = frappe.get_all(
+            "Comment",
+            filters={"reference_name": topic.name, "reference_doctype": "Topic Comment"},
+            fields=["owner"],
+        )
+
+        # frappe.enqueue(
+        #     notify_comment_to_owner_file,
+        #     queue="long",
+        #     job_id=f"fcomment_{comment.name}_owner",
+        #     deduplicate=True,
+        #     timeout=None,
+        #     now=False,
+        #     at_front=False,
+        #     entity_name=drive_file.name,
+        #     comment_doc=comment,
+        #     owner_email=drive_file.owner,
+        # )
+        if drive_file.owner != comment.comment_email:
+            notify_comment_to_owner_file(
+                entity_name=drive_file.name, comment_doc=comment, owner_email=drive_file.owner
             )
-            # notify_comment_to_owner_file(
-            #     entity_name=drive_file.name, comment_doc=comment, owner_email=drive_file.owner
-            # )
-        except ImportError:
-            # Fallback nếu không có drive.api.notifications
-            frappe.log_error("notify_comment_to_owner_file not available")
+
+        if comments and len(comments) > 0:
+            member_emails = list(
+                set([c.get("owner") for c in comments if c.get("owner") != drive_file.owner])
+            )
+            for member_mention in mentions or []:
+                if member_mention in member_emails:
+                    member_emails = member_emails.remove(member_mention["id"])
+            if reply_to and reply_to.get("comment_email") in member_emails:
+                member_emails = member_emails.remove(reply_to.get("comment_email"))
+            print("notify_comment_to_owner_file_1", member_emails, mentions, reply_to)
+            if member_emails and len(member_emails) > 0:
+                # frappe.enqueue(
+                #     notify_comment_to_all_members,
+                #     queue="long",
+                #     job_id=f"fcomment_{comment.name}_members",
+                #     deduplicate=True,
+                #     timeout=None,
+                #     now=False,
+                #     at_front=False,
+                #     entity_name=drive_file.name,
+                #     comment_doc=comment,
+                #     member_emails=member_emails,
+                # )
+
+                notify_comment_to_all_members(
+                    entity_name=drive_file.name,
+                    comment_doc=comment,
+                    team_members=member_emails,
+                )
+
+    except ImportError:
+        # Fallback nếu không có drive.api.notifications
+        frappe.log_error("notify_comment_to_owner_file not available")
 
     return comment
 
