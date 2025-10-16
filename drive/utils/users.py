@@ -61,16 +61,23 @@ def add_comment(
     comment.update(
         {
             "comment_type": "Comment",
-            "reference_doctype": "Topic Comment",  # Comment thuộc về Topic Comment
-            "reference_name": reference_name,  # ID của Topic Comment
+            "reference_doctype": "Topic Comment",
+            "reference_name": reference_name,
             "comment_email": comment_email,
             "comment_by": comment_by,
             "content": content,
-            "published": 1,  # Đảm bảo comment được publish
+            "published": 1,
         }
     )
 
     comment.insert(ignore_permissions=True)
+
+    # Parse JSON strings if needed
+    if isinstance(reply_to, str):
+        reply_to = json.loads(reply_to)
+
+    if isinstance(mentions, str):
+        mentions = json.loads(mentions)
 
     # Handle mentions in comments
     topic = frappe.db.get_value(
@@ -83,69 +90,40 @@ def add_comment(
     if not topic or not drive_file:
         return comment
 
-    if len(mentions) > 0:
-        member_emails = set(mentions)
-        # for reply_mention in reply_to or []:
-        #     if reply_mention in member_emails:
-        #         member_emails.remove(reply_mention)
-        if drive_file.owner in member_emails:
-            member_emails.remove(drive_file.owner)
-        try:
-            from drive.api.notifications import notify_comment_mentions
+    # Notify mentions - SỬA LỖI: Extract IDs từ mentions
+    if mentions and len(mentions) > 0:
+        # Extract email/id từ mentions list
+        mention_ids = set([m.get("id") for m in mentions if m.get("id")])
 
-            if isinstance(mentions, str):
-                mentions = json.loads(mentions)
-            if mentions:
-                # frappe.enqueue(
-                #     notify_comment_mentions,
-                #     queue="long",
-                #     job_id=f"fcomment_{comment.name}",
-                #     deduplicate=True,
-                #     timeout=None,
-                #     now=False,
-                #     at_front=False,
-                #     entity_name=drive_file.name,
-                #     comment_doc=comment,
-                #     mentions=mentions,
-                # )
+        # Remove owner from mentions
+        if drive_file.owner in mention_ids:
+            mention_ids.remove(drive_file.owner)
+
+        if mention_ids:  # Chỉ notify nếu còn người được mention
+            try:
+                from drive.api.notifications import notify_comment_mentions
+
                 notify_comment_mentions(
                     entity_name=drive_file.name, comment_doc=comment, mentions=mentions
                 )
-        except ImportError:
-            # Fallback nếu không có drive.api.notifications
-            frappe.log_error("notify_comment_mentions not available")
+            except ImportError:
+                frappe.log_error("notify_comment_mentions not available")
 
-    if reply_to and drive_file.owner != reply_to.comment_email:
+    # Notify reply
+    reply_email = reply_to.get("comment_email") if reply_to else None
+    if reply_email:
         try:
             from drive.api.notifications import notify_reply_comment
 
-            if isinstance(reply_to, str):
-                reply_to = json.loads(reply_to)
-            if reply_to:
-                # frappe.enqueue(
-                #     notify_reply_comment,
-                #     queue="long",
-                #     job_id=f"fcomment_{comment.name}",
-                #     deduplicate=True,
-                #     timeout=None,
-                #     now=False,
-                #     at_front=False,
-                #     entity_name=drive_file.name,
-                #     comment_doc=comment,
-                #     reply_email=reply_to.get("comment_email"),
-                # )
-
-                notify_reply_comment(
-                    entity_name=drive_file.name,
-                    comment_doc=comment,
-                    reply_email=reply_to.get("comment_email"),
-                )
+            notify_reply_comment(
+                entity_name=drive_file.name,
+                comment_doc=comment,
+                reply_email=reply_email,
+            )
         except ImportError:
-            # Fallback nếu không có drive.api.notifications
-            frappe.log_error("notify_comment_mentions not available")
+            frappe.log_error("notify_reply_comment not available")
 
-    # Trường hợp bất kỳ ai đó comment và chủ file khác nhau
-
+    # Notify owner and other members
     try:
         from drive.api.notifications import (
             notify_comment_to_owner_file,
@@ -158,47 +136,32 @@ def add_comment(
             fields=["owner"],
         )
 
-        # frappe.enqueue(
-        #     notify_comment_to_owner_file,
-        #     queue="long",
-        #     job_id=f"fcomment_{comment.name}_owner",
-        #     deduplicate=True,
-        #     timeout=None,
-        #     now=False,
-        #     at_front=False,
-        #     entity_name=drive_file.name,
-        #     comment_doc=comment,
-        #     owner_email=drive_file.owner,
-        # )
+        # Notify owner
         if drive_file.owner != comment.comment_email:
             notify_comment_to_owner_file(
                 entity_name=drive_file.name, comment_doc=comment, owner_email=drive_file.owner
             )
 
+        # Notify other members
         if comments and len(comments) > 0:
+            # Get unique member emails (exclude owner)
             member_emails = list(
                 set([c.get("owner") for c in comments if c.get("owner") != drive_file.owner])
             )
-            for member_mention in mentions or []:
-                if member_mention in member_emails:
-                    member_emails = member_emails.remove(member_mention["id"])
-            if reply_to and reply_to.get("comment_email") in member_emails:
-                member_emails = member_emails.remove(reply_to.get("comment_email"))
-            print("notify_comment_to_owner_file_1", member_emails, mentions, reply_to)
-            if member_emails and len(member_emails) > 0:
-                # frappe.enqueue(
-                #     notify_comment_to_all_members,
-                #     queue="long",
-                #     job_id=f"fcomment_{comment.name}_members",
-                #     deduplicate=True,
-                #     timeout=None,
-                #     now=False,
-                #     at_front=False,
-                #     entity_name=drive_file.name,
-                #     comment_doc=comment,
-                #     member_emails=member_emails,
-                # )
 
+            # Remove mentioned users
+            for member_mention in mentions or []:
+                member_id = member_mention.get("id")
+                if member_id and member_id in member_emails:
+                    member_emails.remove(member_id)
+
+            # Remove replied user
+            if reply_email and reply_email in member_emails:
+                member_emails.remove(reply_email)
+
+            print("notify_comment_to_owner_file_1", member_emails, mentions, reply_to)
+
+            if member_emails:
                 notify_comment_to_all_members(
                     entity_name=drive_file.name,
                     comment_doc=comment,
@@ -206,7 +169,6 @@ def add_comment(
                 )
 
     except ImportError:
-        # Fallback nếu không có drive.api.notifications
         frappe.log_error("notify_comment_to_owner_file not available")
 
     return comment
@@ -429,6 +391,7 @@ def get_topics_for_file(drive_entity_id: str):
                 Comment.comment_by,
                 Comment.comment_email,
                 Comment.creation,
+                Comment.modified,
                 Comment.content,
                 User.user_image.as_("user_image"),
             ]
@@ -446,7 +409,9 @@ def get_topics_for_file(drive_entity_id: str):
                 .orderby(Comment.creation, order=Order.asc)
             )
             comments = query.run(as_dict=True)
-
+            # Is_edited flag
+            for c in comments:
+                c["is_edited"] = c["modified"] and c["modified"] != c["creation"]
             # Attach reactions summary for each comment
             if comments:
                 comment_ids = [c.get("name") for c in comments]

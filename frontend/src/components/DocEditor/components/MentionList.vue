@@ -14,23 +14,25 @@
         @click="selectItem(index)"
         @mouseover="selectedIndex = index"
       >
-        <Avatar
-          size="sm"
-          class="mr-1"
-          :label="item.label"
-          :image="item.user_image"
-        />
-        <span 
-          :class="[
-            item.has_permission 
-              ? 'text-blue-600 font-medium' 
-              : 'text-gray-400',
-            'flex-1 truncate'
-          ]"
-          :title="item.has_permission ? 'Có quyền truy cập vào tài liệu' : 'Không có quyền truy cập vào tài liệu'"
-        >
-          {{ item.label }}
-        </span>
+        <div class="flex items-center w-full truncate gap-1">
+          <Avatar
+            size="sm"
+            class="mr-1"
+            :label="item.label"
+            :image="item.user_image"
+          />
+          <span 
+            :class="[
+              item.has_permission 
+                ? 'text-blue-600 font-medium' 
+                : 'text-gray-400',
+              'truncate'
+            ]"
+            :title="item.has_permission ? 'Có quyền truy cập vào tài liệu' : 'Không có quyền truy cập vào tài liệu'"
+          >
+            {{ item.label }}
+          </span>
+        </div>
         <span 
           v-if="!item.has_permission"
           class="ml-2 px-1.5 py-0.5 text-xs bg-yellow-100 text-yellow-700 rounded"
@@ -44,7 +46,7 @@
 </template>
 
 <script>
-import { Avatar } from "frappe-ui"
+import { Avatar } from "frappe-ui";
 export default {
   components: {
     Avatar,
