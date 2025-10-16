@@ -286,6 +286,7 @@
                     "
                     @input="updateCommentInputHeight"
                     @resize="updateCommentInputHeight"
+                    @onEnter="() => postComment(topic.name)"
                   />
                 </div>
                 <div class="flex-shrink-0 self-start mt-[1px]">

@@ -150,6 +150,28 @@ export default {
           Placeholder.configure({
             placeholder: this.placeholder,
           }),
+          // Extension.create({
+          //   name: 'handleEnter',
+          //   addKeyboardShortcuts() {
+          //     return {
+          //       'Enter': ({ editor, event }) => {
+          //         // Kiểm tra nếu đang nhấn Shift thì cho xuống dòng
+          //         if (event.shiftKey) {
+          //           return false // Cho phép xử lý mặc định (xuống dòng)
+          //         }
+
+          //         // Nếu không có nội dung, không làm gì cả
+          //         if (editor.isEmpty) return true
+
+          //         // Trigger event để component cha xử lý gửi comment
+          //         self.$emit('onEnter')
+                  
+          //         // Ngăn không cho xuống dòng
+          //         return true
+          //       }
+          //     }
+          //   }
+          // }),
           // Extension để prevent xóa locked mention
           Extension.create({
             name: "preventLockedMentionDeletion",
