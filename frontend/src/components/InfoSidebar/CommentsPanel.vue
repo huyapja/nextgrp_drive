@@ -24,17 +24,32 @@
         <div
           v-for="topic in topics.data?.topics || []"
           :key="topic.name"
-          class="p-4 border border-gray-200 rounded-lg mb-6 shadow-[0_2px_4px_rgba(0,0,0,0.1)] cursor-pointer transition-all hover:shadow-md topic-container"
+          class="p-4 border border-gray-200 rounded-lg mb-6 shadow-[0_2px_4px_rgba(0,0,0,0.1)] transition-all hover:shadow-md topic-container"
+          :class="{ 'cursor-pointer !pb-2': !showReplyInput[topic.name] }"
           @mouseenter="hoveredTopic = topic.name"
           @mouseleave="hoveredTopic = null"
           @click="toggleReplyInput(topic.name)"
-          v-on-click-outside="() => closeTopicInput(topic.name)"
+          v-on-click-outside="
+            (event) => {
+              if (
+                !event.target.closest('.emoji-picker-container') &&
+                !event.target.closest('.emoji-picker-popup_1')
+              ) {
+                console.log('Clicked outside topic:', event.target)
+                closeTopicInput(topic.name)
+              }
+            }
+          "
         >
           <div
             v-for="(comment, index) in topic.comments"
             :key="comment.id"
-            class="flex flex-col mb-4"
-            :class="{ '!mb-1': index === topic.comments.length - 1 && !showReplyInput[topic.name] }"
+            class="flex flex-col mb-3"
+            :class="{
+              '!mb-1':
+                index === topic.comments.length - 1 &&
+                !showReplyInput[topic.name],
+            }"
           >
             <div class="flex items-start justify-start">
               <CustomAvatar
@@ -47,20 +62,58 @@
                   class="flex flex-row mb-1 items-center justify-between text-base gap-x-1 text-ink-gray-5"
                 >
                   <span
-                    class="font-medium text-ink-gray-8 truncate max-w-[170px]"
+                    class="font-medium text-ink-gray-8 truncate max-w-[140px]"
                   >
                     {{ comment.comment_by }}
                   </span>
-                  <div class="flex flex-row items-center">
+                  <div class="flex flex-row items-center gap-2">
+                    <!-- Reactions -->
+                    <div class="flex flex-wrap items-center gap-2">
+                      <div class="relative emoji-picker-container">
+                        <Button
+                          size="sm"
+                          variant="outlined"
+                          class="add-reaction-btn !p-1 !w-6 !h-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all duration-200"
+                          @click.stop="toggleEmojiMenu(comment, $event)"
+                        >
+                          <LucideSmilePlus class="size-4" />
+                        </Button>
+
+                        <Teleport to="body">
+                          <Transition name="emoji-picker">
+                            <div
+                              v-if="openEmojiFor === comment.name"
+                              ref="emojiPicker"
+                              class="emoji-picker-popup_1 fixed bg-white border border-gray-200 rounded-[8px] shadow-xl p-1 flex items-center gap-1 min-w-max"
+                              :style="emojiPickerStyle"
+                              style="z-index: 9999"
+                              @click.stop
+                            >
+                              <button
+                                v-for="e in defaultEmojis"
+                                :key="e"
+                                class="flex items-center justify-center w-8 h-8 text-lg hover:bg-gray-100 rounded-md transition-colors duration-150"
+                                @click="
+                                  toggleReaction(comment, e),
+                                    (openEmojiFor = null)
+                                "
+                              >
+                                {{ e }}
+                              </button>
+                            </div>
+                          </Transition>
+                        </Teleport>
+                      </div>
+                    </div>
                     <button
                       v-if="comment.comment_email !== userId"
                       @click.stop="handleReply(comment, topic.name)"
-                      class="text-sm text-gray-700 hover:text-blue-600 flex items-center justify-end w-6 h-6 transition-colors duration-200"
+                      class="text-sm text-gray-700 hover:text-blue-600 flex items-center justify-end transition-colors duration-200"
                     >
                       <LucideMessageSquare class="w-4 h-4" />
                     </button>
                     <div
-                      class="relative ml-2"
+                      class="relative"
                       v-if="
                         comment.comment_email === userId ||
                         entity.owner === userId
@@ -68,7 +121,7 @@
                     >
                       <!-- Dropdown menu -->
                       <div
-                        class="relative ml-2"
+                        class="relative"
                         v-if="
                           comment.comment_email === userId ||
                           entity.owner === userId
@@ -92,7 +145,9 @@
                           <div>
                             <button
                               v-if="comment.comment_email === userId"
-                              @click.stop="handleEditComment(comment, topic.name)"
+                              @click.stop="
+                                handleEditComment(comment, topic.name)
+                              "
                               class="w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 flex items-center"
                             >
                               <LucideEdit2 class="w-4 h-4 mr-2" />
@@ -104,7 +159,9 @@
                                 comment.comment_email === userId ||
                                 entity.owner === userId
                               "
-                              @click.stop="confirmDelete(comment.name, entity.name)"
+                              @click.stop="
+                                confirmDelete(comment.name, entity.name)
+                              "
                               class="w-full px-4 py-2 text-sm text-red-600 hover:bg-gray-100 flex items-center"
                             >
                               <LucideTrash2 class="w-4 h-4 mr-2" />
@@ -121,12 +178,16 @@
                     class="mb-1 text-base text-ink-gray-7 break-word leading-relaxed comment-content !text-[#404040]"
                     v-html="renderCommentContent(comment.content)"
                   ></div>
-                  <div class="text-[#737373] text-[12px] font-[400]">
+                  <div class="text-[#737373] text-[12px] font-[400] flex items-center gap-2">
                     {{ formatDate24(comment.creation) }}
+                    <span 
+                      v-if="comment.is_edited" 
+                      class="text-[#999] italic"
+                    >
+                      (Đã chỉnh sửa)
+                    </span>
                   </div>
                 </div>
-
-                <!-- Reactions -->
                 <div class="flex flex-wrap items-center gap-2 mt-2">
                   <Tooltip
                     v-for="r in comment.reactions || []"
@@ -147,41 +208,6 @@
                       <span class="text-xs font-semibold">{{ r.count }}</span>
                     </button>
                   </Tooltip>
-
-                  <div class="relative emoji-picker-container">
-                    <Button
-                      size="sm"
-                      variant="outlined"
-                      class="add-reaction-btn !p-1 !w-6 !h-6 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-all duration-200"
-                      @click.stop="toggleEmojiMenu(comment, $event)"
-                    >
-                      <LucideSmilePlus class="size-4" />
-                    </Button>
-
-                    <Teleport to="body">
-                      <Transition name="emoji-picker">
-                        <div
-                          v-if="openEmojiFor === comment.name"
-                          ref="emojiPicker"
-                          class="emoji-picker-popup_1 fixed bg-white border border-gray-200 rounded-[8px] shadow-xl p-1 flex items-center gap-1 min-w-max"
-                          :style="emojiPickerStyle"
-                          style="z-index: 9999"
-                          @click.stop
-                        >
-                          <button
-                            v-for="e in defaultEmojis"
-                            :key="e"
-                            class="flex items-center justify-center w-8 h-8 text-lg hover:bg-gray-100 rounded-md transition-colors duration-150"
-                            @click="
-                              toggleReaction(comment, e), (openEmojiFor = null)
-                            "
-                          >
-                            {{ e }}
-                          </button>
-                        </div>
-                      </Transition>
-                    </Teleport>
-                  </div>
                 </div>
               </div>
             </div>
@@ -438,7 +464,7 @@ const editingComment = reactive({})
 const replyingTo = reactive({})
 const showReplyInput = reactive({})
 const hoveredTopic = ref(null)
-
+const lastProcessedReply = reactive({}) // Track lần reply cuối cùng được process
 // Dialog state
 const showPermissionDialog = ref(false)
 const usersWithoutPermission = ref([])
@@ -505,22 +531,45 @@ const deleteComment = createResource({
   },
   onError(error) {
     if (!handleResourceError(error)) {
-      toast( error.message || "Đã có lỗi xảy ra" )
+      toast(error.message || "Đã có lỗi xảy ra")
     }
-  }
+  },
 })
 
 const updateComment = createResource({
   url: "drive.utils.users.edit_comment",
   onSuccess(result) {
     if (result.success) {
+      // Cập nhật comment trong local data
+      if (topics.data && topics.data.topics) {
+        const updatedTopics = topics.data.topics.map((topic) => {
+          const updatedComments = topic.comments.map((c) => {
+            if (c.name === result.comment_id || c.name === result.name) {
+              return {
+                ...c,
+                content: result.content,
+                is_edited: true, // Đánh dấu là đã sửa
+                modified: result.modified || new Date().toISOString(),
+              }
+            }
+            return c
+          })
+          return { ...topic, comments: updatedComments }
+        })
+
+        topics.setData({
+          ...topics.data,
+          topics: updatedTopics,
+        })
+      }
+
       return result
     }
     throw new Error(result.message)
   },
   onError(error) {
     if (!handleResourceError(error)) {
-      toast( error.message || "Đã có lỗi xảy ra" )
+      toast(error.message || "Đã có lỗi xảy ra")
     }
   },
 })
@@ -560,116 +609,111 @@ function updateCommentInputHeight() {
   }
 }
 
-// Reply functions
+
+// Update hàm handleReply
 const handleReply = async (comment, topicName) => {
+  // Kiểmtra nếu đã reply người này rồi thì bỏ qua
+  if (lastProcessedReply[topicName] === comment.name) {
+    return
+  }
+
+  // Nếu đang edit bình luận, hủy edit trước
+  if (isEditMode(topicName)) {
+    topicComments[topicName] = ""
+    topicMentionedUsers[topicName] = []
+
+    const editorRef = topicCommentEditors.value[topicName]
+    if (editorRef && typeof editorRef.clear === "function") {
+      editorRef.clear()
+    }
+
+    delete editingComment[topicName]
+  }
+
+  // Nếu đang reply người khác, unlock mention cũ trước
+  if (replyingTo[topicName] && replyingTo[topicName].comment_email !== comment.comment_email) {
+    const editorRef = topicCommentEditors.value[topicName]
+    if (editorRef && typeof editorRef.unlockMention === "function") {
+      editorRef.unlockMention()
+    }
+    // Clear toàn bộ content khi chuyển sang reply người khác
+    const editorRef2 = topicCommentEditors.value[topicName]
+    if (editorRef2 && typeof editorRef2.clear === "function") {
+      editorRef2.clear()
+    }
+    topicComments[topicName] = ""
+    topicMentionedUsers[topicName] = []
+  }
+
+  // Update reply info
   replyingTo[topicName] = {
     comment_by: comment.comment_by,
     comment_email: comment.comment_email,
     user_image: comment.user_image,
   }
 
-  showReplyInput[topicName] = true
+  lastProcessedReply[topicName] = comment.name // Track comment này đã được process
 
+  showReplyInput[topicName] = true
   comment.showActions = false
 
   await nextTick()
 
-  const editorRef = topicCommentEditors.value[topicName]
-  if (editorRef) {
-    if (typeof editorRef.insertMention === "function") {
-      editorRef.insertMention({
-        id: comment.comment_email,
-        value: comment.comment_by,
-        image: comment.user_image,
-      })
-    }
-
-    if (typeof editorRef.focus === "function") {
-      editorRef.focus()
-    }
-  }
-}
-
-const cancelReply = (topicName) => {
-  delete replyingTo[topicName]
-  showReplyInput[topicName] = false
-}
-
-const toggleReplyInput = async (topicName) => {
-  // Nếu đang đóng thì không cần focus
-  // if (showReplyInput[topicName]) {
-  //   showReplyInput[topicName] = false
-  //   return
-  // }
-  
-  // Mở input
-  showReplyInput[topicName] = true
-  
-  // Đợi DOM cập nhật xong rồi focus
-  await nextTick()
-  
-  // Thêm một chút delay để đảm bảo editor đã mount hoàn toàn
   setTimeout(() => {
     const editorRef = topicCommentEditors.value[topicName]
     if (editorRef) {
+      // Kiểm tra xem có mention nào rồi không
+      const hasMention = typeof editorRef.hasMention === "function" 
+        ? editorRef.hasMention(comment.comment_email)
+        : false
+
+      // Chỉ insert nếu chưa có mention
+      if (!hasMention && typeof editorRef.insertMention === "function") {
+        editorRef.insertMention({
+          id: comment.comment_email,
+          value: comment.comment_by,
+          image: comment.user_image,
+          author: userId.value,
+          type: "user",
+        })
+      }
+
+      // Lock mention
+      if (typeof editorRef.lockMention === "function") {
+        editorRef.lockMention(comment.comment_email)
+      }
+
       if (typeof editorRef.focus === "function") {
         editorRef.focus()
-      } else if (editorRef.$el && editorRef.$el.querySelector) {
-        // Fallback: tìm input/textarea trong editor
-        const input = editorRef.$el.querySelector('input, textarea, [contenteditable="true"]')
-        if (input) {
-          input.focus()
-        }
       }
     }
-  }, 100)
+  }, 150)
 }
 
-// Hàm đóng input khi click ra ngoài
-const closeTopicInput = (topicName) => {
-  if (showReplyInput[topicName]) {
-    // Chỉ đóng nếu không có nội dung và không đang edit/reply
-    const hasContent = !isTopicCommentEmpty(topicName)
-    const isEditing = isEditMode(topicName)
-    const isReplying = replyingTo[topicName]
-    
-    if (!hasContent && !isEditing && !isReplying) {
-      showReplyInput[topicName] = false
+// Update hàm cancelReply để reset tracking
+const cancelReply = (topicName) => {
+  delete replyingTo[topicName]
+  delete lastProcessedReply[topicName] // Reset tracking
+
+  const editorRef = topicCommentEditors.value[topicName]
+  if (editorRef) {
+    if (typeof editorRef.unlockMention === "function") {
+      editorRef.unlockMention()
+    }
+    if (typeof editorRef.clear === "function") {
+      editorRef.clear()
     }
   }
+
+  topicComments[topicName] = ""
+  topicMentionedUsers[topicName] = []
 }
 
-// Edit mode functions
-const isEditMode = (topicName) => {
-  return editingComment[topicName]?.commentId !== undefined
-}
-
-const getButtonText = (topicName) => {
-  return isEditMode(topicName) ? __("Cập nhật") : __("Gửi")
-}
-
-const handleEditComment = async (comment, topicName) => {
-  editingComment[topicName] = {
-    commentId: comment.name,
-    originalContent: comment.content,
-  }
-
-  topicComments[topicName] = comment.content
-
-  showReplyInput[topicName] = true
-
-  await nextTick()
-  const editorRef = topicCommentEditors.value[topicName]
-  if (editorRef && typeof editorRef.focus === "function") {
-    editorRef.focus()
-  }
-
-  comment.showActions = false
-}
-
+// Update hàm cancelEdit để reset tracking
 const cancelEdit = (topicName) => {
   topicComments[topicName] = ""
   topicMentionedUsers[topicName] = []
+  delete lastProcessedReply[topicName] // Reset tracking
 
   const editorRef = topicCommentEditors.value[topicName]
   if (editorRef && typeof editorRef.clear === "function") {
@@ -680,107 +724,12 @@ const cancelEdit = (topicName) => {
   showReplyInput[topicName] = false
 }
 
-const setTopicEditorRef = (topicName) => {
-  return (el) => {
-    if (el) {
-      topicCommentEditors.value[topicName] = el
-    }
-  }
-}
-
-const isTopicCommentEmpty = (topicName) => {
-  const content = topicComments[topicName]
-  if (!content || content.trim() === "") return true
-
-  const editorRef = topicCommentEditors.value[topicName]
-  if (editorRef && typeof editorRef.isEmpty === "function") {
-    return editorRef.isEmpty()
-  }
-
-  return !content || content.trim() === ""
-}
-
-// Comment functions
-async function postComment(topicName) {
-  const commentContent = topicComments[topicName]
-  const mentionedUsers = topicMentionedUsers[topicName] || []
-
-  if (!commentContent) return
-
-  try {
-    if (isEditMode(topicName)) {
-      await updateComment.submit({
-        comment_id: editingComment[topicName].commentId,
-        new_content: commentContent,
-        mentions: JSON.stringify(mentionedUsers),
-      })
-
-      if (topics.data && topics.data.topics) {
-        const updatedTopics = topics.data.topics.map((topic) => {
-          if (topic.name === topicName) {
-            const updatedComments = topic.comments.map((c) => {
-              if (c.name === editingComment[topicName].commentId) {
-                return { ...c, content: commentContent }
-              }
-              return c
-            })
-            return { ...topic, comments: updatedComments }
-          }
-          return topic
-        })
-
-        topics.setData({
-          ...topics.data,
-          topics: updatedTopics,
-        })
-      }
-
-      cancelEdit(topicName)
-
-      return
-    }
-
-    if (mentionedUsers.length > 0) {
-      const userEmails = mentionedUsers.map((u) => u.id)
-      const permissionCheck = await call(
-        "drive.api.product.check_users_permissions",
-        {
-          entity_name: props.entity?.name,
-          user_emails: JSON.stringify(userEmails),
-        }
-      )
-
-      const usersWithoutAccess = []
-      permissionCheck.forEach((perm) => {
-        if (!perm.has_permission) {
-          const user = mentionedUsers.find((u) => u.id === perm.email)
-          if (user) {
-            usersWithoutAccess.push(user)
-          }
-        }
-      })
-
-      if (usersWithoutAccess.length > 0) {
-        usersWithoutPermission.value = usersWithoutAccess
-        currentCommentContent.value = commentContent
-        currentAction.value = topicName
-        showPermissionDialog.value = true
-        return
-      }
-    }
-
-    await submitComment(topicName)
-
-    cancelReply(topicName)
-  } catch (e) {
-    console.error(e)
-  }
-}
-
+// Update hàm submitComment để reset tracking sau khi gửi
 async function submitComment(topicName) {
   const commentContent = topicComments[topicName]
   const mentionedUsers = topicMentionedUsers[topicName] || []
   const replyTo = replyingTo[topicName] || null
+
   try {
     const newComment = await call("drive.utils.users.add_comment", {
       reference_name: topicName,
@@ -824,12 +773,19 @@ async function submitComment(topicName) {
 
     topicComments[topicName] = ""
     topicMentionedUsers[topicName] = []
-    cancelReply(topicName)
+    delete replyingTo[topicName]
+    delete lastProcessedReply[topicName] // Reset tracking sau khi gửi
+
     showReplyInput[topicName] = false
 
     const editorRef = topicCommentEditors.value[topicName]
-    if (editorRef && typeof editorRef.clear === "function") {
-      editorRef.clear()
+    if (editorRef) {
+      if (typeof editorRef.unlockMention === "function") {
+        editorRef.unlockMention()
+      }
+      if (typeof editorRef.clear === "function") {
+        editorRef.clear()
+      }
     }
   } catch (e) {
     console.log(e)
@@ -837,11 +793,350 @@ async function submitComment(topicName) {
   }
 }
 
+const toggleReplyInput = async (topicName) => {
+  // Mở input
+  showReplyInput[topicName] = true
+
+  // Đợi DOM cập nhật xong rồi focus
+  await nextTick()
+
+  // Thêm một chút delay để đảm bảo editor đã mount hoàn toàn
+  setTimeout(() => {
+    const editorRef = topicCommentEditors.value[topicName]
+    if (editorRef) {
+      if (typeof editorRef.focus === "function") {
+        editorRef.focus()
+      } else if (editorRef.$el && editorRef.$el.querySelector) {
+        // Fallback: tìm input/textarea trong editor
+        const input = editorRef.$el.querySelector(
+          'input, textarea, [contenteditable="true"]'
+        )
+        if (input) {
+          input.focus()
+        }
+      }
+    }
+  }, 100)
+}
+
+// Hàm đóng input khi click ra ngoài
+const closeTopicInput = (topicName) => {
+  if (showReplyInput[topicName]) {
+    // Chỉ đóng nếu không có nội dung và không đang edit/reply
+    const hasContent = !isTopicCommentEmpty(topicName)
+    const isEditing = isEditMode(topicName)
+    const isReplying = replyingTo[topicName]
+
+    if (!hasContent && !isEditing && !isReplying) {
+      showReplyInput[topicName] = false
+    }
+  }
+}
+
+// Edit mode functions
+const isEditMode = (topicName) => {
+  return editingComment[topicName]?.commentId !== undefined
+}
+
+const getButtonText = (topicName) => {
+  return isEditMode(topicName) ? __("Cập nhật") : __("Gửi")
+}
+
+const handleEditComment = async (comment, topicName) => {
+  console.log("📝 Starting edit for comment:", comment.name)
+  console.log("Original content:", comment.content)
+  
+  // Nếu đang reply ai đó, hủy trạng thái reply trước
+  if (replyingTo[topicName]) {
+    const editorRef = topicCommentEditors.value[topicName]
+    if (editorRef && typeof editorRef.unlockMention === "function") {
+      editorRef.unlockMention()
+    }
+    delete replyingTo[topicName]
+    delete lastProcessedReply[topicName]
+  }
+
+  // Set edit mode
+  editingComment[topicName] = {
+    commentId: comment.name,
+    originalContent: comment.content,
+  }
+
+  // Show input
+  showReplyInput[topicName] = true
+
+  // Đợi DOM update
+  await nextTick()
+  
+  // Đợi thêm một chút để component mount
+  await new Promise(resolve => setTimeout(resolve, 100))
+  
+  const editorRef = topicCommentEditors.value[topicName]
+  
+  if (!editorRef) {
+    console.error("❌ Editor ref not found for topic:", topicName)
+    return
+  }
+  
+  console.log("✅ Editor ref found:", editorRef)
+  
+  // Extract mentions để track
+  const mentions = extractMentionsFromHTML(comment.content)
+  console.log("Extracted mentions:", mentions)
+  
+  // GIẢI PHÁP: Đợi editor init xong
+  if (typeof editorRef.waitForEditor === "function") {
+    console.log("⏳ Waiting for editor to initialize...")
+    const isReady = await editorRef.waitForEditor(3000)
+    
+    if (!isReady) {
+      console.error("❌ Editor failed to initialize within timeout")
+      return
+    }
+    console.log("✅ Editor is ready!")
+  }
+  
+  // Bây giờ mới set HTML content
+  let success = false
+  if (typeof editorRef.setHTML === "function") {
+    console.log("📄 Using setHTML method")
+    success = editorRef.setHTML(comment.content)
+  } 
+  else if (editorRef.editor && typeof editorRef.editor.commands?.setContent === "function") {
+    console.log("📄 Using direct editor.commands.setContent")
+    editorRef.editor.commands.setContent(comment.content, false)
+    success = true
+  }
+  else {
+    console.warn("⚠️ No setHTML method found, using v-model")
+    topicComments[topicName] = comment.content
+    success = true
+  }
+
+  if (success) {
+    // Update mentions state
+    if (mentions.length > 0) {
+      topicMentionedUsers[topicName] = mentions
+      console.log("✅ Updated mentioned users:", mentions)
+    }
+
+    // Focus editor
+    setTimeout(() => {
+      if (typeof editorRef.focus === "function") {
+        editorRef.focus()
+        console.log("✅ Editor focused")
+      }
+    }, 100)
+  }
+
+  comment.showActions = false
+}
+
+// Helper function - giữ nguyên
+const extractMentionsFromHTML = (htmlContent) => {
+  const mentions = []
+  
+  if (!htmlContent) return mentions
+
+  try {
+    const tempDiv = document.createElement('div')
+    tempDiv.innerHTML = htmlContent
+    const mentionSpans = tempDiv.querySelectorAll('span.mention, span[data-type="mention"]')
+    
+    mentionSpans.forEach((span) => {
+      const mention = {
+        id: span.getAttribute('data-id'),
+        value: span.getAttribute('data-label') || span.textContent.replace('@', ''),
+        type: span.getAttribute('data-type') || 'user',
+        author: span.getAttribute('data-author'),
+        image: span.getAttribute('data-image'),
+      }
+      
+      if (mention.id && mention.value) {
+        mentions.push(mention)
+      }
+    })
+  } catch (e) {
+    console.error("Error extracting mentions from HTML:", e)
+  }
+
+  return mentions
+}
+
+const setTopicEditorRef = (topicName) => {
+  return (el) => {
+    if (el) {
+      topicCommentEditors.value[topicName] = el
+    }
+  }
+}
+
+const isTopicCommentEmpty = (topicName) => {
+  const content = topicComments[topicName]
+  if (!content || content.trim() === "") return true
+
+  const editorRef = topicCommentEditors.value[topicName]
+  if (editorRef && typeof editorRef.isEmpty === "function") {
+    return editorRef.isEmpty()
+  }
+
+  return !content || content.trim() === ""
+}
+
+// Comment functions
+async function postComment(topicName) {
+  const commentContent = topicComments[topicName]
+  const mentionedUsers = topicMentionedUsers[topicName] || []
+
+  if (!commentContent) return
+
+  try {
+    if (isEditMode(topicName)) {
+      await updateComment.submit({
+        comment_id: editingComment[topicName].commentId,
+        new_content: commentContent,
+        mentions: JSON.stringify(mentionedUsers),
+      })
+
+      // Cập nhật local UI
+      if (topics.data && topics.data.topics) {
+        const updatedTopics = topics.data.topics.map((topic) => {
+          if (topic.name === topicName) {
+            const updatedComments = topic.comments.map((c) => {
+              if (c.name === editingComment[topicName].commentId) {
+                return {
+                  ...c,
+                  content: commentContent,
+                  is_edited: true, // Đánh dấu là đã sửa
+                  modified: new Date().toISOString(),
+                }
+              }
+              return c
+            })
+            return { ...topic, comments: updatedComments }
+          }
+          return topic
+        })
+
+        topics.setData({
+          ...topics.data,
+          topics: updatedTopics,
+        })
+      }
+
+      cancelEdit(topicName)
+      return
+    }
+
+    if (mentionedUsers.length > 0) {
+      const userEmails = mentionedUsers.map((u) => u.id)
+      const permissionCheck = await call(
+        "drive.api.product.check_users_permissions",
+        {
+          entity_name: props.entity?.name,
+          user_emails: JSON.stringify(userEmails),
+        }
+      )
+
+      const usersWithoutAccess = []
+      permissionCheck.forEach((perm) => {
+        if (!perm.has_permission) {
+          const user = mentionedUsers.find((u) => u.id === perm.email)
+          if (user) {
+            usersWithoutAccess.push(user)
+          }
+        }
+      })
+
+      if (usersWithoutAccess.length > 0) {
+        usersWithoutPermission.value = usersWithoutAccess
+        currentCommentContent.value = commentContent
+        currentAction.value = topicName
+        showPermissionDialog.value = true
+        return
+      }
+    }
+
+    await submitComment(topicName)
+
+    cancelReply(topicName)
+  } catch (e) {
+    console.error(e)
+  }
+}
+
+// async function submitComment(topicName) {
+//   const commentContent = topicComments[topicName]
+//   const mentionedUsers = topicMentionedUsers[topicName] || []
+//   const replyTo = replyingTo[topicName] || null
+
+//   try {
+//     const newComment = await call("drive.utils.users.add_comment", {
+//       reference_name: topicName,
+//       content: commentContent,
+//       comment_email: userId.value,
+//       comment_by: fullName.value,
+//       mentions: JSON.stringify(
+//         mentionedUsers.filter((u) => u.id !== replyTo?.comment_email)
+//       ),
+//       reply_to: replyTo ? JSON.stringify(replyTo) : null,
+//     })
+
+//     if (topics.data && topics.data.topics) {
+//       const topicIndex = topics.data.topics.findIndex(
+//         (t) => t.name === topicName
+//       )
+//       if (topicIndex !== -1) {
+//         const updatedTopics = [...topics.data.topics]
+//         const topic = { ...updatedTopics[topicIndex] }
+
+//         const newCommentData = {
+//           name: newComment.name || Date.now().toString(),
+//           comment_by: fullName.value,
+//           comment_email: userId.value,
+//           content: commentContent,
+//           creation: formatDate(new Date().toISOString()),
+//           user_image: imageURL.value,
+//           reactions: [],
+//           reaction_users: {},
+//         }
+
+//         topic.comments = [...(topic.comments || []), newCommentData]
+//         updatedTopics[topicIndex] = topic
+
+//         topics.setData({
+//           ...topics.data,
+//           topics: updatedTopics,
+//         })
+//       }
+//     }
+
+//     // Clear nội dung sau khi gửi thành công
+//     topicComments[topicName] = ""
+//     topicMentionedUsers[topicName] = []
+//     delete replyingTo[topicName] // Clear reply state
+//     showReplyInput[topicName] = false
+
+//     const editorRef = topicCommentEditors.value[topicName]
+//     if (editorRef) {
+//       if (typeof editorRef.unlockMention === "function") {
+//         editorRef.unlockMention()
+//       }
+//       if (typeof editorRef.clear === "function") {
+//         editorRef.clear()
+//       }
+//     }
+//   } catch (e) {
+//     console.log(e)
+//     topics.fetch()
+//   }
+// }
+
 const openDropdownFor = ref(null)
 
 function toggleCommentActions(comment, topic, event) {
   event.stopPropagation()
-  
+
   if (openDropdownFor.value === comment.name) {
     openDropdownFor.value = null
   } else {
@@ -1287,5 +1582,31 @@ watch(
   backdrop-filter: blur(8px);
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1),
     0 10px 10px -5px rgba(0, 0, 0, 0.04);
+}
+
+.icon-button {
+  padding: 4px;
+  margin: -4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #6b7280;
+  background-color: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.icon-button:hover {
+  color: #374151;
+  background-color: #f3f4f6;
+  border-color: #e5e7eb;
+}
+
+.icon-button:active {
+  transform: scale(0.95);
 }
 </style>
