@@ -204,23 +204,19 @@ def get_shared_with_list(entity):
     )
     all_users.append(owner_info)
 
-    # 2. Lấy permissions trực tiếp
+    # 2. Lấy tất cả direct permissions (để check sau)
     direct_permissions = frappe.db.get_all(
         "Drive Permission",
         filters=[["entity", "=", entity], ["user", "!=", ""], ["user", "!=", "$TEAM"]],
         fields=["user", "read", "write", "comment", "share"],
     )
 
-    for perm in direct_permissions:
-        user_info = frappe.db.get_value(
-            "User", perm.user, ["user_image", "full_name", "email"], as_dict=True
-        )
-        if user_info:  # Kiểm tra user còn tồn tại
-            perm.update(user_info)
-            perm["source"] = "direct"
-            all_users.append(perm)
+    # Tạo map của direct permissions
+    direct_perm_map = {perm.user: perm for perm in direct_permissions}
 
-    # 3. Lấy team members
+    # 3. Xử lý team members TRƯỚC (ưu tiên cao hơn)
+    team_members_list = []  # Danh sách team members để loại trừ khỏi direct permissions sau
+
     team_permission = frappe.db.get_value(
         "Drive Permission",
         {"entity": entity, "user": "$TEAM"},
@@ -232,7 +228,7 @@ def get_shared_with_list(entity):
     # 1. Có team permission, HOẶC
     # 2. File thuộc về team và không private (sử dụng quyền mặc định theo team)
     if entity_doc.team and (team_permission or not entity_doc.is_private):
-        # Lấy tất cả user đã có trong danh sách
+        # Lấy tất cả user đã có trong danh sách (chỉ có owner lúc này)
         existing_users = {user["user"] for user in all_users}
 
         # Nếu không có team permission, sử dụng quyền mặc định theo logic get_user_access
@@ -245,21 +241,21 @@ def get_shared_with_list(entity):
                 "write": 0,  # Mặc định không có quyền write
             }
 
-            # Team member chỉ có quyền write/share nếu họ là admin của team
-            def get_member_permission(member_user):
-                member_access_level = frappe.db.get_value(
-                    "Drive Team Member",
-                    {"parent": entity_doc.team, "user": member_user},
-                    "access_level",
-                )
-                if member_access_level == 2:  # Admin
-                    return {
-                        "read": 1,
-                        "comment": 1,
-                        "share": 1,
-                        "write": 1 if entity_doc.is_group else 1,
-                    }
-                return team_permission.copy()
+        # Team member chỉ có quyền write/share nếu họ là admin của team
+        def get_member_permission(member_user):
+            member_access_level = frappe.db.get_value(
+                "Drive Team Member",
+                {"parent": entity_doc.team, "user": member_user},
+                "access_level",
+            )
+            if member_access_level == 2:  # Admin
+                return {
+                    "read": 1,
+                    "comment": 1,
+                    "share": 1,
+                    "write": 1 if entity_doc.is_group else 1,
+                }
+            return team_permission.copy()
 
         if team_permission:
             # Lấy tất cả thành viên của Drive Team
@@ -280,28 +276,63 @@ def get_shared_with_list(entity):
             print(f"Found {len(team_members)} team members:", [m["user"] for m in team_members])
 
             for member in team_members:
-                # Lấy quyền cụ thể cho từng member dựa trên vai trò của họ trong team
-                member_permissions = get_member_permission(member.user)
-                team_member = {
-                    "user": member.user,
-                    "user_image": member.user_image,
-                    "full_name": member.full_name,
-                    "email": member.email,
-                    "read": member_permissions.get("read", 0),
-                    "write": member_permissions.get("write", 0),
-                    "comment": member_permissions.get("comment", 0),
-                    "share": member_permissions.get("share", 0),
-                    "source": "team",
-                    "team_name": entity_doc.team,
-                    "has_explicit_permission": bool(
-                        frappe.db.get_value(
-                            "Drive Permission", {"entity": entity, "user": "$TEAM"}
-                        )
-                    ),
-                }
+                # Lưu user vào danh sách team members
+                team_members_list.append(member.user)
+
+                # Kiểm tra xem user này có direct permission không
+                if member.user in direct_perm_map:
+                    # User có override permission - sử dụng quyền từ direct permission
+                    direct_perm = direct_perm_map[member.user]
+                    team_member = {
+                        "user": member.user,
+                        "user_image": member.user_image,
+                        "full_name": member.full_name,
+                        "email": member.email,
+                        "read": direct_perm.read,
+                        "write": direct_perm.write,
+                        "comment": direct_perm.comment,
+                        "share": direct_perm.share,
+                        "source": "team",  # Vẫn giữ source là team
+                        "has_override": True,  # Đánh dấu có override
+                        "team_name": entity_doc.team,
+                        "has_explicit_permission": True,
+                    }
+                else:
+                    # User không có override, dùng team permission
+                    member_permissions = get_member_permission(member.user)
+                    team_member = {
+                        "user": member.user,
+                        "user_image": member.user_image,
+                        "full_name": member.full_name,
+                        "email": member.email,
+                        "read": member_permissions.get("read", 0),
+                        "write": member_permissions.get("write", 0),
+                        "comment": member_permissions.get("comment", 0),
+                        "share": member_permissions.get("share", 0),
+                        "source": "team",
+                        "has_override": False,
+                        "team_name": entity_doc.team,
+                        "has_explicit_permission": bool(
+                            frappe.db.get_value(
+                                "Drive Permission", {"entity": entity, "user": "$TEAM"}
+                            )
+                        ),
+                    }
                 all_users.append(team_member)
 
-    # 4. Lọc trùng email - Giữ theo thứ tự ưu tiên: owner > direct > team
+    # 4. Thêm direct permissions cho những user KHÔNG PHẢI team member
+    for perm in direct_permissions:
+        # Chỉ thêm nếu user không phải là team member
+        if perm.user not in team_members_list:
+            user_info = frappe.db.get_value(
+                "User", perm.user, ["user_image", "full_name", "email"], as_dict=True
+            )
+            if user_info:  # Kiểm tra user còn tồn tại
+                perm.update(user_info)
+                perm["source"] = "direct"
+                all_users.append(perm)
+
+    # 5. Lọc trùng email - Giữ theo thứ tự ưu tiên: owner > direct > team
     def deduplicate_by_email(users_list):
         """
         Lọc trùng email, ưu tiên theo thứ tự:
@@ -334,7 +365,7 @@ def get_shared_with_list(entity):
     # Áp dụng lọc trùng email
     all_users = deduplicate_by_email(all_users)
 
-    # 5. Sắp xếp kết quả cuối cùng
+    # 6. Sắp xếp kết quả cuối cùng
     all_users.sort(
         key=lambda x: (
             0 if x.get("is_owner") else 1 if x.get("source") == "direct" else 2,
