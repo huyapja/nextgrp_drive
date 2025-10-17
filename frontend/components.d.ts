@@ -91,7 +91,6 @@ declare module 'vue' {
     LucideItalic: typeof import('~icons/lucide/italic')['default']
     LucideLock: typeof import('~icons/lucide/lock')['default']
     LucideLogOut: typeof import('~icons/lucide/log-out')['default']
-    LucideMessageCircle: typeof import('~icons/lucide/message-circle')['default']
     LucideMinus: typeof import('~icons/lucide/minus')['default']
     LucideMoreHorizontal: typeof import('~icons/lucide/more-horizontal')['default']
     LucideSearch: typeof import('~icons/lucide/search')['default']

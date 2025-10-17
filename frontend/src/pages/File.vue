@@ -27,24 +27,24 @@
       <div
         class="hidden sm:flex absolute bottom-4 left-1/2 transform -translate-x-1/2 w-fit items-center justify-center p-1 gap-1 h-10 rounded-lg shadow-xl bg-surface-white"
       >
-        <Button
+        <!-- <Button
           :disabled="!prevEntity?.name"
           :variant="'ghost'"
           icon="arrow-left"
           @click="scrollEntity(true)"
-        />
+        /> -->
         <Button
           :variant="'ghost'"
           @click="enterFullScreen"
         >
           <LucideScan class="w-4" />
         </Button>
-        <Button
+        <!-- <Button
           :disabled="!nextEntity?.name"
           :variant="'ghost'"
           icon="arrow-right"
           @click="scrollEntity()"
-        />
+        /> -->
       </div>
     </div>
 
@@ -126,10 +126,10 @@ const onSuccess = (entity) => {
   
   // Debug: kiểm tra query parameters
   console.log("Query parameters:", route.query)
-  console.log("comment_open value:", route.query.comment_open)
+  console.log("comment_open value:", !!route.query.comment_open)
   
   // Kiểm tra query parameter để quyết định tab nào sẽ mở
-  if (route.query.comment_open === 'true') {
+  if (!!route.query.comment_open) {
     // Mở tab bình luận (tab 1)
     console.log("Setting tab to Comments (1)")
     store.commit("setInfoSidebarTab", 1)

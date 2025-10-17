@@ -5,7 +5,7 @@ from raven.raven_bot.doctype.raven_bot.raven_bot import RavenBot
 
 
 @frappe.whitelist()
-def react_to_comment(comment_id: str, emoji: str):
+def react_to_comment(entity_id: str, comment_id: str, emoji: str):
     """Toggle a reaction (emoji) on a Comment by the current user.
 
     Reactions are stored as rows in the standard Comment doctype with:
@@ -50,7 +50,6 @@ def react_to_comment(comment_id: str, emoji: str):
         if unicodedata.normalize("NFC", (reaction["content"] or "").strip()) == normalized_emoji:
             existing = reaction["name"]
             break
-
     if existing:
         # Toggle off -> delete existing reaction
         frappe.delete_doc("Comment", existing)
@@ -72,26 +71,25 @@ def react_to_comment(comment_id: str, emoji: str):
 
     # Notify the owner of the original comment (if different user)
     try:
-        if parent.comment_email and parent.comment_email != user:
-            from drive.api.notifications import create_notification
-
-            entity = frappe.get_doc("Drive File", parent.reference_name)
+        if parent.comment_email and parent.comment_email != user and entity_id:
+            entity = frappe.get_doc("Drive File", entity_id)
             reactor_full_name = frappe.db.get_value("User", user, "full_name")
             message = f'{reactor_full_name} reacted "{emoji}" to your comment on "{entity.title}"'
-            create_notification(
-                from_user=user,
-                to_user=parent.comment_email,
-                type="Reaction",
-                entity=entity,
-                message=message,
-                comment_id=parent.name,
-            )
+            print("Sending reaction notification via RavenBot", parent.comment_email, user)
+            # create_notification(
+            #     from_user=user,
+            #     to_user=parent.comment_email,
+            #     type="Reaction",
+            #     entity=entity,
+            #     message=message,
+            #     comment_id=parent.name,
+            # )
 
             # Send bot notification
             bot_docs = frappe.conf.get("bot_docs")
+            print("Sending reaction notification via RavenBot2")
             if not bot_docs:
                 return
-
             message_data = {
                 "key": "reaction_comment_document",
                 "title": f'{reactor_full_name} đã thả {emoji} vào bình luận của bạn trong "{entity.title}": "{parent.content}" + {emoji}',
@@ -101,6 +99,7 @@ def react_to_comment(comment_id: str, emoji: str):
                 "file_name": entity.title,
                 "emoji": emoji,
                 "comment_content": parent.content or "",
+                "comment_id": comment_id,
                 "link": f"/drive/t/{entity.team}/file/{entity.name}",
             }
 
