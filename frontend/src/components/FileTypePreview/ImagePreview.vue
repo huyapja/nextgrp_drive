@@ -1,22 +1,22 @@
 <template>
   <div class="relative">
     <!-- Close button for normal view (moved to right) -->
-    <button
+    <!-- <button
       class="absolute top-4 right-4 z-10 bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg hover:bg-gray-50 transition-colors"
       @click="goBack"
     >
       <span class="text-lg text-gray-600 font-bold leading-none">×</span>
-    </button>
+    </button> -->
 
     <!-- Thumbnail preview -->
     <img
       :src="previewURL"
-      class="max-w-full max-h-[80vh] cursor-zoom-in object-contain mx-auto"
+      class="max-w-full max-h-[1000vh] object-contain mx-auto"
       @click="openFullPreview"
     />
 
     <!-- Fullscreen preview -->
-    <div
+    <!-- <div
       v-if="showFull"
       class="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center"
       @click.self="closeFullPreview"
@@ -27,14 +27,14 @@
         :style="{ imageRendering: 'auto' }"
       />
 
-      <!-- Close button for fullscreen (top-right) -->
       <button
-        class="absolute top-4 right-4 text-white text-2xl font-bold hover:bg-white hover:bg-opacity-20 rounded-full w-10 h-10 flex items-center justify-center transition-colors"
-        @click="goBack"
+      class="absolute top-4 right-4 text-white text-2xl font-bold hover:bg-white hover:bg-opacity-20 rounded-full w-10 h-10 flex items-center justify-center transition-colors"
+      @click="goBack"
       >
-        ×
-      </button>
-    </div>
+      ×
+    </button>
+  </div> -->
+  <!-- Close button for fullscreen (top-right) -->
   </div>
 </template>
 
