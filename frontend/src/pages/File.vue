@@ -13,7 +13,7 @@
       <div
         id="renderContainer"
         :draggable="false"
-        class="h-[100vh] overflow-y-auto pt-8 pb-24 flex justify-center"
+        class="h-[100vh] overflow-y-auto flex justify-center item-center"
       >
         <LoadingIndicator
           v-if="file.loading"

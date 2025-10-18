@@ -1,5 +1,5 @@
 <template>
-  <div class="w-full h-full">
+  <div class="w-full h-[calc(100vh_-_72px)]">
     <iframe
       v-if="officeUrl"
       :src="officeUrl"

@@ -1,5 +1,5 @@
 <template>
-  <div class="flex justify-center items-center w-full h-full bg-black p-2">
+  <div class="flex justify-center items-center w-full h-[calc(100vh_-_72px)] bg-black p-2">
     <LoadingIndicator v-show="loading" class="w-10" />
 
     <video
@@ -22,7 +22,7 @@
 
 <script setup>
 import { LoadingIndicator } from "frappe-ui"
-import { ref, onBeforeUnmount, watch } from "vue"
+import { onBeforeUnmount, ref, watch } from "vue"
 
 const props = defineProps({
   previewEntity: {
