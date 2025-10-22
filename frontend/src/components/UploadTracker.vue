@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col items-start fixed bottom-0 right-0 w-full m-5 sm:w-96 z-10 rounded-2xl overflow-hidden shadow-2xl 500 bg-surface-white p-4 z-[20]"
+    class="flex flex-col items-start fixed bottom-0 right-0 w-full m-5 sm:w-96 z-10 rounded-2xl overflow-hidden shadow-2xl 500 bg-surface-white p-4 z-[1]"
   >
     <div
       class="flex items-center justify-between w-full mb-4 pr-1.5"
@@ -26,13 +26,20 @@
         {{ uploadsFailed.length }}
         {{ uploadsFailed.length == 1 ? "thư mục" : "thư mục" }} thất bại
       </div>
-      <div class="ml-auto flex items-center gap-4">
+      <div class="ml-auto flex items-center gap-3">
         <button
           v-if="!collapsed"
           class="focus:outline-none"
           @click.stop="toggleCollapsed"
         >
           <LucideMinus class="size-4 text-ink-gray-8" />
+        </button>
+        <button
+          v-else
+          class="focus:outline-none"
+          @click.stop="toggleCollapsed"
+        >
+          <LucideSquircle class="size-4 text-ink-gray-8" />
         </button>
         <button
           class="focus:outline-none"
