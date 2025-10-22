@@ -49,7 +49,7 @@ export const getRecents = createResource({
   url: "drive.api.list.files_multi_team",
   cache: "recents-folder-contents",
   makeParams: (params) => {
-    return { ...params, recents_only: true }
+    return { ...params, recents_only: true, personal: -2 }
   },
   transform(data) {
     if (!data) return data

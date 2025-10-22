@@ -750,17 +750,23 @@ def files_multi_team(
 
                 # Apply recents filtering
                 if recents_only:
-                    q = (
-                        q.right_join(Recents)
-                        .on(
-                            (Recents.entity_name == DriveFile.name)
-                            & (Recents.user == frappe.session.user)
+                    recent_subquery = (
+                        frappe.qb.from_(Recents).select(
+                            Recents.entity_name,
+                            fn.Max(Recents.last_interaction).as_("max_interaction"),
                         )
-                        .orderby(Recents.last_interaction, order=Order.desc)
-                        .select(Recents.last_interaction.as_("accessed"))
+                        # .where(Recents.user == frappe.session.user)
+                        .groupby(Recents.entity_name)
+                    ).as_("recent_max")
+
+                    # ✅ JOIN với subquery thay vì bảng Recents trực tiếp
+                    q = (
+                        q.inner_join(recent_subquery)
+                        .on(recent_subquery.entity_name == DriveFile.name)
+                        .select(recent_subquery.max_interaction.as_("accessed"))
+                        .orderby(recent_subquery.max_interaction, order=Order.desc)
                     )
                 else:
-
                     recent_subquery = (
                         frappe.qb.from_(Recents).select(
                             Recents.entity_name,
@@ -771,7 +777,7 @@ def files_multi_team(
                     ).as_("recent_subq")
 
                     q = (
-                        q.left_join(recent_subquery)
+                        q.inner_join(recent_subquery)
                         .on(recent_subquery.entity_name == DriveFile.name)
                         .orderby(
                             recent_subquery.last_interaction,
