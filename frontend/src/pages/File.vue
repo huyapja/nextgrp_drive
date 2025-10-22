@@ -139,7 +139,7 @@ const onSuccess = (entity) => {
     store.commit("setInfoSidebarTab", 0)
   }
   
-  // Tự động mở drawer thông tin sau khi entity đã được load
+  // Tự động mở drawer thông tin sau khi entity đã được load 
   store.commit("setShowInfo", true)
 }
 let file = createResource({
