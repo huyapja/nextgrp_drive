@@ -208,7 +208,7 @@ def add_comment(
                     at_front=False,
                     entity_name=drive_file.name,
                     comment_doc=comment,
-                    owner_email=drive_file.owner,
+                    team_members=member_emails,
                 )
                 # notify_comment_to_all_members(
                 #     entity_name=drive_file.name,
