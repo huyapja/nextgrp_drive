@@ -97,6 +97,7 @@ const submit = () => {
       entity_name: props.entity.shortcut_name,
       new_title: newName.value + (ext.value ? "." + ext.value : ""),
     })
+    if (!renameShortcut.data) return
     emit("success", {
       name: props.entity.shortcut_name,
       title: newName.value + (ext.value ? "." + ext.value : ""),
@@ -108,6 +109,7 @@ const submit = () => {
       entity_name: props.entity.name,
       new_title: newName.value + (ext.value ? "." + ext.value : ""),
     })
+    if (!rename.data) return
     emit("success", {
       name: props.entity.name,
       title: newName.value + (ext.value ? "." + ext.value : ""),

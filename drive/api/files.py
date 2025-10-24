@@ -14,6 +14,7 @@ import jwt
 import boto3
 import requests
 import shutil
+from drive.api.activity import create_new_entity_activity_log
 
 from drive.utils.files import (
     get_home_folder,
@@ -126,6 +127,8 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
         / f"{'embeds' if embed else ''}"
         / f"{n}{temp_path.suffix}",
     )
+
+    create_new_entity_activity_log(entity=drive_file.name, action_type="create")
 
     # Upload and update parent folder size
     manager = FileManager()
@@ -311,7 +314,7 @@ def create_document_entity(title, personal, team, content, parent=None):
         lambda _: "",
         document=drive_doc.name,
     )
-
+    create_new_entity_activity_log(entity=entity.name, action_type="create")
     # Send team notifications for new document (only for public documents)
     if not personal:
         try:
@@ -516,6 +519,8 @@ def save_doc(entity_name, doc_name, raw_content, content, file_size, mentions, s
         and write_perms
     ):
         frappe.db.set_value("Drive File", entity_name, "file_size", file_size)
+
+    create_new_entity_activity_log(entity_name, "edit")
     if json.dumps(mentions):
         frappe.enqueue(
             notify_mentions,
@@ -632,6 +637,10 @@ def get_file_content(entity_name, trigger_download=0, jwt_token=None):
         ],
         as_dict=1,
     )
+
+    if trigger_download:
+        create_new_entity_activity_log(entity=entity_name, action_type="download")
+
     if not drive_file or drive_file.is_group or drive_file.is_link:
         frappe.throw("Not found", frappe.NotFound)
 

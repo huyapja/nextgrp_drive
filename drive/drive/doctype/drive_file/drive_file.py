@@ -11,7 +11,7 @@ from drive.utils.files import (
 )
 from drive.api.files import get_ancestors_of
 from drive.utils.files import generate_upward_path
-from drive.api.activity import create_new_activity_log
+from drive.api.activity import create_new_activity_log, create_new_entity_activity_log
 from drive.api.permissions import user_has_permission
 
 
@@ -434,11 +434,10 @@ class DriveFile(Document):
                 FileExistsError,
             )
             return suggested_name
-        full_name = frappe.db.get_value("User", {"name": frappe.session.user}, ["full_name"])
-        message = f"{full_name} renamed {self.title} to {new_title}"
         create_new_activity_log(
             entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
         )
+        create_new_entity_activity_log(entity=self.name, action_type="edit")
         self.title = new_title
         self.save()
         return self

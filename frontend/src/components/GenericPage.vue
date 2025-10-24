@@ -327,7 +327,7 @@ const actionItems = computed(() => {
         label: "Lịch sử truy cập",
         icon: LucideInfo,
         action: () => (dialog.value = "activity_download_and_view"),
-        isEnabled: () => true,
+        isEnabled: (e) => currentUserEmail.value === e?.owner || isMember.value,
       },
       {
         label: "Ẩn thông tin",

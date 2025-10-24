@@ -4,6 +4,7 @@ import frappe
 from frappe.model.document import Document
 from frappe import _
 from drive.utils.files import get_home_folder
+from drive.api.activity import create_new_activity_log, create_new_entity_activity_log
 
 
 class DriveShortcut(Document):
@@ -102,6 +103,13 @@ class DriveShortcut(Document):
 
         old_title = self.title
         self.title = new_title.strip()
+        self.save()
+
+        create_new_activity_log(
+            entity=self.file, last_interaction=frappe.utils.now(), user=frappe.session.user
+        )
+        create_new_entity_activity_log(entity=self.file, action_type="edit")
+        self.title = new_title
         self.save()
 
         return {

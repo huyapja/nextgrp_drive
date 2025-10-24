@@ -325,9 +325,10 @@ export const rename = createResource({
     }
   },
   onError(error) {
+    console.log("rename error", error)
     toast({
-      title: JSON.stringify(error).includes("FileExistsError")
-        ? __("There is already a file with this name!")
+      title: JSON.stringify(error).includes("PermissionError")
+        ? __("Bạn không có quyền thực hiện hành động này")
         : __("There was an error"),
       position: "bottom-right",
       timeout: 2,
@@ -346,8 +347,8 @@ export const renameShortcut = createResource({
   },
   onError(error) {
     toast({
-      title: JSON.stringify(error).includes("FileExistsError")
-        ? __("There is already a file with this name!")
+      title: JSON.stringify(error).includes("PermissionError")
+        ? __("Bạn không có quyền thực hiện hành động này")
         : __("There was an error"),
       position: "bottom-right",
       timeout: 2,

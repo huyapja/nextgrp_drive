@@ -135,7 +135,7 @@
         />
       </Button>
 
-      <Button
+      <!-- <Button
         v-if="entity"
         class="text-ink-gray-5 !px-0"
         :class="[
@@ -153,7 +153,7 @@
               : 'size-6 text-black'
           "
         />
-      </Button>
+      </Button> -->
 
       <Button
         class="text-ink-gray-5 !px-0"
@@ -212,7 +212,6 @@
 </template>
 
 <script setup>
-import CloudIcon from "@/assets/Icons/CloudIcon.vue"
 import CloudIconBlack from "@/assets/Icons/CloudIconBlack.vue"
 import InfoIcon from "@/assets/Icons/InfoIcon.vue"
 import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
@@ -498,10 +497,12 @@ const newDocument = async () => {
     content: null,
     parent: store.state.currentFolder.name,
   })
-  await router.push({
-    name: "Document",
-    params: { team: route.params.team, entityName: data.name },
-  })
+  if (data?.name){
+    await router.push({
+      name: "Document",
+      params: { team: route.params.team, entityName: data.name },
+    })
+  }
 }
 
 // Dropdown options

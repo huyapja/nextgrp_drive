@@ -381,7 +381,7 @@ const getSizeText = (row) => {
   if (row.is_group) {
     return row.children
       ? row.children + " " + (row.children === 1 ? __("mục") : __("mục"))
-      : __("trống")
+      : __("Trống")
   }
   return row.file_size_pretty
 }
@@ -616,7 +616,6 @@ const dropdownActionItems = (row) => {
         loading: isLoading,
       }
     })
-  console.log("actionItems", actionItems, props.actionItems)
   return actionItems
 }
 
