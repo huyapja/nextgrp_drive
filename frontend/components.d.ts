@@ -9,6 +9,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     AccessButton: typeof import('./src/components/ShareDialog/AccessButton.vue')['default']
+    ActivityDownloadAndViewDialog: typeof import('./src/components/ActivityDownloadAndViewDialog.vue')['default']
     ActivityPanel: typeof import('./src/components/InfoSidebar/ActivityPanel.vue')['default']
     ActivityTree: typeof import('./src/components/ActivityTree.vue')['default']
     ActivityTreeItem: typeof import('./src/components/ActivityTreeItem.vue')['default']

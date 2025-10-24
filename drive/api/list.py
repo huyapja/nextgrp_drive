@@ -751,11 +751,12 @@ def files_multi_team(
                 # Apply recents filtering
                 if recents_only:
                     recent_subquery = (
-                        frappe.qb.from_(Recents).select(
+                        frappe.qb.from_(Recents)
+                        .select(
                             Recents.entity_name,
                             fn.Max(Recents.last_interaction).as_("max_interaction"),
                         )
-                        # .where(Recents.user == frappe.session.user)
+                        .where(Recents.owner == frappe.session.user)
                         .groupby(Recents.entity_name)
                     ).as_("recent_max")
 
@@ -1142,63 +1143,3 @@ def shared_multi_team(
     # Return only non-child files
     parents = {r["name"] for r in res}
     return [r for r in res if r["parent_entity"] not in parents]
-
-
-# @frappe.whitelist()
-# def files_for_move(
-#     team,
-#     is_private
-# ):
-#     """
-#     A light version that can support recursiveness
-#     """
-#     if not entity_name:
-#         home = get_home_folder(team)["name"]
-#         # If not specified, get home folder
-#         entity_name = home
-#     user = frappe.db.escape(frappe.session.user)
-#     entity_name = frappe.db.escape(entity_name)
-
-#         f"""
-#         WITH RECURSIVE file_tree AS (
-#             SELECT
-#                 f.name,
-#                 f.title,
-#                 f.is_group,
-#                 f.parent_entity,
-#                 f.owner,
-#                 f.is_private
-#             FROM DriveFile f
-#             WHERE f.id = {entity_name}
-#             UNION ALL
-
-#             SELECT
-#                 child.name,
-#                 child.title,
-#                 child.is_group,
-#                 child.parent_entity,
-#                 child.owner,
-#                 child.is_private
-#             FROM DriveFile child
-#             JOIN file_tree parent ON child.parent_entity = parent.name
-#         )
-#         file_with_permission AS (
-#             SELECT
-#                 ft.*,
-#                 COALESCE(
-#                     p.write,
-#                     CASE
-#                         WHEN ft.is_private = 0 THEN 1
-#                         WHEN ft.owner = {user} THEN 1
-#                         ELSE 0
-#                     END
-#                 ) AS write
-#             FROM file_tree ft
-#             LEFT JOIN DrivePermission p ON p.entity = ft.name AND p.user = {user}
-#         )
-#         SELECT * FROM file_with_permission;
-#     """,
-#         as_dict=1,
-#     )
-#     print(res)
-#     return res

@@ -3,7 +3,7 @@ from frappe.utils import getdate
 
 from drive.utils.users import mark_as_viewed
 from drive.utils.files import get_valid_breadcrumbs, generate_upward_path, get_file_type
-from drive.api.activity import create_new_activity_log
+from drive.api.activity import create_new_activity_log, create_new_entity_activity_log
 
 ENTITY_FIELDS = [
     "name",
@@ -174,6 +174,8 @@ def get_entity_with_permissions(entity_name):
         last_interaction=frappe.utils.now_datetime(),
         user=frappe.session.user,
     )
+
+    create_new_entity_activity_log(entity=entity_name, action_type="view")
     return return_obj | entity_doc_content
 
 

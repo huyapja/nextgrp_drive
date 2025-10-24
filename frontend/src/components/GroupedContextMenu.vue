@@ -194,6 +194,7 @@ const groupedMenuItems = computed(() => {
     item.label?.includes('Thông tin') || 
     item.label?.includes('Đổi tên') ||
     item.label?.includes('Hiển thị thông tin') ||
+    item.label?.includes('Lịch sử truy cập') ||
     item.label?.includes('Ẩn thông tin')
   )
   if (infoItems.length > 0) {
@@ -214,6 +215,7 @@ const groupedMenuItems = computed(() => {
       template: 'groupedItem',
       groupData: actionGroups.info
     })
+    console.log(items, props.actionItems, "itemsssss")
   }
   
   // Nhóm Delete (Xóa, Khôi phục, Xóa vĩnh viễn)

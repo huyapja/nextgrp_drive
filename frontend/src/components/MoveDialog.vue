@@ -1104,7 +1104,7 @@ function performCopy() {
     entities: props.entities,
     new_parent: currentFolder.value,
     is_private: breadcrumbs.value[breadcrumbs.value.length - 1].is_private,
-    team: currentTeam.value,
+    team: currentTeam.value || route.params.team,
   })
 
   movePromise

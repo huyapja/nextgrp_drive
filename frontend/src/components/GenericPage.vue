@@ -324,6 +324,12 @@ const actionItems = computed(() => {
         isEnabled: () => !store.state.activeEntity || !store.state.showInfo,
       },
       {
+        label: "Lịch sử truy cập",
+        icon: LucideInfo,
+        action: () => (dialog.value = "activity_download_and_view"),
+        isEnabled: () => true,
+      },
+      {
         label: "Ẩn thông tin",
         icon: LucideInfo,
         action: () => (dialog.value = "info"),

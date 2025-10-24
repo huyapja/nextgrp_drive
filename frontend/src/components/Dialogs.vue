@@ -92,6 +92,12 @@
     v-model="dialog"
     @success="resetDialog"
   />
+
+  <ActivityDownloadAndViewDialog
+    v-if="dialog === 'activity_download_and_view'"
+    v-model="dialog"
+  />
+
 </template>
 <script setup>
 import NewFolderDialog from "@/components/NewFolderDialog.vue"
@@ -112,6 +118,7 @@ import { openEntity } from "../utils/files"
 import MoveOwnerDialog from "@/components/MoveOwnerDialog.vue"
 import CopyDialog from "@/components/CopyDialog.vue"
 import { data } from "autoprefixer"
+import ActivityDownloadAndViewDialog from "./ActivityDownloadAndViewDialog.vue"
 
 const dialog = defineModel(String)
 const store = useStore()
@@ -141,6 +148,7 @@ emitter.on("move", () => (dialog.value = "m"))
 emitter.on("newLink", () => (dialog.value = "l"))
 emitter.on("move_owner", () => (dialog.value = "move_owner"))
 emitter.on("copy", () => (dialog.value = "copy"))
+emitter.on("activity_download_and_view", () => (dialog.value = "activity_download_and_view"))
 
 const setTitle = (title) =>
   (document.title = (route.name === "Folder" ? "Folder - " : "") + title)
