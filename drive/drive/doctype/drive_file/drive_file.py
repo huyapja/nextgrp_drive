@@ -147,62 +147,64 @@ class DriveFile(Document):
                         {"children": child_names},
                     )
 
-        if new_parent == self.parent_entity:
-            # **LUÔN XÓA PERMISSIONS** khi có thay đổi is_private hoặc team
-            should_clear_permissions = (
-                self.is_private != is_private  # Có thay đổi private status
-                or current_team != new_parent_team  # Hoặc có chuyển team
+        print(
+            f"Clearing permissions: is_private={is_private}, team change={current_team} != {new_parent_team}"
+        )
+        # if new_parent == self.parent_entity:
+        # **LUÔN XÓA PERMISSIONS** khi có thay đổi is_private hoặc team
+        should_clear_permissions = (
+            self.is_private != is_private  # Có thay đổi private status
+            or current_team != new_parent_team  # Hoặc có chuyển team
+        )
+
+        if should_clear_permissions:
+            print(
+                f"Clearing permissions: is_private={is_private}, team change={current_team} != {new_parent_team}"
             )
+            delete_all_permissions(self.name, include_children=self.is_group)
 
-            if should_clear_permissions:
-                print(
-                    f"Clearing permissions: is_private={is_private}, team change={current_team} != {new_parent_team}"
-                )
-                delete_all_permissions(self.name, include_children=self.is_group)
+            # Cập nhật team cho file con nếu cần
+            if self.is_group and current_team != new_parent_team:
 
-                # Cập nhật team cho file con nếu cần
-                if self.is_group and current_team != new_parent_team:
+                def get_all_descendants(parent_name):
+                    descendants = []
+                    direct_children = frappe.db.get_all(
+                        "Drive File",
+                        filters={"parent_entity": parent_name},
+                        fields=["name", "is_group"],
+                    )
+                    for child in direct_children:
+                        descendants.append(child.name)
+                        if child.is_group:
+                            descendants.extend(get_all_descendants(child.name))
+                    return descendants
 
-                    def get_all_descendants(parent_name):
-                        descendants = []
-                        direct_children = frappe.db.get_all(
-                            "Drive File",
-                            filters={"parent_entity": parent_name},
-                            fields=["name", "is_group"],
-                        )
-                        for child in direct_children:
-                            descendants.append(child.name)
-                            if child.is_group:
-                                descendants.extend(get_all_descendants(child.name))
-                        return descendants
+                child_names = get_all_descendants(self.name)
+                if child_names:
+                    frappe.db.sql(
+                        """
+                        UPDATE `tabDrive File`
+                        SET team = %(team)s
+                        WHERE name IN %(children)s
+                        """,
+                        {"team": new_parent_team, "children": child_names},
+                    )
 
-                    child_names = get_all_descendants(self.name)
-                    if child_names:
-                        frappe.db.sql(
-                            """
-                            UPDATE `tabDrive File`
-                            SET team = %(team)s
-                            WHERE name IN %(children)s
-                            """,
-                            {"team": new_parent_team, "children": child_names},
-                        )
+            if current_team != new_parent_team:
+                self.team = new_parent_team
 
-                if current_team != new_parent_team:
-                    self.team = new_parent_team
+            if is_private is not None:
+                self.is_private = int(is_private)
 
-                if is_private is not None:
-                    self.is_private = int(is_private)
+            self.save()
 
-                self.save()
-
-            result = frappe.get_value(
-                "Drive File",
-                self.parent_entity,
-                ["title", "team", "name", "is_private"],
-                as_dict=True,
-            )
-            result["is_private"] = self.is_private
-            return result
+        result = frappe.get_value(
+            "Drive File",
+            self.parent_entity,
+            ["title", "team", "name", "is_private"],
+            as_dict=True,
+        )
+        result["is_private"] = self.is_private
 
         if new_parent == self.name:
             frappe.throw(

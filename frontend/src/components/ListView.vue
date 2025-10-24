@@ -616,7 +616,7 @@ const dropdownActionItems = (row) => {
         loading: isLoading,
       }
     })
-
+  console.log("actionItems", actionItems, props.actionItems)
   return actionItems
 }
 
