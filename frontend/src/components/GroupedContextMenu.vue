@@ -215,7 +215,6 @@ const groupedMenuItems = computed(() => {
       template: 'groupedItem',
       groupData: actionGroups.info
     })
-    console.log(items, props.actionItems, "itemsssss")
   }
   
   // Nhóm Delete (Xóa, Khôi phục, Xóa vĩnh viễn)

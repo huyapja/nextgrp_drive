@@ -1,5 +1,6 @@
 import frappe
 from pypika import Order, functions as fn
+from frappe.query_builder import Case
 
 
 def create_new_activity_log(
@@ -42,6 +43,7 @@ def get_entity_activity_log(entity_name):
     return result
 
 
+@frappe.whitelist()
 def create_new_entity_activity_log(entity, action_type):
     doc = frappe.new_doc("Drive Entity Activity Log")
     doc.entity = entity
@@ -55,7 +57,7 @@ def create_new_entity_activity_log(entity, action_type):
 def list_activity_download_view_logs(
     entity_name,
     order_by="timestamp desc",
-    limit=100,
+    limit=10,
     page=1,
 ):
     ActivityLog = frappe.qb.DocType("Drive Entity Activity Log")
@@ -67,17 +69,22 @@ def list_activity_download_view_logs(
     # Calculate offset
     offset = (page - 1) * limit
 
+    action_types = ["download", "view", "create", "edit"]
+
     # Build base query
     query = (
         frappe.qb.from_(ActivityLog)
-        .where(
-            (ActivityLog.entity == entity_name)
-            & ((ActivityLog.action_type == "download") | (ActivityLog.action_type == "view"))
-        )
+        .where((ActivityLog.entity == entity_name) & (ActivityLog.action_type.isin(action_types)))
         .select(
             ActivityLog.name,
             ActivityLog.entity,
-            ActivityLog.action_type,
+            Case()
+            .when(ActivityLog.action_type == "create", "Tải lên")
+            .when(ActivityLog.action_type == "view", "Xem")
+            .when(ActivityLog.action_type == "edit", "Sửa")
+            .when(ActivityLog.action_type == "download", "Tải xuống")
+            .else_(ActivityLog.action_type)
+            .as_("action_type"),
             ActivityLog.owner,
             ActivityLog.creation,
         )
@@ -87,10 +94,7 @@ def list_activity_download_view_logs(
     # Get total count for pagination info
     count_query = (
         frappe.qb.from_(ActivityLog)
-        .where(
-            (ActivityLog.entity == entity_name)
-            & ((ActivityLog.action_type == "download") | (ActivityLog.action_type == "view"))
-        )
+        .where((ActivityLog.entity == entity_name) & (ActivityLog.action_type.isin(action_types)))
         .select(fn.Count(ActivityLog.name))
     )
     total_count = count_query.run()[0][0]
@@ -103,19 +107,28 @@ def list_activity_download_view_logs(
     # Enrich results with officer and department data
     for r in results:
         officer = frappe.db.get_value(
-            "Officer", filters={"user": r.get("owner")}, fieldname=["name", "image"], as_dict=1
+            "Officer",
+            filters={"user": r.get("owner")},
+            fieldname=["name", "image", "officer_name"],
+            as_dict=1,
         )
         if officer:
             department_user = frappe.db.get_value(
                 "Department User",
                 filters={"user": officer.get("name")},
-                fieldname="position",
+                fieldname=["parent"],
                 as_dict=1,
             )
             r.update(officer)
             if department_user:
-                r.update(department_user)
-
+                print("department_user", department_user)
+                department = frappe.db.get_value(
+                    "Department",
+                    filters={"name": department_user.get("parent")},
+                    fieldname=["name", "department_name"],
+                    as_dict=1,
+                )
+                r.update(department)
     # Calculate pagination metadata
     total_pages = (total_count + limit - 1) // limit  # Ceiling division
     has_next = page < total_pages

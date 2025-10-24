@@ -320,7 +320,7 @@
       class="py-2 px-5"
     >
       <div
-        class="flex flex-row items-center justify-start pl-1 pr-2 bg-white sticky z-[10] top-[100%] left-0 right-0 border border-[#E5E5E5] rounded-[8px]"
+        class="flex flex-row items-center justify-start pl-1 pr-2 bg-white sticky !z-[1] top-[100%] left-0 right-0 border border-[#E5E5E5] rounded-[8px]"
       >
         <div class="flex-1 min-w-0">
           <RichCommentEditor

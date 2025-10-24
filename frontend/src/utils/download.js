@@ -1,9 +1,9 @@
-import JSZip from "jszip"
-import { toast } from "./toasts"
-import { printDoc } from "./files"
-import html2pdf from "html2pdf.js"
 import editorStyle from "@/components/DocEditor/editor.css?inline"
 import globalStyle from "@/index.css?inline"
+import html2pdf from "html2pdf.js"
+import JSZip from "jszip"
+import { printDoc } from "./files"
+import { toast } from "./toasts"
 
 async function getPdfFromDoc(entity_name) {
   const res = await fetch(
@@ -33,7 +33,7 @@ export function entitiesDownload(team, entities) {
   if (entities.length === 1) {
     if (entities[0].mime_type === "frappe_doc") {
       return fetch(
-        `/api/method/drive.api.files.get_file_content?entity_name=${entities[0].name}`
+        `/api/method/drive.api.files.get_file_content?entity_name=${entities[0].name}&trigger_download=1`
       ).then(async (data) => {
         const raw_html = (await data.json()).message
         printDoc(raw_html)

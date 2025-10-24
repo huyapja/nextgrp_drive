@@ -37,13 +37,13 @@
           @close="closeDrawer"
         />
 
-        <!-- Activity Tab -->
+        <!-- Activity Tab
         <ActivityPanel
           v-if="entity.write && tab === 2"
           :entity="entity"
           :is-small-screen="isSmallScreen"
           @close="closeDrawer"
-        />
+        /> -->
       </div>
     </div>
   </Transition>
@@ -54,7 +54,6 @@ import emitter from "@/emitter"
 import { userList } from "@/resources/permissions"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
-import ActivityPanel from "./ActivityPanel.vue"
 import CommentsPanel from "./CommentsPanel.vue"
 import InfoPanel from "./InfoPanel.vue"
 
