@@ -127,7 +127,6 @@ def add_comment(
         try:
             from drive.api.notifications import notify_reply_comment
 
-            print("notify_reply222222", reply_email)
             # frappe.enqueue(
             #     notify_reply_comment,
             #     queue="long",
