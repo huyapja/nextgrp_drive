@@ -103,21 +103,21 @@ def add_comment(
             try:
                 from drive.api.notifications import notify_comment_mentions
 
-                frappe.enqueue(
-                    notify_comment_mentions,
-                    queue="long",
-                    job_id=f"fcomment_{comment.name}",
-                    deduplicate=True,
-                    timeout=None,
-                    now=False,
-                    at_front=False,
-                    entity_name=drive_file.name,
-                    comment_doc=comment,
-                    mentions=mentions,
-                )
-                # notify_comment_mentions(
-                #     entity_name=drive_file.name, comment_doc=comment, mentions=mentions
+                # frappe.enqueue(
+                #     notify_comment_mentions,
+                #     queue="long",
+                #     job_id=f"fcomment_{comment.name}",
+                #     deduplicate=True,
+                #     timeout=None,
+                #     now=False,
+                #     at_front=False,
+                #     entity_name=drive_file.name,
+                #     comment_doc=comment,
+                #     mentions=mentions,
                 # )
+                notify_comment_mentions(
+                    entity_name=drive_file.name, comment_doc=comment, mentions=mentions
+                )
             except ImportError:
                 frappe.log_error("notify_comment_mentions not available")
 
@@ -127,23 +127,24 @@ def add_comment(
         try:
             from drive.api.notifications import notify_reply_comment
 
-            frappe.enqueue(
-                notify_reply_comment,
-                queue="long",
-                job_id=f"fcomment_{comment.name}",
-                deduplicate=True,
-                timeout=None,
-                now=False,
-                at_front=False,
-                entity_name=drive_file.name,
-                comment_doc=comment,
-                reply_email=reply_to.get("comment_email"),
-            )
-            # notify_reply_comment(
+            print("notify_reply222222", reply_email)
+            # frappe.enqueue(
+            #     notify_reply_comment,
+            #     queue="long",
+            #     job_id=f"fcomment_{comment.name}",
+            #     deduplicate=True,
+            #     timeout=None,
+            #     now=False,
+            #     at_front=False,
             #     entity_name=drive_file.name,
             #     comment_doc=comment,
             #     reply_email=reply_email,
             # )
+            notify_reply_comment(
+                entity_name=drive_file.name,
+                comment_doc=comment,
+                reply_email=reply_email,
+            )
         except ImportError:
             frappe.log_error("notify_reply_comment not available")
 
@@ -162,21 +163,21 @@ def add_comment(
 
         # Notify owner
         if drive_file.owner != comment.comment_email:
-            frappe.enqueue(
-                notify_comment_to_owner_file,
-                queue="long",
-                job_id=f"fcomment_{comment.name}_owner",
-                deduplicate=True,
-                timeout=None,
-                now=False,
-                at_front=False,
-                entity_name=drive_file.name,
-                comment_doc=comment,
-                owner_email=drive_file.owner,
-            )
-            # notify_comment_to_owner_file(
-            #     entity_name=drive_file.name, comment_doc=comment, owner_email=drive_file.owner
+            # frappe.enqueue(
+            #     notify_comment_to_owner_file,
+            #     queue="long",
+            #     job_id=f"fcomment_{comment.name}_owner",
+            #     deduplicate=True,
+            #     timeout=None,
+            #     now=False,
+            #     at_front=False,
+            #     entity_name=drive_file.name,
+            #     comment_doc=comment,
+            #     owner_email=drive_file.owner,
             # )
+            notify_comment_to_owner_file(
+                entity_name=drive_file.name, comment_doc=comment, owner_email=drive_file.owner
+            )
 
         # Notify other members
         if comments and len(comments) > 0:
