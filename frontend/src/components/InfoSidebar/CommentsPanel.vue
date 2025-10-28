@@ -30,6 +30,7 @@
           @mouseenter="hoveredTopic = topic.name"
           @mouseleave="hoveredTopic = null"
           @click="toggleReplyInput(topic.name)"
+          :data-topic-id="topic.name"
           v-on-click-outside="
             (event) => {
               if (
@@ -722,34 +723,82 @@ const handleReply = async (comment, topicName) => {
 
   await nextTick()
 
-  setTimeout(() => {
-    const editorRef = topicCommentEditors.value[topicName]
-    if (editorRef) {
+  // Tăng độ trễ và thêm retry logic cho production
+  const insertMentionWithRetry = async (retries = 3) => {
+    for (let i = 0; i < retries; i++) {
+      await new Promise(resolve => setTimeout(resolve, 200 * (i + 1)))
+      
+      const editorRef = topicCommentEditors.value[topicName]
+      
+      if (!editorRef) {
+        console.warn(`Attempt ${i + 1}: Editor ref not found for topic:`, topicName)
+        continue
+      }
+
+      // Đợi editor khởi tạo xong nếu có method waitForEditor
+      if (typeof editorRef.waitForEditor === "function") {
+        const isReady = await editorRef.waitForEditor(2000)
+        if (!isReady) {
+          console.warn(`Attempt ${i + 1}: Editor not ready`)
+          continue
+        }
+      }
+
+      // Kiểm tra xem đã có mention chưa
       const hasMention = typeof editorRef.hasMention === "function" 
         ? editorRef.hasMention(comment.comment_email)
         : false
 
       if (!hasMention && typeof editorRef.insertMention === "function") {
-        editorRef.insertMention({
-          id: comment.comment_email,
-          value: comment.comment_by,
-          image: comment.user_image,
-          author: userId.value,
-          type: "user",
+        try {
+          editorRef.insertMention({
+            id: comment.comment_email,
+            value: comment.comment_by,
+            image: comment.user_image,
+            author: userId.value,
+            type: "user",
+          })
+
+          if (typeof editorRef.lockMention === "function") {
+            editorRef.lockMention(comment.comment_email)
+          }
+
+          if (typeof editorRef.focus === "function") {
+            editorRef.focus()
+          }
+
+          console.log(`✅ Successfully inserted mention on attempt ${i + 1}`)
+          return true
+        } catch (error) {
+          console.error(`Attempt ${i + 1} failed:`, error)
+        }
+      } else {
+        // Đã có mention hoặc không có method insertMention
+        if (typeof editorRef.focus === "function") {
+          editorRef.focus()
+        }
+        return true
+      }
+    }
+    console.error(`❌ Failed to insert mention after ${retries} attempts`)
+    return false
+  }
+  // Scroll to reply input box after it appears
+  setTimeout(() => {
+    const topicElement = document.querySelector(`[data-topic-id="${topicName}"]`)
+    if (topicElement && scrollContainer.value) {
+      const replyInput = topicElement.querySelector('.flex.flex-row.items-center.justify-start.pl-1.pr-2')
+      if (replyInput) {
+        replyInput.scrollIntoView({ 
+          behavior: 'smooth', 
+          block: 'nearest'
         })
-      }
-
-      if (typeof editorRef.lockMention === "function") {
-        editorRef.lockMention(comment.comment_email)
-      }
-
-      if (typeof editorRef.focus === "function") {
-        editorRef.focus()
       }
     }
   }, 150)
-}
 
+  insertMentionWithRetry()
+}
 const cancelReply = (topicName) => {
   delete replyingTo[topicName]
   delete lastProcessedReply[topicName]

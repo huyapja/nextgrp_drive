@@ -18,7 +18,7 @@ export function useTimeAgoVi(time) {
     const years = Math.floor(days / 365)
     
     if (seconds < 60) {
-      return "vừa xong"
+      return "Vừa xong"
     } else if (minutes < 60) {
       return `${minutes} phút trước`
     } else if (hours < 24) {
