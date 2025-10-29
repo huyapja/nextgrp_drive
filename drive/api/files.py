@@ -638,9 +638,6 @@ def get_file_content(entity_name, trigger_download=0, jwt_token=None):
         as_dict=1,
     )
 
-    if trigger_download:
-        create_new_entity_activity_log(entity=entity_name, action_type="download")
-
     if not drive_file or drive_file.is_group or drive_file.is_link:
         frappe.throw("Not found", frappe.NotFound)
 

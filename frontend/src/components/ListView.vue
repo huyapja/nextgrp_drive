@@ -159,7 +159,7 @@
         <!-- Last Modified Column -->
         <Column
           field="accessed"
-          :header="__('Sửa đổi lần cuối')"
+          :header="__('Truy cập lần cuối')"
           sortable
         >
           <template #body="slotProps">

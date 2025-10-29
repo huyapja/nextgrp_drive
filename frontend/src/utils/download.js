@@ -29,7 +29,18 @@ async function getPdfFromDoc(entity_name) {
   await pdfBlob
   return pdfBlob.prop.pdf.output("arraybuffer")
 }
-export function entitiesDownload(team, entities) {
+export async function entitiesDownload(team, entities) {
+  await fetch(`/api/method/drive.api.activity.create_new_entity_activity_log`, {
+    method: "POST",
+    headers: {
+      "X-Frappe-CSRF-Token": window.csrf_token,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      entity: entities[0].name,
+      action_type: "download",
+    }),
+  })
   if (entities.length === 1) {
     if (entities[0].mime_type === "frappe_doc") {
       return fetch(

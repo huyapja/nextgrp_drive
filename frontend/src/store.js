@@ -41,7 +41,7 @@ const store = createStore({
     activeEntity: null,
     notifCount: 0,
     pasteData: { entities: [], action: null },
-    showInfo: getJson("showInfo", false),
+    showInfo: false,
     infoSidebarTab: 0, // 0: Information, 1: Comments, 2: Activity
     currentFolder: {
       name: getJson("currentFolder", {}),
