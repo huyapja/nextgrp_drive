@@ -124,6 +124,7 @@ import RenameIcon from "@/assets/Icons/RenameIcon.vue"
 import ShareIconBlack from "@/assets/Icons/ShareIconBlack.vue"
 import ShortcutIcon from "@/assets/Icons/ShortcutIcon.vue"
 import TrashIcon from "@/assets/Icons/TrashIcon.vue"
+import { LucideHistory } from "lucide-vue-next"
 import LucideClock from "~icons/lucide/clock"
 import LucideExternalLink from "~icons/lucide/external-link"
 import LucideInfo from "~icons/lucide/info"
@@ -321,11 +322,11 @@ const actionItems = computed(() => {
         label: "Hiển thị thông tin",
         icon: InfoIconBlack,
         action: () => infoEntities.value.push(store.state.activeEntity),
-        isEnabled: () => !store.state.activeEntity || !store.state.showInfo,
+        isEnabled: () => store.state.activeEntity && !store.state.showInfo,
       },
       {
         label: "Lịch sử truy cập",
-        icon: LucideInfo,
+        icon: LucideHistory,
         action: () => (dialog.value = "activity_download_and_view"),
         isEnabled: (e) => currentUserEmail.value === e?.owner || isMember.value,
       },
