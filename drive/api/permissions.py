@@ -124,7 +124,10 @@ def get_entity_with_permissions(entity_name):
     :rtype: frappe._dict
     """
     entity = frappe.db.get_value(
-        "Drive File", {"name": entity_name}, ENTITY_FIELDS + ["team"], as_dict=1
+        "Drive File",
+        {"name": entity_name, "is_active": ["!=", -1]},
+        ENTITY_FIELDS + ["team"],
+        as_dict=1,
     )
     print("Fetched entity:", entity)
     if not entity:

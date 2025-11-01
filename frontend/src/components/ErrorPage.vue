@@ -27,7 +27,7 @@
         size="md"
         @click="$router.replace({ path: '/' })"
       >
-        <div class="flex gap-2"><LucideHome class="size-4" />{{ __("Go Home") }}</div>
+        <div class="flex gap-2"><LucideHome class="size-4" />{{ __("Tài liệu của tôi") }}</div>
       </Button>
     </div>
   </div>

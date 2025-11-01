@@ -648,7 +648,7 @@ async function handleCommentOpenQuery() {
       // Scroll to comment
       commentElement.scrollIntoView({ 
         behavior: 'smooth', 
-        block: 'center'
+        block: 'nearest'
       })
       
       // Highlight comment
@@ -903,21 +903,56 @@ const toggleReplyInput = async (topicName) => {
   showReplyInput[topicName] = true
   await nextTick()
 
-  setTimeout(() => {
-    const editorRef = topicCommentEditors.value[topicName]
-    if (editorRef) {
+  // Retry logic để đảm bảo editor được focus
+  const focusEditorWithRetry = async (retries = 5) => {
+    for (let i = 0; i < retries; i++) {
+      await new Promise(resolve => setTimeout(resolve, 100 * (i + 1)))
+      
+      const editorRef = topicCommentEditors.value[topicName]
+      
+      if (!editorRef) {
+        console.warn(`Focus attempt ${i + 1}: Editor ref not found`)
+        continue
+      }
+
+      // Đợi editor khởi tạo nếu có method waitForEditor
+      if (typeof editorRef.waitForEditor === "function") {
+        const isReady = await editorRef.waitForEditor(2000)
+        if (!isReady) {
+          console.warn(`Focus attempt ${i + 1}: Editor not ready`)
+          continue
+        }
+      }
+
+      // Thử focus bằng nhiều cách
+      let focused = false
+      
       if (typeof editorRef.focus === "function") {
         editorRef.focus()
+        focused = true
+      } else if (editorRef.editor && typeof editorRef.editor.commands?.focus === "function") {
+        editorRef.editor.commands.focus()
+        focused = true
       } else if (editorRef.$el && editorRef.$el.querySelector) {
         const input = editorRef.$el.querySelector(
           'input, textarea, [contenteditable="true"]'
         )
         if (input) {
           input.focus()
+          focused = true
         }
       }
+
+      if (focused) {
+        console.log(`✅ Editor focused successfully on attempt ${i + 1}`)
+        return true
+      }
     }
-  }, 100)
+    console.error(`❌ Failed to focus editor after ${retries} attempts`)
+    return false
+  }
+
+  focusEditorWithRetry()
 }
 
 const closeTopicInput = (topicName) => {
