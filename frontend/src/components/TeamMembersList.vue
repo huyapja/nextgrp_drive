@@ -11,7 +11,7 @@
   <transition name="slide">
     <div
       v-if="!isDrawer || (isDrawer && visible)"
-      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-50"
+      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-10"
       :class="isDrawer ? 'fixed right-0 top-0 min-w-[276px] max-w-[276px] h-full shadow-lg' : ''"
     >
       <!-- Header -->

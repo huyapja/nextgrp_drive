@@ -487,14 +487,13 @@ def files_multi_team(
     # Lấy file từ mỗi team
     for team in user_teams:
         try:
-            print(f"DEBUG - Processing team: {team}")
             # Get home folder for this team if no entity_name specified
             if not entity_name:
                 home = get_home_folder(team)["name"]
                 current_entity_name = home
             else:
                 current_entity_name = entity_name
-
+            print(f"DEBUG - Processing team {team} for entity {current_entity_name}")
             try:
                 entity = frappe.get_doc("Drive File", current_entity_name)
                 # Skip if entity doesn't belong to current team
@@ -505,7 +504,7 @@ def files_multi_team(
 
             # Get user access for this entity
             user_access = get_user_access(entity, user)
-            print(f"DEBUG - user_access for {current_entity_name}: {user_access}")
+            print(f"DEBUG - user_access for {current_entity_name} {entity_name}: {user_access}")
             if not user_access["read"]:
                 print(f"DEBUG - No read access for {current_entity_name}, skipping")
                 continue
@@ -513,7 +512,7 @@ def files_multi_team(
             # Tách riêng query cho file gốc và shortcut
             team_results = []
 
-            print(f"DEBUG - Building queries for personal={personal}")
+            print(f"DEBUG - Building queries for personal={personal} {entity_name} in team {team}")
 
             if personal == 1 or personal == -2 or personal == -3:
                 print("DEBUG - Building queries for personal=1 (My Drive)")
@@ -587,7 +586,10 @@ def files_multi_team(
                     )
                 query = original_files_query
                 shortcut_query = shortcut_files_query
-
+                print(
+                    "DEBUG - Original files query and shortcut query built",
+                    query.run(as_dict=True),
+                )
             elif personal == 0:
                 print("DEBUG - Building query for personal=0 (Shared files)")
                 # Chỉ lấy file gốc public/shared (không lấy shortcuts)

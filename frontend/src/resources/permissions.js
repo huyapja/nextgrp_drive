@@ -1,5 +1,5 @@
-import { createResource } from "frappe-ui"
 import { toast } from "@/utils/toasts"
+import { createResource } from "frappe-ui"
 
 export const getUsersWithAccess = createResource({
   url: "drive.api.permissions.get_shared_with_list",
@@ -9,7 +9,7 @@ export const getUsersWithAccess = createResource({
 export const updateAccess = createResource({
   url: "drive.api.files.call_controller_method",
   makeParams: (params) => ({ ...params, method: params.method || "share" }),
-  onError: () => toast("You can't perform this action"),
+  onError: () => toast("Có lỗi xảy ra khi thực hiện hành động này"),
 })
 
 export const notifCount = createResource({

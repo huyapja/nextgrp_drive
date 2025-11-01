@@ -154,6 +154,7 @@ const store = useStore()
 const dialog = ref("")
 const infoEntities = ref([])
 const team = route.params.team
+const entityName = route.params.entityName
 const activeEntity = computed(() => store.state.activeEntity)
 const rows = ref(props.getEntities.data)
 
@@ -192,7 +193,7 @@ watch(
 
 if (team) {
   allUsers.fetch({ team })
-  allFolders.fetch({ team })
+  allFolders.fetch({ team, entityName })
 }
 if (!settings.fetched) settings.fetch()
 

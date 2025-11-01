@@ -571,6 +571,7 @@ const toggleUserSelection = (person) => {
   }
   // Keep dropdown open
   isDropdownOpen.value = true
+  query.value = ""
 }
 
 const removeSharedUser = (index) => {

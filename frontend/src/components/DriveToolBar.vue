@@ -15,20 +15,20 @@
       class="shared-tabs"
     >
       <TabButtons
-  v-model="shareView"
-  :buttons="[
-    {
-      label: __('By'),
-      value: 'by',
-      disabled: !getEntities.data?.length,
-    },
-    {
-      label: __('With you'),
-      value: 'with',
-      disabled: !getEntities.data?.length,
-    },
-  ]"
-/>
+        v-model="shareView"
+        :buttons="[
+          {
+            label: __('By'),
+            value: 'by',
+            disabled: !getEntities.data?.length,
+          },
+          {
+            label: __('With you'),
+            value: 'with',
+            disabled: !getEntities.data?.length,
+          },
+        ]"
+      />
     </div>
     
     <!-- Search Bar -->

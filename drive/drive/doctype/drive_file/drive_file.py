@@ -493,6 +493,7 @@ class DriveFile(Document):
         Share this file or folder with the specified user.
         If it has already been shared, update permissions.
         Share defaults to one to let the non owner user unshare a file.
+        If sharing a folder, automatically share all children with same permissions.
 
         :param user: User with whom this is to be shared
         :param write: 1 if write permission is to be granted. Defaults to 0
@@ -537,6 +538,69 @@ class DriveFile(Document):
         )
 
         permission.save(ignore_permissions=True)
+
+        # Nếu đây là folder, tự động chia sẻ tất cả children
+        if self.is_group:
+            self._share_children(
+                user=user,
+                read=read,
+                comment=comment,
+                share=share,
+                write=write,
+                valid_until=valid_until,
+            )
+
+    def _share_children(
+        self, user=None, read=None, comment=None, share=None, write=None, valid_until=""
+    ):
+        """
+        Recursively share all children of this folder with the same permissions.
+        """
+        # Lấy tất cả file/folder con trực tiếp
+        children = frappe.get_all(
+            "Drive File", filters={"parent_entity": self.name}, fields=["name", "is_group"]
+        )
+
+        for child in children:
+            # Lấy document của child
+            child_doc = frappe.get_doc("Drive File", child.name)
+
+            # Tạo hoặc cập nhật permission cho child
+            child_permission = frappe.db.get_value(
+                "Drive Permission",
+                {
+                    "entity": child.name,
+                    "user": user or "",
+                },
+            )
+
+            if not child_permission:
+                child_permission = frappe.new_doc("Drive Permission")
+            else:
+                child_permission = frappe.get_doc("Drive Permission", child_permission)
+
+            levels = [["read", read], ["comment", comment], ["share", share], ["write", write]]
+            child_permission.update(
+                {
+                    "user": user,
+                    "entity": child.name,
+                    "valid_until": valid_until,
+                }
+                | {l[0]: l[1] for l in levels if l[1] is not None}
+            )
+
+            child_permission.save(ignore_permissions=True)
+
+            # Nếu child cũng là folder, đệ quy chia sẻ các con của nó
+            if child.is_group:
+                child_doc._share_children(
+                    user=user,
+                    read=read,
+                    comment=comment,
+                    share=share,
+                    write=write,
+                    valid_until=valid_until,
+                )
 
     @frappe.whitelist()
     def unshare(self, user=None):
@@ -794,7 +858,7 @@ class DriveFile(Document):
 
         children = frappe.get_all(
             "Drive File",
-            filters={"parent_drive_file": self.name},
+            filters={"parent_entity": self.name},
             fields=["name", "title", "is_group"],
         )
 

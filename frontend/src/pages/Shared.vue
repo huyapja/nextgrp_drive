@@ -10,12 +10,13 @@
 import GenericPage from "@/components/GenericPage.vue"
 
 import { getShared } from "@/resources/files"
-import { computed, watch } from "vue"
+import { computed, onUnmounted, watch } from "vue"
 import { useStore } from "vuex"
 import LucideUsers from "~icons/lucide/users"
 
 const store = useStore()
 const shareView = computed(() => store.state.shareView)
+
 
 watch(
   shareView,
@@ -25,5 +26,9 @@ watch(
   },
   { immediate: true }
 )
+
+onUnmounted(()=>{
+  store.commit('toggleShareView', "by")
+})
 
 </script>

@@ -28,7 +28,7 @@ const props = defineProps({
 
 const getFolderContents = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files_multi_team",
+  url: "drive.api.list.files",
   makeParams: (params) => ({
     ...params,
     // Disable all checks, return all children
