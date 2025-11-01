@@ -1,3 +1,4 @@
+from drive.api.notifications import notify_share
 import frappe
 from frappe.model.document import Document
 from pathlib import Path
@@ -538,6 +539,18 @@ class DriveFile(Document):
         )
 
         permission.save(ignore_permissions=True)
+
+        frappe.enqueue(
+            notify_share,
+            queue="long",
+            job_id=f"fdocperm_{self.name}",
+            deduplicate=True,
+            timeout=None,
+            now=False,
+            at_front=False,
+            entity_name=self.entity,
+            docperm_name=self.name,
+        )
 
         # Nếu đây là folder, tự động chia sẻ tất cả children
         if self.is_group:

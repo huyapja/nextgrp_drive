@@ -577,6 +577,13 @@ def files_multi_team(
                     original_files_query = original_files_query.where(
                         (DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user)
                     )
+                if personal == -2:
+                    # ✅ THÊM: Với personal=-2, lấy cả file được chia sẻ (có permission)
+                    # Lấy file của user HOẶC file được share cho user
+                    original_files_query = original_files_query.where(
+                        ((DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user))
+                        | (DrivePermission.user == user)  # File được chia sẻ cho user
+                    )
                 if personal == -3:
                     # Chỉ lấy file gốc công khai và file của user (thùng rác cá nhân)
                     # (DriveFile.is_private == 0)
