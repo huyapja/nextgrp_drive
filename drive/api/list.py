@@ -449,9 +449,27 @@ def files_multi_team(
         else:
             user_teams = teams
 
-    # Xác minh người dùng có quyền truy cập vào tất cả các nhóm được chỉ định
-    accessible_teams = get_teams()
-    user_teams = [team for team in user_teams if team in accessible_teams]
+    # ✅ FIX: Nếu có entity_name, kiểm tra quyền truy cập thay vì filter theo team membership
+    if entity_name:
+        try:
+            entity = frappe.get_doc("Drive File", entity_name)
+            user_access = get_user_access(entity, frappe.session.user)
+
+            if not user_access["read"]:
+                frappe.throw(
+                    "You don't have permission to access this folder", frappe.PermissionError
+                )
+
+            # Chỉ query trong team của entity
+            user_teams = [entity.team]
+            print(f"DEBUG - Entity {entity_name} belongs to team {entity.team}")
+            print(f"DEBUG - User has access: {user_access}")
+        except frappe.DoesNotExistError:
+            return []
+    else:
+        # Xác minh người dùng có quyền truy cập vào tất cả các nhóm được chỉ định
+        accessible_teams = get_teams()
+        user_teams = [team for team in user_teams if team in accessible_teams]
 
     if not user_teams:
         return []
@@ -487,24 +505,30 @@ def files_multi_team(
     # Lấy file từ mỗi team
     for team in user_teams:
         try:
+            print(f"DEBUG - Processing team: {team}")
             # Get home folder for this team if no entity_name specified
             if not entity_name:
                 home = get_home_folder(team)["name"]
                 current_entity_name = home
             else:
                 current_entity_name = entity_name
-            print(f"DEBUG - Processing team {team} for entity {current_entity_name}")
+
             try:
                 entity = frappe.get_doc("Drive File", current_entity_name)
+                print(f"DEBUG - Entity {current_entity_name} belongs to team: {entity.team}")
+                print(f"DEBUG - Currently processing team: {team}")
                 # Skip if entity doesn't belong to current team
                 if entity.team != team:
+                    print(f"DEBUG - Skipping because entity.team ({entity.team}) != team ({team})")
                     continue
+                print(f"DEBUG - Entity matches team, continuing...")
             except:
+                print(f"DEBUG - Error getting entity: {str(e)}")
                 continue
 
             # Get user access for this entity
             user_access = get_user_access(entity, user)
-            print(f"DEBUG - user_access for {current_entity_name} {entity_name}: {user_access}")
+            print(f"DEBUG - user_access for {current_entity_name}: {user_access}")
             if not user_access["read"]:
                 print(f"DEBUG - No read access for {current_entity_name}, skipping")
                 continue
@@ -512,7 +536,7 @@ def files_multi_team(
             # Tách riêng query cho file gốc và shortcut
             team_results = []
 
-            print(f"DEBUG - Building queries for personal={personal} {entity_name} in team {team}")
+            print(f"DEBUG - Building queries for personal={personal}")
 
             if personal == 1 or personal == -2 or personal == -3:
                 print("DEBUG - Building queries for personal=1 (My Drive)")
@@ -577,13 +601,6 @@ def files_multi_team(
                     original_files_query = original_files_query.where(
                         (DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user)
                     )
-                if personal == -2:
-                    # ✅ THÊM: Với personal=-2, lấy cả file được chia sẻ (có permission)
-                    # Lấy file của user HOẶC file được share cho user
-                    original_files_query = original_files_query.where(
-                        ((DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user))
-                        | (DrivePermission.user == user)  # File được chia sẻ cho user
-                    )
                 if personal == -3:
                     # Chỉ lấy file gốc công khai và file của user (thùng rác cá nhân)
                     # (DriveFile.is_private == 0)
@@ -593,10 +610,7 @@ def files_multi_team(
                     )
                 query = original_files_query
                 shortcut_query = shortcut_files_query
-                print(
-                    "DEBUG - Original files query and shortcut query built",
-                    query.run(as_dict=True),
-                )
+
             elif personal == 0:
                 print("DEBUG - Building query for personal=0 (Shared files)")
                 # Chỉ lấy file gốc public/shared (không lấy shortcuts)
