@@ -539,29 +539,29 @@ class DriveFile(Document):
         )
 
         permission.save(ignore_permissions=True)
-
-        frappe.enqueue(
-            notify_share,
-            queue="long",
-            job_id=f"fdocperm_{self.name}",
-            deduplicate=True,
-            timeout=None,
-            now=False,
-            at_front=False,
-            entity_name=self.name,
-            docperm_name=self.name,
-        )
+        print(f"Shared {self.name} with {user}")
+        # frappe.enqueue(
+        #     notify_share,
+        #     queue="long",
+        #     job_id=f"fdocperm_{self.name}",
+        #     deduplicate=True,
+        #     timeout=None,
+        #     now=False,
+        #     at_front=False,
+        #     entity_name=self.name,
+        #     docperm_name=self.name,
+        # )
 
         # Nếu đây là folder, tự động chia sẻ tất cả children
-        # if self.is_group:
-        #     self._share_children(
-        #         user=user,
-        #         read=read,
-        #         comment=comment,
-        #         share=share,
-        #         write=write,
-        #         valid_until=valid_until,
-        #     )
+        if self.is_group:
+            self._share_children(
+                user=user,
+                read=read,
+                comment=comment,
+                share=share,
+                write=write,
+                valid_until=valid_until,
+            )
 
     def _share_children(
         self, user=None, read=None, comment=None, share=None, write=None, valid_until=""

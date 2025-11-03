@@ -87,7 +87,7 @@ def files(
     user_access = get_user_access(entity, user)
     if not user_access["read"]:
         frappe.throw(
-            f"You don't have access.",
+            f"Bạn không có quyền truy cập.",
             frappe.exceptions.PageDoesNotExistError,
         )
     query = (
