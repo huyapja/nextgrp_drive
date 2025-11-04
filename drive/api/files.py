@@ -36,6 +36,32 @@ from werkzeug.wsgi import wrap_file
 from drive.locks.distributed_lock import DistributedLock
 
 
+# Hàm helper để copy permissions
+def copy_permissions_to_entity(entity_name, permissions_list):
+    """Copy permissions to a specific entity"""
+    for perm in permissions_list:
+        # Kiểm tra xem permission đã tồn tại chưa
+        existing = frappe.db.exists(
+            "Drive Permission", {"entity": entity_name, "user": perm["user"]}
+        )
+
+        if not existing:
+            permission = frappe.get_doc(
+                {
+                    "doctype": "Drive Permission",
+                    "entity": entity_name,
+                    "user": perm["user"],
+                    "read": perm["read"],
+                    "write": perm["write"],
+                    "comment": perm["comment"],
+                    "share": perm["share"],
+                    "valid_until": perm["valid_until"],
+                }
+            )
+            permission.insert()
+            print(f"Copied permission for {perm['user']} to {entity_name}")
+
+
 @frappe.whitelist()
 def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=None, embed=0):
     """
@@ -49,15 +75,23 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
     :raises ValueError: If the size of the stored file does not match the specified filesize
     :return: DriveEntity doc once the entire file has been uploaded
     """
+    origin_parent = parent
     home_folder = get_home_folder(team)
     parent = parent or home_folder["name"]
     is_private = personal or frappe.get_value("Drive File", parent, "is_private")
     embed = int(embed)
 
+    # Lưu danh sách các folder được tạo để copy permissions sau
+    created_folders = []
+
     if fullpath:
         dirname = os.path.dirname(fullpath).split("/")
         for i in dirname:
-            parent = if_folder_exists(team, i, parent, is_private)
+            new_parent = if_folder_exists(team, i, parent, is_private)
+            # Lưu lại folder vừa tạo (nếu nó khác parent hiện tại)
+            if new_parent != parent:
+                created_folders.append(new_parent)
+            parent = new_parent
 
     if not frappe.has_permission(
         doctype="Drive File", doc=parent, ptype="write", user=frappe.session.user
@@ -76,14 +110,6 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
     total_chunks = int(frappe.form_dict.total_chunk_count)
 
     temp_path = get_upload_path(home_folder["name"], f"{upload_session}_{secure_filename(title)}")
-    # with temp_path.open("ab") as f:
-    #     f.seek(int(frappe.form_dict.chunk_byte_offset))
-    #     f.write(file.stream.read())
-    #     if (
-    #         not f.tell() >= int(frappe.form_dict.total_file_size)
-    #         or current_chunk != total_chunks - 1
-    #     ):
-    #         return
 
     # Thay thế đoạn code hiện tại
     if not temp_path.exists():
@@ -103,9 +129,6 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
     # Validate that file size is matching
     file_size = temp_path.stat().st_size
     # Trong hàm upload_file, trước dòng validation:
-    print(f"Expected size: {frappe.form_dict.total_file_size}")
-    print(f"Actual size on disk: {file_size}")
-    print(f"Temp path: {temp_path}")
     if file_size != int(frappe.form_dict.total_file_size):
         temp_path.unlink()
         frappe.throw("Size on disk does not match specified filesize.", ValueError)
@@ -127,6 +150,20 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
         / f"{'embeds' if embed else ''}"
         / f"{n}{temp_path.suffix}",
     )
+
+    # Lấy permissions từ origin_parent
+    origin_parent_permission = frappe.get_all(
+        "Drive Permission",
+        filters={"entity": origin_parent},
+        fields=["user", "read", "write", "comment", "share", "valid_until"],
+    )
+
+    # Copy permissions cho tất cả folders trung gian được tạo
+    for folder_name in created_folders:
+        copy_permissions_to_entity(folder_name, origin_parent_permission)
+
+    # Copy permissions cho file cuối cùng
+    copy_permissions_to_entity(drive_file.name, origin_parent_permission)
 
     create_new_entity_activity_log(entity=drive_file.name, action_type="create")
 
