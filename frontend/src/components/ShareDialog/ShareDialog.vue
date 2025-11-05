@@ -1,6 +1,9 @@
 <template>
   <Dialog
-    v-model="openDialog"
+    ref="dialog"
+    :modelValue="openDialog"
+    @update:modelValue="handleDialogClose"
+    @click:backdrop="handleBackdropClick"
     :options="{ size: 'lg' }"
   >
     <template #body-main>
@@ -105,7 +108,7 @@
                 </div>
               </div>
 
-              <!-- Dropdown suggestions - Added v-click-outside -->
+              <!-- Dropdown suggestions -->
               <div
                 v-if="
                   isDropdownOpen 
@@ -113,9 +116,7 @@
                   (filteredUsers.length > 0 || showAllUsers) &&
                   !showAllSharedUsers
                 "
-                v-click-outside="handleDropdownClickOutside"
-                class="absolute z-[10000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto !p-0"
-                @click.stop
+                class="absolute z-[10000] mt-1 w-full bg-white border border-gray-200 rounded-md shadow-lg max-h-40 overflow-y-auto !p-0 search-dropdown"
               >
                 <div
                   v-if="filteredUsers.length === 0 && showAllUsers"
@@ -128,7 +129,7 @@
                   v-for="person in filteredUsers"
                   :key="person.email"
                   class="flex items-center p-3 hover:bg-gray-50 cursor-pointer"
-                  @click.stop="toggleUserSelection(person)"
+                  @click="toggleUserSelection(person)"
                 >
                   <CustomAvatar
                     :image="person.user_image"
@@ -438,52 +439,14 @@ const showAllUsers = ref(false)
 const showAllSharedUsers = ref(false)
 const dropdownPosition = ref(null)
 
-// Unified click-outside handler
-const handleClickOutside = (event) => {
-  // Get references to all dropdown elements
-  const permissionButton = permissionDropdownContainer.value?.querySelector("button")
-  const permissionContent = document.querySelector(".permission-dropdown-content")
-  const userDropdownToggle = event.target.closest('button[data-dropdown="user-access"]')
-  const userDropdownContent = document.querySelector(".user-dropdown")
-  const searchDropdown = dropdownContainer.value?.querySelector('.absolute')
-
-  // Check what was clicked
-  const clickedPermissionButton = permissionButton?.contains(event.target)
-  const clickedPermissionContent = permissionContent?.contains(event.target)
-  const clickedUserButton = userDropdownToggle !== null
-  const clickedUserContent = userDropdownContent?.contains(event.target)
-  const clickedSearchInput = dropdownContainer.value?.querySelector('input')?.contains(event.target)
-  const clickedSearchDropdown = searchDropdown?.contains(event.target)
-
-  // Close permission dropdown if clicked outside
-  if (!clickedPermissionButton && !clickedPermissionContent) {
-    isPermissionDropdownOpen.value = false
-  }
-
-  // Close user dropdown if clicked outside
-  if (!clickedUserButton && !clickedUserContent) {
-    activeUserDropdown.value = null
-    dropdownPosition.value = null
-  }
-
-  // Close search dropdown if clicked outside
-  if (!clickedSearchInput && !clickedSearchDropdown) {
-    // Don't close immediately to allow selection
-    setTimeout(() => {
-      if (!searchDropdown?.matches(':hover')) {
-        isDropdownOpen.value = false
-        showAllUsers.value = false
-      }
-    }, 100)
-  }
-}
 
 onMounted(() => {
-  document.addEventListener("mousedown", handleClickOutside)
+  // Listen on capture phase for clicks so we can intercept overlay clicks
+  document.addEventListener("click", handleClickOutside, true)
 })
 
 onUnmounted(() => {
-  document.removeEventListener("mousedown", handleClickOutside)
+  document.removeEventListener("click", handleClickOutside, true)
 })
 
 // Computed
@@ -491,6 +454,85 @@ const openDialog = computed({
   get: () => props.modelValue === "s",
   set: (value) => emit("update:modelValue", value ? "s" : ""),
 })
+
+const hasOpenDropdown = computed(() => {
+  return isDropdownOpen.value || 
+         isPermissionDropdownOpen.value || 
+         activeUserDropdown.value !== null
+})
+
+// Handle click outside for dropdowns
+const handleClickOutside = (event) => {
+  // Get all dropdown elements and their containers
+  const permissionContent = document.querySelector(".permission-dropdown-content")
+  const userDropdownContent = document.querySelector(".user-dropdown") 
+  const searchDropdown = document.querySelector('.search-dropdown')
+  const dropdownInput = dropdownContainer.value?.querySelector('input')
+  
+  // Check if click is inside any dropdown, their triggers, or input
+  const isClickInsideDropdown = (
+    // Permission dropdown
+    permissionContent?.contains(event.target) ||
+    permissionDropdownContainer.value?.contains(event.target) ||
+    // User action dropdown
+    userDropdownContent?.contains(event.target) ||
+    // Search dropdown and its input
+    searchDropdown?.contains(event.target) ||
+    dropdownContainer.value?.contains(event.target) ||
+    dropdownInput === event.target
+  )
+
+  // If click is inside dropdown area, only prevent propagation
+  if (isClickInsideDropdown) {
+    // Prevent dialog from closing when interacting with dropdowns
+    event.stopPropagation()
+    event.preventDefault() 
+    return
+  }
+
+  // If click is outside dropdown areas, close them
+  if (hasOpenDropdown.value) {
+    // Reset all dropdown states
+    isDropdownOpen.value = false
+    showAllUsers.value = false 
+    isPermissionDropdownOpen.value = false
+    activeUserDropdown.value = null
+    dropdownPosition.value = null
+    query.value = '' // Clear search input
+    
+    // Prevent dialog from closing when we're just closing dropdowns
+    event.stopPropagation()
+    event.preventDefault()
+    return
+  }
+}
+
+// Handle backdrop click specifically
+const handleBackdropClick = (event) => {
+  // If any dropdown is open, just close dropdowns
+  if (hasOpenDropdown.value) {
+    isDropdownOpen.value = false
+    showAllUsers.value = false 
+    isPermissionDropdownOpen.value = false
+    activeUserDropdown.value = null
+    dropdownPosition.value = null
+    query.value = '' // Clear search input
+    return
+  }
+  
+  // Otherwise close the dialog
+  emit("update:modelValue", "")
+  document.body.style.overflow = ""
+}
+
+// Dialog close handler - now only handles programmatic close
+const handleDialogClose = (value) => {
+  // Only handle when value changes to false
+  if (value === false && !hasOpenDropdown.value) {
+    emit("update:modelValue", "")
+    document.body.style.overflow = ""
+  }
+}
 
 const allUsersData = computed(() => allSiteUsers.data || [])
 
@@ -536,8 +578,9 @@ const filteredUsers = computed(() => {
     .slice(0, 8)
 })
 
-// Methods
+// Methods for handling search input
 const handleInputFocus = () => {
+  // Open search dropdown and close others
   isDropdownOpen.value = true
   showAllUsers.value = true
   showAllSharedUsers.value = false
@@ -546,17 +589,9 @@ const handleInputFocus = () => {
 }
 
 const handleInputChange = () => {
+  // Keep dropdown open while typing
   isDropdownOpen.value = true
   showAllSharedUsers.value = false
-}
-
-const handleDropdownClickOutside = (event) => {
-  const inputElement = dropdownContainer.value?.querySelector('input')
-  if (inputElement?.contains(event.target)) {
-    return
-  }
-  isDropdownOpen.value = false
-  showAllUsers.value = false
 }
 
 const toggleUserSelection = (person) => {
