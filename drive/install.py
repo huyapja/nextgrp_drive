@@ -45,6 +45,7 @@ def create_core_team():
             filters={
                 "name": ["not in", ["Administrator", "Guest"]],
                 "enabled": 1,
+                "user_type": "System User",
             },
             fields=["name", "email"],
             order_by="creation asc",

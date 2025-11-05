@@ -446,17 +446,17 @@ def get_all_users(team):
         u["access_level"] = team_users[u["name"]]
 
         officer = frappe.db.get_value("Officer", {"user": u["name"]}, "name", as_dict=1)
-        if officer:
+        if officer and officer.get("name"):
             position = frappe.db.get_value(
                 "Department User", {"user": officer["name"]}, ["position", "parent"], as_dict=1
             )
-        if position:
-            u["position"] = position["position"]
-            department = frappe.db.get_value(
-                "Department", position["parent"], "department_name", as_dict=1
-            )
-            if department:
-                u["department"] = department["department_name"]
+            if position and position.get("position"):
+                u["position"] = position["position"]
+                department = frappe.db.get_value(
+                    "Department", position["parent"], "department_name", as_dict=1
+                )
+                if department:
+                    u["department"] = department["department_name"]
     return users
 
 
