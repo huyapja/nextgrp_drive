@@ -540,14 +540,16 @@ class DriveFile(Document):
 
         permission.save(ignore_permissions=True)
 
-        notify_share(
-            entity=self.name,
-            user=user,
-            read=read,
-            comment=comment,
-            share=share,
-            write=write,
-            valid_until=valid_until,
+        frappe.enqueue(
+            notify_share,
+            queue="long",
+            job_id=f"fdocperm_{self.name}",
+            deduplicate=True,
+            timeout=None,
+            now=False,
+            at_front=False,
+            entity_name=self.name,
+            docperm_name=self.name,
         )
 
         # Nếu đây là folder, tự động chia sẻ tất cả children

@@ -487,6 +487,7 @@ def get_system_users():
     users = frappe.get_all(
         doctype="User",
         filters=[
+            ["user_type", "=", "System User"],
             ["enabled", "=", 1],
             ["name", "!=", "Administrator"],
         ],

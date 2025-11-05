@@ -13,7 +13,7 @@
           v-model="newName"
           v-focus
           class="flex-1"
-          placeholder="Enter new name"
+          placeholder="Nhập tên mới"
           @keyup.enter="submit"
           autofocus
         />
