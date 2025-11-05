@@ -59,7 +59,6 @@ def copy_permissions_to_entity(entity_name, permissions_list):
                 }
             )
             permission.insert()
-            print(f"Copied permission for {perm['user']} to {entity_name}")
 
 
 @frappe.whitelist()
@@ -321,6 +320,7 @@ def get_thumbnail(entity_name):
 
 @frappe.whitelist()
 def create_document_entity(title, personal, team, content, parent=None):
+    origin_parent = parent
     home_directory = get_home_folder(team)
     parent = parent or home_directory.name
 
@@ -351,6 +351,14 @@ def create_document_entity(title, personal, team, content, parent=None):
         lambda _: "",
         document=drive_doc.name,
     )
+    if origin_parent:
+        get_permissions = frappe.get_all(
+            "Drive Permission",
+            {"entity": origin_parent},
+            ["user", "read", "share", "write", "comment", "valid_until"],
+        )
+        copy_permissions_to_entity(entity.name, get_permissions)
+
     create_new_entity_activity_log(entity=entity.name, action_type="create")
     # Send team notifications for new document (only for public documents)
     if not personal:
@@ -407,6 +415,7 @@ def create_folder(team, title, personal=False, parent=None):
     :raises FileExistsError: If a folder with the same name already exists in the specified parent folder
     :return: DriveEntity doc of the new folder
     """
+    origin_parent = parent
     home_folder = get_home_folder(team)
     parent = parent or home_folder.name
 
@@ -462,6 +471,15 @@ def create_folder(team, title, personal=False, parent=None):
         }
     )
     drive_file.insert()
+
+    if origin_parent:
+        get_permissions = frappe.get_all(
+            "Drive Permission",
+            {"entity": origin_parent},
+            ["user", "read", "share", "write", "comment", "valid_until"],
+        )
+        print(f"Copying permissions from {get_permissions}")
+        copy_permissions_to_entity(drive_file.name, get_permissions)
     response = drive_file.as_dict()
     response["file_type"] = "Folder"  # Đảm bảo file_type được set
 
