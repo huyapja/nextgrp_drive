@@ -1001,7 +1001,7 @@ def shared_multi_team(
 ):
     by = int(by)
 
-    # Query chính - lấy tất cả file được chia sẻ, không lọc theo team của user
+    # Query chính
     query = (
         frappe.qb.from_(DriveFile)
         .right_join(DrivePermission)
@@ -1010,13 +1010,8 @@ def shared_multi_team(
             & ((DrivePermission.owner if by else DrivePermission.user) == frappe.session.user)
         )
         .left_join(Recents)
-        # & (Recents.user == frappe.session.user)
         .on((Recents.entity_name == DriveFile.name))
-        .where(
-            (DrivePermission.read == 1)
-            & (DriveFile.is_active == 1)
-            # Bỏ điều kiện lọc theo team của user
-        )
+        .where((DrivePermission.read == 1) & (DriveFile.is_active == 1))
         .groupby(
             DriveFile.name,
             DriveFile.team,
@@ -1083,7 +1078,7 @@ def shared_multi_team(
             Criterion.any(DriveFile.mime_type == mime_type for mime_type in mime_type_list)
         )
 
-    # Execute query and get results
+    # Execute query
     res = query.run(as_dict=True)
 
     # Additional processing to ensure uniqueness
@@ -1095,8 +1090,62 @@ def shared_multi_team(
 
     res = list(unique_files.values())
 
-    # Lấy thông tin TẤT CẢ các team từ các file trong kết quả
-    # Không quan tâm user có thuộc team hay không
+    # ✅ QUAN TRỌNG: Kiểm tra tất cả parent trong hierarchy có active không
+    def check_parent_hierarchy(entity_name, parent_map, active_map):
+        """
+        Kiểm tra xem tất cả parent trong chuỗi có active không
+        Returns True nếu tất cả parent đều active hoặc không có parent
+        """
+        current = entity_name
+        visited = set()  # Tránh infinite loop
+
+        while current:
+            if current in visited:
+                break
+            visited.add(current)
+
+            parent = parent_map.get(current)
+            if not parent:
+                # Đã đến root
+                return True
+
+            # Kiểm tra parent có active không
+            if not active_map.get(parent, False):
+                # Parent bị inactive -> loại bỏ
+                return False
+
+            current = parent
+
+        return True
+
+    # Tạo map để tra cứu nhanh
+    parent_map = {}  # entity_name -> parent_entity
+    active_map = {}  # entity_name -> is_active
+
+    # Lấy thông tin tất cả các parent có thể
+    all_entities = {r["name"] for r in res}
+    all_parents = {r["parent_entity"] for r in res if r.get("parent_entity")}
+    entities_to_check = all_entities | all_parents
+
+    if entities_to_check:
+        parent_info = frappe.db.sql(
+            """
+            SELECT name, parent_entity, is_active
+            FROM `tabDrive File`
+            WHERE name IN %(entities)s
+        """,
+            {"entities": list(entities_to_check)},
+            as_dict=True,
+        )
+
+        for info in parent_info:
+            parent_map[info["name"]] = info.get("parent_entity")
+            active_map[info["name"]] = info.get("is_active", 0)
+
+    # ✅ Lọc bỏ các item có parent bị inactive
+    res = [r for r in res if check_parent_hierarchy(r["name"], parent_map, active_map)]
+
+    # Lấy thông tin team
     file_teams = {r.get("team") for r in res if r.get("team")}
     team_info = {}
     for team in file_teams:
@@ -1104,7 +1153,7 @@ def shared_multi_team(
         if info:
             team_info[team] = info
 
-    # Get additional information - không cần lọc theo team nữa
+    # Get additional information
     child_count_query = (
         frappe.qb.from_(DriveFile)
         .where((DriveFile.is_active == 1))
@@ -1153,16 +1202,14 @@ def shared_multi_team(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
-        # Add team information - Luôn hiển thị tên team của file
         current_team = r.get("team")
         if current_team and current_team in team_info:
             r["team"] = team_info[current_team]["name"]
             r["team_name"] = team_info[current_team]["title"]
         else:
-            # Nếu không tìm thấy thông tin team, vẫn giữ nguyên
             r["team"] = current_team
             r["team_name"] = current_team
 
-    # Return only non-child files
+    # Return only top-level items
     parents = {r["name"] for r in res}
-    return [r for r in res if r["parent_entity"] not in parents]
+    return [r for r in res if not r.get("parent_entity") or r["parent_entity"] not in parents]

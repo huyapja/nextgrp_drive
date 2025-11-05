@@ -4,7 +4,7 @@
     v-if="dialog === 'f'"
     v-model="dialog"
     :parent="$route.params.entityName"
-    @success="(data) => addToList(data, 'Folder')"
+    @success="handleRefresh"
   />
   <NewLinkDialog
     v-if="dialog === 'l'"
@@ -162,7 +162,7 @@ function addToList(data, file_type) {
     read: 1,
     write: 1,
     share: 1,
-    comment: 1,
+    comment: 1
   }
 
   data.relativeModified = useTimeAgo(data.modified)

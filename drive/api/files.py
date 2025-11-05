@@ -1104,7 +1104,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                     depth_zero_toggle_is_active(doc)
                     success_files.append(doc.name)
                 else:
-                    failed_files.append(doc.name)
+                    failed_files.append(doc.title)
             except Exception as e:
                 failed_files.append(entity)
                 continue
@@ -1182,11 +1182,15 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                 success_files.append(shortcut)
 
             except frappe.PermissionError:
-                failed_files.append(shortcut)
+                failed_files.append(
+                    shortcut.shortcut_name if isinstance(shortcut, dict) else shortcut
+                )
                 continue
             except Exception as e:
                 frappe.log_error(f"Error processing shortcut {shortcut}: {str(e)}")
-                failed_files.append(shortcut)
+                failed_files.append(
+                    shortcut.shortcut_name if isinstance(shortcut, dict) else shortcut
+                )
                 continue
         print(success_files, failed_files, "---- success_files, failed_files ----")
     frappe.db.commit()

@@ -10,6 +10,7 @@ ENTITY_FIELDS = [
     "title",
     "is_group",
     "is_link",
+    "is_active",
     "path",
     "modified",
     "creation",
@@ -20,6 +21,7 @@ ENTITY_FIELDS = [
     "owner",
     "parent_entity",
     "is_private",
+    "modified_by",
 ]
 
 
@@ -125,12 +127,14 @@ def get_entity_with_permissions(entity_name):
     """
     entity = frappe.db.get_value(
         "Drive File",
-        {"name": entity_name, "is_active": ["!=", -1]},
+        {"name": entity_name},
         ENTITY_FIELDS + ["team"],
         as_dict=1,
     )
-    print("Fetched entity:", entity)
-    if not entity:
+
+    if entity.is_active == -1 or (
+        entity.modified_by != frappe.session.user and entity.is_active == 0
+    ):
         frappe.throw(
             "Tài liệu bạn truy cập đã bị xoá và không còn khả dụng.", {"error": frappe.NotFound}
         )

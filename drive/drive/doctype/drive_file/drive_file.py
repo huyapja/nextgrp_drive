@@ -552,6 +552,11 @@ class DriveFile(Document):
             docperm_name=self.name,
         )
 
+        # notify_share(
+        #     entity_name=self.name,
+        #     docperm_name=permission.name,
+        # )
+
         # Nếu đây là folder, tự động chia sẻ tất cả children
         if self.is_group:
             self._share_children(
