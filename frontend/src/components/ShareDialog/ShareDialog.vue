@@ -482,11 +482,10 @@ const handleClickOutside = (event) => {
     dropdownInput === event.target
   )
 
-  // If click is inside dropdown area, only prevent propagation
+  // If click is inside dropdown area, LET THE CLICK THROUGH
   if (isClickInsideDropdown) {
-    // Prevent dialog from closing when interacting with dropdowns
-    event.stopPropagation()
-    event.preventDefault() 
+    // DON'T prevent propagation or default for clicks inside dropdown
+    // Just return and let Vue handle the @click events normally
     return
   }
 
@@ -505,6 +504,23 @@ const handleClickOutside = (event) => {
     event.preventDefault()
     return
   }
+}
+
+// Cập nhật toggleUserSelection để đảm bảo hoạt động tốt
+const toggleUserSelection = (person) => {
+  const index = sharedUsers.value.findIndex((user) => user.name === person.name)
+  if (index > -1) {
+    sharedUsers.value.splice(index, 1)
+  } else {
+    sharedUsers.value.push({
+      ...person,
+      accessLevel: shareAccess.value,
+    })
+  }
+  // Keep dropdown open but clear search
+  query.value = ""
+  // Optional: close dropdown after selection
+  // isDropdownOpen.value = false
 }
 
 // Handle backdrop click specifically
@@ -592,21 +608,6 @@ const handleInputChange = () => {
   // Keep dropdown open while typing
   isDropdownOpen.value = true
   showAllSharedUsers.value = false
-}
-
-const toggleUserSelection = (person) => {
-  const index = sharedUsers.value.findIndex((user) => user.name === person.name)
-  if (index > -1) {
-    sharedUsers.value.splice(index, 1)
-  } else {
-    sharedUsers.value.push({
-      ...person,
-      accessLevel: shareAccess.value,
-    })
-  }
-  // Keep dropdown open
-  isDropdownOpen.value = true
-  query.value = ""
 }
 
 const removeSharedUser = (index) => {
