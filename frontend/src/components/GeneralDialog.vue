@@ -105,7 +105,7 @@ export default {
             onSuccess: (e) => {
               getTrash.setData(
                 sortEntities([
-                  ...getTrash.data,
+                  ...(getTrash.data || []),
                   ...e.map((k) => {
                     k.modified = Date()
                     k.relativeModified = useTimeAgo(k.modified)
