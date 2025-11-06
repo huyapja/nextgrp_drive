@@ -54,10 +54,11 @@ export const getRecents = createResource({
   transform(data) {
     if (!data) return data
 
-    return data.map((item) => ({
+    data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
+    return prettyData(data)
   },
 })
 
@@ -80,10 +81,11 @@ export const getFavourites = createResource({
   transform(data) {
     if (!data) return data
 
-    return data.map((item) => ({
+    data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
+    return prettyData(data)
   },
 })
 
@@ -98,11 +100,11 @@ export const getShared = createResource({
   },
   transform(data) {
     if (!data) return data
-
-    return data.map((item) => ({
+    data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
+    return prettyData(data)
   },
 })
 
@@ -116,10 +118,11 @@ export const getTrash = createResource({
   transform(data) {
     if (!data) return data
 
-    return data.map((item) => ({
+    data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
+    return prettyData(data)
   },
 })
 
