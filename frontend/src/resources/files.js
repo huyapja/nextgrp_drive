@@ -54,11 +54,11 @@ export const getRecents = createResource({
   transform(data) {
     if (!data) return data
 
-    data.map((item) => ({
+    const transformedData = data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
-    return prettyData(data)
+    return prettyData(transformedData)
   },
 })
 
@@ -81,11 +81,11 @@ export const getFavourites = createResource({
   transform(data) {
     if (!data) return data
 
-    data.map((item) => ({
+    const transformedData = data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
-    return prettyData(data)
+    return prettyData(transformedData)
   },
 })
 
@@ -100,11 +100,11 @@ export const getShared = createResource({
   },
   transform(data) {
     if (!data) return data
-    data.map((item) => ({
+    const transformedData = data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
-    return prettyData(data)
+    return prettyData(transformedData)
   },
 })
 
@@ -113,16 +113,16 @@ export const getTrash = createResource({
   url: "drive.api.list.files_multi_team",
   cache: "trash-folder-contents",
   makeParams: (params) => {
-    return { ...params, is_active: 0, only_parent: 0, personal: -3 }
+    return { ...params, is_active: 0, personal: -3 }
   },
   transform(data) {
     if (!data) return data
 
-    data.map((item) => ({
+    const transformedData = data.map((item) => ({
       ...item,
       team_name: item.is_private === 1 ? null : item.team_name,
     }))
-    return prettyData(data)
+    return prettyData(transformedData)
   },
 })
 
@@ -298,22 +298,48 @@ export const clearTrash = createResource({
   url: "drive.api.files.delete_entities",
   makeParams: (data) => {
     // if (!data) {
-      
-      // return { clear_all: true }
+    //   return { clear_all: true }
     // }
     return { entity_names: handleClearTrash(getTrash.data) }
   },
-  onSuccess: () => {
-    getTrash.setData([])
-    // Buggy for some reason
-    const files = clearTrash.params.entity_names?.length
-    toast(
-      files
-        ? __("Permanently deleted {0} file{1}.").format(
-            files,
-            files === 1 ? "" : ""
+  onSuccess: (data) => {
+    console.log("clearTrash data", data)
+    if (data.success === false && data.failed_files.length > 0) {
+      const failedNames = data.failed_files.map((file) =>
+        getTrash.data.find((d) =>
+          d.is_shortcut ? d.shortcut_name === file : d.name === file
+        )?.title
+      ).join(", ")
+
+      getTrash.setData((d) =>{
+        return d.filter(
+          (item) =>
+            !data.failed_files.includes(
+              item.is_shortcut ? item.shortcut_name : item.name
+            )
+        )
+      })
+
+      toast({
+        title: `Bạn không có quyền xóa các mục ${failedNames}"`,
+        description: data.message,
+        position: "bottom-right",
+        timeout: 5,
+      })
+      return
+    }
+
+    getTrash.setData((d) => {
+      return d.filter(
+        (item) =>
+          !data.success_files.includes(
+            item.is_shortcut ? item.shortcut_name : item.name
           )
-        : __("Permanently deleted all file.")
+      )
+    })
+
+    toast(
+      data.message || __("Trash cleared successfully.")
     )
   },
 })

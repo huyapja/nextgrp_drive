@@ -292,7 +292,7 @@ const actionItems = computed(() => {
         label: "Tải xuống",
         icon: CloudIconBlack,
         isEnabled: (e) => !e.is_link,
-        action: (entities) => entitiesDownload(team, entities),
+        action: (entities) => entitiesDownload(team || store.state.activeEntity?.team, entities),
         multi: true,
         important: true,
         isEnabled: (e) => !e?.is_shortcut || route.name !== "Home",

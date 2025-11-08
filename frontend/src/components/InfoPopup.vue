@@ -12,9 +12,9 @@
       <div
         class="w-[300px] bg-surface-white border border-outline-gray-2 rounded-xl shadow-xl p-4 backdrop-blur-md z-30"
       >
-        <div class="cursor-move flex justify-between items-start gap-1 mb-4">
+        <div class="cursor-move flex justify-between items-center gap-1 mb-4">
           <div class="flex gap-2">
-            <h2 class="text-lg font-semibold text-ink-gray-8">
+            <h2 class="text-lg font-semibold text-ink-gray-8 truncate max-w-[220px]">
               {{ entity.title }}
             </h2>
           </div>
@@ -34,7 +34,7 @@
               >{{ __("Owner") }}:
             </span>
             <span class="col-span-1"
-              ><a href="mailto:{{ entity.owner }}">{{ entity.owner }}</a>
+              ><a href="mailto:{{ entity.owner }}">{{ getOwnerName(i, entity.owner) }}</a>
             </span>
           </li>
 
@@ -123,7 +123,7 @@
                 access[i].users.message.length > 0 &&
                 access[i].users.message.length < 3
                   ? "(" +
-                    access[i].users.message.map((k) => k.user).join(", ") +
+                    access[i].users.message.map((k) => k.full_name).join(", ") +
                     ")"
                   : ""
               }}
@@ -145,6 +145,15 @@ import { computedAsync } from "@vueuse/core"
 const props = defineProps({
   entities: Array,
 })
+
+function getOwnerName(index, ownerEmail) {
+  if (!access.value?.[index]?.users?.message) return ownerEmail
+  
+  const owner = access.value[index].users.message.find(
+    (u) => u.email === ownerEmail
+  )
+  return owner?.full_name || ownerEmail
+}
 
 function getFileTypeVi(type) {
   if (!type) return ''

@@ -4,7 +4,7 @@ from frappe.utils import get_files_path
 import frappe
 from frappe import _
 from pypika import Order, functions as fn
-from .permissions import get_teams, user_has_permission
+from .permissions import get_teams, get_user_access, user_has_permission
 from pathlib import Path
 from werkzeug.wrappers import Response
 from werkzeug.utils import secure_filename, send_file
@@ -15,6 +15,7 @@ import boto3
 import requests
 import shutil
 from drive.api.activity import create_new_entity_activity_log
+import time
 
 from drive.utils.files import (
     get_home_folder,
@@ -866,22 +867,285 @@ def delete_entities(entity_names=None, clear_all=None):
     :type entity_names: list[str] or list[dict]
     :raises ValueError: If decoded entity_names is not a list
     """
+
+    success_files = []  # Danh sách file/shortcut xóa thành công
+    failed_files = []  # Danh sách file/shortcut thất bại
+
+    # ✅ Helper function: Kiểm tra user có quyền xóa entity không
+    def can_delete_entity(entity_doc, user):
+        """
+        Kiểm tra user có quyền xóa entity không
+        Rules:
+        1. Nếu user là owner của entity -> CÓ QUYỀN
+        2. Nếu user có write permission trên entity -> CÓ QUYỀN
+        3. Nếu user là owner của PARENT folder -> CÓ QUYỀN (quan trọng!)
+        """
+        # Rule 1: User là owner
+        if entity_doc.modified_by == user:
+            return True
+
+        # Rule 2: User có write permission
+        if user_has_permission(entity_doc, "write", user):
+            return True
+
+        # Rule 3: User là owner của parent folder (cascade delete)
+        if entity_doc.parent_entity:
+            try:
+                parent_doc = frappe.get_doc("Drive File", entity_doc.parent_entity)
+                # Đệ quy check parent
+                return can_delete_entity(parent_doc, user)
+            except:
+                pass
+
+        return False
+
+    # ✅ Helper function: Xóa entity và tất cả children với retry mechanism
+    def delete_entity_recursive(entity_name, is_shortcut=False, max_retries=3):
+        """
+        Xóa entity và tất cả children của nó (nếu là folder) với retry nếu gặp lock timeout
+        Returns: (success_count, failed_items[])
+        """
+        local_success = []
+        local_failed = []
+
+        for attempt in range(max_retries):
+            try:
+                if is_shortcut:
+                    # Xử lý shortcut (không có children)
+                    shortcut = frappe.db.get_value(
+                        "Drive Shortcut",
+                        {
+                            "name": entity_name,
+                            "shortcut_owner": frappe.session.user,
+                            "is_active": 0,
+                        },
+                        ["name", "shortcut_name"],
+                        as_dict=True,
+                    )
+
+                    if not shortcut:
+                        exists = frappe.db.exists("Drive Shortcut", entity_name)
+                        # ✅ Lấy tên thay vì ID
+                        display_name = entity_name
+                        try:
+                            display_name = (
+                                frappe.db.get_value("Drive Shortcut", entity_name, "shortcut_name")
+                                or entity_name
+                            )
+                        except:
+                            pass
+
+                        if not exists:
+                            local_failed.append(f"{display_name} (không tồn tại)")
+                        else:
+                            local_failed.append(f"{display_name} (không có quyền)")
+                        return local_success, local_failed
+
+                    frappe.db.set_value(
+                        "Drive Shortcut", entity_name, "is_active", -1, update_modified=False
+                    )
+                    local_success.append(entity_name)
+                    frappe.db.commit()
+                    break  # Thành công, thoát vòng lặp retry
+
+                else:
+                    # Xử lý file/folder
+                    if not frappe.db.exists("Drive File", entity_name):
+                        # Lấy tên từ cache hoặc DB trước khi báo lỗi
+                        display_name = entity_name
+                        try:
+                            display_name = (
+                                frappe.db.get_value("Drive File", entity_name, "title")
+                                or entity_name
+                            )
+                        except:
+                            pass
+                        local_failed.append(f"{display_name} (không tồn tại)")
+                        return local_success, local_failed
+
+                    entity_doc = frappe.get_doc("Drive File", entity_name)
+
+                    # Kiểm tra trong trash
+                    if entity_doc.is_active != 0:
+                        local_failed.append(f"{entity_doc.title} (không trong thùng rác)")
+                        return local_success, local_failed
+
+                    # ✅ Kiểm tra quyền với logic mới
+                    if not can_delete_entity(entity_doc, frappe.session.user):
+                        local_failed.append(f"{entity_doc.title} (không có quyền)")
+                        return local_success, local_failed
+
+                    # ✅ Nếu là folder, xóa tất cả children trước với batch processing
+                    if entity_doc.is_group:
+                        # Lấy tất cả children (cả active và inactive)
+                        children = frappe.db.get_all(
+                            "Drive File", filters={"parent_entity": entity_name}, pluck="name"
+                        )
+
+                        # ✅ Xóa theo batch để tránh lock timeout
+                        batch_size = 10
+                        for i in range(0, len(children), batch_size):
+                            batch = children[i : i + batch_size]
+
+                            for child_name in batch:
+                                child_attempt = 0
+                                child_deleted = False
+
+                                while child_attempt < max_retries and not child_deleted:
+                                    try:
+                                        # ✅ FIX: Xóa child với ignore_permissions vì parent owner có quyền cascade delete
+                                        frappe.delete_doc(
+                                            "Drive File",
+                                            child_name,
+                                            ignore_permissions=True,
+                                            force=True,
+                                        )
+                                        local_success.append(child_name)
+                                        child_deleted = True
+
+                                    except frappe.QueryTimeoutError:
+                                        child_attempt += 1
+                                        if child_attempt < max_retries:
+                                            time.sleep(0.5)  # Đợi 500ms trước khi retry
+                                        else:
+                                            # ✅ Lấy tên thay vì ID
+                                            child_title = child_name
+                                            try:
+                                                child_title = (
+                                                    frappe.db.get_value(
+                                                        "Drive File", child_name, "title"
+                                                    )
+                                                    or child_name
+                                                )
+                                            except:
+                                                pass
+                                            local_failed.append(f"{child_title} (timeout)")
+
+                                    except Exception as e:
+                                        # ✅ Lấy tên thay vì ID
+                                        child_title = child_name
+                                        try:
+                                            child_title = (
+                                                frappe.db.get_value(
+                                                    "Drive File", child_name, "title"
+                                                )
+                                                or child_name
+                                            )
+                                        except:
+                                            pass
+
+                                        error_msg = str(e)[:50]  # ✅ Giới hạn độ dài
+                                        local_failed.append(f"{child_title}")
+                                        # ✅ Log đơn giản hơn với message ngắn
+                                        try:
+                                            frappe.log_error(
+                                                f"Child: {child_name}\nError: {error_msg}",
+                                                "Delete Child",
+                                            )
+                                        except:
+                                            pass  # Bỏ qua nếu log error cũng fail
+                                        break
+
+                            # ✅ Commit sau mỗi batch để giải phóng lock
+                            frappe.db.commit()
+                            time.sleep(0.1)  # Delay nhỏ giữa các batch
+
+                    # ✅ FIX: Xóa chính folder với ignore_permissions
+                    frappe.delete_doc(
+                        "Drive File", entity_name, ignore_permissions=True, force=True
+                    )
+                    local_success.append(entity_name)
+                    frappe.db.commit()
+                    break  # Thành công, thoát vòng lặp retry
+
+            except frappe.QueryTimeoutError as e:
+                if attempt < max_retries - 1:
+                    time.sleep(1)  # Đợi 1s trước khi retry
+                    continue
+                else:
+                    display_name = entity_name
+                    try:
+                        display_name = (
+                            frappe.db.get_value("Drive File", entity_name, "title") or entity_name
+                        )
+                    except:
+                        pass
+                    local_failed.append(f"{display_name} (timeout)")
+                    # ✅ Log ngắn gọn
+                    try:
+                        frappe.log_error(f"Timeout: {entity_name}", "Delete Timeout")
+                    except:
+                        pass
+
+            except frappe.PermissionError:
+                display_name = entity_name
+                try:
+                    display_name = (
+                        frappe.db.get_value("Drive File", entity_name, "title") or entity_name
+                    )
+                except:
+                    pass
+                local_failed.append(f"{display_name} (không có quyền)")
+                # ✅ Log ngắn gọn
+                try:
+                    frappe.log_error(f"No perm: {entity_name}", "Delete Perm")
+                except:
+                    pass
+                break
+
+            except Exception as e:
+                display_name = entity_name
+                try:
+                    display_name = (
+                        frappe.db.get_value("Drive File", entity_name, "title") or entity_name
+                    )
+                except:
+                    pass
+                error_msg = str(e)[:50]  # ✅ Giới hạn độ dài
+                local_failed.append(f"{display_name}")
+                # ✅ Log ngắn gọn
+                try:
+                    frappe.log_error(f"Entity: {entity_name}\nErr: {error_msg}", "Delete Error")
+                except:
+                    pass
+                break
+
+        return local_success, local_failed
+
     if clear_all:
         # Xóa vĩnh viễn tất cả files trong trash của user
         file_names = frappe.db.get_list(
             "Drive File", {"is_active": 0, "owner": frappe.session.user}, pluck="name"
         )
         for file_name in file_names:
-            frappe.get_doc("Drive File", file_name).permanent_delete()
+            try:
+                s, f = delete_entity_recursive(file_name, is_shortcut=False)
+                success_files.extend(s)
+                failed_files.extend(f)
+            except Exception as e:
+                try:
+                    frappe.log_error(f"Clear all: {file_name}\n{str(e)[:50]}", "Clear All Error")
+                except:
+                    pass
+                failed_files.append(file_name)
 
-        # Soft delete tất cả shortcuts trong trash của user (set is_active = -1)
+        # Soft delete tất cả shortcuts trong trash của user
         shortcut_names = frappe.db.get_list(
             "Drive Shortcut", {"is_active": 0, "shortcut_owner": frappe.session.user}, pluck="name"
         )
         for shortcut_name in shortcut_names:
-            frappe.db.set_value(
-                "Drive Shortcut", shortcut_name, "is_active", -1, update_modified=False
-            )
+            try:
+                s, f = delete_entity_recursive(shortcut_name, is_shortcut=True)
+                success_files.extend(s)
+                failed_files.extend(f)
+            except Exception as e:
+                try:
+                    frappe.log_error(
+                        f"Clear shortcut: {shortcut_name}\n{str(e)[:50]}", "Clear Shortcut"
+                    )
+                except:
+                    pass
+                failed_files.append(shortcut_name)
 
     elif isinstance(entity_names, str):
         entity_names = json.loads(entity_names)
@@ -892,56 +1156,53 @@ def delete_entities(entity_names=None, clear_all=None):
         for entity in entity_names:
             # Xử lý entity có thể là string hoặc dict
             if isinstance(entity, dict):
-                entity_name = entity.get("entity")
+                entity_name = (
+                    entity.get("entity") or entity.get("name") or entity.get("shortcut_name")
+                )
                 is_shortcut = entity.get("is_shortcut", False)
             else:
-                # Backward compatibility - assume it's a file name
                 entity_name = entity
                 is_shortcut = False
 
-            if is_shortcut:
-                # Soft delete shortcut (set is_active = -1)
-                try:
-                    # Kiểm tra shortcut có tồn tại và đang trong trash không
-                    shortcut = frappe.db.get_value(
-                        "Drive Shortcut",
-                        {
-                            "name": entity_name,
-                            "shortcut_owner": frappe.session.user,
-                            "is_active": 0,  # Chỉ xử lý shortcut đã ở trong trash
-                        },
-                        ["name"],
-                        as_dict=True,
-                    )
+            # Sử dụng hàm đệ quy để xóa với retry mechanism
+            s, f = delete_entity_recursive(entity_name, is_shortcut)
+            success_files.extend(s)
+            failed_files.extend(f)
 
-                    if not shortcut:
-                        frappe.throw(
-                            f"Shortcut {entity_name} not found in trash or you don't have permission to delete it"
-                        )
-
-                    # Soft delete: set is_active = -1 với ignore_permissions
-                    frappe.db.set_value(
-                        "Drive Shortcut", entity_name, "is_active", -1, update_modified=False
-                    )
-
-                except frappe.DoesNotExistError:
-                    frappe.throw(f"Shortcut {entity_name} not found")
-                except Exception as e:
-                    frappe.throw(f"Failed to delete shortcut {entity_name}: {str(e)}")
-            else:
-                # Xóa vĩnh viễn file (logic cũ)
-                try:
-                    file_doc = frappe.get_doc("Drive File", entity_name)
-                    # Kiểm tra file có trong trash không
-                    if file_doc.is_active == 1:
-                        frappe.throw(f"File {entity_name} is not in trash")
-                    file_doc.permanent_delete()
-                except Exception as e:
-                    frappe.throw(f"Failed to delete file {entity_name}: {str(e)}")
-
+    # Commit cuối cùng
     frappe.db.commit()
 
-    return {"success": True, "message": "Entities permanently deleted successfully"}
+    # Chuẩn bị response
+    result = {
+        "success": len(success_files) > 0,
+        "success_files": success_files,
+        "failed_files": failed_files,
+    }
+
+    # Tạo message phù hợp với hiển thị đầy đủ tên files
+    if len(failed_files) > 0:
+        if len(success_files) > 0:
+            # Hiển thị tối đa 5 tên files failed
+            failed_display = ", ".join(failed_files[:5])
+            if len(failed_files) > 5:
+                failed_display += f" và {len(failed_files) - 5} mục khác"
+
+            result["message"] = (
+                f"Đã xóa vĩnh viễn {len(success_files)} mục. "
+                f"{len(failed_files)} mục không thể xóa: {failed_display}"
+            )
+        else:
+            result["success"] = False
+            # Hiển thị tối đa 5 tên files failed
+            failed_display = ", ".join(failed_files[:5])
+            if len(failed_files) > 5:
+                failed_display += f" và {len(failed_files) - 5} mục khác"
+
+            result["message"] = f"Không thể xóa các mục: {failed_display}"
+    else:
+        result["message"] = f"Đã xóa vĩnh viễn {len(success_files)} mục thành công"
+
+    return result
 
 
 @frappe.whitelist()
@@ -1035,6 +1296,7 @@ def set_favourite(entities=None, clear_all=False):
 
 
 @frappe.whitelist()
+@frappe.whitelist()
 def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
     """
     To move entities (files and shortcuts) to or restore entities from the trash
@@ -1050,6 +1312,126 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
     success_files = []  # Danh sách file xóa thành công
     failed_files = []  # Danh sách file không có quyền
+
+    # ✅ Hàm đệ quy để lấy tất cả children
+    def get_all_children(entity_name):
+        """
+        Lấy tất cả children (files và folders) của một entity
+        Returns: list of entity names
+        """
+        children = frappe.db.get_all(
+            "Drive File", filters={"parent_entity": entity_name}, pluck="name"
+        )
+
+        all_descendants = list(children)  # Copy list
+
+        # Đệ quy lấy children của children
+        for child in children:
+            all_descendants.extend(get_all_children(child))
+
+        return all_descendants
+
+    # ✅ Hàm toggle is_active cho một entity và tất cả children của nó
+    def toggle_entity_and_children(doc, flag):
+        """
+        Toggle is_active cho entity và tất cả children
+        :param doc: Drive File document
+        :param flag: 0 (move to trash) hoặc 1 (restore)
+        """
+        # Xử lý entity hiện tại
+        if flag == 0:  # Move to trash
+            # Thêm vào global trash
+            existing_trash = frappe.db.exists(
+                {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
+            )
+            if not existing_trash:
+                frappe.get_doc(
+                    {
+                        "doctype": "Drive Trash",
+                        "entity": doc.name,
+                        "user": frappe.session.user,
+                        "team": doc.team,
+                        "path": doc.path,
+                        "trashed_on": frappe.utils.now(),
+                    }
+                ).insert()
+        else:  # Restore
+            # Check storage limit
+            storage_data_limit = storage_data["limit"] * 1024 * 1024
+            if (storage_data_limit - storage_data["total_size"]) < doc.file_size:
+                frappe.throw("You're out of storage!", ValueError)
+
+            # Xóa khỏi global trash
+            existing_trash = frappe.db.exists(
+                {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
+            )
+            if existing_trash:
+                frappe.delete_doc("Drive Trash", existing_trash)
+
+        # Update is_active
+        doc.is_active = flag
+
+        # Update parent folder size
+        if doc.parent_entity:
+            folder_size = frappe.db.get_value("Drive File", doc.parent_entity, "file_size")
+            if folder_size is not None:
+                frappe.db.set_value(
+                    "Drive File",
+                    doc.parent_entity,
+                    "file_size",
+                    folder_size + doc.file_size * (1 if flag else -1),
+                )
+
+        doc.save()
+
+        # ✅ Nếu là folder, xử lý tất cả children
+        if doc.is_group:
+            all_children = get_all_children(doc.name)
+
+            for child_name in all_children:
+                try:
+                    child_doc = frappe.get_doc("Drive File", child_name)
+
+                    # Toggle is_active cho child
+                    if flag == 0:  # Move to trash
+                        # Thêm child vào trash
+                        existing_trash = frappe.db.exists(
+                            {
+                                "doctype": "Drive Trash",
+                                "entity": child_doc.name,
+                                "user": frappe.session.user,
+                            }
+                        )
+                        if not existing_trash:
+                            frappe.get_doc(
+                                {
+                                    "doctype": "Drive Trash",
+                                    "entity": child_doc.name,
+                                    "user": frappe.session.user,
+                                    "team": child_doc.team,
+                                    "path": child_doc.path,
+                                    "trashed_on": frappe.utils.now(),
+                                }
+                            ).insert()
+                    else:  # Restore
+                        # Xóa child khỏi trash
+                        existing_trash = frappe.db.exists(
+                            {
+                                "doctype": "Drive Trash",
+                                "entity": child_doc.name,
+                                "user": frappe.session.user,
+                            }
+                        )
+                        if existing_trash:
+                            frappe.delete_doc("Drive Trash", existing_trash)
+
+                    child_doc.is_active = flag
+                    child_doc.save()
+
+                except Exception as e:
+                    frappe.log_error(f"Error processing child {child_name}: {str(e)}")
+                    continue
+
     # Process files
     if entity_names:
         if isinstance(entity_names, str):
@@ -1057,55 +1439,21 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
         if not isinstance(entity_names, list):
             frappe.throw(f"Expected list but got {type(entity_names)}", ValueError)
 
-        def depth_zero_toggle_is_active(doc):
-            if doc.is_active:
-                flag = 0
-                # Thêm vào global trash khi chuyển vào thùng rác
-                existing_trash = frappe.db.exists(
-                    {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
-                )
-                if not existing_trash:
-                    frappe.get_doc(
-                        {
-                            "doctype": "Drive Trash",
-                            "entity": doc.name,
-                            "user": frappe.session.user,
-                            "team": doc.team,
-                            "original_path": doc.path,
-                            "trashed_on": frappe.utils.now(),
-                        }
-                    ).insert()
-            else:
-                storage_data_limit = storage_data["limit"] * 1024 * 1024
-                if (storage_data_limit - storage_data["total_size"]) < doc.file_size:
-                    frappe.throw("You're out of storage!", ValueError)
-                flag = 1
-                # Xóa khỏi global trash khi khôi phục
-                existing_trash = frappe.db.exists(
-                    {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
-                )
-                if existing_trash:
-                    frappe.delete_doc("Drive Trash", existing_trash)
-
-            doc.is_active = flag
-            folder_size = frappe.db.get_value("Drive File", doc.parent_entity, "file_size")
-            frappe.db.set_value(
-                "Drive File",
-                doc.parent_entity,
-                "file_size",
-                folder_size + doc.file_size * (1 if flag else -1),
-            )
-            doc.save()
-
         for entity in entity_names:
             try:
                 doc = frappe.get_doc("Drive File", entity)
                 if user_has_permission(doc, "write", frappe.session.user):
-                    depth_zero_toggle_is_active(doc)
+                    # Xác định flag dựa trên trạng thái hiện tại
+                    flag = 0 if doc.is_active else 1
+
+                    # Toggle entity và tất cả children
+                    toggle_entity_and_children(doc, flag)
+
                     success_files.append(doc.name)
                 else:
                     failed_files.append(doc.title)
             except Exception as e:
+                frappe.log_error(f"Error processing entity {entity}: {str(e)}")
                 failed_files.append(entity)
                 continue
 
@@ -1121,11 +1469,6 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
             shortcut_doc = frappe.get_doc("Drive Shortcut", name)
 
             # Check permission - user must own the shortcut
-            print(
-                shortcut_doc.shortcut_owner,
-                frappe.session.user,
-                "---- shortcut_doc.shortcut_owner, frappe.session.user ----",
-            )
             if shortcut_doc.shortcut_owner != frappe.session.user:
                 raise frappe.PermissionError("You do not have permission to modify this shortcut")
 
@@ -1147,7 +1490,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                             "entity_shortcut": name,
                             "user": frappe.session.user,
                             "team": team,
-                            "original_path": f"Shortcut: {shortcut_doc.name}",
+                            "path": f"Shortcut: {shortcut_doc.name}",
                             "trashed_on": frappe.utils.now(),
                         }
                     ).insert()
@@ -1192,7 +1535,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                     shortcut.shortcut_name if isinstance(shortcut, dict) else shortcut
                 )
                 continue
-        print(success_files, failed_files, "---- success_files, failed_files ----")
+
     frappe.db.commit()
 
     # Trả về kết quả
@@ -1897,3 +2240,44 @@ def copy_folder(source, destination_parent, new_title):
             copy_file(child_doc, new_folder.name, child_new_title)
 
     return new_folder.as_dict()
+
+
+@frappe.whitelist()
+def get_folder_children(entity_name):
+    """
+    Lấy tất cả children của một folder (dùng cho download)
+    Đơn giản hơn API files() - chỉ check permission trên parent folder
+    """
+
+    # Kiểm tra folder tồn tại
+    if not frappe.db.exists("Drive File", entity_name):
+        frappe.throw(f"Folder {entity_name} không tồn tại")
+
+    parent_doc = frappe.get_doc("Drive File", entity_name)
+
+    # Kiểm tra quyền read trên parent folder
+    user = frappe.session.user if frappe.session.user != "Guest" else ""
+    user_access = get_user_access(parent_doc, user)
+
+    if not user_access.get("read"):
+        frappe.throw("Bạn không có quyền truy cập folder này")
+
+    # Lấy tất cả children (bao gồm cả private files nếu user có quyền đọc parent)
+    children = frappe.db.get_all(
+        "Drive File",
+        filters={"parent_entity": entity_name, "is_active": 1},
+        fields=[
+            "name",
+            "title",
+            "is_group",
+            "file_size",
+            "mime_type",
+            "document",
+            "modified",
+            "owner",
+            "is_private",
+        ],
+        order_by="is_group desc, title asc",
+    )
+
+    return children

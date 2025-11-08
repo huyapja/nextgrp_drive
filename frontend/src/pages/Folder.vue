@@ -16,6 +16,7 @@ import { createResource } from "frappe-ui"
 import { computed, inject, onBeforeUnmount, onMounted, watch } from "vue"
 import { useStore } from "vuex"
 import LucideFolderClosed from "~icons/lucide/folder-closed"
+import { getTrash } from "../resources/files"
 
 const store = useStore()
 const realtime = inject("realtime")
@@ -33,6 +34,9 @@ const getFolderContents = createResource({
     ...params,
     // Disable all checks, return all children
     personal: -2,
+    is_active: getTrash.data.find((item) => item.name === props.entityName)
+      ? 0
+      : 1,
     entity_name: props.entityName,
     team: props.team,
   }),

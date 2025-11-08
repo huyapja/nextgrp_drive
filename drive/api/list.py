@@ -1032,7 +1032,7 @@ def shared_multi_team(
         )
         .select(
             *ENTITY_FIELDS,
-            Recents.last_interaction.as_("accessed"),
+            fn.Max(Recents.last_interaction).as_("accessed"),
             DriveFile.team,
             DrivePermission.user,
             DrivePermission.owner.as_("sharer"),
