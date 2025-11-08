@@ -50,7 +50,7 @@ def calculate_days_remaining(modified_date):
 def files(
     team,
     entity_name=None,
-    order_by="accessed 1",
+    order_by="title 1",
     is_active=1,
     limit=20,
     cursor=None,
@@ -416,7 +416,7 @@ def apply_favourite_join(query, favourites_only=False, has_shortcut_join=False):
 def files_multi_team(
     teams=None,
     entity_name=None,
-    order_by="accessed 1",
+    order_by="title 1",
     is_active=1,
     limit=20,
     cursor=None,
@@ -783,7 +783,7 @@ def files_multi_team(
                         .groupby(Recents.entity_name)
                     ).as_("recent_max")
 
-                    # ✅ JOIN với subquery thay vì bảng Recents trực tiếp
+                    # JOIN với subquery
                     q = (
                         q.inner_join(recent_subquery)
                         .on(recent_subquery.entity_name == DriveFile.name)
@@ -791,23 +791,24 @@ def files_multi_team(
                         .orderby(recent_subquery.max_interaction, order=Order.desc)
                     )
                 else:
+                    # ✅ FIX: Sort theo title từ DriveFile, không phải từ recent_subquery
                     recent_subquery = (
-                        frappe.qb.from_(Recents).select(
+                        frappe.qb.from_(Recents)
+                        .select(
                             Recents.entity_name,
                             fn.Max(Recents.last_interaction).as_("last_interaction"),
                         )
-                        # .where(Recents.user == frappe.session.user)
                         .groupby(Recents.entity_name)
                     ).as_("recent_subq")
 
                     q = (
-                        q.inner_join(recent_subquery)
+                        q.left_join(recent_subquery)  # Đổi từ inner_join sang left_join
                         .on(recent_subquery.entity_name == DriveFile.name)
-                        .orderby(
-                            recent_subquery.last_interaction,
-                            order=Order.asc if ascending else Order.desc,
+                        .select(
+                            fn.Coalesce(recent_subquery.last_interaction, DriveFile.modified).as_(
+                                "accessed"
+                            )
                         )
-                        .select(recent_subquery.last_interaction.as_("accessed"))
                     )
 
                 # Apply tag filtering
@@ -957,7 +958,10 @@ def files_multi_team(
     if field in ["modified", "creation", "title", "file_size", "accessed"]:
         reverse = not ascending
 
-        if field == "accessed":
+        if field == "title":
+            # ✅ Sort theo title case-insensitive
+            all_results.sort(key=lambda x: (x.get(field) or "").lower(), reverse=reverse)
+        elif field == "accessed":
             print("DEBUG - Sorting by accessed with special None handling", field)
             # Tách riêng các record có và không có accessed
             has_accessed = [r for r in all_results if r.get(field) is not None]

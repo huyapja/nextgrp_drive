@@ -206,8 +206,8 @@ watch(
   [sortOrder, () => props.getEntities.loading],
   ([val, loading]) => {
     if (!rows.value || loading) return
-    sortEntities(rows.value, val)
-    props.getEntities.setData(rows.value)
+    // sortEntities(rows.value, val)
+    // props.getEntities.setData(rows.value)
     store.commit("setCurrentFolder", {
       name:
         props.getEntities.params?.entity_name ||
