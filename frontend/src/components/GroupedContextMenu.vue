@@ -217,44 +217,27 @@ const groupedMenuItems = computed(() => {
     })
   }
   
-  // Nhóm Delete (Xóa, Khôi phục, Xóa vĩnh viễn)
+  // Nhóm Delete (Xóa, Khôi phục, Xóa vĩnh viễn) - Hiển thị phẳng
   const deleteItems = props.actionItems.filter(item => 
     item.label?.includes('Xóa') || 
     item.label?.includes('Khôi phục')
   )
-  if (deleteItems.length > 0) {
-    if (deleteItems.length > 1) {
-      const deleteSubItems = deleteItems.map(item => ({
-        label: item.label,
-        icon: typeof item.icon === 'string' ? item.icon : null,
-        iconComponent: typeof item.icon !== 'string' ? item.icon : null,
-        command: () => {
-          item.action([store.state.activeEntity])
-          closeMenu()
-        }
-      }))
-      
-      items.push({
-        label: actionGroups.delete.label,
-        icon: actionGroups.delete.icon,
-        items: deleteSubItems,
-        template: 'groupedItem',
-        groupData: actionGroups.delete
-      })
-    } else {
-      const item = deleteItems[0]
-      items.push({
-        label: actionGroups.delete.label,
-        icon: actionGroups.delete.icon,
-        command: () => {
-          item.action([store.state.activeEntity])
-          closeMenu()
-        },
-        template: 'groupedItem',
-        groupData: actionGroups.delete
-      })
-    }
-  }
+  
+  // Thêm từng action xóa/khôi phục riêng biệt
+  deleteItems.forEach(item => {
+    items.push({
+      label: item.label,
+      icon: typeof item.icon === 'string' ? item.icon : null,
+      iconComponent: typeof item.icon !== 'string' ? item.icon : null,
+      command: () => {
+        item.action([store.state.activeEntity])
+        closeMenu()
+      },
+      template: 'groupedItem',
+      groupData: actionGroups.delete,
+      isDangerAction: true // Flag để style riêng
+    })
+  })
   
   return items
 })
@@ -366,14 +349,14 @@ defineExpose({
   background-color: #dbeafe;
 }
 
-/* Styling cho Delete group - màu cam */
-:deep(.p-contextmenu .p-menuitem:nth-child(6) .p-menuitem-link) {
+/* Styling cho các action Xóa/Khôi phục (danger actions) - màu cam/đỏ */
+:deep(.p-contextmenu .p-menuitem:nth-child(n+6) .p-menuitem-link) {
   background-color: #fff7ed;
   border-left-color: #f97316;
   color: #ea580c;
 }
 
-:deep(.p-contextmenu .p-menuitem:nth-child(6) .p-menuitem-link:hover) {
+:deep(.p-contextmenu .p-menuitem:nth-child(n+6) .p-menuitem-link:hover) {
   background-color: #fed7aa;
 }
 

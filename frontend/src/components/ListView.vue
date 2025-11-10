@@ -34,7 +34,10 @@
           <template #body="slotProps">
             <div
               class="name-cell"
-              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              :class="{ 
+                'disabled-row': isRowDisabled(slotProps.data),
+                'trash-row': isTrashPage
+              }"
               @mouseenter="onCellMouseEnter($event, slotProps.data)"
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
@@ -78,7 +81,10 @@
           <template #body="slotProps">
             <div
               class="owner-cell"
-              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              :class="{ 
+                'disabled-row': isRowDisabled(slotProps.data),
+                'trash-row': isTrashPage
+              }"
               @mouseenter="onCellMouseEnter($event, slotProps.data)"
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
@@ -107,7 +113,10 @@
           <template #body="slotProps">
             <div
               class="owner-cell"
-              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              :class="{ 
+                'disabled-row': isRowDisabled(slotProps.data),
+                'trash-row': isTrashPage
+              }"
               @mouseenter="onCellMouseEnter($event, slotProps.data)"
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
@@ -125,7 +134,10 @@
         >
           <template #body="slotProps">
             <span
-              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              :class="{ 
+                'disabled-row': isRowDisabled(slotProps.data),
+                'trash-row': isTrashPage
+              }"
               @mouseenter="onCellMouseEnter($event, slotProps.data)"
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
@@ -142,7 +154,10 @@
           <template #body="slotProps">
             <div
               class="shared-cell"
-              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              :class="{ 
+                'disabled-row': isRowDisabled(slotProps.data),
+                'trash-row': isTrashPage
+              }"
               @mouseenter="onCellMouseEnter($event, slotProps.data)"
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
@@ -164,7 +179,10 @@
         >
           <template #body="slotProps">
             <span
-              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              :class="{ 
+                'disabled-row': isRowDisabled(slotProps.data),
+                'trash-row': isTrashPage
+              }"
               @mouseenter="onCellMouseEnter($event, slotProps.data)"
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
@@ -181,7 +199,10 @@
         >
           <template #body="slotProps">
             <span
-              :class="{ 'disabled-row': isRowDisabled(slotProps.data) }"
+              :class="{ 
+                'disabled-row': isRowDisabled(slotProps.data),
+                'trash-row': isTrashPage
+              }"
               @mouseenter="onCellMouseEnter($event, slotProps.data)"
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
@@ -279,6 +300,9 @@ const tooltipOffset = 10
 const highlightedRow = ref(null)
 const isContextMenuOpen = ref(false)
 
+// Computed: Check if current page is Trash
+const isTrashPage = computed(() => route.name === 'Trash')
+
 // Handle window resize
 const handleResize = () => {
   windowWidth.value = window.innerWidth
@@ -292,6 +316,7 @@ const isRowDisabled = (row) => {
 // Row class function for styling
 const rowClass = (data) => {
   if (isRowDisabled(data)) return "disabled-row-bg"
+  if (isTrashPage.value) return "trash-row-bg"
   if (highlightedRow.value === data.uniqueKey) {
     return "highlighted-row"
   }
@@ -427,7 +452,6 @@ const onContextMenuClose = () => {
 
 // Kiểm tra xem có dialog nào đang mở không
 const hasActiveDialog = () => {
-  // Kiểm tra các dialog phổ biến trong Vue/PrimeVue
   const dialogSelectors = [
     '.p-dialog-mask',
     '.p-dialog',
@@ -435,7 +459,6 @@ const hasActiveDialog = () => {
     '.modal',
     '.v-dialog',
     '.el-dialog',
-    // Thêm selector của Dialog component trong dự án
     '.frappe-dialog',
   ]
   
@@ -445,29 +468,18 @@ const hasActiveDialog = () => {
   })
 }
 
-// Handle click outside - CHỈ bỏ highlight khi không có menu/dialog nào mở
+// Handle click outside
 const handleClickOutside = (event) => {
-  // Delay một chút để đảm bảo dialog đã render
   nextTick(() => {
-    // Nếu context menu đang mở, không làm gì
     if (isContextMenuOpen.value) return
-    
-    // Kiểm tra xem có dialog nào đang mở không
     if (hasActiveDialog()) return
     
     const tableElement = document.querySelector('.file-table')
     const menuElement = groupedContextMenu.value?.$el
     const isClickInMenu = menuElement && menuElement.contains(event.target)
-    
-    // Kiểm tra xem click có phải vào button/dialog elements không
     const isClickOnDialog = event.target.closest('.p-dialog, [role="dialog"], .modal, .frappe-dialog')
     const isClickOnButton = event.target.closest('button, .p-button')
     
-    // Chỉ bỏ highlight khi:
-    // 1. Click bên ngoài bảng
-    // 2. Không có menu mở
-    // 3. Không click vào dialog
-    // 4. Không click vào button
     if (highlightedRow.value && !isClickInMenu && !isClickOnDialog && !isClickOnButton) {
       if (tableElement && !tableElement.contains(event.target)) {
         highlightedRow.value = null
@@ -479,11 +491,8 @@ const handleClickOutside = (event) => {
 onMounted(() => {
   window.addEventListener("resize", handleResize)
   window.addEventListener("mousemove", handleMouseMove)
-  
-  // Sử dụng capture phase để bắt sự kiện sớm hơn
   document.addEventListener("click", handleClickOutside, true)
   
-  // Listen for custom events nếu component khác emit
   emitter.on("dialog-opened", () => {
     isContextMenuOpen.value = true
   })
@@ -505,6 +514,8 @@ onUnmounted(() => {
 const onRowContextMenu = (event, row) => {
   if (selectedRows.value.length > 0) return
   if (isRowDisabled(row)) return
+  // Disable context menu on Trash page
+  if (isTrashPage.value) return
   if (event.ctrlKey) openEntity(route.params.team, row, true)
 
   selectedRow.value = row
@@ -523,6 +534,9 @@ const onRowContextMenu = (event, row) => {
 const onRowClick = (event) => {
   const row = event?.data
   if (isRowDisabled(row)) return
+  // Disable click on Trash page
+  if (isTrashPage.value) return
+  
   highlightedRow.value = row.uniqueKey
   selectedRow.value = row
   store.commit("setActiveEntity", row)
@@ -531,6 +545,8 @@ const onRowClick = (event) => {
 const onRowDoubleClick = (event) => {
   const row = event?.data
   if (isRowDisabled(row)) return
+  // Disable double click on Trash page
+  if (isTrashPage.value) return
 
   if (row && typeof row === "object" && row.name !== undefined) {
     const team = row.team || (route.params && route.params.team) || null
@@ -604,7 +620,6 @@ const dropdownActionItems = (row) => {
         ...a,
         originalAction: a.action,
         action: (entities) => {
-          // Giữ highlight khi thực hiện action
           if (!["Tạo lối tắt", "Bỏ lối tắt"].includes(a.label)) {
             rowEvent.value = false
           }

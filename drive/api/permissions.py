@@ -37,7 +37,7 @@ def get_user_access(entity, user=frappe.session.user):
     if isinstance(entity, str):
         entity = frappe.get_doc("Drive File", entity)
 
-    if user == entity.owner:
+    if user and entity.owner and user == entity.owner:
         return {"read": 1, "comment": 1, "share": 1, "write": 1, "type": "admin"}
     teams = get_teams(user)
 
@@ -127,14 +127,12 @@ def get_entity_with_permissions(entity_name):
     """
     entity = frappe.db.get_value(
         "Drive File",
-        {"name": entity_name},
+        {"name": entity_name, "is_active": 1},
         ENTITY_FIELDS + ["team"],
         as_dict=1,
     )
 
-    if entity.is_active == -1 or (
-        entity.modified_by != frappe.session.user and entity.is_active == 0
-    ):
+    if not entity:
         frappe.throw(
             "Tài liệu bạn truy cập đã bị xoá và không còn khả dụng.", {"error": frappe.NotFound}
         )
