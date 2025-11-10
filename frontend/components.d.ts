@@ -114,6 +114,7 @@ declare module 'vue' {
     NewManualSnapshotDialog: typeof import('./src/components/DocEditor/components/NewManualSnapshotDialog.vue')['default']
     NewTagDialog: typeof import('./src/components/Settings/NewTagDialog.vue')['default']
     NoFilesSection: typeof import('./src/components/NoFilesSection.vue')['default']
+    OnlyOfficeEditor: typeof import('./src/components/FileTypePreview/OnlyOfficeEditor.vue')['default']
     OrderList: typeof import('./src/components/DocEditor/icons/OrderList.vue')['default']
     Outdent: typeof import('./src/components/DocEditor/icons/Outdent.vue')['default']
     OuterComment: typeof import('./src/components/DocEditor/components/OuterComment.vue')['default']

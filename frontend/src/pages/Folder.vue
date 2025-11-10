@@ -34,7 +34,7 @@ const getFolderContents = createResource({
     ...params,
     // Disable all checks, return all children
     personal: -2,
-    is_active: getTrash.data.find((item) => item.name === props.entityName)
+    is_active: (getTrash.data || []).find((item) => item.name === props.entityName)
       ? 0
       : 1,
     entity_name: props.entityName,

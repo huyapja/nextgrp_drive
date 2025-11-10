@@ -1095,10 +1095,12 @@ def shared_multi_team(
     res = list(unique_files.values())
 
     # ✅ QUAN TRỌNG: Kiểm tra tất cả parent trong hierarchy có active không
-    def check_parent_hierarchy(entity_name, parent_map, active_map):
+    def check_parent_hierarchy(entity_name, parent_map, active_map, entities_in_result):
         """
-        Kiểm tra xem tất cả parent trong chuỗi có active không
-        Returns True nếu tất cả parent đều active hoặc không có parent
+        Kiểm tra xem tất cả parent TRONG KẾT QUẢ có active không
+        - Nếu parent không có trong kết quả query -> bỏ qua (user không có quyền với parent, nhưng có quyền trực tiếp với file)
+        - Nếu parent có trong kết quả query -> phải kiểm tra is_active
+        Returns True nếu không có parent inactive trong chain
         """
         current = entity_name
         visited = set()  # Tránh infinite loop
@@ -1113,10 +1115,13 @@ def shared_multi_team(
                 # Đã đến root
                 return True
 
-            # Kiểm tra parent có active không
-            if not active_map.get(parent, False):
-                # Parent bị inactive -> loại bỏ
-                return False
+            # CHỈ kiểm tra parent nếu parent cũng nằm trong kết quả query
+            # Nếu parent không có trong kết quả -> nghĩa là user được share trực tiếp file con, không cần kiểm tra parent
+            if parent in entities_in_result:
+                # Parent có trong kết quả -> phải kiểm tra is_active
+                if not active_map.get(parent, False):
+                    # Parent bị inactive -> loại bỏ
+                    return False
 
             current = parent
 
@@ -1146,8 +1151,42 @@ def shared_multi_team(
             parent_map[info["name"]] = info.get("parent_entity")
             active_map[info["name"]] = info.get("is_active", 0)
 
-    # ✅ Lọc bỏ các item có parent bị inactive
-    res = [r for r in res if check_parent_hierarchy(r["name"], parent_map, active_map)]
+    print(f"🔍 Total files before hierarchy check: {len(res)}")
+    for r in res:
+        print(f"  - {r['title']} (name: {r['name']}, parent: {r.get('parent_entity')})")
+
+    # Tạo set các entity có trong kết quả
+    entities_in_result = {r["name"] for r in res}
+
+    # ✅ Lọc bỏ các item có parent bị inactive (chỉ kiểm tra parent nếu parent cũng trong kết quả)
+    filtered_out = []
+    for r in res:
+        if not check_parent_hierarchy(r["name"], parent_map, active_map, entities_in_result):
+            filtered_out.append(r)
+            print(f"❌ FILTERED OUT: {r['title']} (parent: {r.get('parent_entity')})")
+
+            # Debug parent chain
+            current = r["name"]
+            chain = []
+            while current:
+                parent = parent_map.get(current)
+                is_active = active_map.get(current, "UNKNOWN")
+                in_result = "IN_RESULT" if current in entities_in_result else "NOT_IN_RESULT"
+                chain.append(f"{current} (active: {is_active}, {in_result})")
+                if not parent:
+                    break
+                current = parent
+            print(f"   Chain: {' -> '.join(chain)}")
+
+    print(f"🔍 Filtered out {len(filtered_out)} files")
+
+    res = [
+        r
+        for r in res
+        if check_parent_hierarchy(r["name"], parent_map, active_map, entities_in_result)
+    ]
+
+    print(f"✅ Total files after hierarchy check: {len(res)}")
 
     # Lấy thông tin team
     file_teams = {r.get("team") for r in res if r.get("team")}
