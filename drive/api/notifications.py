@@ -194,17 +194,41 @@ def notify_share(entity_name, docperm_name):
     """
     Create a share notification for each user
     :param entity_name: ID of entity
-    :param document_name: ID of docshare containing share info
+    :param docperm_name: ID of docshare containing share info
     """
-    entity = frappe.get_doc("Drive File", entity_name)
-    docshare = frappe.get_doc("Drive Permission", docperm_name)
+    try:
+        # Kiểm tra sự tồn tại trước khi get_doc
+        if not frappe.db.exists("Drive File", entity_name):
+            print(
+                f"Drive File {entity_name} not found. Might have been deleted.",
+                "Notify Share - File Not Found",
+            )
+            return
 
-    author_full_name = frappe.db.get_value("User", {"name": docshare.owner}, ["full_name"])
-    entity_type = "document" if entity.document else "folder" if entity.is_group else "file"
+        if not frappe.db.exists("Drive Permission", docperm_name):
+            print(
+                f"Drive Permission {docperm_name} not found. Might have been deleted.",
+                "Notify Share - Permission Not Found",
+            )
+            return
 
-    message = f'{author_full_name} đã chia sẻ một {entity_type} với bạn: "{entity.title}"'
-    create_notification(docshare.owner, docshare.user, "Share", entity, message)
-    # send_share_email(docshare.user, message, get_link(entity), entity.team, entity_type)
+        entity = frappe.get_doc("Drive File", entity_name)
+        docshare = frappe.get_doc("Drive Permission", docperm_name)
+
+        author_full_name = frappe.db.get_value("User", {"name": docshare.owner}, ["full_name"])
+        entity_type = "document" if entity.document else "folder" if entity.is_group else "file"
+
+        message = f'{author_full_name} đã chia sẻ một {entity_type} với bạn: "{entity.title}"'
+        create_notification(docshare.owner, docshare.user, "Share", entity, message)
+
+    except frappe.DoesNotExistError as e:
+        # Document đã bị xóa, bỏ qua không cần notify
+        print(str(e), "Notify Share - Document Deleted")
+        return
+    except Exception as e:
+        # Log lỗi khác
+        print(frappe.get_traceback(), f"Notify Share Failed: {entity_name}")
+        raise
 
 
 def create_notification(from_user, to_user, type, entity, message=None, comment_id: str = None):
