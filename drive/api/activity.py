@@ -14,7 +14,6 @@ def create_new_activity_log(
     doc.last_interaction = last_interaction
     doc.owner = frappe.session.user
     doc.save()
-    return
 
 
 @frappe.whitelist()
@@ -45,12 +44,13 @@ def get_entity_activity_log(entity_name):
 
 @frappe.whitelist()
 def create_new_entity_activity_log(entity, action_type):
+    """Tạo activity log cho entity"""
     doc = frappe.new_doc("Drive Entity Activity Log")
     doc.entity = entity
     doc.action_type = action_type
-    doc.owner = frappe.session.user
-    doc.save()
-    return
+    doc.insert(ignore_permissions=True)
+    frappe.db.commit()
+    return doc.name
 
 
 @frappe.whitelist()
