@@ -29,7 +29,7 @@ const error = ref('')
 const editorInstance = ref(null)
 
 // Lấy OnlyOffice server URL từ backend
-const ONLYOFFICE_URL = 'http://localhost' // Hoặc lấy từ config
+const ONLYOFFICE_URL = 'http://localhost:8089' // Hoặc lấy từ config
 
 // Resource để lấy editor config
 const editorConfig = createResource({
