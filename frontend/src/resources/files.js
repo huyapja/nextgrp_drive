@@ -47,7 +47,7 @@ export const getTeams = createResource({
 
 export const getRecents = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files_multi_team",
+  url: "drive.api.list.get_recent_files_multi_team",
   cache: "recents-folder-contents",
   makeParams: (params) => {
     return { ...params, recents_only: true, personal: -2 }
@@ -74,10 +74,10 @@ export const getPersonal = createResource({
 
 export const getFavourites = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files_multi_team",
+  url: "drive.api.list.get_favourites_multi_team",
   cache: "favourite-folder-contents",
   makeParams: (params) => {
-    return { ...params, favourites_only: true, personal: -2 }
+    return { ...params, favourites_only: true, personal: -2, order_by: "title 1" }
   },
   transform(data) {
     if (!data) return data
@@ -97,6 +97,7 @@ export const getShared = createResource({
   makeParams: (params) => {
     return {
       ...params,
+      order_by: "title 1"
     }
   },
   transform(data) {
@@ -194,14 +195,14 @@ const handleFilterFavourite = (entity) => {
 export const toggleFav = createResource({
   url: "drive.api.files.set_favourite",
   makeParams(data) {
+    // Clear all favourites
     if (!data) {
+      console.log("toggleFav data", data)
       getFavourites.setData([])
       mutate(getFavourites.data, (el) => (el.is_favourite = false))
       return { clear_all: true }
     }
-    let entity_names = data.entities.map((entity) =>
-      handleFilterFavourite(entity)
-    )
+    
     getFavourites.setData((d) => {
       const currentFavourites = new Set(
         d.map((item) => (item.is_shortcut ? item.shortcut_name : item.name))
@@ -215,7 +216,8 @@ export const toggleFav = createResource({
         if (entity.is_favourite) {
           // Thêm vào favourites nếu chưa có
           if (!currentFavourites.has(entityId)) {
-            updatedFavourites.push(entity)
+            const temp = { ...entity }
+            updatedFavourites.push(temp)
             currentFavourites.add(entityId)
           }
         } else {
@@ -230,26 +232,50 @@ export const toggleFav = createResource({
 
       return updatedFavourites
     })
-    // mutate(
-    //   data.entities,
-    //   (el, { is_favourite }) => (el.is_favourite = is_favourite)
-    // )
+    
+    // QUAN TRỌNG: Gửi đúng format cho backend
     return {
-      entities: data.entities,
+      entities: data.entities.map(entity => {
+        const payload = {
+          name: entity.name,
+          is_favourite: entity.is_favourite, // GIỮ NGUYÊN GIÁ TRỊ TỪ DATA
+        }
+        
+        // Chỉ thêm shortcut_name và is_shortcut nếu đây là shortcut
+        if (entity.is_shortcut) {
+          payload.shortcut_name = entity.shortcut_name
+          payload.is_shortcut = true
+        }
+        
+        return payload
+      }),
     }
   },
   onSuccess() {
-    if (!toggleFav.params.entities) toast(__("All favourites cleared"))
-    if (toggleFav.params.entities.length === 1) return
-    if (toggleFav.params.entities[0].is_favourite === false)
+    // Kiểm tra trường hợp clear all
+    if (!toggleFav.params.entities) {
+      toast(__("All favourites cleared"))
+      return
+    }
+    
+    // Trường hợp toggle 1 item: không hiển thị toast
+    if (toggleFav.params.entities.length === 1) {
+      toast(toggleFav.params.entities[0].is_favourite
+        ? __("Đã được thêm vào danh sách Yêu thích.")
+        : __("Bỏ yêu thích thành công."))
+      return
+    }
+    
+    // Trường hợp toggle nhiều items
+    if (toggleFav.params.entities[0].is_favourite === false) {
       toast(
         __("{0} items unfavourited").format(toggleFav.params.entities.length)
       )
-    else
+    } else {
       toast(__("{0} items favourited").format(toggleFav.params.entities.length))
+    }
   },
 })
-
 export const clearRecent = createResource({
   url: "drive.api.files.remove_recents",
   makeParams: (data) => {

@@ -14,7 +14,7 @@
           icon-left="trash-2"
           class="w-full"
           :loading="current.resource.loading"
-          @click="current.resource.submit(null) && emit('success')"
+          @click="handleSubmit"
         >
           {{ current.buttonText }}
         </Button>
@@ -42,6 +42,7 @@ const open = computed({
     emit("update:modelValue", value)
   },
 })
+
 
 document.onkeydown = (e) => {
   if (e.key === "Escape") open.value = false
@@ -73,4 +74,14 @@ const dialogConfigs = computed(() => [
 const current = computed(() => 
   dialogConfigs.value.find(({ route: _route }) => _route === route.name)
 )
+
+const handleSubmit = () => {
+  // Nếu là Favourites và clear all, KHÔNG truyền entities
+   current.value.resource?.reset()
+    current.value.resource?.submit(null).then(() => {
+      open.value = false
+      emit("success")
+    })
+}
+
 </script>

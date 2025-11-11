@@ -310,7 +310,6 @@ const actionItems = computed(() => {
         icon: MoveIcon,
         action: () => (dialog.value = "move"),
         isEnabled: (e) => e.write && isMember.value && e.is_active,
-        multi: true,
         important: true,
       },
       {

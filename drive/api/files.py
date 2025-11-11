@@ -861,344 +861,357 @@ def delete_background_job(entity, ignore_permissions):
 @frappe.whitelist()
 def delete_entities(entity_names=None, clear_all=None):
     """
-    Permanently delete DriveEntities (files and shortcuts)
+    Permanently delete DriveEntities (files and shortcuts) - OPTIMIZED VERSION
 
-    :param entity_names: List of document-names or objects with entity and is_shortcut properties
-    :type entity_names: list[str] or list[dict]
-    :raises ValueError: If decoded entity_names is not a list
+    Improvements:
+    1. Batch permission checks with single query
+    2. Bulk get all descendants at once
+    3. Bottom-up deletion (files first, then folders)
+    4. Batch processing to avoid timeouts
     """
 
-    success_files = []  # Danh sách file/shortcut xóa thành công
-    failed_files = []  # Danh sách file/shortcut thất bại
+    success_files = []
+    failed_files = []
+    current_user = frappe.session.user
 
-    # ✅ Helper function: Kiểm tra user có quyền xóa entity không
-    def can_delete_entity(entity_doc, user):
-        """
-        Kiểm tra user có quyền xóa entity không
-        Rules:
-        1. Nếu user là owner của entity -> CÓ QUYỀN
-        2. Nếu user có write permission trên entity -> CÓ QUYỀN
-        3. Nếu user là owner của PARENT folder -> CÓ QUYỀN (quan trọng!)
-        """
-        # Rule 1: User là owner
-        if entity_doc.modified_by == user:
-            return True
-
-        # Rule 2: User có write permission
-        if user_has_permission(entity_doc, "write", user):
-            return True
-
-        # Rule 3: User là owner của parent folder (cascade delete)
-        if entity_doc.parent_entity:
-            try:
-                parent_doc = frappe.get_doc("Drive File", entity_doc.parent_entity)
-                # Đệ quy check parent
-                return can_delete_entity(parent_doc, user)
-            except:
-                pass
-
-        return False
-
-    # ✅ Helper function: Xóa entity và tất cả children với retry mechanism
-    def delete_entity_recursive(entity_name, is_shortcut=False, max_retries=3):
-        """
-        Xóa entity và tất cả children của nó (nếu là folder) với retry nếu gặp lock timeout
-        Returns: (success_count, failed_items[])
-        """
-        local_success = []
-        local_failed = []
-
-        for attempt in range(max_retries):
-            try:
-                if is_shortcut:
-                    # Xử lý shortcut (không có children)
-                    shortcut = frappe.db.get_value(
-                        "Drive Shortcut",
-                        {
-                            "name": entity_name,
-                            "shortcut_owner": frappe.session.user,
-                            "is_active": 0,
-                        },
-                        ["name", "shortcut_name"],
-                        as_dict=True,
-                    )
-
-                    if not shortcut:
-                        exists = frappe.db.exists("Drive Shortcut", entity_name)
-                        # ✅ Lấy tên thay vì ID
-                        display_name = entity_name
-                        try:
-                            display_name = (
-                                frappe.db.get_value("Drive Shortcut", entity_name, "shortcut_name")
-                                or entity_name
-                            )
-                        except:
-                            pass
-
-                        if not exists:
-                            local_failed.append(f"{display_name} (không tồn tại)")
-                        else:
-                            local_failed.append(f"{display_name} (không có quyền)")
-                        return local_success, local_failed
-
-                    frappe.db.set_value(
-                        "Drive Shortcut", entity_name, "is_active", -1, update_modified=False
-                    )
-                    local_success.append(entity_name)
-                    frappe.db.commit()
-                    break  # Thành công, thoát vòng lặp retry
-
-                else:
-                    # Xử lý file/folder
-                    if not frappe.db.exists("Drive File", entity_name):
-                        # Lấy tên từ cache hoặc DB trước khi báo lỗi
-                        display_name = entity_name
-                        try:
-                            display_name = (
-                                frappe.db.get_value("Drive File", entity_name, "title")
-                                or entity_name
-                            )
-                        except:
-                            pass
-                        local_failed.append(f"{display_name} (không tồn tại)")
-                        return local_success, local_failed
-
-                    entity_doc = frappe.get_doc("Drive File", entity_name)
-
-                    # Kiểm tra trong trash
-                    if entity_doc.is_active != 0:
-                        local_failed.append(f"{entity_doc.title} (không trong thùng rác)")
-                        return local_success, local_failed
-
-                    # ✅ Kiểm tra quyền với logic mới
-                    if not can_delete_entity(entity_doc, frappe.session.user):
-                        local_failed.append(f"{entity_doc.title} (không có quyền)")
-                        return local_success, local_failed
-
-                    # ✅ Nếu là folder, xóa tất cả children trước với batch processing
-                    if entity_doc.is_group:
-                        # Lấy tất cả children (cả active và inactive)
-                        children = frappe.db.get_all(
-                            "Drive File", filters={"parent_entity": entity_name}, pluck="name"
-                        )
-
-                        # ✅ Xóa theo batch để tránh lock timeout
-                        batch_size = 10
-                        for i in range(0, len(children), batch_size):
-                            batch = children[i : i + batch_size]
-
-                            for child_name in batch:
-                                child_attempt = 0
-                                child_deleted = False
-
-                                while child_attempt < max_retries and not child_deleted:
-                                    try:
-                                        # ✅ FIX: Xóa child với ignore_permissions vì parent owner có quyền cascade delete
-                                        frappe.delete_doc(
-                                            "Drive File",
-                                            child_name,
-                                            ignore_permissions=True,
-                                            force=True,
-                                        )
-                                        local_success.append(child_name)
-                                        child_deleted = True
-
-                                    except frappe.QueryTimeoutError:
-                                        child_attempt += 1
-                                        if child_attempt < max_retries:
-                                            time.sleep(0.5)  # Đợi 500ms trước khi retry
-                                        else:
-                                            # ✅ Lấy tên thay vì ID
-                                            child_title = child_name
-                                            try:
-                                                child_title = (
-                                                    frappe.db.get_value(
-                                                        "Drive File", child_name, "title"
-                                                    )
-                                                    or child_name
-                                                )
-                                            except:
-                                                pass
-                                            local_failed.append(f"{child_title} (timeout)")
-
-                                    except Exception as e:
-                                        # ✅ Lấy tên thay vì ID
-                                        child_title = child_name
-                                        try:
-                                            child_title = (
-                                                frappe.db.get_value(
-                                                    "Drive File", child_name, "title"
-                                                )
-                                                or child_name
-                                            )
-                                        except:
-                                            pass
-
-                                        error_msg = str(e)[:50]  # ✅ Giới hạn độ dài
-                                        local_failed.append(f"{child_title}")
-                                        # ✅ Log đơn giản hơn với message ngắn
-                                        try:
-                                            frappe.log_error(
-                                                f"Child: {child_name}\nError: {error_msg}",
-                                                "Delete Child",
-                                            )
-                                        except:
-                                            pass  # Bỏ qua nếu log error cũng fail
-                                        break
-
-                            # ✅ Commit sau mỗi batch để giải phóng lock
-                            frappe.db.commit()
-                            time.sleep(0.1)  # Delay nhỏ giữa các batch
-
-                    # ✅ FIX: Xóa chính folder với ignore_permissions
-                    frappe.delete_doc(
-                        "Drive File", entity_name, ignore_permissions=True, force=True
-                    )
-                    local_success.append(entity_name)
-                    frappe.db.commit()
-                    break  # Thành công, thoát vòng lặp retry
-
-            except frappe.QueryTimeoutError as e:
-                if attempt < max_retries - 1:
-                    time.sleep(1)  # Đợi 1s trước khi retry
-                    continue
-                else:
-                    display_name = entity_name
-                    try:
-                        display_name = (
-                            frappe.db.get_value("Drive File", entity_name, "title") or entity_name
-                        )
-                    except:
-                        pass
-                    local_failed.append(f"{display_name} (timeout)")
-                    # ✅ Log ngắn gọn
-                    try:
-                        frappe.log_error(f"Timeout: {entity_name}", "Delete Timeout")
-                    except:
-                        pass
-
-            except frappe.PermissionError:
-                display_name = entity_name
-                try:
-                    display_name = (
-                        frappe.db.get_value("Drive File", entity_name, "title") or entity_name
-                    )
-                except:
-                    pass
-                local_failed.append(f"{display_name} (không có quyền)")
-                # ✅ Log ngắn gọn
-                try:
-                    frappe.log_error(f"No perm: {entity_name}", "Delete Perm")
-                except:
-                    pass
-                break
-
-            except Exception as e:
-                display_name = entity_name
-                try:
-                    display_name = (
-                        frappe.db.get_value("Drive File", entity_name, "title") or entity_name
-                    )
-                except:
-                    pass
-                error_msg = str(e)[:50]  # ✅ Giới hạn độ dài
-                local_failed.append(f"{display_name}")
-                # ✅ Log ngắn gọn
-                try:
-                    frappe.log_error(f"Entity: {entity_name}\nErr: {error_msg}", "Delete Error")
-                except:
-                    pass
-                break
-
-        return local_success, local_failed
-
+    # ===== PARSE INPUT =====
     if clear_all:
-        # Xóa vĩnh viễn tất cả files trong trash của user
-        file_names = frappe.db.get_list(
-            "Drive File", {"is_active": 0, "owner": frappe.session.user}, pluck="name"
-        )
-        for file_name in file_names:
-            try:
-                s, f = delete_entity_recursive(file_name, is_shortcut=False)
-                success_files.extend(s)
-                failed_files.extend(f)
-            except Exception as e:
-                try:
-                    frappe.log_error(f"Clear all: {file_name}\n{str(e)[:50]}", "Clear All Error")
-                except:
-                    pass
-                failed_files.append(file_name)
-
-        # Soft delete tất cả shortcuts trong trash của user
-        shortcut_names = frappe.db.get_list(
-            "Drive Shortcut", {"is_active": 0, "shortcut_owner": frappe.session.user}, pluck="name"
-        )
-        for shortcut_name in shortcut_names:
-            try:
-                s, f = delete_entity_recursive(shortcut_name, is_shortcut=True)
-                success_files.extend(s)
-                failed_files.extend(f)
-            except Exception as e:
-                try:
-                    frappe.log_error(
-                        f"Clear shortcut: {shortcut_name}\n{str(e)[:50]}", "Clear Shortcut"
-                    )
-                except:
-                    pass
-                failed_files.append(shortcut_name)
-
+        # Get all trash items for current user
+        entity_names = get_all_trash_items(current_user)
     elif isinstance(entity_names, str):
         entity_names = json.loads(entity_names)
     elif not isinstance(entity_names, list) or not entity_names:
-        frappe.throw(f"Expected non-empty list but got {type(entity_names)}", ValueError)
+        frappe.throw(_("Expected non-empty list"), ValueError)
 
-    if entity_names:
-        for entity in entity_names:
-            # Xử lý entity có thể là string hoặc dict
-            if isinstance(entity, dict):
-                entity_name = (
-                    entity.get("entity") or entity.get("name") or entity.get("shortcut_name")
-                )
-                is_shortcut = entity.get("is_shortcut", False)
-            else:
-                entity_name = entity
-                is_shortcut = False
+    # Normalize to standard format
+    normalized = normalize_entities(entity_names)
 
-            # Sử dụng hàm đệ quy để xóa với retry mechanism
-            s, f = delete_entity_recursive(entity_name, is_shortcut)
-            success_files.extend(s)
-            failed_files.extend(f)
+    # Separate shortcuts and files
+    shortcuts = [e for e in normalized if e.get("is_shortcut")]
+    files = [e for e in normalized if not e.get("is_shortcut")]
 
-    # Commit cuối cùng
+    # ===== PROCESS SHORTCUTS =====
+    if shortcuts:
+        s, f = delete_shortcuts_batch(shortcuts, current_user)
+        success_files.extend(s)
+        failed_files.extend(f)
+
+    # ===== PROCESS FILES =====
+    if files:
+        s, f = delete_files_optimized(files, current_user)
+        success_files.extend(s)
+        failed_files.extend(f)
+
     frappe.db.commit()
 
-    # Chuẩn bị response
+    return format_delete_response(success_files, failed_files)
+
+
+# ===== HELPER FUNCTIONS =====
+
+
+def get_all_trash_items(user):
+    """Get all files and shortcuts in trash"""
+    files = frappe.db.get_all(
+        "Drive File", filters={"is_active": 0, "modified_by": user}, pluck="name"
+    )
+
+    shortcuts = frappe.db.get_all(
+        "Drive Shortcut", filters={"is_active": 0, "shortcut_owner": user}, pluck="name"
+    )
+
+    result = [{"entity": f, "is_shortcut": False} for f in files]
+    result.extend([{"entity": s, "is_shortcut": True} for s in shortcuts])
+
+    return result
+
+
+def normalize_entities(entity_names):
+    """Convert mixed input to standard format"""
+    normalized = []
+    for entity in entity_names:
+        if isinstance(entity, dict):
+            normalized.append(
+                {
+                    "entity": entity.get("entity")
+                    or entity.get("name")
+                    or entity.get("shortcut_name"),
+                    "is_shortcut": entity.get("is_shortcut", False),
+                }
+            )
+        else:
+            normalized.append({"entity": entity, "is_shortcut": False})
+    return normalized
+
+
+def delete_shortcuts_batch(shortcuts, user):
+    """Delete shortcuts in batch"""
+    success = []
+    failed = []
+
+    shortcut_names = [s["entity"] for s in shortcuts]
+    if not shortcut_names:
+        return success, failed
+
+    # Get valid shortcuts with permission check
+    DriveShortcut = frappe.qb.DocType("Drive Shortcut")
+
+    valid_shortcuts = (
+        frappe.qb.from_(DriveShortcut)
+        .select(DriveShortcut.name, DriveShortcut.shortcut_name)
+        .where(
+            (DriveShortcut.name.isin(shortcut_names))
+            & (DriveShortcut.shortcut_owner == user)
+            & (DriveShortcut.is_active == 0)
+        )
+        .run(as_dict=True)
+    )
+
+    valid_names = {s["name"] for s in valid_shortcuts}
+    shortcut_titles = {s["name"]: s["shortcut_name"] for s in valid_shortcuts}
+
+    # Mark failed shortcuts
+    for name in shortcut_names:
+        if name not in valid_names:
+            display = shortcut_titles.get(name, name)
+            failed.append(f"{display} (không có quyền hoặc không tồn tại)")
+
+    # Batch soft delete
+    if valid_names:
+        try:
+            frappe.db.sql(
+                """
+                UPDATE `tabDrive Shortcut`
+                SET is_active = -1
+                WHERE name IN %(names)s
+            """,
+                {"names": list(valid_names)},
+            )
+
+            success.extend(list(valid_names))
+            frappe.db.commit()
+        except Exception as e:
+            frappe.log_error(f"Batch delete shortcuts: {str(e)}", "Delete Shortcuts")
+            # Fallback to individual
+            for name in valid_names:
+                try:
+                    frappe.db.set_value(
+                        "Drive Shortcut", name, "is_active", -1, update_modified=False
+                    )
+                    success.append(name)
+                except:
+                    failed.append(name)
+
+    return success, failed
+
+
+def delete_files_optimized(files, user):
+    """Delete files with batch operations"""
+    success = []
+    failed = []
+
+    file_names = [f["entity"] for f in files]
+    if not file_names:
+        return success, failed
+
+    # STEP 1: Batch get metadata with permission check
+    DriveFile = frappe.qb.DocType("Drive File")
+
+    files_data = (
+        frappe.qb.from_(DriveFile)
+        .select(
+            DriveFile.name,
+            DriveFile.title,
+            DriveFile.is_group,
+            DriveFile.is_active,
+            DriveFile.modified_by,
+        )
+        .where(DriveFile.name.isin(file_names))
+        .run(as_dict=True)
+    )
+
+    # Check permissions and validity
+    valid_files = {}
+    for file in files_data:
+        # Must be in trash
+        if file["is_active"] != 0:
+            failed.append(f"{file['title']} (không trong thùng rác)")
+            continue
+
+        # Must be modified by current user (owner)
+        if file["modified_by"] != user:
+            failed.append(f"{file['title']} (không có quyền)")
+            continue
+
+        valid_files[file["name"]] = file
+
+    # Mark non-existent files as failed
+    for name in file_names:
+        if name not in {f["name"] for f in files_data}:
+            failed.append(f"{name} (không tồn tại)")
+
+    if not valid_files:
+        return success, failed
+
+    # STEP 2: Separate folders and regular files
+    folders = [name for name, meta in valid_files.items() if meta["is_group"]]
+    regular_files = [name for name, meta in valid_files.items() if not meta["is_group"]]
+
+    # STEP 3: Process folders with all descendants
+    for folder_name in folders:
+        try:
+            s, f = delete_folder_recursive(folder_name, user)
+            success.extend(s)
+            failed.extend(f)
+        except Exception as e:
+            frappe.log_error(f"Delete folder {folder_name}: {str(e)}", "Delete Folder")
+            failed.append(f"{valid_files[folder_name]['title']} (lỗi)")
+
+    # STEP 4: Batch delete regular files
+    if regular_files:
+        s, f = batch_delete_files(regular_files)
+        success.extend(s)
+        failed.extend(f)
+
+    return success, failed
+
+
+def delete_folder_recursive(folder_name, user):
+    """Delete folder and all its descendants"""
+    success = []
+    failed = []
+
+    # Get ALL descendants at once using iterative approach
+    all_descendants = get_all_folder_descendants(folder_name)
+
+    if not all_descendants:
+        # Empty folder
+        try:
+            frappe.delete_doc("Drive File", folder_name, ignore_permissions=True, force=True)
+            success.append(folder_name)
+        except Exception as e:
+            frappe.log_error(f"Delete empty folder: {str(e)}", "Delete Folder")
+            failed.append(folder_name)
+        return success, failed
+
+    # Separate files and folders
+    descendant_files = [d for d in all_descendants if not d["is_group"]]
+    descendant_folders = [d for d in all_descendants if d["is_group"]]
+
+    # Delete files first (in batches)
+    if descendant_files:
+        file_names = [f["name"] for f in descendant_files]
+        s, f = batch_delete_files(file_names)
+        success.extend(s)
+        failed.extend(f)
+
+    # Delete folders (deepest first - reverse by level)
+    descendant_folders.sort(key=lambda x: x.get("level", 0), reverse=True)
+
+    for folder in descendant_folders:
+        try:
+            frappe.delete_doc("Drive File", folder["name"], ignore_permissions=True, force=True)
+            success.append(folder["name"])
+        except Exception as e:
+            frappe.log_error(f"Delete subfolder {folder['name']}: {str(e)}", "Delete Folder")
+            failed.append(folder["name"])
+
+    # Finally delete parent folder
+    try:
+        frappe.delete_doc("Drive File", folder_name, ignore_permissions=True, force=True)
+        success.append(folder_name)
+    except Exception as e:
+        frappe.log_error(f"Delete parent {folder_name}: {str(e)}", "Delete Folder")
+        failed.append(folder_name)
+
+    # Commit after each folder to release locks
+    frappe.db.commit()
+
+    return success, failed
+
+
+def get_all_folder_descendants(parent_name, max_depth=20):
+    """Get all descendants using iterative BFS approach"""
+    all_descendants = []
+    current_level = [parent_name]
+    level = 0
+
+    DriveFile = frappe.qb.DocType("Drive File")
+
+    while current_level and level < max_depth:
+        # Get children of current level in one query
+        children = (
+            frappe.qb.from_(DriveFile)
+            .select(DriveFile.name, DriveFile.title, DriveFile.is_group)
+            .where(DriveFile.parent_entity.isin(current_level))
+            .run(as_dict=True)
+        )
+
+        if not children:
+            break
+
+        # Add level info for sorting
+        for child in children:
+            child["level"] = level + 1
+
+        all_descendants.extend(children)
+
+        # Next level: only folders can have children
+        current_level = [c["name"] for c in children if c["is_group"]]
+        level += 1
+
+    return all_descendants
+
+
+def batch_delete_files(file_names, batch_size=20):
+    """Delete files in batches to avoid lock timeouts"""
+    success = []
+    failed = []
+
+    for i in range(0, len(file_names), batch_size):
+        batch = file_names[i : i + batch_size]
+
+        for file_name in batch:
+            try:
+                frappe.delete_doc("Drive File", file_name, ignore_permissions=True, force=True)
+                success.append(file_name)
+            except Exception as e:
+                frappe.log_error(f"Delete file {file_name}: {str(e)[:100]}", "Delete File")
+                failed.append(file_name)
+
+        # Commit after each batch
+        frappe.db.commit()
+
+    return success, failed
+
+
+def format_delete_response(success_files, failed_files):
+    """Format user-friendly response"""
     result = {
         "success": len(success_files) > 0,
+        "success_count": len(success_files),
+        "failed_count": len(failed_files),
         "success_files": success_files,
         "failed_files": failed_files,
     }
 
-    # Tạo message phù hợp với hiển thị đầy đủ tên files
-    if len(failed_files) > 0:
-        if len(success_files) > 0:
-            # Hiển thị tối đa 5 tên files failed
+    if failed_files:
+        if success_files:
             failed_display = ", ".join(failed_files[:5])
             if len(failed_files) > 5:
                 failed_display += f" và {len(failed_files) - 5} mục khác"
 
             result["message"] = (
-                f"Đã xóa vĩnh viễn {len(success_files)} mục. "
-                f"{len(failed_files)} mục không thể xóa: {failed_display}"
+                f"Đã xóa {len(success_files)} mục. "
+                f"{len(failed_files)} mục thất bại: {failed_display}"
             )
         else:
             result["success"] = False
-            # Hiển thị tối đa 5 tên files failed
-            failed_display = ", ".join(failed_files[:5])
-            if len(failed_files) > 5:
-                failed_display += f" và {len(failed_files) - 5} mục khác"
+            failed_display = ", ".join(failed_files[:3])
+            if len(failed_files) > 3:
+                failed_display += f" và {len(failed_files) - 3} mục khác"
 
-            result["message"] = f"Không thể xóa các mục: {failed_display}"
+            result["message"] = f"Không thể xóa: {failed_display}"
     else:
         result["message"] = f"Đã xóa vĩnh viễn {len(success_files)} mục thành công"
 
@@ -1217,15 +1230,19 @@ def set_favourite(entities=None, clear_all=False):
         frappe.throw(f"Expected list but got {type(entities)}", ValueError)
 
     for entity in entities:
-        # Check if this is a shortcut entity
-        is_shortcut = entity.get("is_shortcut") or entity.get("shortcut_name")
+        # Check if this is a shortcut entity - use .get() to avoid KeyError
+        is_shortcut = entity.get("is_shortcut", False) or bool(entity.get("shortcut_name"))
 
         if is_shortcut:
+            shortcut_name = entity.get("shortcut_name")
+            if not shortcut_name:
+                frappe.throw("Shortcut entity missing shortcut_name", ValueError)
+
             # For shortcut files, check existing favourite by entity_shortcut
             existing_doc = frappe.db.exists(
                 {
                     "doctype": "Drive Favourite",
-                    "entity_shortcut": entity["shortcut_name"],
+                    "entity_shortcut": shortcut_name,
                     "user": frappe.session.user,
                 }
             )
@@ -1236,7 +1253,11 @@ def set_favourite(entities=None, clear_all=False):
 
             # Ensure is_favourite is boolean
             if not isinstance(entity["is_favourite"], bool):
-                entity["is_favourite"] = json.loads(entity["is_favourite"])
+                entity["is_favourite"] = (
+                    json.loads(entity["is_favourite"])
+                    if isinstance(entity["is_favourite"], str)
+                    else bool(entity["is_favourite"])
+                )
 
             # Handle favourite/unfavourite logic for shortcuts
             if not entity["is_favourite"] and existing_doc:
@@ -1247,18 +1268,21 @@ def set_favourite(entities=None, clear_all=False):
                 frappe.get_doc(
                     {
                         "doctype": "Drive Favourite",
-                        # "entity": entity.get("name"),  # Original entity name if available
-                        "entity_shortcut": entity["shortcut_name"],
+                        "entity_shortcut": shortcut_name,
                         "user": frappe.session.user,
                     }
                 ).insert()
 
         else:
             # For regular files, use entity field as before
+            entity_name = entity.get("name")
+            if not entity_name:
+                frappe.throw("Entity missing name field", ValueError)
+
             existing_doc = frappe.db.exists(
                 {
                     "doctype": "Drive Favourite",
-                    "entity": entity["name"],
+                    "entity": entity_name,
                     "user": frappe.session.user,
                 }
             )
@@ -1269,7 +1293,11 @@ def set_favourite(entities=None, clear_all=False):
 
             # Ensure is_favourite is boolean
             if not isinstance(entity["is_favourite"], bool):
-                entity["is_favourite"] = json.loads(entity["is_favourite"])
+                entity["is_favourite"] = (
+                    json.loads(entity["is_favourite"])
+                    if isinstance(entity["is_favourite"], str)
+                    else bool(entity["is_favourite"])
+                )
 
             # Handle favourite/unfavourite logic for regular files
             if not entity["is_favourite"] and existing_doc:
@@ -1280,7 +1308,7 @@ def set_favourite(entities=None, clear_all=False):
                 frappe.get_doc(
                     {
                         "doctype": "Drive Favourite",
-                        "entity": entity["name"],
+                        "entity": entity_name,
                         "user": frappe.session.user,
                     }
                 ).insert()
@@ -1295,7 +1323,6 @@ def set_favourite(entities=None, clear_all=False):
 #         toggle_is_active(child)
 
 
-@frappe.whitelist()
 @frappe.whitelist()
 def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
     """
@@ -1451,7 +1478,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
                     success_files.append(doc.name)
                 else:
-                    failed_files.append(doc.title)
+                    failed_files.append(doc.title.strip()[:30])
             except Exception as e:
                 frappe.log_error(f"Error processing entity {entity}: {str(e)}")
                 failed_files.append(entity)
