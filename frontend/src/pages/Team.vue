@@ -77,7 +77,7 @@ onBeforeUnmount(() => {
 const write = computed(
   () =>
     allUsers.data &&
-    allUsers.data.find((k) => k.name === store.state.user.id).access_level > 0
+    allUsers.data.find((k) => k.name === store.state.user.id)?.access_level > 0
 )
 
 // Set breadcrumbs when teams data is available

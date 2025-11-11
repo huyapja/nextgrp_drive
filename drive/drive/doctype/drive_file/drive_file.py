@@ -551,6 +551,21 @@ class DriveFile(Document):
                 valid_until=valid_until,
             )
 
+        create_new_activity_log(entity=self.name, last_interaction=frappe.utils.now())
+        frappe.enqueue(
+            notify_share,
+            queue="long",
+            job_id=f"fdocperm_{self.name}",
+            deduplicate=True,
+            timeout=None,
+            now=False,
+            at_front=False,
+            entity_name=self.name,
+            docperm_name=permission.name,
+        )
+
+        # notify_share(self.name, permission.name)
+
     def _share_children(
         self, user=None, read=None, comment=None, share=None, write=None, valid_until=""
     ):
