@@ -232,8 +232,7 @@ const actionItems = computed(() => {
         icon: LucideRotateCcw,
         action: () => (dialog.value = "restore"),
         multi: true,
-        important: true,
-        isEnabled: (e) => !e?.is_shortcut,
+        important: true
       },
       {
         label: "Xóa vĩnh viễn",

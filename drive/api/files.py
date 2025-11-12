@@ -861,50 +861,298 @@ def delete_background_job(entity, ignore_permissions):
 @frappe.whitelist()
 def delete_entities(entity_names=None, clear_all=None):
     """
-    Permanently delete DriveEntities (files and shortcuts) - OPTIMIZED VERSION
-
-    Improvements:
-    1. Batch permission checks with single query
-    2. Bulk get all descendants at once
-    3. Bottom-up deletion (files first, then folders)
-    4. Batch processing to avoid timeouts
+    Delete entities with BULK SQL - MUCH FASTER
     """
-
-    success_files = []
-    failed_files = []
     current_user = frappe.session.user
 
-    # ===== PARSE INPUT =====
+    # Parse input
     if clear_all:
-        # Get all trash items for current user
         entity_names = get_all_trash_items(current_user)
     elif isinstance(entity_names, str):
         entity_names = json.loads(entity_names)
     elif not isinstance(entity_names, list) or not entity_names:
         frappe.throw(_("Expected non-empty list"), ValueError)
 
-    # Normalize to standard format
     normalized = normalize_entities(entity_names)
 
-    # Separate shortcuts and files
-    shortcuts = [e for e in normalized if e.get("is_shortcut")]
-    files = [e for e in normalized if not e.get("is_shortcut")]
+    return delete_entities_sync(normalized, current_user)
 
-    # ===== PROCESS SHORTCUTS =====
+
+def delete_entities_sync(entity_names, current_user):
+    """Synchronous deletion with BULK operations"""
+    success_files = []
+    failed_files = []
+
+    # Separate shortcuts and files
+    shortcuts = [e for e in entity_names if e.get("is_shortcut")]
+    files = [e for e in entity_names if not e.get("is_shortcut")]
+
+    # Process shortcuts
     if shortcuts:
-        s, f = delete_shortcuts_batch(shortcuts, current_user)
+        s, f = delete_shortcuts_bulk(shortcuts, current_user)
         success_files.extend(s)
         failed_files.extend(f)
 
-    # ===== PROCESS FILES =====
+    # Process files with BULK delete
     if files:
-        s, f = delete_files_optimized(files, current_user)
+        s, f = delete_files_bulk(files, current_user)
         success_files.extend(s)
         failed_files.extend(f)
 
     frappe.db.commit()
 
     return format_delete_response(success_files, failed_files)
+
+
+def delete_files_bulk(files, user):
+    """Delete files using BULK SQL - SUPER FAST"""
+    success = []
+    failed = []
+
+    file_names = [f["entity"] for f in files]
+    if not file_names:
+        return success, failed
+
+    # STEP 1: Get and validate files
+    DriveFile = frappe.qb.DocType("Drive File")
+
+    files_data = (
+        frappe.qb.from_(DriveFile)
+        .select(
+            DriveFile.name,
+            DriveFile.title,
+            DriveFile.is_group,
+            DriveFile.is_active,
+            DriveFile.modified_by,
+        )
+        .where(DriveFile.name.isin(file_names))
+        .run(as_dict=True)
+    )
+
+    # Validate permissions
+    valid_files = {}
+    for file in files_data:
+        if file["is_active"] != 0:
+            failed.append(f"{file['title']} (không trong thùng rác)")
+            continue
+        if file["modified_by"] != user:
+            failed.append(f"{file['title']} (không có quyền)")
+            continue
+        valid_files[file["name"]] = file
+
+    # Mark non-existent
+    for name in file_names:
+        if name not in {f["name"] for f in files_data}:
+            failed.append(f"{name} (không tồn tại)")
+
+    if not valid_files:
+        return success, failed
+
+    # STEP 2: Collect ALL files to delete (including descendants)
+    all_files_to_delete = set()
+    folders = [name for name, meta in valid_files.items() if meta["is_group"]]
+    regular_files = [name for name, meta in valid_files.items() if not meta["is_group"]]
+
+    # Add regular files
+    all_files_to_delete.update(regular_files)
+
+    # For each folder, get ALL descendants at once
+    for folder_name in folders:
+        descendants = get_all_descendants_recursive(folder_name)
+        all_files_to_delete.add(folder_name)  # Add folder itself
+        all_files_to_delete.update(descendants)
+
+    if not all_files_to_delete:
+        return success, failed
+
+    # STEP 3: BULK DELETE with single SQL query
+    try:
+        deleted_count = bulk_delete_files(list(all_files_to_delete))
+        success.extend(list(all_files_to_delete))
+
+        frappe.msgprint(f"Đã xóa {deleted_count} files/folders")
+
+    except Exception as e:
+        error_msg = str(e)[:100]
+        frappe.log_error(f"Bulk delete failed: {error_msg}", "Bulk Delete")
+        failed.extend(list(all_files_to_delete))
+
+    return success, failed
+
+
+def get_all_descendants_recursive(parent_name, max_depth=50):
+    """
+    Get ALL descendants in one recursive query - VERY FAST
+    Uses MySQL recursive CTE (Common Table Expression)
+    """
+    try:
+        # Use recursive query to get all descendants at once
+        result = frappe.db.sql(
+            """
+            WITH RECURSIVE descendants AS (
+                -- Base case: direct children
+                SELECT name, parent_entity, is_group
+                FROM `tabDrive File`
+                WHERE parent_entity = %(parent)s
+                
+                UNION ALL
+                
+                -- Recursive case: children of children
+                SELECT f.name, f.parent_entity, f.is_group
+                FROM `tabDrive File` f
+                INNER JOIN descendants d ON f.parent_entity = d.name
+                WHERE d.is_group = 1
+            )
+            SELECT name FROM descendants
+        """,
+            {"parent": parent_name},
+            as_list=True,
+        )
+
+        return [row[0] for row in result]
+
+    except Exception as e:
+        # Fallback to iterative approach if recursive CTE not supported
+        return get_all_descendants_iterative(parent_name, max_depth)
+
+
+def get_all_descendants_iterative(parent_name, max_depth=50):
+    """Fallback: Get descendants iteratively"""
+    all_descendants = []
+    current_level = [parent_name]
+    level = 0
+
+    while current_level and level < max_depth:
+        # Get all children in one query
+        children = frappe.db.sql(
+            """
+            SELECT name, is_group
+            FROM `tabDrive File`
+            WHERE parent_entity IN %(parents)s
+        """,
+            {"parents": current_level},
+            as_dict=True,
+        )
+
+        if not children:
+            break
+
+        child_names = [c["name"] for c in children]
+        all_descendants.extend(child_names)
+
+        # Next level: only folders
+        current_level = [c["name"] for c in children if c["is_group"]]
+        level += 1
+
+    return all_descendants
+
+
+def bulk_delete_files(file_names, batch_size=500):
+    """
+    BULK DELETE files using raw SQL - SUPER FAST
+    Deletes in batches to avoid too large queries
+    """
+    if not file_names:
+        return 0
+
+    total_deleted = 0
+
+    # Delete in batches
+    for i in range(0, len(file_names), batch_size):
+        batch = file_names[i : i + batch_size]
+
+        try:
+            # Delete from Drive File table
+            frappe.db.sql(
+                """
+                DELETE FROM `tabDrive File`
+                WHERE name IN %(names)s
+            """,
+                {"names": batch},
+            )
+
+            # Delete from Drive Entity table (if exists)
+            frappe.db.sql(
+                """
+                DELETE FROM `tabDrive Entity`
+                WHERE name IN %(names)s
+            """,
+                {"names": batch},
+                ignore_ddl=True,
+            )
+
+            # Delete related permissions
+            frappe.db.sql(
+                """
+                DELETE FROM `tabDrive DocShare`
+                WHERE share_name IN %(names)s
+            """,
+                {"names": batch},
+                ignore_ddl=True,
+            )
+
+            total_deleted += len(batch)
+
+            # Commit after each batch
+            frappe.db.commit()
+
+        except Exception as e:
+            frappe.log_error(f"Bulk delete batch failed: {str(e)[:100]}", "Bulk Delete Batch")
+            # Continue with next batch even if this one fails
+
+    return total_deleted
+
+
+def delete_shortcuts_bulk(shortcuts, user):
+    """Delete shortcuts using BULK UPDATE"""
+    success = []
+    failed = []
+
+    shortcut_names = [s["entity"] for s in shortcuts]
+    if not shortcut_names:
+        return success, failed
+
+    # Validate shortcuts
+    DriveShortcut = frappe.qb.DocType("Drive Shortcut")
+
+    valid_shortcuts = (
+        frappe.qb.from_(DriveShortcut)
+        .select(DriveShortcut.name, DriveShortcut.title)
+        .where(
+            (DriveShortcut.name.isin(shortcut_names))
+            & (DriveShortcut.shortcut_owner == user)
+            & (DriveShortcut.is_active == 0)
+        )
+        .run(as_dict=True)
+    )
+
+    valid_names = {s["name"] for s in valid_shortcuts}
+    shortcut_titles = {s["name"]: s["title"] for s in valid_shortcuts}
+
+    for name in shortcut_names:
+        if name not in valid_names:
+            display = shortcut_titles.get(name, name)
+            failed.append(f"{display} (không có quyền)")
+
+    if valid_names:
+        try:
+            # BULK soft delete
+            frappe.db.sql(
+                """
+                UPDATE `tabDrive Shortcut`
+                SET is_active = -1
+                WHERE name IN %(names)s
+            """,
+                {"names": list(valid_names)},
+            )
+
+            success.extend(list(valid_names))
+
+        except Exception as e:
+            frappe.log_error(f"Bulk delete shortcuts: {str(e)[:50]}", "Delete Shortcuts")
+            failed.extend(list(valid_names))
+
+    return success, failed
 
 
 # ===== HELPER FUNCTIONS =====
@@ -933,256 +1181,13 @@ def normalize_entities(entity_names):
         if isinstance(entity, dict):
             normalized.append(
                 {
-                    "entity": entity.get("entity")
-                    or entity.get("name")
-                    or entity.get("shortcut_name"),
+                    "entity": entity.get("entity") or entity.get("name"),
                     "is_shortcut": entity.get("is_shortcut", False),
                 }
             )
         else:
             normalized.append({"entity": entity, "is_shortcut": False})
     return normalized
-
-
-def delete_shortcuts_batch(shortcuts, user):
-    """Delete shortcuts in batch"""
-    success = []
-    failed = []
-
-    shortcut_names = [s["entity"] for s in shortcuts]
-    if not shortcut_names:
-        return success, failed
-
-    # Get valid shortcuts with permission check
-    DriveShortcut = frappe.qb.DocType("Drive Shortcut")
-
-    valid_shortcuts = (
-        frappe.qb.from_(DriveShortcut)
-        .select(DriveShortcut.name, DriveShortcut.shortcut_name)
-        .where(
-            (DriveShortcut.name.isin(shortcut_names))
-            & (DriveShortcut.shortcut_owner == user)
-            & (DriveShortcut.is_active == 0)
-        )
-        .run(as_dict=True)
-    )
-
-    valid_names = {s["name"] for s in valid_shortcuts}
-    shortcut_titles = {s["name"]: s["shortcut_name"] for s in valid_shortcuts}
-
-    # Mark failed shortcuts
-    for name in shortcut_names:
-        if name not in valid_names:
-            display = shortcut_titles.get(name, name)
-            failed.append(f"{display} (không có quyền hoặc không tồn tại)")
-
-    # Batch soft delete
-    if valid_names:
-        try:
-            frappe.db.sql(
-                """
-                UPDATE `tabDrive Shortcut`
-                SET is_active = -1
-                WHERE name IN %(names)s
-            """,
-                {"names": list(valid_names)},
-            )
-
-            success.extend(list(valid_names))
-            frappe.db.commit()
-        except Exception as e:
-            frappe.log_error(f"Batch delete shortcuts: {str(e)}", "Delete Shortcuts")
-            # Fallback to individual
-            for name in valid_names:
-                try:
-                    frappe.db.set_value(
-                        "Drive Shortcut", name, "is_active", -1, update_modified=False
-                    )
-                    success.append(name)
-                except:
-                    failed.append(name)
-
-    return success, failed
-
-
-def delete_files_optimized(files, user):
-    """Delete files with batch operations"""
-    success = []
-    failed = []
-
-    file_names = [f["entity"] for f in files]
-    if not file_names:
-        return success, failed
-
-    # STEP 1: Batch get metadata with permission check
-    DriveFile = frappe.qb.DocType("Drive File")
-
-    files_data = (
-        frappe.qb.from_(DriveFile)
-        .select(
-            DriveFile.name,
-            DriveFile.title,
-            DriveFile.is_group,
-            DriveFile.is_active,
-            DriveFile.modified_by,
-        )
-        .where(DriveFile.name.isin(file_names))
-        .run(as_dict=True)
-    )
-
-    # Check permissions and validity
-    valid_files = {}
-    for file in files_data:
-        # Must be in trash
-        if file["is_active"] != 0:
-            failed.append(f"{file['title']} (không trong thùng rác)")
-            continue
-
-        # Must be modified by current user (owner)
-        if file["modified_by"] != user:
-            failed.append(f"{file['title']} (không có quyền)")
-            continue
-
-        valid_files[file["name"]] = file
-
-    # Mark non-existent files as failed
-    for name in file_names:
-        if name not in {f["name"] for f in files_data}:
-            failed.append(f"{name} (không tồn tại)")
-
-    if not valid_files:
-        return success, failed
-
-    # STEP 2: Separate folders and regular files
-    folders = [name for name, meta in valid_files.items() if meta["is_group"]]
-    regular_files = [name for name, meta in valid_files.items() if not meta["is_group"]]
-
-    # STEP 3: Process folders with all descendants
-    for folder_name in folders:
-        try:
-            s, f = delete_folder_recursive(folder_name, user)
-            success.extend(s)
-            failed.extend(f)
-        except Exception as e:
-            frappe.log_error(f"Delete folder {folder_name}: {str(e)}", "Delete Folder")
-            failed.append(f"{valid_files[folder_name]['title']} (lỗi)")
-
-    # STEP 4: Batch delete regular files
-    if regular_files:
-        s, f = batch_delete_files(regular_files)
-        success.extend(s)
-        failed.extend(f)
-
-    return success, failed
-
-
-def delete_folder_recursive(folder_name, user):
-    """Delete folder and all its descendants"""
-    success = []
-    failed = []
-
-    # Get ALL descendants at once using iterative approach
-    all_descendants = get_all_folder_descendants(folder_name)
-
-    if not all_descendants:
-        # Empty folder
-        try:
-            frappe.delete_doc("Drive File", folder_name, ignore_permissions=True, force=True)
-            success.append(folder_name)
-        except Exception as e:
-            frappe.log_error(f"Delete empty folder: {str(e)}", "Delete Folder")
-            failed.append(folder_name)
-        return success, failed
-
-    # Separate files and folders
-    descendant_files = [d for d in all_descendants if not d["is_group"]]
-    descendant_folders = [d for d in all_descendants if d["is_group"]]
-
-    # Delete files first (in batches)
-    if descendant_files:
-        file_names = [f["name"] for f in descendant_files]
-        s, f = batch_delete_files(file_names)
-        success.extend(s)
-        failed.extend(f)
-
-    # Delete folders (deepest first - reverse by level)
-    descendant_folders.sort(key=lambda x: x.get("level", 0), reverse=True)
-
-    for folder in descendant_folders:
-        try:
-            frappe.delete_doc("Drive File", folder["name"], ignore_permissions=True, force=True)
-            success.append(folder["name"])
-        except Exception as e:
-            frappe.log_error(f"Delete subfolder {folder['name']}: {str(e)}", "Delete Folder")
-            failed.append(folder["name"])
-
-    # Finally delete parent folder
-    try:
-        frappe.delete_doc("Drive File", folder_name, ignore_permissions=True, force=True)
-        success.append(folder_name)
-    except Exception as e:
-        frappe.log_error(f"Delete parent {folder_name}: {str(e)}", "Delete Folder")
-        failed.append(folder_name)
-
-    # Commit after each folder to release locks
-    frappe.db.commit()
-
-    return success, failed
-
-
-def get_all_folder_descendants(parent_name, max_depth=20):
-    """Get all descendants using iterative BFS approach"""
-    all_descendants = []
-    current_level = [parent_name]
-    level = 0
-
-    DriveFile = frappe.qb.DocType("Drive File")
-
-    while current_level and level < max_depth:
-        # Get children of current level in one query
-        children = (
-            frappe.qb.from_(DriveFile)
-            .select(DriveFile.name, DriveFile.title, DriveFile.is_group)
-            .where(DriveFile.parent_entity.isin(current_level))
-            .run(as_dict=True)
-        )
-
-        if not children:
-            break
-
-        # Add level info for sorting
-        for child in children:
-            child["level"] = level + 1
-
-        all_descendants.extend(children)
-
-        # Next level: only folders can have children
-        current_level = [c["name"] for c in children if c["is_group"]]
-        level += 1
-
-    return all_descendants
-
-
-def batch_delete_files(file_names, batch_size=20):
-    """Delete files in batches to avoid lock timeouts"""
-    success = []
-    failed = []
-
-    for i in range(0, len(file_names), batch_size):
-        batch = file_names[i : i + batch_size]
-
-        for file_name in batch:
-            try:
-                frappe.delete_doc("Drive File", file_name, ignore_permissions=True, force=True)
-                success.append(file_name)
-            except Exception as e:
-                frappe.log_error(f"Delete file {file_name}: {str(e)[:100]}", "Delete File")
-                failed.append(file_name)
-
-        # Commit after each batch
-        frappe.db.commit()
-
-    return success, failed
 
 
 def format_delete_response(success_files, failed_files):
@@ -1197,9 +1202,9 @@ def format_delete_response(success_files, failed_files):
 
     if failed_files:
         if success_files:
-            failed_display = ", ".join(failed_files[:5])
-            if len(failed_files) > 5:
-                failed_display += f" và {len(failed_files) - 5} mục khác"
+            failed_display = ", ".join(failed_files[:3])
+            if len(failed_files) > 3:
+                failed_display += f" và {len(failed_files) - 3} mục khác"
 
             result["message"] = (
                 f"Đã xóa {len(success_files)} mục. "
@@ -1207,9 +1212,9 @@ def format_delete_response(success_files, failed_files):
             )
         else:
             result["success"] = False
-            failed_display = ", ".join(failed_files[:3])
-            if len(failed_files) > 3:
-                failed_display += f" và {len(failed_files) - 3} mục khác"
+            failed_display = ", ".join(failed_files[:2])
+            if len(failed_files) > 2:
+                failed_display += f" và {len(failed_files) - 2} mục khác"
 
             result["message"] = f"Không thể xóa: {failed_display}"
     else:

@@ -324,46 +324,13 @@ const handleClearTrash = (entities) => {
 export const clearTrash = createResource({
   url: "drive.api.files.delete_entities",
   makeParams: (data) => {
-    // if (!data) {
-    //   return { clear_all: true }
-    // }
+    if (!data) {
+      return { clear_all: true }
+    }
     return { entity_names: handleClearTrash(getTrash.data) }
   },
   onSuccess: (data) => {
-    console.log("clearTrash data", data)
-    if (data.success === false && data.failed_files.length > 0) {
-      const failedNames = data.failed_files.map((file) =>
-        getTrash.data.find((d) =>
-          d.is_shortcut ? d.shortcut_name === file : d.name === file
-        )?.title
-      ).join(", ")
-
-      getTrash.setData((d) =>{
-        return d.filter(
-          (item) =>
-            !data.failed_files.includes(
-              item.is_shortcut ? item.shortcut_name : item.name
-            )
-        )
-      })
-
-      toast({
-        title: `Bạn không có quyền xóa các mục ${failedNames}"`,
-        description: data.message,
-        position: "bottom-right",
-        timeout: 5,
-      })
-      return
-    }
-
-    getTrash.setData((d) => {
-      return d.filter(
-        (item) =>
-          !data.success_files.includes(
-            item.is_shortcut ? item.shortcut_name : item.name
-          )
-      )
-    })
+    getTrash.setData([])
 
     toast(
       data.message || __("Trash cleared successfully.")

@@ -5,10 +5,11 @@
       v-if="selections?.length"
       class="selection-info"
     >
-      {{ selections.length }} {{ __('item') }}{{ selections.length === 1 ? "" : __('') }}
-      {{ __('selected') }}
+      {{ selections.length }} {{ __("item")
+      }}{{ selections.length === 1 ? "" : __("") }}
+      {{ __("selected") }}
     </div>
-    
+
     <!-- Shared View Tabs -->
     <div
       v-else-if="$route.name === 'Shared'"
@@ -30,7 +31,7 @@
         ]"
       />
     </div>
-    
+
     <!-- Search Bar -->
     <IconField
       v-else
@@ -53,7 +54,7 @@
       <template v-if="selections && !selections.length">
         <!-- Filter Button -->
         <div class="relative">
-          <Button 
+          <Button
             icon="pi pi-filter"
             text
             severity="secondary"
@@ -62,24 +63,51 @@
             v-tooltip="__('Filter')"
             @click="showFilterMenu = !showFilterMenu"
           />
-          <div v-if="showFilterMenu" ref="filter-menu" class="filter-menu">
+          <div
+            v-if="showFilterMenu"
+            ref="filter-menu"
+            class="filter-menu"
+          >
             <div
               v-for="option in filterOptions"
               :key="option.value"
               class="filter-option"
               @click.stop="toggleFilter(option.value)"
             >
-            <div class="flex items-center w-full gap-1">
-              <component :is="option.icon" class="filter-option-icon" />
-              <span>{{ option.label }}</span>
-            </div>
-            <span class="filter-check">
-              <svg v-if="activeFilters.includes(option.value)" width="18" height="18" viewBox="0 0 18 18" fill="none">
-                <circle cx="9" cy="9" r="9" fill="#0149C1"/>
-                <path d="M5 9.5L8 12.5L13 7.5" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-              </svg>
-              <span v-else class="filter-unchecked"></span>
-            </span>
+              <div class="flex items-center w-full gap-1">
+                <component
+                  :is="option.icon"
+                  class="filter-option-icon"
+                />
+                <span>{{ option.label }}</span>
+              </div>
+              <span class="filter-check">
+                <svg
+                  v-if="activeFilters.includes(option.value)"
+                  width="18"
+                  height="18"
+                  viewBox="0 0 18 18"
+                  fill="none"
+                >
+                  <circle
+                    cx="9"
+                    cy="9"
+                    r="9"
+                    fill="#0149C1"
+                  />
+                  <path
+                    d="M5 9.5L8 12.5L13 7.5"
+                    stroke="white"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                <span
+                  v-else
+                  class="filter-unchecked"
+                ></span>
+              </span>
             </div>
           </div>
         </div>
@@ -87,7 +115,7 @@
         <!-- <div v-if="activeFilters.length" class="ml-2 text-xs text-gray-600">
           {{ activeFilters.length }} {{ __('filter selected') }}
         </div> -->
-        
+
         <!-- Sort Control -->
         <!-- <div
           v-if="$route.name !== 'Recents'"
@@ -107,25 +135,25 @@
         <!-- View Mode Buttons -->
         <div class="view-controls">
           <Button
-          icon="pi pi-list"
-          text
-          severity="secondary"
-          :class="{ 'active': viewState === 'list' }"
-          :disabled="!getEntities.data?.length"
-          class="view-btn"
-          @click="viewState = 'list'"
+            icon="pi pi-list"
+            text
+            severity="secondary"
+            :class="{ active: viewState === 'list' }"
+            :disabled="!getEntities.data?.length"
+            class="view-btn"
+            @click="viewState = 'list'"
           />
           <Button
             icon="pi pi-th-large"
             text
             severity="secondary"
-            :class="{ 'active': viewState === 'grid' }"
+            :class="{ active: viewState === 'grid' }"
             :disabled="!getEntities.data?.length"
             class="view-btn"
             @click="viewState = 'grid'"
           />
         </div>
-        
+
         <!-- More Options -->
         <!-- <Button 
           icon="pi pi-ellipsis-v"
@@ -171,10 +199,10 @@
 </template>
 <script setup>
 import { TabButtons } from "frappe-ui"
-import Button from 'primevue/button'
-import InputText from 'primevue/inputtext'
-import Dropdown from 'primevue/dropdown'
-import Tooltip from 'primevue/tooltip'
+import Button from "primevue/button"
+import InputText from "primevue/inputtext"
+import Dropdown from "primevue/dropdown"
+import Tooltip from "primevue/tooltip"
 import { ref, computed, watch, useTemplateRef } from "vue"
 import { ICON_TYPES, MIME_LIST_MAP, sortEntities } from "@/utils/files"
 import { useStore } from "vuex"
@@ -214,7 +242,7 @@ watch(
         rows.value[0]?.parent_entity ||
         "",
       team: props.getEntities.params?.team || rows.value[0]?.team,
-      entities: rows.value.filter?.((k) =>k.title && k.title[0] !== "."),
+      entities: rows.value.filter?.((k) => k.title && k.title[0] !== "."),
     })
     store.commit("setSortOrder", val)
   },
@@ -319,13 +347,13 @@ const columnHeaders = [
 ]
 
 watch(shareView, (newValue) => {
-  store.commit('toggleShareView', newValue)
+  store.commit("toggleShareView", newValue)
 })
 </script>
 
 <style scoped>
 .drive-toolbar {
-  @apply flex items-center justify-between px-4 py-2.5 border-gray-200 bg-white h-[64px] max-h-[64px] gap-4;
+  @apply flex flex-nowrap items-center justify-between px-4 py-2.5 border-gray-200 bg-white h-[64px] max-h-[64px] gap-4;
 }
 
 .selection-info {
@@ -360,7 +388,7 @@ watch(shareView, (newValue) => {
   @apply text-sm ml-2;
 }
 
-.control-btn { 
+.control-btn {
   @apply p-2 !border !border-gray-300 !rounded-[8px];
 }
 
@@ -421,21 +449,20 @@ watch(shareView, (newValue) => {
   @apply border-blue-500 shadow-none;
 }
 
-
 /* Responsive Design */
 @media (max-width: 768px) {
   .drive-toolbar {
     @apply flex-col gap-3 p-3;
   }
-  
+
   .search-container {
     @apply w-full max-w-none;
   }
-  
+
   .controls-container {
     @apply w-full justify-between;
   }
-  
+
   .sort-label-text {
     @apply hidden;
   }
@@ -445,7 +472,7 @@ watch(shareView, (newValue) => {
   .drive-toolbar {
     @apply p-2;
   }
-  
+
   .active-filters {
     @apply hidden;
   }
