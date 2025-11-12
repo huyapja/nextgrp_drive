@@ -352,8 +352,10 @@ watch(shareView, (newValue) => {
 </script>
 
 <style scoped>
+/* Thêm vào phần <style scoped> của component */
+
 .drive-toolbar {
-  @apply flex flex-nowrap items-center justify-between px-4 py-2.5 border-gray-200 bg-white h-[64px] max-h-[64px] gap-4;
+  @apply flex flex-nowrap items-center justify-between px-4 py-2.5 border-gray-200 bg-white gap-4;
 }
 
 .selection-info {
@@ -365,7 +367,8 @@ watch(shareView, (newValue) => {
 }
 
 .search-container {
-  @apply flex-1 max-w-md flex items-center border border-gray-200 rounded-[6px] px-4 py-2 gap-2;
+  @apply flex-1 max-w-md flex items-center border border-gray-200 rounded-[6px] px-4 gap-2;
+  height: 40px; /* Chiều cao cố định */
 }
 
 .search-input {
@@ -374,6 +377,9 @@ watch(shareView, (newValue) => {
 
 .controls-container {
   @apply flex items-center gap-3 relative;
+  /* Ngăn không cho shrink trên mobile */
+  flex-shrink: 0;
+  height: 40px; /* Đảm bảo chiều cao nhất quán */
 }
 
 .active-filters {
@@ -389,7 +395,13 @@ watch(shareView, (newValue) => {
 }
 
 .control-btn {
-  @apply p-2 !border !border-gray-300 !rounded-[8px];
+  @apply !border !border-gray-300 !rounded-[8px];
+  height: 40px; /* Chiều cao cố định */
+  width: 40px; /* Vuông đều */
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .filter-menu {
@@ -398,10 +410,24 @@ watch(shareView, (newValue) => {
 
 .filter-option {
   @apply flex items-center gap-2 px-3 py-2 hover:bg-gray-100 cursor-pointer;
+  justify-content: space-between;
+  width: 100%;
 }
 
 .filter-option-icon {
   @apply w-4 h-4;
+}
+
+.filter-check {
+  margin-left: auto;
+}
+
+.filter-unchecked {
+  display: inline-block;
+  width: 18px;
+  height: 18px;
+  border: 1px solid #ccc;
+  border-radius: 50%;
 }
 
 .sort-control {
@@ -417,11 +443,18 @@ watch(shareView, (newValue) => {
 }
 
 .view-controls {
-  @apply flex bg-[#FAFAFA] items-center rounded-md overflow-hidden !h-[40px];
+  @apply flex bg-[#FAFAFA] items-center rounded-md overflow-hidden;
+  height: 40px; /* Chiều cao cố định */
 }
 
 .view-btn {
-  @apply p-2 rounded-md;
+  @apply rounded-md;
+  height: 40px; /* Chiều cao cố định */
+  width: 40px; /* Vuông đều */
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .view-btn.active {
@@ -452,15 +485,37 @@ watch(shareView, (newValue) => {
 /* Responsive Design */
 @media (max-width: 768px) {
   .drive-toolbar {
-    @apply flex-col gap-3 p-3;
+    @apply gap-2 p-3;
   }
 
   .search-container {
-    @apply w-full max-w-none;
+    /* Cho phép search container chiếm tối đa không gian có thể */
+    @apply max-w-none;
+    flex: 1 1 auto;
+    min-width: 120px; /* Đảm bảo có độ rộng tối thiểu */
+    height: 40px; /* Giữ chiều cao */
+    padding: 0 12px; /* Padding nhỏ hơn */
   }
 
   .controls-container {
-    @apply w-full justify-between;
+    /* Chỉ chiếm không gian cần thiết */
+    flex: 0 0 auto;
+    height: 40px; /* Giữ chiều cao */
+  }
+
+  .view-controls {
+    /* Giữ nguyên, không ẩn */
+    height: 40px;
+  }
+
+  .view-btn {
+    height: 40px;
+    width: 40px;
+  }
+
+  .control-btn {
+    height: 40px;
+    width: 40px;
   }
 
   .sort-label-text {
@@ -470,11 +525,77 @@ watch(shareView, (newValue) => {
 
 @media (max-width: 640px) {
   .drive-toolbar {
-    @apply p-2;
+    @apply p-2 gap-1.5;
   }
 
-  .active-filters {
-    @apply hidden;
+  .search-container {
+    /* Ưu tiên search bar trên mobile */
+    flex: 1 1 0%;
+    min-width: 0; /* Cho phép shrink nếu cần nhưng vẫn ưu tiên */
+    height: 40px; /* Giữ chiều cao */
+    padding: 0 8px; /* Padding nhỏ hơn */
+  }
+
+  .controls-container {
+    /* Compact controls */
+    @apply gap-1.5;
+    height: 40px; /* Giữ chiều cao */
+  }
+
+  .view-controls {
+    /* Giữ nguyên view controls */
+    height: 40px;
+  }
+
+  .view-btn {
+    height: 40px;
+    width: 40px;
+  }
+
+  .control-btn {
+    height: 40px;
+    width: 40px;
+  }
+
+  .filter-menu {
+    /* Điều chỉnh filter menu cho mobile */
+    @apply right-0 left-auto;
+    min-width: 200px;
+    max-width: calc(100vw - 32px);
+  }
+}
+
+/* Thêm breakpoint cho màn hình rất nhỏ */
+@media (max-width: 480px) {
+  .drive-toolbar {
+    @apply gap-1;
+  }
+
+  .search-container {
+    height: 40px; /* Giữ chiều cao */
+    padding: 0 8px;
+  }
+
+  .search-input {
+    font-size: 14px;
+  }
+
+  .control-btn {
+    height: 40px;
+    width: 40px;
+  }
+
+  .view-btn {
+    height: 40px;
+    width: 40px;
+  }
+
+  .view-controls {
+    height: 40px;
+  }
+
+  :deep(.p-button .p-button-icon) {
+    font-size: 1rem;
   }
 }
 </style>

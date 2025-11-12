@@ -417,24 +417,24 @@ class DriveFile(Document):
         if new_title == self.title:
             return self
 
-        entity_exists = frappe.db.exists(
-            {
-                "doctype": "Drive File",
-                "parent_entity": self.parent_entity,
-                "title": new_title,
-                "mime_type": self.mime_type,
-                "is_group": self.is_group,
-            }
-        )
+        # entity_exists = frappe.db.exists(
+        #     {
+        #         "doctype": "Drive File",
+        #         "parent_entity": self.parent_entity,
+        #         "title": new_title,
+        #         "mime_type": self.mime_type,
+        #         "is_group": self.is_group,
+        #     }
+        # )
 
         # Only exception
-        if entity_exists and new_title != "Untitled Document":
-            suggested_name = get_new_title(new_title, self.parent_entity, folder=self.is_group)
-            frappe.throw(
-                f"{'Folder' if self.is_group else 'File'} '{new_title}' already exists\n Try '{suggested_name}' ",
-                FileExistsError,
-            )
-            return suggested_name
+        # if entity_exists and new_title != "Untitled Document":
+        #     suggested_name = get_new_title(new_title, self.parent_entity, folder=self.is_group)
+        #     frappe.throw(
+        #         f"{'Folder' if self.is_group else 'File'} '{new_title}' already exists\n Try '{suggested_name}' ",
+        #         FileExistsError,
+        #     )
+        #     return suggested_name
         create_new_activity_log(
             entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
         )

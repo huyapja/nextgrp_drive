@@ -2,7 +2,7 @@
   <nav
     ondragstart="return false;"
     ondrop="return false;"
-    class="bg-surface-white border-b w-full px-5 py-2.5 flex items-center flex-wrap gap-2 justify-between min-h-[72px]"
+    class="bg-surface-white border-b w-full px-5 py-2.5 flex items-center flex-wrap gap-2 justify-between min-h-[56px] sm:min-h-[70px]"
   >
     <div class="flex flex-row flex-wrap gap-2">
       <Breadcrumbs
