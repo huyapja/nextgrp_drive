@@ -93,7 +93,7 @@ export const getFavourites = createResource({
 export const getShared = createResource({
   ...COMMON_OPTIONS,
   url: "drive.api.list.shared_multi_team",
-  // cache: "shared-folder-contents",
+  cache: "shared-folder-contents",
   makeParams: (params) => {
     return {
       ...params,

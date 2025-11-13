@@ -1,50 +1,38 @@
 <template>
-  <div
-    class="w-screen h-screen antialiased"
-    dark
-  > 
-    <div
-      class="bg-surface-gray-7 text-ink-white text-sm text-center py-2 sm:hidden"
-    >
+  <div class="w-screen h-screen antialiased" dark> 
+    <!-- <div class="bg-surface-gray-7 text-ink-white text-sm text-center py-2 sm:hidden">
       Ứng dụng hoạt động tốt nhất trên máy tính để bàn.
-    </div>
-    <div
-      v-if="isLoggedIn || $route.meta.allowGuest"
-      class="flex gap-4"
-    >
+    </div> -->
+    
+    <div v-if="isLoggedIn || $route.meta.allowGuest" class="flex gap-4">
       <Sidebar
         v-if="isLoggedIn && !['Teams', 'Setup'].includes($route.name)"
         class="hidden sm:block"
       />
+      
       <div
         id="dropzone"
         class="flex flex-col h-screen flex-grow overflow-hidden bg-surface-white rounded-[8px]"
       >
-        <router-view
-          :key="$route.fullPath"
-          v-slot="{ Component }"
-        >
+        <router-view :key="$route.fullPath" v-slot="{ Component }">
           <component :is="Component" />
         </router-view>
       </div>
 
+      <!-- ✅ FIX: Thêm class bottom-bar và đảm bảo z-index cao -->
       <BottomBar
         v-if="isLoggedIn"
-        class="fixed bottom-0 w-full sm:hidden"
+        class="bottom-bar fixed bottom-0 left-0 right-0 w-full sm:hidden z-50 bg-surface-white border-t border-ink-gray-3"
       />
     </div>
-    <router-view
-      v-else
-      :key="$route.fullPath"
-      v-slot="{ Component }"
-    >
+    
+    <router-view v-else :key="$route.fullPath" v-slot="{ Component }">
       <component :is="Component" />
     </router-view>
   </div>
-  <SearchPopup
-    v-if="isLoggedIn && showSearchPopup"
-    v-model="showSearchPopup"
-  />
+  
+  <!-- Rest of the template remains the same -->
+  <SearchPopup v-if="isLoggedIn && showSearchPopup" v-model="showSearchPopup" />
   <SettingsDialog v-model="showSettings" />
   <Transition
     enter-active-class="transition duration-[150ms] ease-[cubic-bezier(.21,1.02,.73,1)]"
@@ -58,6 +46,7 @@
   </Transition>
   <Toasts />
 </template>
+
 <script setup>
 import SettingsDialog from "@/components/Settings/SettingsDialog.vue"
 import Sidebar from "@/components/Sidebar.vue"

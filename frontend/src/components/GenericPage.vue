@@ -5,7 +5,6 @@
       verify?.data &&
       actionItems
         .filter((k) => k.isEnabled?.(verify.data))
-        // Remove irrelevant ones
         .slice(1)
         .toSpliced(4, 1)
         .map((k) => ({ ...k, onClick: () => k.action([verify.data]) }))
@@ -25,7 +24,8 @@
   <div
     v-else
     ref="container"
-    class="flex flex-col overflow-auto h-[calc(100vh-88px)] bg-surface-white"
+    class="flex flex-col overflow-auto h-[calc(100vh-144px)] bg-surface-white pb-safe sm:pb-0"
+    :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }"
   >
     <!-- Content Area with Team Members -->
     <div class="flex flex-1">
@@ -67,9 +67,6 @@
           @dropped="onDrop"
         />
       </div>
-
-      <!-- Team Members List - Bỏ ra khỏi GenericPage -->
-      <!-- TeamMembersList sẽ được render ở component Team -->
     </div>
     <InfoPopup :entities="infoEntities" />
   </div>
@@ -91,6 +88,7 @@
     @success="getEntities.fetch()"
   />
 </template>
+
 <script setup>
 import Dialogs from "@/components/Dialogs.vue"
 import ErrorPage from "@/components/ErrorPage.vue"
@@ -110,7 +108,7 @@ import { settings } from "@/resources/permissions"
 import { openEntity } from "@/utils/files"
 import { toast } from "@/utils/toasts"
 import { LoadingIndicator } from "frappe-ui"
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 
@@ -145,7 +143,6 @@ const props = defineProps({
   getEntities: Object,
 })
 
-// Define emits
 const emit = defineEmits(["show-team-members"])
 
 const route = useRoute()
@@ -158,7 +155,40 @@ const entityName = route.params.entityName
 const activeEntity = computed(() => store.state.activeEntity)
 const rows = ref(props.getEntities.data)
 
-// Bỏ showTeamMembersList và handleCloseTeamMembers vì sẽ được handle ở component Team
+// ✅ Responsive bottom padding
+const isMobile = ref(false)
+const bottomBarHeight = ref('0px')
+
+const updateResponsive = () => {
+  // Check if mobile (< 640px - Tailwind's sm breakpoint)
+  isMobile.value = window.innerWidth < 640
+  
+  if (isMobile.value) {
+    // Dynamically get BottomBar height
+    const bottomBar = document.querySelector('.bottom-bar') // Thêm class này vào BottomBar component
+    if (bottomBar) {
+      const height = bottomBar.offsetHeight
+      // Thêm safe-area-inset-bottom cho iOS notch
+      bottomBarHeight.value = `calc(${height}px + env(safe-area-inset-bottom, 0px))`
+    } else {
+      // Fallback: 64px + safe area
+      bottomBarHeight.value = 'calc(64px + env(safe-area-inset-bottom, 0px))'
+    }
+  } else {
+    bottomBarHeight.value = '0px'
+  }
+}
+
+onMounted(() => {
+  updateResponsive()
+  window.addEventListener('resize', updateResponsive)
+  // Update sau khi DOM render xong
+  setTimeout(updateResponsive, 100)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateResponsive)
+})
 
 watch(
   () => props.getEntities.data,
@@ -223,6 +253,7 @@ const isMember = computed(() => {
     store.state.activeEntity?.owner === currentUserEmail.value || (store.state.activeEntity?.is_private !== 1 && store.state.activeEntity?.owner === currentUserEmail.value)
   )
 })
+
 // Action Items
 const actionItems = computed(() => {
   if (route.name === "Trash") {
@@ -340,7 +371,6 @@ const actionItems = computed(() => {
         icon: FavoriteIcon,
         action: (entities) => {
           entities.forEach((e) => (e.is_favourite = true))
-          // Hack to cache
           props.getEntities.setData(props.getEntities.data)
           toggleFav.submit({ entities })
         },
@@ -378,7 +408,7 @@ const actionItems = computed(() => {
         label: "Xóa",
         icon: TrashIcon,
         action: () => (dialog.value = "remove"),
-        isEnabled: (e) => isMember.value,
+        isEnabled: (e) => isMember.value || e.write,
         important: true,
         multi: true,
         danger: true,
@@ -415,10 +445,18 @@ async function newLink() {
   } catch (_) {}
 }
 
-// JS doesn't allow direct reading of clipboard
 if (settings.data?.auto_detect_links) {
   newLink()
   window.addEventListener("focus", newLink)
   window.addEventListener("copy", newLink)
 }
 </script>
+
+<style scoped>
+/* Ensure safe-area is respected on iOS */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+</style>

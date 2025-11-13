@@ -164,7 +164,7 @@
       </template>
       <div
         v-else-if="actionItems"
-        class="flex gap-3 ml-4 overflow-auto"
+        class="flex gap-1 sm:gap-3 overflow-auto"
       >
         <template
           v-for="item in actionItems
@@ -355,7 +355,7 @@ watch(shareView, (newValue) => {
 /* Thêm vào phần <style scoped> của component */
 
 .drive-toolbar {
-  @apply flex flex-nowrap items-center justify-between px-4 py-2.5 border-gray-200 bg-white gap-4;
+  @apply flex flex-wrap items-center justify-between px-4 py-2.5 border-gray-200 bg-white gap-4 ;
 }
 
 .selection-info {
@@ -443,7 +443,7 @@ watch(shareView, (newValue) => {
 }
 
 .view-controls {
-  @apply flex bg-[#FAFAFA] items-center rounded-md overflow-hidden;
+  @apply flex bg-[#FAFAFA] items-center rounded-md;
   height: 40px; /* Chiều cao cố định */
 }
 

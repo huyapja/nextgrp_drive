@@ -866,22 +866,31 @@ onKeyDown("Escape", (e) => {
   .file-icon {
     @apply w-[16px] h-[16px];
   }
+  
   :deep(.p-datatable-thead > tr > th:nth-child(3)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
+  :deep(.p-datatable-tbody > tr > td:nth-child(3)),
+  :deep(.p-datatable-thead > tr > th:nth-child(4)),
+  :deep(.p-datatable-tbody > tr > td:nth-child(4)),
+  :deep(.p-datatable-thead > tr > th:nth-child(5)),
+  :deep(.p-datatable-tbody > tr > td:nth-child(5)),
+  :deep(.p-datatable-thead > tr > th:nth-child(6)),
+  :deep(.p-datatable-tbody > tr > td:nth-child(6)), 
+  :deep(.p-datatable-thead > tr > th:nth-child(7)),
+  :deep(.p-datatable-tbody > tr > td:nth-child(7)) {
     @apply hidden;
   }
 }
 
 @media (max-width: 480px) {
   .name-cell {
-    max-width: 110px;
+    max-width: 230px;
   }
   .file-table {
     @apply min-w-[320px];
   }
   .file-name {
     @apply text-[11px];
-    max-width: 60px;
+    max-width: 230px;
     font-size: 11px;
   }
   .owner-name {

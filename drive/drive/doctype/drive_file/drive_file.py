@@ -540,9 +540,9 @@ class DriveFile(Document):
 
         permission.save(ignore_permissions=True)
 
-        # Nếu đây là folder, tự động chia sẻ tất cả children
+        # ✅ Nếu đây là folder, tự động chia sẻ tất cả children bằng SQL
         if self.is_group:
-            self._share_children(
+            self._share_children_bulk(
                 user=user,
                 read=read,
                 comment=comment,
@@ -564,59 +564,153 @@ class DriveFile(Document):
             docperm_name=permission.name,
         )
 
-        # notify_share(self.name, permission.name)
-
-    def _share_children(
+    def _share_children_bulk(
         self, user=None, read=None, comment=None, share=None, write=None, valid_until=""
     ):
         """
-        Recursively share all children of this folder with the same permissions.
+        Share all children of this folder using SQL (non-recursive, much faster).
+        Uses a single query with path-based filtering to get all descendants.
         """
-        # Lấy tất cả file/folder con trực tiếp
-        children = frappe.get_all(
-            "Drive File", filters={"parent_entity": self.name}, fields=["name", "is_group"]
+        # ✅ CÁCH 1: Dùng path để lấy tất cả descendants (Khuyến nghị)
+        # Path format: /parent1/parent2/current_folder/
+        # Tất cả children sẽ có path bắt đầu bằng path của folder hiện tại
+
+        if not self.path:
+            print(f"WARNING: Folder {self.name} has no path, skipping children share")
+            return
+
+        # Lấy tất cả children trong một query
+        children = frappe.db.sql(
+            """
+            SELECT name 
+            FROM `tabDrive File`
+            WHERE path LIKE %s 
+            AND name != %s
+            AND is_active = 1
+            """,
+            (f"{self.path}%", self.name),
+            as_dict=1,
         )
 
-        for child in children:
-            # Lấy document của child
-            child_doc = frappe.get_doc("Drive File", child.name)
+        if not children:
+            return
 
-            # Tạo hoặc cập nhật permission cho child
-            child_permission = frappe.db.get_value(
-                "Drive Permission",
-                {
-                    "entity": child.name,
-                    "user": user or "",
-                },
+        child_names = [c.name for c in children]
+        print(f"DEBUG - Sharing {len(child_names)} children of {self.name}")
+
+        # ✅ Chuẩn bị dữ liệu để bulk insert/update
+        now = frappe.utils.now()
+        user_value = user or ""
+
+        # Build permission values
+        permission_values = {}
+        if read is not None:
+            permission_values["read"] = int(read)
+        if comment is not None:
+            permission_values["comment"] = int(comment)
+        if share is not None:
+            permission_values["share"] = int(share)
+        if write is not None:
+            permission_values["write"] = int(write)
+
+        # ✅ Kiểm tra xem children nào đã có permission
+        existing_permissions = frappe.db.sql(
+            """
+            SELECT entity, name
+            FROM `tabDrive Permission`
+            WHERE entity IN ({})
+            AND user = %s
+            """.format(
+                ",".join(["%s"] * len(child_names))
+            ),
+            child_names + [user_value],
+            as_dict=1,
+        )
+
+        existing_entities = {p.entity: p.name for p in existing_permissions}
+        entities_to_insert = [name for name in child_names if name not in existing_entities]
+        entities_to_update = [name for name in child_names if name in existing_entities]
+
+        print(f"DEBUG - Insert: {len(entities_to_insert)}, Update: {len(entities_to_update)}")
+
+        # ✅ Bulk UPDATE existing permissions
+        if entities_to_update and permission_values:
+            update_fields = []
+            update_values = []
+
+            for field, value in permission_values.items():
+                update_fields.append(f"`{field}` = %s")
+                update_values.append(value)
+
+            if valid_until:
+                update_fields.append("`valid_until` = %s")
+                update_values.append(valid_until)
+
+            update_fields.append("`modified` = %s")
+            update_values.append(now)
+
+            # Add WHERE clause values
+            update_values.extend(entities_to_update)
+            update_values.append(user_value)
+
+            frappe.db.sql(
+                """
+                UPDATE `tabDrive Permission`
+                SET {}
+                WHERE entity IN ({})
+                AND user = %s
+                """.format(
+                    ", ".join(update_fields), ",".join(["%s"] * len(entities_to_update))
+                ),
+                update_values,
             )
 
-            if not child_permission:
-                child_permission = frappe.new_doc("Drive Permission")
-            else:
-                child_permission = frappe.get_doc("Drive Permission", child_permission)
+        # ✅ Bulk INSERT new permissions
+        if entities_to_insert:
+            insert_values = []
+            for entity in entities_to_insert:
+                perm_name = frappe.generate_hash(length=10)
 
-            levels = [["read", read], ["comment", comment], ["share", share], ["write", write]]
-            child_permission.update(
-                {
-                    "user": user,
-                    "entity": child.name,
-                    "valid_until": valid_until,
-                }
-                | {l[0]: l[1] for l in levels if l[1] is not None}
-            )
+                # Build values tuple
+                values = [
+                    perm_name,  # name
+                    now,  # creation
+                    now,  # modified
+                    frappe.session.user,  # modified_by
+                    frappe.session.user,  # owner
+                    0,  # docstatus
+                    entity,  # entity
+                    user_value,  # user
+                    permission_values.get("read", 0),
+                    permission_values.get("comment", 0),
+                    permission_values.get("share", 0),
+                    permission_values.get("write", 0),
+                    valid_until or None,
+                ]
+                insert_values.append(values)
 
-            child_permission.save(ignore_permissions=True)
+            # Batch insert (500 records at a time to avoid query size limits)
+            batch_size = 500
+            for i in range(0, len(insert_values), batch_size):
+                batch = insert_values[i : i + batch_size]
 
-            # Nếu child cũng là folder, đệ quy chia sẻ các con của nó
-            if child.is_group:
-                child_doc._share_children(
-                    user=user,
-                    read=read,
-                    comment=comment,
-                    share=share,
-                    write=write,
-                    valid_until=valid_until,
+                placeholders = ",".join(
+                    ["(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(batch)
                 )
+                flat_values = [item for sublist in batch for item in sublist]
+
+                frappe.db.sql(
+                    f"""
+                    INSERT INTO `tabDrive Permission`
+                    (name, creation, modified, modified_by, owner, docstatus, 
+                    entity, user, `read`, `comment`, `share`, `write`, valid_until)
+                    VALUES {placeholders}
+                    """,
+                    flat_values,
+                )
+
+        frappe.db.commit()
+        print(f"DEBUG - Successfully shared {len(child_names)} children")
 
     @frappe.whitelist()
     def unshare(self, user=None):

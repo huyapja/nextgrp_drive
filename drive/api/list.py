@@ -1593,247 +1593,282 @@ def shared_multi_team(
     mime_type_list=[],
 ):
     by = int(by)
+    limit = int(limit)
 
-    # Query chính
-    query = (
-        frappe.qb.from_(DriveFile)
-        .right_join(DrivePermission)
-        .on(
-            (DrivePermission.entity == DriveFile.name)
-            & ((DrivePermission.owner if by else DrivePermission.user) == frappe.session.user)
-        )
-        .left_join(Recents)
-        .on((Recents.entity_name == DriveFile.name))
-        .where((DrivePermission.read == 1) & (DriveFile.is_active == 1))
-        .groupby(
-            DriveFile.name,
-            DriveFile.team,
-            DriveFile.title,
-            DriveFile.creation,
-            DriveFile.modified,
-            DriveFile.owner,
-            DriveFile.mime_type,
-            DriveFile.file_size,
-            DriveFile.parent_entity,
-            DriveFile.is_group,
-            DrivePermission.user,
-            DrivePermission.owner,
-            DrivePermission.read,
-            DrivePermission.share,
-            DrivePermission.comment,
-            DrivePermission.write,
-        )
-        .select(
-            *ENTITY_FIELDS,
-            fn.Max(Recents.last_interaction).as_("accessed"),
-            DriveFile.team,
-            DrivePermission.user,
-            DrivePermission.owner.as_("sharer"),
-            DrivePermission.read,
-            DrivePermission.share,
-            DrivePermission.comment,
-            DrivePermission.write,
-            fn.Max(DriveFile.modified).as_("last_modified"),
-        )
-    )
+    # Parse tag_list và mime_type_list
+    if tag_list and isinstance(tag_list, str):
+        tag_list = json.loads(tag_list)
+    if mime_type_list and isinstance(mime_type_list, str):
+        mime_type_list = json.loads(mime_type_list)
 
-    # Xử lý order_by
+    # Xây dựng WHERE conditions
+    where_conditions = []
+    query_params = {"current_user": frappe.session.user, "limit": limit}
+
+    # Tag filter
+    tag_join = ""
+    if tag_list:
+        tag_join = "INNER JOIN `tabDrive Entity Tag` det ON det.parent = df.name"
+        tag_placeholders = ", ".join([f"%(tag_{i})s" for i in range(len(tag_list))])
+        where_conditions.append(f"det.tag IN ({tag_placeholders})")
+        for i, tag in enumerate(tag_list):
+            query_params[f"tag_{i}"] = tag
+
+    # MIME type filter
+    if mime_type_list:
+        mime_placeholders = ", ".join([f"%(mime_{i})s" for i in range(len(mime_type_list))])
+        where_conditions.append(f"df.mime_type IN ({mime_placeholders})")
+        for i, mime in enumerate(mime_type_list):
+            query_params[f"mime_{i}"] = mime
+
+    where_clause = ""
+    if where_conditions:
+        where_clause = "AND " + " AND ".join(where_conditions)
+
+    # Xử lý ORDER BY
+    order_clause = "ORDER BY accessed DESC"
     if order_by:
         order_parts = order_by.split()
         order_field = order_parts[0]
         is_desc = len(order_parts) > 1 and order_parts[1].lower() == "0"
+        direction = "DESC" if is_desc else "ASC"
 
         if "+" in order_field:
             base_field = order_field.split("+")[0]
-            order_expr = (
-                DriveFile[base_field] + 0
-                if order_field != "accessed"
-                else Recents.last_interaction
-            )
-            query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
+            if order_field != "accessed":
+                order_clause = f"ORDER BY {base_field} + 0 {direction}"
+            else:
+                order_clause = f"ORDER BY accessed {direction}"
         else:
-            order_expr = (
-                DriveFile[order_field] if order_field != "accessed" else Recents.last_interaction
-            )
-            query = query.orderby(order_expr, order=Order.desc if is_desc else Order.asc)
+            order_clause = f"ORDER BY {order_field} {direction}"
 
-    if tag_list:
-        tag_list = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
-        query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
-        tag_list_criterion = [DriveEntityTag.tag == tags for tags in tag_list]
-        query = query.where(Criterion.any(tag_list_criterion))
+    # ✅ QUERY SIÊU TỐI ƯU với xử lý duplicate cho by=1
+    # Khi by=1 (owner), có thể có nhiều bản ghi vì 1 file được share cho nhiều user
+    # Dùng MIN để lấy 1 permission record (tương thích với MySQL cũ hơn)
 
-    if mime_type_list:
-        mime_type_list = (
-            json.loads(mime_type_list) if not isinstance(mime_type_list, list) else mime_type_list
-        )
-        query = query.where(
-            Criterion.any(DriveFile.mime_type == mime_type for mime_type in mime_type_list)
-        )
-
-    # Execute query
-    res = query.run(as_dict=True)
-
-    # Additional processing to ensure uniqueness
-    unique_files = {}
-    for r in res:
-        file_key = f"{r['name']}_{r['team']}"
-        if file_key not in unique_files or r["modified"] > unique_files[file_key]["modified"]:
-            unique_files[file_key] = r
-
-    res = list(unique_files.values())
-
-    # ✅ QUAN TRỌNG: Kiểm tra tất cả parent trong hierarchy có active không
-    def check_parent_hierarchy(entity_name, parent_map, active_map, entities_in_result):
+    if by:
+        # by=1: Lấy files mà current_user là owner (share cho người khác)
+        # Dùng MIN để lấy 1 permission record
+        main_query = f"""
+        SELECT 
+            df.name,
+            df.team,
+            df.title,
+            df.creation,
+            df.modified,
+            df.owner,
+            df.mime_type,
+            df.file_size,
+            df.parent_entity,
+            df.is_group,
+            df.is_active,
+            df.is_link,
+            df.document,
+            df.color,
+            COALESCE(MAX(del.last_interaction), df.modified) as accessed,
+            MIN(dp.user) as user,
+            MIN(dp.owner) as sharer,
+            MAX(dp.read) as `read`,
+            MAX(dp.share) as `share`,
+            MAX(dp.comment) as `comment`,
+            MAX(dp.write) as `write`
+        FROM `tabDrive File` df
+        FORCE INDEX (modified)
+        INNER JOIN `tabDrive Permission` dp 
+            ON dp.entity = df.name 
+            AND dp.read = 1
+            AND dp.owner = %(current_user)s
+        LEFT JOIN `tabDrive Entity Log` del 
+            ON del.entity_name = df.name
+        {tag_join}
+        WHERE df.is_active = 1
+          {where_clause}
+        GROUP BY df.name, df.team, df.title, df.creation, df.modified, 
+                 df.owner, df.mime_type, df.file_size, df.parent_entity, 
+                 df.is_group, df.is_active, df.is_link, df.document, 
+                 df.color
+        {order_clause}
+        LIMIT %(limit)s
         """
-        Kiểm tra xem tất cả parent TRONG KẾT QUẢ có active không
-        - Nếu parent không có trong kết quả query -> bỏ qua (user không có quyền với parent, nhưng có quyền trực tiếp với file)
-        - Nếu parent có trong kết quả query -> phải kiểm tra is_active
-        Returns True nếu không có parent inactive trong chain
+    else:
+        # by=0: Lấy files được share cho current_user
+        # Không bị duplicate vì mỗi user chỉ có 1 permission record
+        main_query = f"""
+        SELECT 
+            df.name,
+            df.team,
+            df.title,
+            df.creation,
+            df.modified,
+            df.owner,
+            df.mime_type,
+            df.file_size,
+            df.parent_entity,
+            df.is_group,
+            df.is_active,
+            df.is_link,
+            df.document,
+            df.color,
+            COALESCE(MAX(del.last_interaction), df.modified) as accessed,
+            dp.user,
+            dp.owner as sharer,
+            dp.read,
+            dp.share,
+            dp.comment,
+            dp.write
+        FROM `tabDrive File` df
+        FORCE INDEX (modified)
+        INNER JOIN `tabDrive Permission` dp 
+            ON dp.entity = df.name 
+            AND dp.read = 1
+            AND dp.user = %(current_user)s
+        LEFT JOIN `tabDrive Entity Log` del 
+            ON del.entity_name = df.name
+        {tag_join}
+        WHERE df.is_active = 1
+          {where_clause}
+        GROUP BY df.name, df.team, df.title, df.creation, df.modified, 
+                 df.owner, df.mime_type, df.file_size, df.parent_entity, 
+                 df.is_group, df.is_active, df.is_link, df.document, 
+                 df.color,
+                 dp.user, dp.owner, dp.read, dp.share, dp.comment, dp.write
+        {order_clause}
+        LIMIT %(limit)s
         """
-        current = entity_name
-        visited = set()  # Tránh infinite loop
 
-        while current:
-            if current in visited:
-                break
-            visited.add(current)
+    # Execute main query
+    res = frappe.db.sql(main_query, query_params, as_dict=True)
 
-            parent = parent_map.get(current)
-            if not parent:
-                # Đã đến root
-                return True
+    if not res:
+        return []
 
-            # CHỈ kiểm tra parent nếu parent cũng nằm trong kết quả query
-            # Nếu parent không có trong kết quả -> nghĩa là user được share trực tiếp file con, không cần kiểm tra parent
-            if parent in entities_in_result:
-                # Parent có trong kết quả -> phải kiểm tra is_active
-                if not active_map.get(parent, False):
-                    # Parent bị inactive -> loại bỏ
-                    return False
+    print(f"🔍 Query returned {len(res)} files in main query")
 
-            current = parent
+    # ✅ HIERARCHY CHECK SIÊU TỐI ƯU: Chỉ check parent trực tiếp, không recursive
+    # Lấy tất cả parent entities cần check
+    parent_entities = {r["parent_entity"] for r in res if r.get("parent_entity")}
 
-        return True
+    if parent_entities:
+        # Chỉ check 1 level parent, không recursive (nhanh hơn rất nhiều)
+        parent_check_query = """
+        SELECT name, is_active
+        FROM `tabDrive File`
+        WHERE name IN %(parents)s
+        """
 
-    # Tạo map để tra cứu nhanh
-    parent_map = {}  # entity_name -> parent_entity
-    active_map = {}  # entity_name -> is_active
-
-    # Lấy thông tin tất cả các parent có thể
-    all_entities = {r["name"] for r in res}
-    all_parents = {r["parent_entity"] for r in res if r.get("parent_entity")}
-    entities_to_check = all_entities | all_parents
-
-    if entities_to_check:
-        parent_info = frappe.db.sql(
-            """
-            SELECT name, parent_entity, is_active
-            FROM `tabDrive File`
-            WHERE name IN %(entities)s
-        """,
-            {"entities": list(entities_to_check)},
-            as_dict=True,
+        parent_status = frappe.db.sql(
+            parent_check_query, {"parents": list(parent_entities)}, as_dict=True
         )
 
-        for info in parent_info:
-            parent_map[info["name"]] = info.get("parent_entity")
-            active_map[info["name"]] = info.get("is_active", 0)
+        inactive_parents = {p["name"] for p in parent_status if not p.get("is_active")}
 
-    print(f"🔍 Total files before hierarchy check: {len(res)}")
-    for r in res:
-        print(f"  - {r['title']} (name: {r['name']}, parent: {r.get('parent_entity')})")
-
-    # Tạo set các entity có trong kết quả
-    entities_in_result = {r["name"] for r in res}
-
-    # ✅ Lọc bỏ các item có parent bị inactive (chỉ kiểm tra parent nếu parent cũng trong kết quả)
-    filtered_out = []
-    for r in res:
-        if not check_parent_hierarchy(r["name"], parent_map, active_map, entities_in_result):
-            filtered_out.append(r)
-            print(f"❌ FILTERED OUT: {r['title']} (parent: {r.get('parent_entity')})")
-
-            # Debug parent chain
-            current = r["name"]
-            chain = []
-            while current:
-                parent = parent_map.get(current)
-                is_active = active_map.get(current, "UNKNOWN")
-                in_result = "IN_RESULT" if current in entities_in_result else "NOT_IN_RESULT"
-                chain.append(f"{current} (active: {is_active}, {in_result})")
-                if not parent:
-                    break
-                current = parent
-            print(f"   Chain: {' -> '.join(chain)}")
-
-    print(f"🔍 Filtered out {len(filtered_out)} files")
-
-    res = [
-        r
-        for r in res
-        if check_parent_hierarchy(r["name"], parent_map, active_map, entities_in_result)
-    ]
+        # Lọc bỏ các file có parent inactive
+        if inactive_parents:
+            print(f"❌ Filtering out files with inactive parents: {len(inactive_parents)}")
+            res = [r for r in res if r.get("parent_entity") not in inactive_parents]
 
     print(f"✅ Total files after hierarchy check: {len(res)}")
 
-    # Lấy thông tin team
-    file_teams = {r.get("team") for r in res if r.get("team")}
+    if not res:
+        return []
+
+    # ✅ BATCH QUERIES: Lấy tất cả thông tin bổ sung trong 1 lần
+    entity_names = tuple(r["name"] for r in res)
+    team_ids = tuple({r.get("team") for r in res if r.get("team")})
+
+    # Single mega query để lấy tất cả info cùng lúc
+    batch_query = """
+    SELECT 
+        'child' as info_type,
+        parent_entity as entity_name,
+        COUNT(*) as count_value
+    FROM `tabDrive File`
+    WHERE parent_entity IN %(entities)s
+      AND is_active = 1
+    GROUP BY parent_entity
+    
+    UNION ALL
+    
+    SELECT 
+        'share' as info_type,
+        entity as entity_name,
+        COUNT(*) as count_value
+    FROM `tabDrive Permission`
+    WHERE entity IN %(entities)s
+      AND user != ''
+      AND user != '$TEAM'
+    GROUP BY entity
+    
+    UNION ALL
+    
+    SELECT 
+        'public' as info_type,
+        entity as entity_name,
+        1 as count_value
+    FROM `tabDrive Permission`
+    WHERE entity IN %(entities)s
+      AND user = ''
+    
+    UNION ALL
+    
+    SELECT 
+        'team_shared' as info_type,
+        entity as entity_name,
+        1 as count_value
+    FROM `tabDrive Permission`
+    WHERE entity IN %(entities)s
+      AND user = '$TEAM'
+    """
+
+    batch_results = frappe.db.sql(batch_query, {"entities": entity_names}, as_dict=True)
+
+    # Map results
+    child_count = {}
+    share_count = {}
+    public_files = set()
+    team_shared_files = set()
+
+    for row in batch_results:
+        entity = row["entity_name"]
+        info_type = row["info_type"]
+
+        if info_type == "child":
+            child_count[entity] = row["count_value"]
+        elif info_type == "share":
+            share_count[entity] = row["count_value"]
+        elif info_type == "public":
+            public_files.add(entity)
+        elif info_type == "team_shared":
+            team_shared_files.add(entity)
+
+    # Get team info nếu cần
     team_info = {}
-    for team in file_teams:
-        info = frappe.get_value("Drive Team", team, ["name", "title"], as_dict=1)
-        if info:
-            team_info[team] = info
+    if team_ids:
+        team_data = frappe.db.sql(
+            """
+            SELECT name, title
+            FROM `tabDrive Team`
+            WHERE name IN %(teams)s
+        """,
+            {"teams": team_ids},
+            as_dict=True,
+        )
 
-    # Get additional information
-    child_count_query = (
-        frappe.qb.from_(DriveFile)
-        .where((DriveFile.is_active == 1))
-        .select(DriveFile.parent_entity, fn.Count("*").as_("child_count"))
-        .groupby(DriveFile.parent_entity)
-    )
-
-    share_query = (
-        frappe.qb.from_(DriveFile)
-        .right_join(DrivePermission)
-        .on(DrivePermission.entity == DriveFile.name)
-        .where((DrivePermission.user != "") & (DrivePermission.user != "$TEAM"))
-        .select(DriveFile.name, fn.Count("*").as_("share_count"))
-        .groupby(DriveFile.name)
-    )
-
-    public_files_query = (
-        frappe.qb.from_(DrivePermission)
-        .inner_join(DriveFile)
-        .on(DrivePermission.entity == DriveFile.name)
-        .where((DrivePermission.user == ""))
-        .select(DrivePermission.entity)
-    )
-
-    team_files_query = (
-        frappe.qb.from_(DrivePermission)
-        .inner_join(DriveFile)
-        .on(DrivePermission.entity == DriveFile.name)
-        .where((DrivePermission.user == "$TEAM"))
-        .select(DrivePermission.entity)
-    )
-
-    public_files = set(k[0] for k in public_files_query.run())
-    team_files = set(k[0] for k in team_files_query.run())
-    children_count = dict(child_count_query.run())
-    share_count = dict(share_query.run())
+        team_info = {t["name"]: t for t in team_data}
 
     # Add additional information to results
     for r in res:
-        r["children"] = children_count.get(r["name"], 0)
+        r["children"] = child_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+
         if r["name"] in public_files:
             r["share_count"] = -2
-        elif r["name"] in team_files:
+        elif r["name"] in team_shared_files:
             r["share_count"] = -1
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+        # Add team info
         current_team = r.get("team")
         if current_team and current_team in team_info:
             r["team"] = team_info[current_team]["name"]
