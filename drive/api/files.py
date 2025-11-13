@@ -1342,8 +1342,9 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
     if team:
         storage_data = storage_bar_data(team)
 
-    success_files = []  # Danh sách file xóa thành công
+    success_files = []  # Danh sách file xử lý thành công
     failed_files = []  # Danh sách file không có quyền
+    is_restore_operation = False  # Flag để track operation type
 
     # ✅ Hàm đệ quy để lấy tất cả children
     def get_all_children(entity_name):
@@ -1370,6 +1371,9 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
         :param doc: Drive File document
         :param flag: 0 (move to trash) hoặc 1 (restore)
         """
+        nonlocal is_restore_operation
+        is_restore_operation = flag == 1
+
         # Xử lý entity hiện tại
         if flag == 0:  # Move to trash
             # Thêm vào global trash
@@ -1414,7 +1418,12 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                     folder_size + doc.file_size * (1 if flag else -1),
                 )
 
-        doc.save()
+        # ✅ FIX: Dùng ignore_permissions khi restore vì user có thể không có write permission
+        # nhưng vẫn có quyền restore file của mình
+        if flag == 1:  # Restore operation
+            doc.save(ignore_permissions=True)
+        else:
+            doc.save()
 
         # ✅ Nếu là folder, xử lý tất cả children
         if doc.is_group:
@@ -1458,7 +1467,21 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                             frappe.delete_doc("Drive Trash", existing_trash)
 
                     child_doc.is_active = flag
-                    child_doc.save()
+
+                    # ✅ FIX: Dùng ignore_permissions cho children khi restore
+                    # ✅ FIX: Không update modified để giữ timestamp cũ (quan trọng cho trash logic)
+                    if flag == 1:
+                        child_doc.save(ignore_permissions=True)
+                    else:
+                        # Khi xóa children (cascade), KHÔNG update modified
+                        # Để giữ timestamp cũ hơn parent → logic trash phân biệt được
+                        frappe.db.set_value(
+                            "Drive File",
+                            child_doc.name,
+                            "is_active",
+                            flag,
+                            update_modified=False,  # ← Quan trọng!
+                        )
 
                 except Exception as e:
                     frappe.log_error(f"Error processing child {child_name}: {str(e)}")
@@ -1474,16 +1497,32 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
         for entity in entity_names:
             try:
                 doc = frappe.get_doc("Drive File", entity)
-                if user_has_permission(doc, "write", frappe.session.user):
-                    # Xác định flag dựa trên trạng thái hiện tại
-                    flag = 0 if doc.is_active else 1
 
+                # Xác định flag dựa trên trạng thái hiện tại
+                flag = 0 if doc.is_active else 1
+
+                # ✅ FIX: Check permission phù hợp với operation
+                # - Delete (flag=0): cần write permission
+                # - Restore (flag=1): chỉ cần là owner hoặc modified_by
+                has_permission = False
+
+                if flag == 0:  # Delete operation
+                    has_permission = user_has_permission(doc, "write", frappe.session.user)
+                else:  # Restore operation
+                    # User có thể restore nếu họ là người xóa (modified_by) hoặc owner
+                    has_permission = (
+                        doc.modified_by == frappe.session.user
+                        or doc.owner == frappe.session.user
+                        or user_has_permission(doc, "write", frappe.session.user)
+                    )
+
+                if has_permission:
                     # Toggle entity và tất cả children
                     toggle_entity_and_children(doc, flag)
-
                     success_files.append(doc.name)
                 else:
                     failed_files.append(doc.title.strip()[:30])
+
             except Exception as e:
                 frappe.log_error(f"Error processing entity {entity}: {str(e)}")
                 failed_files.append(entity)
@@ -1570,7 +1609,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
     frappe.db.commit()
 
-    # Trả về kết quả
+    # ✅ FIX: Trả về message phù hợp với operation
     result = {
         "success": len(success_files) > 0,
         "message": "",
@@ -1578,19 +1617,26 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
         "failed_files": failed_files,
     }
 
+    # Determine operation name for messages
+    operation_name = "khôi phục" if is_restore_operation else "xóa"
+    operation_name_past = "khôi phục" if is_restore_operation else "xóa"
+
     if len(failed_files) > 0:
         # Nếu có file thất bại
         if len(success_files) > 0:
             # Có cả file thành công và thất bại
             result["message"] = (
-                f"Đã xóa {len(success_files)} file thành công. {len(failed_files)} file không có quyền xóa: {', '.join(failed_files)}"
+                f"Đã {operation_name_past} {len(success_files)} file thành công. "
+                f"{len(failed_files)} file không có quyền {operation_name}: {', '.join(failed_files)}"
             )
         else:
             # Tất cả đều thất bại
-            result["message"] = f"Không có quyền xóa các file: {', '.join(failed_files)}"
+            result["message"] = (
+                f"Không có quyền {operation_name} các file: {', '.join(failed_files)}"
+            )
     else:
         # Tất cả thành công
-        result["message"] = f"Đã xóa {len(success_files)} file thành công"
+        result["message"] = f"Đã {operation_name_past} {len(success_files)} file thành công"
 
     return result
 

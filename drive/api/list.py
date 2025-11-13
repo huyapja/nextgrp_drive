@@ -690,6 +690,22 @@ def files_multi_team(
                         return has_shortcut_join
 
                 def apply_parent_filter(query, has_shortcut_table):
+                    if personal == -3:
+                        # Subquery: Lấy tất cả parent_entity có is_active = 1 (còn tồn tại)
+                        active_parents_subquery = (
+                            frappe.qb.from_(DriveFile)
+                            .select(DriveFile.name)
+                            .where((DriveFile.is_active == 1) & (DriveFile.team == team))
+                        )
+
+                        # Chỉ hiển thị items mà parent_entity vẫn ĐANG ACTIVE
+                        # Tức là item này được xóa trực tiếp, không phải do cha bị xóa
+                        return query.where(
+                            (DriveFile.parent_entity == "")  # Root items
+                            | (
+                                DriveFile.parent_entity.isin(active_parents_subquery)
+                            )  # Parent còn tồn tại
+                        )
                     """Apply parent entity filtering with shortcut handling"""
                     if has_shortcut_table:
                         try:
