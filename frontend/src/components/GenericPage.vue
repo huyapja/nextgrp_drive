@@ -220,7 +220,7 @@ const isMember = computed(() => {
 
   return (
     getTeams.data?.[team]?.owner === currentUserEmail.value ||
-    store.state.activeEntity?.owner === currentUserEmail.value
+    store.state.activeEntity?.owner === currentUserEmail.value || (store.state.activeEntity?.is_private !== 1 && store.state.activeEntity?.owner === currentUserEmail.value)
   )
 })
 // Action Items
@@ -378,7 +378,7 @@ const actionItems = computed(() => {
         label: "Xóa",
         icon: TrashIcon,
         action: () => (dialog.value = "remove"),
-        //isEnabled: (e) => e.write,
+        isEnabled: (e) => isMember.value,
         important: true,
         multi: true,
         danger: true,
