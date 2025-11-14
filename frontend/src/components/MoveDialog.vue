@@ -1,7 +1,7 @@
 <template>
   <Dialog
     v-model:visible="open"
-    :modal="true"
+    modal
     :dismissableMask="!showCreateFolderDialog"
     :closable="true"
     :closeOnEscape="!showCreateFolderDialog"
@@ -9,258 +9,263 @@
     :appendTo="'body'"
     :baseZIndex="1000"
     class="copy-dialog"
+    :breakpoints="{ '768px': '95vw' }"
     :showHeader="false"
+    :position="isMobile ? 'top' : 'center'"
+    :style="{ width: '32rem', overflow: 'hidden' }"
   >
     <!-- <template #body-main> -->
-    <div class="!h-[630px] !w-[560px] flex flex-col">
-      <!-- Header -->
-      <div
-        class="flex items-center justify-between p-6 px-4 pb-0 flex-shrink-0"
-      >
-        <h2 class="text-xl font-semibold text-gray-900 truncate">
-          <template v-if="props.entities.length > 1">
-            {{ __("Di chuyển") }} {{ props.entities.length }} {{ __("mục") }}
-          </template>
-          <template v-else>
-            {{ __("Di chuyển") }} "{{
-              props.entities[0]?.shortcut_title || props.entities[0]?.title
-            }}"
-          </template>
-        </h2>
-        <Button
-          variant="ghost"
-          size="sm"
-          @click="$emit('update:modelValue', false)"
-        >
-          <template #icon>
-            <LucideX class="w-5 h-5" />
-          </template>
-        </Button>
-      </div>
-
-      <!-- Current Location -->
-      <div class="p-4 pb-0 flex-shrink-0">
-        <div class="flex items-center pb-4 border-b border-gray-200">
-          <span class="text-sm font-medium text-gray-700 mr-2">{{
-            __("Vị trí hiện tại:")
-          }}</span>
+      <template #container>
+        <div class="h-[450px] !sm:h-[630px] flex flex-col">
+          <!-- Header -->
           <div
-            class="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md truncate"
+            class="flex items-center justify-between p-4 pb-0 flex-shrink-0"
           >
-            <TeamDrive
-              class="w-4 h-4 text-gray-900 mr-2"
-              v-if="currentLocationName === 'Nhóm'"
-            />
-            <TeamIcon
-              class="w-4 h-4 text-gray-900 mr-2"
-              v-else
-            />
-            <span class="text-sm text-gray-900 truncate">{{
-              currentLocationName
-            }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- Tabs -->
-      <div class="p-4 px-0 flex-shrink-0">
-        <div class="flex space-x-1">
-          <button
-            v-for="(tab, index) in tabs"
-            :key="index"
-            @click="tabIndex = index"
-            class="tab-button px-4 py-2 text-sm font-medium border-b-2 transition-colors"
-            :class="
-              index === tabIndex
-                ? 'text-blue-600 border-blue-600'
-                : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
-            "
-          >
-            {{ tabs[index]?.label }}
-          </button>
-        </div>
-      </div>
-
-      <!-- Main Content Area - This will expand to fill available space -->
-      <div class="flex flex-col flex-1 min-h-0">
-        <!-- Navigation Header -->
-        <div
-          v-if="breadcrumbs.length > 1"
-          class="p-4 pt-0 flex-shrink-0"
-        >
-          <div class="flex items-center">
-            <button
-              @click="goBack"
-              class="flex items-center text-gray-600 hover:text-gray-900 mr-2"
-            >
-              <LucideChevronLeft class="w-5 h-5" />
-            </button>
-            <h3 class="text-lg font-semibold text-gray-900 truncate">
-              {{ getCurrentLocationTitle() }}
-            </h3>
-          </div>
-        </div>
-
-        <!-- Scrollable Folder List Area -->
-        <div class="px-4 pb-4 flex-1 min-h-0 flex flex-col">
-          <div class="flex-1 overflow-y-auto rounded-md">
-            <!-- Teams List for Team Tab -->
-            <div
-              v-if="
-                tabs[tabIndex]?.value === 'team' &&
-                teams.data &&
-                teams.data.length > 0 &&
-                breadcrumbs.length === 1
-              "
-              class=""
-            >
-              <div
-                v-for="team in teams.data"
-                :key="team.name"
-                class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
-                :class="{ 'bg-[#D4E1F9]': currentTeam === team.name }"
-                @click="navigateToTeam(team)"
-              >
-                <TeamDrive class="w-5 h-5 text-gray-900 mr-2" />
-                <span
-                  class="flex-1 font-[500] text-[14px] text-gray-900 truncate"
-                  >{{ team.title }}</span
-                >
-                <button
-                  class="hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
-                  @click.stop="navigateToTeam(team)"
-                  title="Mở nhóm"
-                >
-                  <LucideChevronRight class="w-5 h-5 text-[#525252]" />
-                </button>
-              </div>
-            </div>
-
-            <!-- Folders List -->
-            <div v-else-if="currentTree.children.length > 0">
-              <div
-                v-for="folder in currentTree.children"
-                :key="folder.value"
-                @click.stop.prevent="
-                  isFolderDisabled(folder.value)
-                    ? null
-                    : navigateToFolder(folder)
-                "
-              >
-                <div
-                  class="folder-item flex items-center p-2 rounded group"
-                  :class="{
-                    '!bg-[#D4E1F9]':
-                      currentFolder === folder.value &&
-                      !isFolderDisabled(folder.value),
-                    'opacity-70 !bg-[#f0f0f0] cursor-not-allowed':
-                      isFolderDisabled(folder.value),
-                    'hover:bg-[#D4E1F9] cursor-pointer': !isFolderDisabled(
-                      folder.value
-                    ),
-                  }"
-                >
-                  <TeamIcon
-                    class="w-5 h-5 mr-2"
-                    :class="
-                      isFolderDisabled(folder.value)
-                        ? 'text-gray-400'
-                        : 'text-gray-500'
-                    "
-                  />
-                  <span
-                    class="flex-1 font-[500] text-[14px] truncate"
-                    :class="
-                      isFolderDisabled(folder.value)
-                        ? 'text-gray-400'
-                        : 'text-gray-900'
-                    "
-                    >{{ folder.label }}</span
-                  >
-                  <LucideChevronRight
-                    class="w-5 h-5"
-                    :class="
-                      isFolderDisabled(folder.value)
-                        ? 'text-gray-400'
-                        : 'text-[#525252]'
-                    "
-                  />
-                </div>
-              </div>
-            </div>
-
-            <!-- Empty State -->
-            <div
-              v-else
-              class="flex items-center justify-center h-full"
-            >
-              <p class="text-sm text-gray-500">Chưa có dữ liệu</p>
-            </div>
-          </div>
-
-          <!-- Create Folder Button -->
-          <div
-            v-if="
-              tabs[tabIndex]?.value === 'personal' ||
-              (tabs[tabIndex]?.value === 'team' && breadcrumbs.length > 1)
-            "
-            class="mt-2 flex justify-start flex-shrink-0"
-          >
+            <h2 class="text-xl font-semibold text-gray-900 truncate">
+              <template v-if="props.entities.length > 1">
+                {{ __("Di chuyển") }} {{ props.entities.length }} {{ __("mục") }}
+              </template>
+              <template v-else>
+                {{ __("Di chuyển") }} "{{
+                  props.entities[0]?.shortcut_title || props.entities[0]?.title
+                }}"
+              </template>
+            </h2>
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
-              class="flex items-center gap-2 hover:border-[#0149C1]"
-              @click.stop="showCreateFolderDialog = true"
+              @click="$emit('update:modelValue', false)"
             >
-              <FolderPlusIcon class="w-4 h-4" />
+              <template #icon>
+                <LucideX class="w-5 h-5" />
+              </template>
             </Button>
           </div>
-        </div>
-      </div>
-
-      <!-- Fixed Bottom Section - Breadcrumbs and Action Button -->
-      <div class="px-4 py-3 border-t border-gray-200 flex-shrink-0">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center">
-            <div class="flex items-center flex-wrap max-w-full gap-1">
-              <button
-                v-for="(crumb, index) in breadcrumbs"
-                :key="index"
-                class="breadcrumb-item flex items-center text-sm max-w-[220px]"
-                @click="navigateToBreadcrumb(crumb, index)"
+    
+          <!-- Current Location -->
+          <div class="p-4 pb-0 flex-shrink-0">
+            <div class="flex items-center pb-4 border-b border-gray-200">
+              <span class="text-sm font-medium text-gray-700 mr-2">{{
+                __("Vị trí hiện tại:")
+              }}</span>
+              <div
+                class="flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md truncate"
               >
-                <span
-                  :title="crumb.title"
-                  class="transition-colors text-[11.5px] inline-block truncate max-w-[200px] align-bottom"
-                  :class="
-                    index === breadcrumbs.length - 1
-                      ? 'text-gray-900 font-medium'
-                      : 'text-gray-600'
-                  "
-                >
-                  {{ crumb.title }}
-                </span>
-                <LucideChevronRight
-                  v-if="index < breadcrumbs.length - 1"
-                  class="w-4 h-4 text-gray-900"
+                <TeamDrive
+                  class="w-4 h-4 text-gray-900 mr-2"
+                  v-if="currentLocationName === 'Nhóm'"
                 />
+                <TeamIcon
+                  class="w-4 h-4 text-gray-900 mr-2"
+                  v-else
+                />
+                <span class="text-sm text-gray-900 truncate">{{
+                  currentLocationName
+                }}</span>
+              </div>
+            </div>
+          </div>
+    
+          <!-- Tabs -->
+          <div class="p-4 px-0 flex-shrink-0">
+            <div class="flex space-x-1">
+              <button
+                v-for="(tab, index) in tabs"
+                :key="index"
+                @click="tabIndex = index"
+                class="tab-button px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+                :class="
+                  index === tabIndex
+                    ? 'text-blue-600 border-blue-600'
+                    : 'text-gray-500 border-transparent hover:text-gray-700 hover:border-gray-300'
+                "
+              >
+                {{ tabs[index]?.label }}
               </button>
             </div>
           </div>
-          <Button
-            variant="solid"
-            class="action-button !bg-[#0149C1] text-white min-w-[130px]"
-            :loading="copyLoading"
-            @click="performCopy"
-          >
-            <template #prefix>
-              <LucideCopy class="w-4 h-4" />
-            </template>
-            {{ __("Di chuyển") }}
-          </Button>
+    
+          <!-- Main Content Area - This will expand to fill available space -->
+          <div class="flex flex-col flex-1 min-h-0">
+            <!-- Navigation Header -->
+            <div
+              v-if="breadcrumbs.length > 1"
+              class="p-4 pt-0 flex-shrink-0"
+            >
+              <div class="flex items-center">
+                <button
+                  @click="goBack"
+                  class="flex items-center text-gray-600 hover:text-gray-900 mr-2"
+                >
+                  <LucideChevronLeft class="w-5 h-5" />
+                </button>
+                <h3 class="text-lg font-semibold text-gray-900 truncate">
+                  {{ getCurrentLocationTitle() }}
+                </h3>
+              </div>
+            </div>
+    
+            <!-- Scrollable Folder List Area -->
+            <div class="px-4 pb-4 flex-1 min-h-0 flex flex-col">
+              <div class="flex-1 overflow-y-auto rounded-md">
+                <!-- Teams List for Team Tab -->
+                <div
+                  v-if="
+                    tabs[tabIndex]?.value === 'team' &&
+                    teams.data &&
+                    teams.data.length > 0 &&
+                    breadcrumbs.length === 1
+                  "
+                  class=""
+                >
+                  <div
+                    v-for="team in teams.data"
+                    :key="team.name"
+                    class="folder-item flex items-center p-2 hover:bg-[#D4E1F9] rounded cursor-pointer group"
+                    :class="{ 'bg-[#D4E1F9]': currentTeam === team.name }"
+                    @click="navigateToTeam(team)"
+                  >
+                    <TeamDrive class="w-5 h-5 text-gray-900 mr-2" />
+                    <span
+                      class="flex-1 font-[500] text-[14px] text-gray-900 truncate"
+                      >{{ team.title }}</span
+                    >
+                    <button
+                      class="hover:bg-gray-200 rounded opacity-0 group-hover:opacity-100"
+                      @click.stop="navigateToTeam(team)"
+                      title="Mở nhóm"
+                    >
+                      <LucideChevronRight class="w-5 h-5 text-[#525252]" />
+                    </button>
+                  </div>
+                </div>
+    
+                <!-- Folders List -->
+                <div v-else-if="currentTree.children.length > 0">
+                  <div
+                    v-for="folder in currentTree.children"
+                    :key="folder.value"
+                    @click.stop.prevent="
+                      isFolderDisabled(folder.value)
+                        ? null
+                        : navigateToFolder(folder)
+                    "
+                  >
+                    <div
+                      class="folder-item flex items-center p-2 rounded group"
+                      :class="{
+                        '!bg-[#D4E1F9]':
+                          currentFolder === folder.value &&
+                          !isFolderDisabled(folder.value),
+                        'opacity-70 !bg-[#f0f0f0] cursor-not-allowed':
+                          isFolderDisabled(folder.value),
+                        'hover:bg-[#D4E1F9] cursor-pointer': !isFolderDisabled(
+                          folder.value
+                        ),
+                      }"
+                    >
+                      <TeamIcon
+                        class="w-5 h-5 mr-2"
+                        :class="
+                          isFolderDisabled(folder.value)
+                            ? 'text-gray-400'
+                            : 'text-gray-500'
+                        "
+                      />
+                      <span
+                        class="flex-1 font-[500] text-[14px] truncate"
+                        :class="
+                          isFolderDisabled(folder.value)
+                            ? 'text-gray-400'
+                            : 'text-gray-900'
+                        "
+                        >{{ folder.label }}</span
+                      >
+                      <LucideChevronRight
+                        class="w-5 h-5"
+                        :class="
+                          isFolderDisabled(folder.value)
+                            ? 'text-gray-400'
+                            : 'text-[#525252]'
+                        "
+                      />
+                    </div>
+                  </div>
+                </div>
+    
+                <!-- Empty State -->
+                <div
+                  v-else
+                  class="flex items-center justify-center h-full"
+                >
+                  <p class="text-sm text-gray-500">Chưa có dữ liệu</p>
+                </div>
+              </div>
+    
+              <!-- Create Folder Button -->
+              <div
+                v-if="
+                  tabs[tabIndex]?.value === 'personal' ||
+                  (tabs[tabIndex]?.value === 'team' && breadcrumbs.length > 1)
+                "
+                class="mt-2 flex justify-start flex-shrink-0"
+              >
+                <Button
+                  variant="outline"
+                  size="sm"
+                  class="flex items-center gap-2 hover:border-[#0149C1]"
+                  @click.stop="showCreateFolderDialog = true"
+                >
+                  <FolderPlusIcon class="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          </div>
+    
+          <!-- Fixed Bottom Section - Breadcrumbs and Action Button -->
+          <div class="px-4 py-3 border-t border-gray-200 flex-shrink-0">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center">
+                <div class="flex items-center flex-wrap max-w-full gap-1">
+                  <button
+                    v-for="(crumb, index) in breadcrumbs"
+                    :key="index"
+                    class="breadcrumb-item flex items-center text-sm max-w-[220px]"
+                    @click="navigateToBreadcrumb(crumb, index)"
+                  >
+                    <span
+                      :title="crumb.title"
+                      class="transition-colors text-[11.5px] inline-block truncate max-w-[200px] align-bottom"
+                      :class="
+                        index === breadcrumbs.length - 1
+                          ? 'text-gray-900 font-medium'
+                          : 'text-gray-600'
+                      "
+                    >
+                      {{ crumb.title }}
+                    </span>
+                    <LucideChevronRight
+                      v-if="index < breadcrumbs.length - 1"
+                      class="w-4 h-4 text-gray-900"
+                    />
+                  </button>
+                </div>
+              </div>
+              <Button
+                variant="solid"
+                class="action-button !bg-[#0149C1] text-white min-w-[130px]"
+                :loading="copyLoading"
+                @click="performCopy"
+              >
+                <template #prefix>
+                  <LucideCopy class="w-4 h-4" />
+                </template>
+                {{ __("Di chuyển") }}
+              </Button>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+      </template>
     <!-- </template> -->
   </Dialog>
 
@@ -316,8 +321,8 @@
 <script setup>
 import { allFolders } from "@/resources/files"
 import { Button, createResource } from "frappe-ui"
-import { Dialog } from "primevue"
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
+import Dialog from 'primevue/dialog'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import LucideChevronLeft from "~icons/lucide/chevron-left"
@@ -699,8 +704,18 @@ watch(
   { immediate: true }
 )
 
+const isMobile = ref(false)
+
+// Check if mobile
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+}
+
+
 // Initialize on mount
 onMounted(() => {
+  checkMobile()
+  window.addEventListener("resize", checkMobile)
   if (allFolders.data) {
     const homeFolders = allFolders.data.filter((f) => f.is_private)
     const teamFolders = allFolders.data.filter((f) => !f.is_private)
@@ -708,6 +723,10 @@ onMounted(() => {
     buildTreeStructure(homeFolders, homeRoot)
     buildTreeStructure(teamFolders, teamRoot)
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
 })
 
 // Watch for allFolders changes
@@ -1312,5 +1331,9 @@ watch(showCreateFolderDialog, (isOpen) => {
 .copy-dialog.with-child-open :deep(.dialog-overlay),
 .copy-dialog.with-child-open :deep(.dialog-backdrop) {
   pointer-events: none;
+}
+
+:deep(.p-dialog-content) {
+  padding: 16px !important;
 }
 </style>

@@ -3,7 +3,7 @@
   <transition name="fade">
     <div 
       v-if="isDrawer && visible" 
-      class="fixed inset-0 bg-transparent z-40"
+      class="fixed inset-0 bg-black/20 z-40"
       @click="handleClose"
     />
   </transition>
@@ -11,7 +11,7 @@
   <transition name="slide">
     <div
       v-if="!isDrawer || (isDrawer && visible)"
-      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-10"
+      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-50"
       :class="isDrawer ? 'fixed right-0 top-0 min-w-[276px] max-w-[276px] h-full shadow-lg' : ''"
     >
       <!-- Header -->
@@ -27,7 +27,7 @@
         </div>
         <div class="flex flex-row items-center gap-2">
           <LucideCirclePlus 
-          v-if="manager.email == currentUserEmail"
+            v-if="manager && manager.email == currentUserEmail"
             @click="showAddMemberModal = true" 
             stroke="#737373" 
             class="h-5 w-5 cursor-pointer hover:stroke-gray-600 transition-colors" 
@@ -143,12 +143,12 @@
             </div>
           </div>
           <a 
-          :href="`/mtp/next-connect?to=${encodeURIComponent(tooltipMember.email)}`"
-          target='_top'
-          class="w-full mt-4 ml-auto bg-white rounded-md py-2 px-4 text-sm font-medium transition-colors flex items-center justify-center gap-2"
-          style="border: 1px solid #0149C1; color: #0149C1;"
-          onmouseover="this.style.backgroundColor='#E6F2FF'"
-          onmouseout="this.style.backgroundColor='white'"
+            :href="`/mtp/next-connect?to=${encodeURIComponent(tooltipMember.email)}`"
+            target='_top'
+            class="w-full mt-4 ml-auto bg-white rounded-md py-2 px-4 text-sm font-medium transition-colors flex items-center justify-center gap-2"
+            style="border: 1px solid #0149C1; color: #0149C1;"
+            onmouseover="this.style.backgroundColor='#E6F2FF'"
+            onmouseout="this.style.backgroundColor='white'"
           >
             <DepartmentMessage class="w-4 h-4 text-[#0149C1]" />
             Trò chuyện
@@ -161,7 +161,7 @@
 
 <script setup>
 import { X } from 'lucide-vue-next';
-import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 import { useStore } from 'vuex';
 import LucideCirclePlus from "~icons/lucide/circle-plus";
@@ -170,7 +170,13 @@ import { getTeamMembers } from "../resources/team";
 import AddTeamMemberModal from "./AddTeamMemberModal.vue";
 
 const route = useRoute()
-const emit = defineEmits(['close'])
+const props = defineProps({
+  modelValue: {
+    type: Boolean,
+    default: undefined
+  }
+})
+const emit = defineEmits(['close', 'update:modelValue'])
 
 const store = useStore()
 const currentUserEmail = computed(() => store.state.user.id)
@@ -179,7 +185,7 @@ const showAddMemberModal = ref(false)
 const headerRef = ref(null)
 const isNarrow = ref(false)
 const isDrawer = ref(false)
-const visible = ref(true)
+const internalVisible = ref(false)
 const showTooltip = ref(false)
 const tooltipMember = ref(null)
 const tooltipType = ref('')
@@ -189,6 +195,22 @@ const arrowStyle = ref({})
 let resizeObserver = null
 let hideTimeout = null
 
+// Computed để sync với v-model từ parent
+const visible = computed({
+  get() {
+    // Nếu có modelValue từ parent, dùng nó
+    if (props.modelValue !== undefined) {
+      return props.modelValue
+    }
+    // Nếu không, dùng internal state
+    return internalVisible.value
+  },
+  set(value) {
+    internalVisible.value = value
+    emit('update:modelValue', value)
+  }
+})
+
 function checkHeaderWidth() {
   if (headerRef.value) {
     isNarrow.value = headerRef.value.offsetWidth <= 150
@@ -196,9 +218,12 @@ function checkHeaderWidth() {
 }
 
 function checkScreenWidth() {
-  isDrawer.value = window.innerWidth + 250 < 1600
-  if (!isDrawer.value) {
-    visible.value = true
+  const newIsDrawer = window.innerWidth + 250 < 1600
+  isDrawer.value = newIsDrawer
+  
+  // Nếu không phải drawer mode (desktop), tự động hiển thị
+  if (!newIsDrawer && props.modelValue === undefined) {
+    internalVisible.value = true
   }
 }
 
@@ -227,6 +252,17 @@ onUnmounted(() => {
   if (hideTimeout) clearTimeout(hideTimeout)
 })
 
+// Watch route changes để đóng drawer trên mobile khi chuyển team
+watch(() => route.params.team, (newTeam, oldTeam) => {
+  if (newTeam && newTeam !== oldTeam) {
+    getTeamMembers.reload()
+    // Chỉ tự động đóng drawer trên mobile khi chuyển team
+    if (isDrawer.value) {
+      visible.value = false
+    }
+  }
+})
+
 const teamMembers = computed(() => getTeamMembers.data || [])
 
 const regularMembers = computed(() =>
@@ -248,13 +284,8 @@ const getInitials = (fullName) => {
 }
 
 const handleClose = () => {
-  console.log("Closing team members list", isDrawer.value)
-  if (isDrawer.value) {
-    visible.value = false
-    emit('close')
-  } else {
-    emit('close')
-  }
+  visible.value = false
+  emit('close')
 }
 
 const handleMemberHover = (event, member, type) => {
@@ -266,13 +297,11 @@ const handleMemberHover = (event, member, type) => {
   const padding = 16
   const viewportWidth = window.innerWidth
   
-  // Tính toán vị trí tối ưu cho tooltip
   let left = rect.left + rect.width / 2 - tooltipWidth / 2
   let transformOrigin = 'center'
   let arrowLeft = '50%'
   let arrowTransform = '-translate-x-1/2'
   
-  // Kiểm tra nếu tooltip bị tràn bên phải
   if (left + tooltipWidth + padding > viewportWidth) {
     left = rect.right - tooltipWidth
     transformOrigin = 'right'
@@ -280,7 +309,6 @@ const handleMemberHover = (event, member, type) => {
     arrowTransform = ''
   }
   
-  // Kiểm tra nếu tooltip bị tràn bên trái
   if (left < padding) {
     left = rect.left
     transformOrigin = 'left'
@@ -308,7 +336,6 @@ const handleMemberHover = (event, member, type) => {
 }
 
 const handleMouseLeave = () => {
-  // Tăng thời gian delay để có thời gian di chuột vào tooltip
   hideTimeout = setTimeout(() => {
     showTooltip.value = false
     tooltipMember.value = null
@@ -316,7 +343,6 @@ const handleMouseLeave = () => {
 }
 
 const handleTooltipMouseEnter = () => {
-  // Hủy timeout khi di chuột vào tooltip
   if (hideTimeout) {
     clearTimeout(hideTimeout)
     hideTimeout = null

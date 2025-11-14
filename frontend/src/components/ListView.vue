@@ -74,6 +74,7 @@
 
         <!-- Owner Column -->
         <Column
+          v-if="windowWidth >= 1024"
           field="owner"
           :header="__('Chủ sở hữu')"
           sortable
@@ -104,7 +105,7 @@
         <!-- Team Column -->
         <Column
           v-if="
-            ['Recents', 'Favourites', 'Trash', 'Shared'].includes($route.name)
+            ['Recents', 'Favourites', 'Trash', 'Shared'].includes($route.name) && windowWidth >= 769
           "
           field="team_name"
           :header="__('Nhóm')"
@@ -127,7 +128,7 @@
         </Column>
         <!-- Days Remaining Column -->
         <Column
-          v-if="$route.name === 'Trash'"
+          v-if="$route.name === 'Trash' && windowWidth >= 769"
           field="days_remaining"
           :header="__('Ngày còn lại')"
           sortable
@@ -147,6 +148,7 @@
         </Column>
         <!-- Shared Column -->
         <Column
+          v-if="windowWidth >= 1024"
           field="share_count"
           :header="__('Chia sẻ')"
           sortable
@@ -173,6 +175,7 @@
 
         <!-- Last Modified Column -->
         <Column
+          v-if="windowWidth >= 1024"
           field="accessed"
           :header="__('Truy cập lần cuối')"
           sortable
@@ -193,6 +196,7 @@
 
         <!-- Size Column -->
         <Column
+          v-if="windowWidth >= 1024"
           field="file_size_pretty"
           :header="__('Kích thước')"
           sortable
@@ -212,7 +216,7 @@
         </Column>
 
         <!-- Options Column -->
-        <Column bodyStyle="width: 2rem; text-align: center;">
+        <Column bodyStyle="width: 1.5rem; text-align: center;">
           <template #body="slotProps">
             <div>
               <Button
@@ -777,7 +781,7 @@ onKeyDown("Escape", (e) => {
 }
 
 .options-btn {
-  @apply p-1 rounded hover:bg-gray-100;
+  @apply p-1 rounded hover:bg-gray-100 w-6 sm:w-8;
 }
 
 :deep(.p-checkbox-input) {
@@ -820,24 +824,8 @@ onKeyDown("Escape", (e) => {
   @apply bg-blue-600 border-blue-600;
 }
 
-@media (max-width: 1280px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(3)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
-    @apply hidden;
-  }
-}
-
+/* Responsive adjustments - chỉ điều chỉnh kích thước, KHÔNG ẩn cột */
 @media (max-width: 1024px) {
-  :deep(.p-datatable-thead > tr > th:nth-child(4)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(4)),
-  :deep(.p-datatable-thead > tr > th:nth-child(6)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(6)),
-  :deep(.p-datatable-thead > tr > th:nth-child(5)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(5)),
-  :deep(.p-datatable-thead > tr > th:nth-child(3)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(3)) {
-    @apply hidden;
-  }
   .name-cell {
     max-width: 220px;
   }
@@ -865,19 +853,6 @@ onKeyDown("Escape", (e) => {
   }
   .file-icon {
     @apply w-[16px] h-[16px];
-  }
-  
-  :deep(.p-datatable-thead > tr > th:nth-child(3)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(3)),
-  :deep(.p-datatable-thead > tr > th:nth-child(4)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(4)),
-  :deep(.p-datatable-thead > tr > th:nth-child(5)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(5)),
-  :deep(.p-datatable-thead > tr > th:nth-child(6)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(6)), 
-  :deep(.p-datatable-thead > tr > th:nth-child(7)),
-  :deep(.p-datatable-tbody > tr > td:nth-child(7)) {
-    @apply hidden;
   }
 }
 
@@ -927,6 +902,7 @@ onKeyDown("Escape", (e) => {
 .shortcut-badge i {
   font-size: 8px;
 }
+
 .custom-tooltip {
   position: fixed;
   background-color: white;

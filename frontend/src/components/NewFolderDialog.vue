@@ -5,8 +5,9 @@
       v-model:visible="open"
       modal
       :header="__('Create new folder')"
-      :style="{ width: '32rem' }"
+      :style="{ width: '32rem',  overflow: 'hidden' }"
       :dismissableMask="true"
+      :position="isMobile ? 'top' : 'center'"
     >
       <div class="flex flex-col gap-4">
         <div class="flex flex-col gap-2">
@@ -65,13 +66,22 @@ const emit = defineEmits(["update:modelValue", "success", "mutate"])
 const folderName = ref("Thư mục mới")
 const folderInput = ref(null)
 
+const isMobile = ref(false)
+
+// Check if mobile
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+}
+
 // Debug
 const instanceId = Math.random().toString(36).substr(2, 9)
 console.log('=== NewFolderDialog Instance Created ===', instanceId)
 
 onMounted(() => {
   console.log('=== NewFolderDialog MOUNTED ===', instanceId)
-  
+  checkMobile()
+  window.addEventListener("resize", checkMobile)
+
   // Kiểm tra số lượng dialog
   setTimeout(() => {
     const dialogs = document.querySelectorAll('[role="dialog"]')
@@ -84,6 +94,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   console.log('=== NewFolderDialog UNMOUNTED ===', instanceId)
+  window.removeEventListener("resize", checkMobile)
 })
 
 const createFolder = createResource({

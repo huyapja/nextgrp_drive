@@ -15,7 +15,8 @@
       />
     </div>
     <TeamMembersList
-      v-if="showTeamMembersList"
+      v-if="showTeamMembersList || !isDrawerMode"
+      v-model="showTeamMembersList"
       class="!h-[100vh]"
       @close="showTeamMembersList = false"
     />
@@ -24,6 +25,7 @@
 
 <script setup>
 import GenericPage from "@/components/GenericPage.vue"
+import TeamMembersList from "@/components/TeamMembersList.vue"
 import { getHome, getTeams } from "@/resources/files"
 import { allUsers } from "@/resources/permissions"
 import { createResource } from "frappe-ui"
@@ -46,23 +48,30 @@ const getTeamMembers = createResource({
 })
 
 const showTeamMembersList = ref(false)
+const isDrawerMode = ref(false)
 
 function checkScreenWidth() {
-  if (window.innerWidth + 250 < 1600) {
+  const wasDrawerMode = isDrawerMode.value
+  isDrawerMode.value = window.innerWidth + 250 < 1600
+  
+  // Nếu chuyển từ desktop sang mobile, đóng drawer
+  if (!wasDrawerMode && isDrawerMode.value) {
     showTeamMembersList.value = false
-  } 
+  }
+  // Nếu chuyển từ mobile sang desktop, mở sidebar
+  else if (wasDrawerMode && !isDrawerMode.value) {
+    showTeamMembersList.value = true
+  }
 }
 
+// Watch route change để đóng drawer trên mobile khi chuyển team
 watch(
-  () => getTeamMembers.data,
-  (newData) => {
-    if (newData?.length === 1) {
-      showTeamMembersList.value = true
-    } else {
+  () => route.params.team,
+  (newTeam, oldTeam) => {
+    if (newTeam && newTeam !== oldTeam && isDrawerMode.value) {
       showTeamMembersList.value = false
     }
-  },
-  { immediate: true }
+  }
 )
 
 onMounted(() => {

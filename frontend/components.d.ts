@@ -78,6 +78,7 @@ declare module 'vue' {
     ListView: typeof import('./src/components/ListView.vue')['default']
     LucideAxe: typeof import('~icons/lucide/axe')['default']
     LucideBuilding: typeof import('~icons/lucide/building')['default']
+    LucideBuilding2: typeof import('~icons/lucide/building2')['default']
     LucideCheck: typeof import('~icons/lucide/check')['default']
     LucideChevronDown: typeof import('~icons/lucide/chevron-down')['default']
     LucideClock: typeof import('~icons/lucide/clock')['default']

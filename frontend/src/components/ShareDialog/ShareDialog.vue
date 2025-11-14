@@ -1,20 +1,25 @@
 <template>
   <Dialog
     ref="dialog"
-    :modelValue="openDialog"
-    @update:modelValue="handleDialogClose"
-    @click:backdrop="handleBackdropClick"
-    :options="{ size: 'lg' }"
+    v-model:visible="openDialog"
+    modal
+    :dismissableMask="!hasOpenDropdown"
+    :closable="false"
+    :style="{ width: '32rem', overflow: 'hidden' }"
+    :breakpoints="{ '768px': '95vw' }"
+    :position="isMobile ? 'top' : 'center'"
+    class="share-dialog"
+    @update:visible="handleDialogVisibility"
   >
-    <template #body-main>
-      <div class="space-y-4 p-4 min-h-[400px] pb-[80px]">
+   <template #container>
+
+     <div class="space-y-4 p-4 pb-[80px]">
         <div class="">
           <div class="text-lg font-medium text-gray-900 truncate max-w-[92%]">
             Chia sẻ "{{ entity?.title || entity?.name }}"
           </div>
           <div
             @click="closeDialog"
-
             class="absolute top-3 right-3 p-1 text-gray-400 hover:text-gray-600 cursor-pointer w-8 h-8"
           >
             <svg
@@ -42,7 +47,7 @@
           <div class="flex gap-2">
             <!-- Search Input with selected users as tags -->
             <div
-              class="flex-1 relative"
+              class="relative w-[55%]"
               ref="dropdownContainer"
             >
               <div
@@ -96,8 +101,9 @@
                     <span>+{{ additionalUsersCount }} khác</span>
                   </div>
 
-                  <!-- Input field - Removed @blur -->
+                  <!-- Input field -->
                   <input
+                    ref="searchInput"
                     v-model="query"
                     type="text"
                     placeholder="Nhập email hoặc tên..."
@@ -151,9 +157,9 @@
               </div>
             </div>
 
-            <!-- Custom Permission Dropdown - Removed v-click-outside -->
+            <!-- Custom Permission Dropdown -->
             <div
-              class="relative w-40"
+              class="relative w-[45%]"
               ref="permissionDropdownContainer"
             >
               <button
@@ -243,11 +249,11 @@
                 </div>
               </div>
 
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2.5">
                 <!-- Access Level Display/Selector -->
                 <div
                   v-if="user.user === entity.owner"
-                  class="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-full"
+                  class="flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-full min-w-[122px]"
                 >
                   <svg
                     class="w-4 h-4 text-gray-600"
@@ -363,12 +369,13 @@
         <div
           class="fixed bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-200"
         >
-          <div class="flex justify-between items-center w-full gap-2">
+          <div class="flex gap-2 justify-between items-center w-full">
             <!-- Copy Link Button -->
             <Button
               variant="outline"
               @click="getLink(entity)"
-              class="h-[40px] max-w-[50%] w-full !bg-[#D4E1F9] text-[#2563EB] !hover:bg-[#D4E1F9] !border-[#0149C1] !text-[#0149C1]"
+              :class="isMobile ? 'w-full' : 'max-w-[50%] w-full'"
+              class="h-[40px] !bg-[#D4E1F9] text-[#2563EB] !hover:bg-[#D4E1F9] !border-[#0149C1] !text-[#0149C1]"
             >
               Sao chép liên kết
             </Button>
@@ -377,7 +384,8 @@
             <Button
               :variant="sharedUsers.length > 0 ? 'solid' : 'outline'"
               @click="sharedUsers.length > 0 ? addShares() : closeDialog()"
-              class="h-[40px] max-w-[50%] w-full !bg-[#0149C1] !text-white !hover:bg-[#01337A] !border-[#01337A]"
+              :class="isMobile ? 'w-full' : 'max-w-[50%] w-full'"
+              class="h-[40px] !bg-[#0149C1] !text-white !hover:bg-[#01337A] !border-[#01337A]"
             >
               {{
                 updateAccess.loading
@@ -390,7 +398,7 @@
           </div>
         </div>
       </div>
-    </template>
+   </template>
   </Dialog>
 </template>
 
@@ -403,8 +411,8 @@ import { useStore } from "vuex"
 const vClickOutside = vOnClickOutside
 
 // Frappe UI Components
-import { Button, Dialog } from "frappe-ui"
-
+import { Button } from "frappe-ui"
+import Dialog from 'primevue/dialog'
 // Custom components
 import CustomAvatar from "../CustomAvatar.vue"
 
@@ -438,16 +446,48 @@ const userAccessDropdownContainer = ref(null)
 const showAllUsers = ref(false)
 const showAllSharedUsers = ref(false)
 const dropdownPosition = ref(null)
+const searchInput = ref(null)
+const isMobile = ref(false)
 
+// Check if mobile
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+}
 
 onMounted(() => {
-  // Listen on capture phase for clicks so we can intercept overlay clicks
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
   document.addEventListener("click", handleClickOutside, true)
+  
+  // Handle iOS keyboard
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+    window.addEventListener('focusin', handleIOSFocus)
+    window.addEventListener('focusout', handleIOSBlur)
+  }
 })
 
 onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
   document.removeEventListener("click", handleClickOutside, true)
+  
+  if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+    window.removeEventListener('focusin', handleIOSFocus)
+    window.removeEventListener('focusout', handleIOSBlur)
+  }
 })
+
+// Handle iOS keyboard focus
+const handleIOSFocus = (event) => {
+  if (event.target === searchInput.value) {
+    setTimeout(() => {
+      event.target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    }, 300)
+  }
+}
+
+const handleIOSBlur = () => {
+  window.scrollTo(0, 0)
+}
 
 // Computed
 const openDialog = computed({
@@ -521,24 +561,6 @@ const toggleUserSelection = (person) => {
   query.value = ""
   // Optional: close dropdown after selection
   // isDropdownOpen.value = false
-}
-
-// Handle backdrop click specifically
-const handleBackdropClick = (event) => {
-  // If any dropdown is open, just close dropdowns
-  if (hasOpenDropdown.value) {
-    isDropdownOpen.value = false
-    showAllUsers.value = false 
-    isPermissionDropdownOpen.value = false
-    activeUserDropdown.value = null
-    dropdownPosition.value = null
-    query.value = '' // Clear search input
-    return
-  }
-  
-  // Otherwise close the dialog
-  emit("update:modelValue", "")
-  document.body.style.overflow = ""
 }
 
 // Dialog close handler - now only handles programmatic close
@@ -765,6 +787,7 @@ watch(activeUserDropdown, (newValue) => {
 })
 
 // Watch for dialog open/close
+// Watch for dialog open/close
 watch(
   () => props.modelValue,
   (newValue) => {
@@ -779,13 +802,55 @@ watch(
       activeUserDropdown.value = null
       showAllSharedUsers.value = false
       dropdownPosition.value = null
+      
+      // Focus on search input after dialog opens
+      nextTick(() => {
+        if (searchInput.value) {
+          searchInput.value.focus()
+        }
+      })
     }
   }
 )
+
+// Handle dialog visibility changes
+const handleDialogVisibility = (visible) => {
+  if (!visible) {
+    // If any dropdown is open, prevent dialog close and just close dropdowns
+    if (hasOpenDropdown.value) {
+      isDropdownOpen.value = false
+      showAllUsers.value = false 
+      isPermissionDropdownOpen.value = false
+      activeUserDropdown.value = null
+      dropdownPosition.value = null
+      query.value = '' // Clear search input
+      
+      // Reopen dialog
+      nextTick(() => {
+        openDialog.value = true
+      })
+      return
+    }
+    
+    // Otherwise allow dialog to close
+    emit("update:modelValue", "")
+    document.body.style.overflow = ""
+  } else {
+    // When dialog opens, focus on search input
+    nextTick(() => {
+      if (searchInput.value) {
+        searchInput.value.focus()
+      }
+    })
+  }
+}
 </script>
 
 <style scoped>
-/* Scrollbar styling */
+.share-dialog {
+  overflow: hidden;
+}
+
 .overflow-y-auto::-webkit-scrollbar {
   width: 6px;
 }
@@ -878,4 +943,47 @@ button:focus {
 .hover\:text-blue-800:hover {
   color: #1e40af;
 }
+
+[role="dialog"] .flex.min-h-screen {
+  justify-content: flex-start !important;
+  padding-top: 40px !important;
+}
+
+
+/* Mobile nhỏ hơn - giảm thêm nếu cần */
+@media (max-width: 480px) {
+  input[type="text"] {
+    font-size: 12px !important;
+  }
+  
+  input[type="text"]::placeholder {
+    font-size: 12px !important;
+  }
+  
+  .inline-flex {
+    font-size: 11px !important;
+  }
+  
+  .inline-flex span {
+    font-size: 11px !important;
+  }
+}
+
+[role="dialog"] .flex.min-h-screen {
+  justify-content: flex-start !important;
+  padding-top: 40px !important;
+}
+
+@media (max-width: 768px) {
+  [role="dialog"] .flex.min-h-screen {
+    padding-top: 0 !important;
+  }
+  
+  [role="dialog"] .my-8 {
+    margin: 0 !important;
+    height: 100vh !important;
+    border-radius: 0 !important;
+  }
+}
+
 </style>

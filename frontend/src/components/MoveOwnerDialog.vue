@@ -1,9 +1,13 @@
 <template>
   <Dialog
-    v-model="openDialog"
+    v-model:visible="openDialog"
     :options="{ size: 'lg', dialogClass: 'fixed-height-dialog' }"
+    :closable="false"
+    :style="{ width: '32rem', overflow: 'hidden' }"
+    :breakpoints="{ '768px': '95vw' }"
+    :position="isMobile ? 'top' : 'center'"
   >
-    <template #body-main>
+    <template #container>
       <div class="move-owner-container">
         <!-- Header với tên file -->
         <div class="dialog-header">
@@ -118,13 +122,13 @@
 import { userList } from "@/resources/permissions";
 import {
   createResource,
-  Dialog
 } from "frappe-ui";
 import Button from 'primevue/button';
+import Dialog from "primevue/dialog";
 import Dropdown from 'primevue/dropdown';
 import ProgressSpinner from 'primevue/progressspinner';
 import RadioButton from 'primevue/radiobutton';
-import { computed, onMounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import { useStore } from "vuex";
 import { toast } from "../utils/toasts";
 import CustomAvatar from "./CustomAvatar.vue";
@@ -141,6 +145,21 @@ const ownerPermission = ref("0") // Default là quyền xem
 const loading = ref(false)
 const error = ref('')
 const submitting = ref(false)
+const isMobile = ref(false)
+
+// Check if mobile
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+}
+
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+})
 
 const openDialog = computed({
   get: () => {
@@ -234,7 +253,7 @@ onMounted(() => {
 
 <style scoped>
 .move-owner-container {
-  padding: 16px 24px;
+  padding: 16px;
 }
 
 .dialog-header {

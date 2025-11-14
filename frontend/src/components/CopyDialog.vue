@@ -10,12 +10,15 @@
     :baseZIndex="1000"
     class="copy-dialog"
     :showHeader="false"
+    :breakpoints="{ '768px': '95vw' }"
+    :position="isMobile ? 'top' : 'center'"
+    :style="{ width: '32rem', overflow: 'hidden' }"
   >
-    <!-- <template #body-main> -->
-    <div class="!h-[630px] !w-[560px] flex flex-col">
+    <template #container>
+    <div class=" h-[450px] !sm:h-[630px] flex flex-col">
       <!-- Header -->
       <div
-        class="flex items-center justify-between p-6 px-4 pb-0 flex-shrink-0"
+        class="flex items-center justify-between  flex-shrink-0 p-4 pb-0"
       >
         <h2 class="text-xl font-semibold text-gray-900 truncate">
           <template v-if="props.entities.length > 1">
@@ -63,7 +66,7 @@
       </div>
 
       <!-- Tabs -->
-      <div class="p-4 px-0 flex-shrink-0">
+      <div class="p-4 flex-shrink-0">
         <div class="flex space-x-1">
           <button
             v-for="(tab, index) in tabs"
@@ -230,7 +233,7 @@
         </div>
       </div>
     </div>
-    <!-- </template> -->
+    </template>
   </Dialog>
 
   <!-- Create Folder Dialog (teleport ra body để tách khỏi Dialog cha) -->
@@ -286,7 +289,7 @@
 import { allFolders } from "@/resources/files"
 import { Button, createResource } from "frappe-ui"
 import { Dialog } from "primevue"
-import { computed, nextTick, onMounted, reactive, ref, watch } from "vue"
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import LucideChevronLeft from "~icons/lucide/chevron-left"
@@ -662,8 +665,18 @@ watch(
   { immediate: true }
 )
 
+const isMobile = ref(false)
+
+// Check if mobile
+const checkMobile = () => {
+  isMobile.value = window.innerWidth < 768
+}
+
+
 // Initialize on mount
 onMounted(() => {
+  checkMobile()
+  window.addEventListener("resize", checkMobile)
   if (allFolders.data) {
     const homeFolders = allFolders.data.filter((f) => f.is_private)
     const teamFolders = allFolders.data.filter((f) => !f.is_private)
@@ -671,6 +684,10 @@ onMounted(() => {
     buildTreeStructure(homeFolders, homeRoot)
     buildTreeStructure(teamFolders, teamRoot)
   }
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
 })
 
 // Watch for allFolders changes
@@ -1152,6 +1169,7 @@ watch(showCreateFolderDialog, (isOpen) => {
 .copy-dialog :deep(.dialog) {
   border-radius: 0.5rem;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  padding: 16px !important;
 }
 
 .copy-dialog :deep(.dialog-body) {
