@@ -35,7 +35,7 @@ const error = ref('')
 const editorInstance = ref(null)
 
 // Lấy OnlyOffice server URL từ backend config hoặc default
-const ONLYOFFICE_URL = window.frappe?.settings?.onlyoffice_url || 'http://27.71.21.110:8089/'
+const ONLYOFFICE_URL = window.frappe?.settings?.onlyoffice_url || 'https://onlyoffice.nextgrp.vn/'
 
 console.log('🔧 OnlyOffice URL:', ONLYOFFICE_URL)
 console.log('📄 Preview Entity:', props.previewEntity)
