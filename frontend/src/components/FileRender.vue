@@ -26,7 +26,7 @@
 <script setup>
 import AudioPreview from "@/components/FileTypePreview/AudioPreview.vue"
 import ImagePreview from "@/components/FileTypePreview/ImagePreview.vue"
-import MSOfficePreview from "@/components/FileTypePreview/MSOfficePreview.vue"
+import OnlyOfficeEditor from "@/components/FileTypePreview/OnlyOfficeEditor.vue"
 import { computed } from "vue"
 import PDFPreview from "./FileTypePreview/PDFPreview.vue"
 import TextPreview from "./FileTypePreview/TextPreview.vue"
@@ -61,9 +61,9 @@ const RENDERS = {
   Image: ImagePreview,
   Video: VideoPreview,
   Audio: AudioPreview,
-  Document: MSOfficePreview,
-  Spreadsheet: MSOfficePreview,
-  Presentation: MSOfficePreview,
+  Document: OnlyOfficeEditor,      // Đổi sang OnlyOffice
+  Spreadsheet: OnlyOfficeEditor,   // Đổi sang OnlyOffice
+  Presentation: OnlyOfficeEditor,
   Text: TextPreview,
   Code: TextPreview,
   Markdown: TextPreview,

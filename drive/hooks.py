@@ -120,12 +120,8 @@ has_permission = {
 # Hook on document methods and events
 
 doc_events = {
-    "Drive File": {
-        "after_insert": "drive.api.notifications.notify_team_file_upload"
-    },
-    "User": {
-        "after_insert": "drive.controllers.user.add_user_to_drive_team"
-    }
+    "Drive File": {"after_insert": "drive.api.notifications.notify_team_file_upload"},
+    "User": {"after_insert": "drive.controllers.user.add_user_to_drive_team"},
 }
 
 
@@ -196,3 +192,11 @@ scheduler_events = {
 
 
 signup_form_template = "templates/signup.html"
+
+
+fixtures = [
+    {
+        "doctype": "Custom Field",
+        "filters": [["fieldname", "=", "onlyoffice_secret"], ["dt", "=", "Drive Settings"]],
+    }
+]
