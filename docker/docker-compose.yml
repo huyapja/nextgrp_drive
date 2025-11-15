@@ -1,4 +1,5 @@
 version: "3.7"
+
 services:
   mariadb:
     image: mariadb:10.8
@@ -11,9 +12,13 @@ services:
       MYSQL_ROOT_PASSWORD: 123
     volumes:
       - mariadb-data:/var/lib/mysql
+    networks:
+      - drive-network
 
   redis:
     image: redis:alpine
+    networks:
+      - drive-network
 
   frappe:
     image: frappe/bench:latest
@@ -26,6 +31,63 @@ services:
     ports:
       - 8000:8000
       - 9000:9000
+    networks:
+      - drive-network
+    depends_on:
+      - mariadb
+      - redis
 
+  # ============================================
+  # OnlyOffice Document Server
+  # ============================================
+  onlyoffice:
+    image: onlyoffice/documentserver:latest
+    container_name: onlyoffice-documentserver
+    restart: always
+    ports:
+      - "8089:80"      # HTTP
+      - "8443:443"     # HTTPS (optional)
+    environment:
+      # JWT Security - CRITICAL: Phải khớp với site_config.json
+      - JWT_ENABLED=true
+      - JWT_SECRET=drive-onlyoffice-secret-key-123
+      - JWT_HEADER=Authorization
+      
+      # Performance tuning
+      - WOPI_ENABLED=false
+      - USE_UNAUTHORIZED_STORAGE=false
+      - MAX_FILE_SIZE=104857600  # 100MB
+      - CONNECTIONS_NUM=20
+    volumes:
+      # Persist OnlyOffice data
+      - onlyoffice-data:/var/www/onlyoffice/Data
+      - onlyoffice-logs:/var/log/onlyoffice
+      - onlyoffice-fonts:/usr/share/fonts/truetype/custom
+      - onlyoffice-cache:/var/lib/onlyoffice
+    networks:
+      - drive-network
+    stdin_open: true
+    tty: true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  drive-network:
+    driver: bridge
+
+# ============================================
+# Volumes
+# ============================================
 volumes:
   mariadb-data:
+  onlyoffice-data:
+  onlyoffice-logs:
+  onlyoffice-fonts:
+  onlyoffice-cache:
