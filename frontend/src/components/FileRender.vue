@@ -61,8 +61,8 @@ const RENDERS = {
   Image: ImagePreview,
   Video: VideoPreview,
   Audio: AudioPreview,
-  Document: OnlyOfficeEditor,      // Đổi sang OnlyOffice
-  Spreadsheet: OnlyOfficeEditor,   // Đổi sang OnlyOffice
+  Document: OnlyOfficeEditor,    
+  Spreadsheet: OnlyOfficeEditor, 
   Presentation: OnlyOfficeEditor,
   Text: TextPreview,
   Code: TextPreview,
