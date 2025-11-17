@@ -133,8 +133,7 @@ def has_edit_permission(entity_name):
     return frappe.has_permission("Drive File", doc=entity_name, ptype="write")
 
 
-@frappe.whitelist(allow_guest=False)
-@frappe.whitelist(allow_guest=False)
+@frappe.whitelist(allow_guest=True)
 def save_document():
     """
     Callback từ OnlyOffice
