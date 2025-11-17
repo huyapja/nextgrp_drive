@@ -13,7 +13,7 @@
       <div
         id="renderContainer"
         :draggable="false"
-        class="h-[100vh] overflow-y-auto flex justify-center item-center"
+        class=" overflow-y-auto flex justify-center item-center"
       >
         <LoadingIndicator
           v-if="file.loading"
@@ -24,28 +24,28 @@
           :preview-entity="file.data"
         />
       </div>
-      <div
+      <!-- <div
         class="hidden sm:flex absolute bottom-4 left-1/2 transform -translate-x-1/2 w-fit items-center justify-center p-1 gap-1 h-10 rounded-lg shadow-xl bg-surface-white"
-      >
+      > -->
         <!-- <Button
           :disabled="!prevEntity?.name"
           :variant="'ghost'"
           icon="arrow-left"
           @click="scrollEntity(true)"
         /> -->
-        <Button
+        <!-- <Button
           :variant="'ghost'"
           @click="enterFullScreen"
         >
           <LucideScan class="w-4" />
-        </Button>
+        </Button> -->
         <!-- <Button
           :disabled="!nextEntity?.name"
           :variant="'ghost'"
           icon="arrow-right"
           @click="scrollEntity()"
         /> -->
-      </div>
+      <!-- </div> -->
     </div>
 
     <InfoSidebar />
@@ -55,9 +55,9 @@
 <script setup>
 import ErrorPage from "@/components/ErrorPage.vue"
 import FileRender from "@/components/FileRender.vue"
-import { enterFullScreen, prettyData, setBreadCrumbs } from "@/utils/files"
+import { prettyData, setBreadCrumbs } from "@/utils/files"
 import { onKeyStroke } from "@vueuse/core"
-import { Button, createResource, LoadingIndicator } from "frappe-ui"
+import { createResource, LoadingIndicator } from "frappe-ui"
 import {
   computed,
   defineProps,
@@ -68,7 +68,6 @@ import {
 } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
-import LucideScan from "~icons/lucide/scan"
 import InfoSidebar from "../components/InfoSidebar/InfoSidebar.vue"
 
 const router = useRouter()

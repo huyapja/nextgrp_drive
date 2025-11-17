@@ -115,7 +115,7 @@
       class="flex flex-row items-center h-full gap-[17px] pt-3 px-2 z-0 bg-surface-white"
       v-if="route.name === 'File'"
     >
-      <Button
+      <!-- <Button
         v-if="entity"
         class="text-ink-gray-5 !px-0"
         :class="[
@@ -133,7 +133,7 @@
               : 'size-6 text-black'
           "
         />
-      </Button>
+      </Button> -->
 
       <!-- <Button
         v-if="entity"
@@ -216,7 +216,6 @@ import CloudIconBlack from "@/assets/Icons/CloudIconBlack.vue"
 import InfoIcon from "@/assets/Icons/InfoIcon.vue"
 import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
 import LinkIcon from "@/assets/Icons/LinkIcon.vue"
-import MessageIcon from "@/assets/Icons/MessageIcon.vue"
 import MoveIcon from "@/assets/Icons/MoveIcon.vue"
 import NewDrive from "@/assets/Icons/NewDrive.vue"
 import RenameIcon from "@/assets/Icons/RenameIcon.vue"
