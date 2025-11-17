@@ -30,12 +30,12 @@
         />
 
         <!-- Comments Tab -->
-        <CommentsPanel
+        <!-- <CommentsPanel
           v-if="entity.comment && tab === 1"
           :entity="entity"
           :is-small-screen="isSmallScreen"
           @close="closeDrawer"
-        />
+        /> -->
 
         <!-- Activity Tab
         <ActivityPanel
@@ -54,7 +54,6 @@ import emitter from "@/emitter"
 import { userList } from "@/resources/permissions"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
-import CommentsPanel from "./CommentsPanel.vue"
 import InfoPanel from "./InfoPanel.vue"
 
 const store = useStore()

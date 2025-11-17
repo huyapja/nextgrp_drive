@@ -36,14 +36,14 @@ export default defineConfig({
     },
   },
   server: {
-    // allowedHosts: ["drive.localhost"],
+    allowedHosts: [
+      "drive.localhost",
+      "b5371ace976e.ngrok-free.app",
+      ".ngrok-free.app" // This allows all ngrok-free.app subdomains
+    ],
     port: 8082,
     host: true
   },
-  // server: {
-  //   port: 8082,
-  //   host: true
-  // },
   ssr: {
     external: { html2canvas: "html2canvas", dompurify: "dompurify" },
   },
