@@ -552,17 +552,18 @@ class DriveFile(Document):
             )
 
         create_new_activity_log(entity=self.name, last_interaction=frappe.utils.now())
-        frappe.enqueue(
-            notify_share,
-            queue="long",
-            job_id=f"fdocperm_{self.name}",
-            deduplicate=True,
-            timeout=None,
-            now=False,
-            at_front=False,
-            entity_name=self.name,
-            docperm_name=permission.name,
-        )
+        # frappe.enqueue(
+        #     notify_share,
+        #     queue="long",
+        #     job_id=f"fdocperm_{self.name}",
+        #     deduplicate=True,
+        #     timeout=None,
+        #     now=False,
+        #     at_front=False,
+        #     entity_name=self.name,
+        #     docperm_name=permission.name,
+        # )
+        notify_share(self.name, permission.name)
 
     def _share_children_bulk(
         self, user=None, read=None, comment=None, share=None, write=None, valid_until=""
