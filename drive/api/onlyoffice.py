@@ -8,6 +8,17 @@ import json
 
 
 @frappe.whitelist()
+def get_onlyoffice_url():
+    """
+    Lấy URL OnlyOffice từ cấu hình
+    """
+    onlyoffice_url = frappe.conf.get("onlyoffice_url")
+    if not onlyoffice_url:
+        return "https://onlyoffice.nextgrp.vn/"
+    return onlyoffice_url.rstrip("/")
+
+
+@frappe.whitelist()
 def get_editor_config(entity_name):
     """
     Build OnlyOffice editor config with optimized settings for smooth collaboration
@@ -47,7 +58,7 @@ def get_editor_config(entity_name):
         # Callback URL for saving
         callback_url = f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
         # callback_url = (
-        #     "https://4a4650b44cee.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
+        #     "https://8d1c129261f4.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
         # )
 
         # Build config với các tối ưu cho collaborative editing

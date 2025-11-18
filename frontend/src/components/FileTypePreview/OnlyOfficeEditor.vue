@@ -111,11 +111,11 @@ const saveTimeoutRef = ref(null)
 const isSavingManually = ref(false)
 const isFullscreen = ref(false) // Track fullscreen state
 
-const ONLYOFFICE_URL =
-  window.frappe?.settings?.onlyoffice_url || "https://onlyoffice.nextgrp.vn/"
-
-console.log("🔧 OnlyOffice URL:", ONLYOFFICE_URL)
-console.log("📄 Preview Entity:", props.previewEntity)
+const ONLYOFFICE_URL = createResource({
+  url: "drive.api.onlyoffice.get_onlyoffice_url",
+  auto: true,
+  transform: (data) => data.message,
+})
 
 // Computed styles
 const containerStyle = computed(() => ({
