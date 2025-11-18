@@ -221,7 +221,7 @@ function loadOnlyOfficeScript() {
 }
 
 function fetchEditorConfig() {
-  console.log("🔍 [3] Fetching editor config...")
+  console.log("🔍 [3] Fetching editor config...") 
 
   if (!props.previewEntity || !props.previewEntity.name) {
     console.error("❌ No previewEntity")
