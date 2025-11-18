@@ -111,11 +111,7 @@ const saveTimeoutRef = ref(null)
 const isSavingManually = ref(false)
 const isFullscreen = ref(false) // Track fullscreen state
 
-const ONLYOFFICE_URL = createResource({
-  url: "drive.api.onlyoffice.get_onlyoffice_url",
-  auto: true,
-  transform: (data) => data.message,
-})
+const ONLYOFFICE_URL = "https://onlyoffice.nextgrp.vn/"
 
 // Computed styles
 const containerStyle = computed(() => ({
