@@ -190,14 +190,6 @@ scheduler_events = {
 # 	"drive.auth.validate"
 # ]
 
-override_whitelisted_methods = {
-    "drive.api.onlyoffice.save_document": "drive.api.onlyoffice.save_document"
-}
-
-csrf_exempted = {
-    "drive.api.onlyoffice.save_document"
-}
-
 signup_form_template = "templates/signup.html"
 
 

@@ -14,15 +14,6 @@
         <h1 class="file-title">
           {{ previewEntity?.title || "Đang tải..." }}
         </h1>
-
-        <!-- Save status -->
-        <div class="save-status">
-          <component
-            :is="getStatusIcon()"
-            :class="getStatusIconClass()"
-          />
-          <span>{{ getStatusText() }}</span>
-        </div>
       </div>
 
       <div class="status-right">
@@ -38,17 +29,6 @@
           <UsersIcon class="icon" />
           <span>{{ activeUsers }} người đang chỉnh sửa</span>
         </div>
-
-        <!-- Manual save button -->
-        <Button
-          v-if="saveStatus === 'unsaved'"
-          @click="triggerManualSave"
-          :loading="saveStatus === 'saving'"
-          class="save-button"
-        >
-          <SaveIcon class="icon" />
-          Lưu ngay
-        </Button>
       </div>
     </div>
 
@@ -310,29 +290,20 @@ function initEditor(config) {
         onAppReady: () => {
           console.log("✅ [6] Editor ready!")
           loading.value = false
-          saveStatus.value = "saved"
+          
         },
 
         onDocumentReady: () => {
           console.log("📄 Document ready")
-          saveStatus.value = "saved"
+          
         },
 
         onDocumentStateChange: (event) => {
           console.log("📝 Document state changed:", event.data)
           if (event.data) {
-            saveStatus.value = "unsaved"
-
             if (saveTimeoutRef.value) {
               clearTimeout(saveTimeoutRef.value)
             }
-
-            saveTimeoutRef.value = setTimeout(() => {
-              if (saveStatus.value === "unsaved") {
-                saveStatus.value = "saving"
-                console.log("⏰ Auto-save sẽ diễn ra...")
-              }
-            }, 29000)
           }
         },
 
@@ -345,10 +316,10 @@ function initEditor(config) {
 
         onRequestSave: () => {
           console.log("💾 Save requested by user")
-          saveStatus.value = "saving"
+          
 
           saveTimeoutRef.value = setTimeout(() => {
-            saveStatus.value = "saved"
+            
             lastSaved.value = new Date()
           }, 3000)
         },
@@ -433,56 +404,6 @@ function initEditor(config) {
   }
 }
 
-// Save functions
-async function triggerManualSave() {
-  if (isSavingManually.value) {
-    console.log("⚠️ Save already in progress, skipping...")
-    return
-  }
-
-  console.log("💾 Triggering manual save...")
-  isSavingManually.value = true
-  saveStatus.value = "saving"
-
-  try {
-    const response = await fetch(
-      "/api/method/drive.api.onlyoffice.force_save_document",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Frappe-CSRF-Token": window.csrf_token || "",
-        },
-        body: JSON.stringify({
-          entity_name: props.previewEntity.name,
-        }),
-      }
-    )
-
-    const result = await response.json()
-
-    if (result.message?.success) {
-      console.log("✅ Force save triggered successfully")
-      lastSaved.value = new Date()
-
-      if (saveTimeoutRef.value) {
-        clearTimeout(saveTimeoutRef.value)
-      }
-
-      saveTimeoutRef.value = setTimeout(() => {
-        saveStatus.value = "saved"
-        isSavingManually.value = false
-        console.log("✅ Save completed")
-      }, 3000)
-    } else {
-      throw new Error("Force save failed")
-    }
-  } catch (err) {
-    console.error("❌ Error triggering manual save:", err)
-    saveStatus.value = "unsaved"
-    isSavingManually.value = false
-  }
-}
 
 async function handleCloseDocument() {
   console.log("🚪 Closing document...")
@@ -518,48 +439,6 @@ function downloadFile() {
   const entity = props.previewEntity
   console.log("📥 Downloading file:", entity.name)
   window.location.href = `/api/method/drive.api.files.get_file_content?entity_name=${entity.name}&trigger_download=1`
-}
-
-// UI helper functions
-function getStatusIcon() {
-  switch (saveStatus.value) {
-    case "saving":
-      return ClockIcon
-    case "saved":
-      return CheckCircleIcon
-    case "unsaved":
-      return AlertCircleIcon
-    default:
-      return null
-  }
-}
-
-function getStatusIconClass() {
-  switch (saveStatus.value) {
-    case "saving":
-      return "status-icon saving"
-    case "saved":
-      return "status-icon saved"
-    case "unsaved":
-      return "status-icon unsaved"
-    default:
-      return "status-icon"
-  }
-}
-
-function getStatusText() {
-  switch (saveStatus.value) {
-    case "saving":
-      return "Đang lưu..."
-    case "saved":
-      return lastSaved.value
-        ? `Đã lưu lúc ${lastSaved.value.toLocaleTimeString("vi-VN")}`
-        : "Đã lưu"
-    case "unsaved":
-      return "Có thay đổi chưa lưu"
-    default:
-      return ""
-  }
 }
 </script>
 
