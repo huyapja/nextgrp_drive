@@ -56,10 +56,10 @@ def get_editor_config(entity_name):
         document_type = get_document_type(file_ext)
 
         # Callback URL for saving
-        callback_url = f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
-        # callback_url = (
-        #     "https://8d1c129261f4.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
-        # )
+        # callback_url = f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
+        callback_url = (
+            "https://bd3eb031ab23.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
+        )
 
         # Build config với các tối ưu cho collaborative editing
         config = {
@@ -81,7 +81,7 @@ def get_editor_config(entity_name):
                 },
             },
             "editorConfig": {
-                "mode": "edit",
+                "mode": "edit" if has_edit_permission(entity_name) else "view",
                 "lang": "vi",
                 "callbackUrl": callback_url,  # QUAN TRỌNG: Callback để lưu
                 "user": {
@@ -140,7 +140,8 @@ def save_document():
         status = data.get("status")
         key = data.get("key")
         url = data.get("url")
-
+        users = data.get("users", [])
+        print(f"=== OnlyOffice save callback received ===")
         # Status meanings:
         # 0 - NotFound (document not found)
         # 1 - Editing (document being edited)
@@ -175,9 +176,11 @@ def save_document():
                 # CRITICAL: Switch to document owner context
                 frappe.set_user(doc.owner)
                 # Verify write permission
-                if not frappe.has_permission("Drive File", doc=entity_name, ptype="write"):
+                if not has_edit_permission(entity_name):
+                    print(
+                        f"❌ No write permission for user {frappe.session.user} on {entity_name}"
+                    )
                     return {"error": 1}
-
                 # Status 2: Save synchronously (document closed)
                 if status == 2:
                     success = save_document_sync(entity_name, url, key)
@@ -209,35 +212,6 @@ def save_document():
 
     except Exception as e:
         return {"error": 1}
-
-
-@frappe.whitelist()
-def force_save_document(entity_name):
-    """
-    API để frontend chủ động trigger force save
-    OnlyOffice sẽ gọi callback với status = 6
-    """
-    try:
-        print(f"🔄 Force save requested for: {entity_name}")
-
-        # Check permission
-        # if not frappe.has_permission("Drive File", doc=entity_name, ptype="write"):
-        #     frappe.throw("You do not have permission to save this file")
-
-        # Verify file exists
-        if not frappe.db.exists("Drive File", entity_name):
-            frappe.throw("File not found")
-
-        # Return success - OnlyOffice sẽ tự động trigger callback
-        return {
-            "success": True,
-            "message": "Force save triggered",
-            "timestamp": datetime.now().isoformat(),
-        }
-
-    except Exception as e:
-        print(f"❌ Error in force_save_document: {str(e)}")
-        frappe.throw(str(e))
 
 
 @frappe.whitelist()
@@ -318,17 +292,169 @@ def close_document(entity_name):
         frappe.throw(str(e))
 
 
+@frappe.whitelist()
+def revoke_editing_access(entity_name, user_email):
+    """
+    Thu hồi quyền edit và force reload editor của user
+    """
+    try:
+        print(f"=== Revoking edit access: {user_email} on {entity_name} ===")
+
+        # 1. Kiểm tra quyền
+        if not frappe.has_permission("Drive File", doc=entity_name, ptype="write"):
+            frappe.throw("Bạn không có quyền thực hiện thao tác này")
+
+        # 2. Tăng version để invalidate document key
+        entity = frappe.get_doc("Drive File", entity_name)
+        current_version = entity.get("onlyoffice_version") or 1
+        entity.onlyoffice_version = current_version + 1
+        entity.save(ignore_permissions=True)
+
+        print(f"📌 Version increased: {current_version} → {entity.onlyoffice_version}")
+
+        # 3. ⭐ Prepare message
+        message = {
+            "entity_name": entity_name,
+            "action": "revoked",
+            "new_permission": "view",
+            "reason": "Owner changed your permission",
+            "timestamp": frappe.utils.now(),
+            "new_version": entity.onlyoffice_version,
+        }
+
+        print(f"📦 Message to send: {message}")
+        print(f"👤 Target user: {user_email}")
+
+        # ⭐ Emit realtime event để frontend nhận được
+        frappe.publish_realtime(
+            event="permission_revoked",
+            message=message,
+            user=user_email,
+            after_commit=True,
+        )
+        print(f"✅ Event emitted to user: {user_email}")
+        frappe.publish_realtime(
+            event="msgprint",
+            message={
+                "message": f"Quyền chỉnh sửa file '{entity.title}' đã bị thu hồi",
+                "indicator": "red",
+                "title": "Quyền bị thu hồi",
+            },
+            user=user_email,
+            after_commit=True,
+        )
+
+        # 4. Drop user từ OnlyOffice
+        try:
+            drop_user_from_document(entity_name, user_email, current_version)
+        except Exception as e:
+            print(f"⚠️ Could not drop user from OnlyOffice: {e}")
+
+        frappe.db.commit()
+
+        print(f"✅ ✅ ✅ ALL EVENTS EMITTED SUCCESSFULLY ✅ ✅ ✅")
+
+        return {
+            "success": True,
+            "message": f"Đã thu hồi quyền chỉnh sửa của {user_email}",
+            "new_version": entity.onlyoffice_version,
+        }
+
+    except Exception as e:
+        print(f"❌ Error revoking access: {str(e)}")
+        frappe.log_error(f"Revoke access error: {str(e)}")
+        frappe.db.rollback()
+        frappe.throw(f"Không thể thu hồi quyền: {str(e)}")
+
+
+def drop_user_from_document(entity_name, user_id, old_version):
+    """
+    Gọi OnlyOffice Command Service để kick user
+    """
+    try:
+        entity = frappe.get_doc("Drive File", entity_name)
+
+        # Generate key cũ với version cũ
+        timestamp = int(entity.modified.timestamp())
+        key_string = f"{entity.name}_{timestamp}_{old_version}"
+        hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
+        old_key = f"{entity.name}_{timestamp}_{old_version}_{hash_part}_True"
+
+        print(f"🔑 Using old key to drop user: {old_key[:50]}...")
+
+        # OnlyOffice Command Service
+        ONLYOFFICE_URL = get_onlyoffice_url()
+        command_url = f"{ONLYOFFICE_URL}/coauthoring/CommandService.ashx"
+
+        command = {"c": "drop", "key": old_key, "userdata": user_id}
+
+        # JWT
+        secret = frappe.conf.get("onlyoffice_jwt_secret")
+        if secret:
+            token = jwt.encode(command, secret, algorithm="HS256")
+            command_token = token if isinstance(token, str) else token.decode()
+
+            payload = {"token": command_token}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {command_token}",
+            }
+        else:
+            payload = command
+            headers = {"Content-Type": "application/json"}
+
+        print(f"📡 Sending drop command to: {command_url}")
+
+        response = requests.post(command_url, json=payload, headers=headers, timeout=10)
+
+        result = response.json()
+        print(f"✅ Drop command result: {result}")
+
+        return result
+
+    except Exception as e:
+        print(f"❌ Error dropping user: {str(e)}")
+        frappe.log_error(f"Drop user error: {str(e)}")
+        return {"error": -1, "message": str(e)}
+
+
+@frappe.whitelist()
+def check_current_permission(entity_name):
+    """
+    Check quyền hiện tại của user
+    """
+    try:
+        has_edit = has_edit_permission(entity_name)
+        entity = frappe.get_doc("Drive File", entity_name)
+
+        return {
+            "permission": "edit" if has_edit else "view",
+            "can_edit": has_edit,
+            "can_download": frappe.has_permission("Drive File", doc=entity_name, ptype="read"),
+            "current_version": entity.get("onlyoffice_version") or 1,
+        }
+    except Exception as e:
+        frappe.throw(f"Error checking permission: {str(e)}")
+
+
 def generate_document_key(entity):
     """
-    Tạo document key thông minh:
-    - Dùng modified timestamp để track versions
-    - Thêm hash để tránh conflict
+    Tạo document key với version để invalidate sessions
     """
-    import time
+    # Lấy version, mặc định là 1
+    version = entity.get("onlyoffice_version") or 1
 
     timestamp = int(entity.modified.timestamp())
-    hash_part = hashlib.md5(f"{entity.name}{timestamp}".encode()).hexdigest()[:8]
-    return f"{entity.name}_{timestamp}_{hash_part}"
+
+    # Key format: entityname_timestamp_version_hash
+    key_string = f"{entity.name}_{timestamp}_{version}"
+    hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
+
+    key = f"{entity.name}_{timestamp}_{version}_{hash_part}_{has_edit_permission(entity.name)}"
+
+    print(f"🔑 Generated key with version {version}: {key[:50]}...")
+
+    return key
 
 
 def has_edit_permission(entity_name):

@@ -112,7 +112,7 @@
       </div>
     </div>
     <div
-      class="flex flex-row items-center h-full gap-[17px] pt-3 px-2 z-0 bg-surface-white"
+      class="flex flex-row items-center h-full gap-[12px] pt-3 px-2 z-0 bg-surface-white"
       v-if="route.name === 'File'"
     >
       <!-- <Button
@@ -154,7 +154,11 @@
           "
         />
       </Button> -->
-
+      
+        <Button :variant="'ghost'" @click="enterFullScreen">
+          <LucideScan class="w-4 h-4" />
+        </Button>
+      
       <Button
         class="text-ink-gray-5 !px-0"
         :class="[
@@ -535,6 +539,31 @@ const createOptions = [
     onClick: () => emitter.emit("newLink"),
   },
 ]
+
+function enterFullScreen() {
+  const container = document.querySelector('.onlyoffice-container')
+  
+  if (!container) {
+    console.error('Container not found')
+    return
+  }
+  
+  try {
+    if (container.requestFullscreen) {
+      container.requestFullscreen()
+    } else if (container.webkitRequestFullscreen) {
+      container.webkitRequestFullscreen()
+    } else if (container.mozRequestFullScreen) {
+      container.mozRequestFullScreen()
+    } else if (container.msRequestFullscreen) {
+      container.msRequestFullscreen()
+    }
+    console.log('🖥️ Entering fullscreen...')
+  } catch (err) {
+    console.error('❌ Error entering fullscreen:', err)
+  }
+}
+
 </script>
 
 <style scoped>

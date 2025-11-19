@@ -4,33 +4,6 @@
     :style="containerStyle"
   >
     <!-- Status Bar - Hiển thị cả khi fullscreen -->
-    <div
-      v-if="!loading && !error"
-      class="status-bar"
-      :class="{ 'fullscreen-bar': isFullscreen }"
-    >
-      <div class="status-left">
-        <!-- File name -->
-        <h1 class="file-title">
-          {{ previewEntity?.title || "Đang tải..." }}
-        </h1>
-      </div>
-
-      <div class="status-right">
-        <!-- Fullscreen button -->
-        <div class="w-fit items-center justify-center rounded-lg shadow-xl bg-surface-white">
-          <Button :variant="'ghost'" @click="enterFullScreen">
-            <LucideScan class="w-4 h-4" />
-          </Button>
-        </div>
-
-        <!-- Active users indicator -->
-        <div v-if="activeUsers > 1" class="active-users">
-          <UsersIcon class="icon" />
-          <span>{{ activeUsers }} người đang chỉnh sửa</span>
-        </div>
-      </div>
-    </div>
 
     <!-- Loading State -->
     <div v-if="loading" class="loading-container">
@@ -113,6 +86,8 @@ const isFullscreen = ref(false) // Track fullscreen state
 
 const ONLYOFFICE_URL = "https://onlyoffice.nextgrp.vn/"
 
+let socketListener = null
+
 // Computed styles
 const containerStyle = computed(() => ({
   height: isFullscreen.value ? '100vh' : 'calc(100vh - 70px)'
@@ -127,7 +102,6 @@ const editorStyle = computed(() => ({
 // Lifecycle hooks
 onMounted(() => {
   loadOnlyOfficeScript()
-  
   // Listen for fullscreen changes
   document.addEventListener('fullscreenchange', handleFullscreenChange)
   document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
@@ -136,6 +110,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  cleanupSocketListener()
   if (editorInstance.value && editorInstance.value.destroyEditor) {
     try {
       editorInstance.value.destroyEditor()
@@ -155,6 +130,8 @@ onUnmounted(() => {
   document.removeEventListener('msfullscreenchange', handleFullscreenChange)
 })
 
+
+
 // Fullscreen handlers
 function handleFullscreenChange() {
   isFullscreen.value = !!(
@@ -167,29 +144,7 @@ function handleFullscreenChange() {
   console.log('🖥️ Fullscreen mode:', isFullscreen.value)
 }
 
-function enterFullScreen() {
-  const container = document.querySelector('.onlyoffice-container')
-  
-  if (!container) {
-    console.error('Container not found')
-    return
-  }
-  
-  try {
-    if (container.requestFullscreen) {
-      container.requestFullscreen()
-    } else if (container.webkitRequestFullscreen) {
-      container.webkitRequestFullscreen()
-    } else if (container.mozRequestFullScreen) {
-      container.mozRequestFullScreen()
-    } else if (container.msRequestFullscreen) {
-      container.msRequestFullscreen()
-    }
-    console.log('🖥️ Entering fullscreen...')
-  } catch (err) {
-    console.error('❌ Error entering fullscreen:', err)
-  }
-}
+
 
 // OnlyOffice initialization
 function loadOnlyOfficeScript() {
@@ -229,13 +184,6 @@ function fetchEditorConfig() {
     loading.value = false
     return
   }
-
-  console.log(
-    "    📝 Entity:",
-    props.previewEntity.name,
-    "-",
-    props.previewEntity.title
-  )
 
   editorConfigResource.fetch({
     entity_name: props.previewEntity.name,
@@ -361,7 +309,7 @@ function initEditor(config) {
           loading.value = false
         },
 
-        onOutdatedVersion: () => {
+        onRequestRefreshFile: () => {
           console.log("🔄 Outdated version detected")
           error.value = "Phiên bản document đã cũ. Vui lòng tải lại trang."
         },

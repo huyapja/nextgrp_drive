@@ -20,7 +20,8 @@
   "is_active",
   "document",
   "is_private",
-  "old_name"
+  "old_name",
+  "onlyoffice_version"
  ],
  "fields": [
   {
@@ -104,10 +105,16 @@
    "fieldname": "is_link",
    "fieldtype": "Check",
    "label": "Is Link"
+  },
+  {
+   "default": "1",
+   "fieldname": "onlyoffice_version",
+   "fieldtype": "Int",
+   "label": "Onlyoffice Version"
   }
  ],
  "links": [],
- "modified": "2025-09-17 10:38:46.050232",
+ "modified": "2025-11-19 11:31:43.190138",
  "modified_by": "hoa00001@gmail.com",
  "module": "Drive",
  "name": "Drive File",

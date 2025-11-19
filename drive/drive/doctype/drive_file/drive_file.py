@@ -14,6 +14,7 @@ from drive.api.files import get_ancestors_of
 from drive.utils.files import generate_upward_path
 from drive.api.activity import create_new_activity_log, create_new_entity_activity_log
 from drive.api.permissions import user_has_permission
+from drive.api.onlyoffice import revoke_editing_access
 
 
 class DriveFile(Document):
@@ -550,6 +551,9 @@ class DriveFile(Document):
                 write=write,
                 valid_until=valid_until,
             )
+        if write == 0:
+            print(f"DEBUG - Shared {self.name} with {user} {write} - Permissions updated.")
+            revoke_editing_access(self.name, user)
 
         create_new_activity_log(entity=self.name, last_interaction=frappe.utils.now())
         # frappe.enqueue(

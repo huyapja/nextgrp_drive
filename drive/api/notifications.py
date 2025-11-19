@@ -258,7 +258,7 @@ def create_notification(from_user, to_user, type, entity, message=None, comment_
             "message": message,
             "id_team": entity.team,
             "file_name": entity.title,
-            "comment_id": comment_id,
+            "comment_id": comment_id if comment_id else "",
         }
     )
     try:
