@@ -93,12 +93,17 @@ def get_editor_config(entity_name):
                     "autosave": True,  # Tự động lưu
                     "autosaveTimeout": 30000,  # Lưu mỗi 30s (thay vì 5 phút mặc định)
                     "forcesave": True,  # Bật force save
+                    "notifyOnClose": True,  # ✅ Trigger callback khi user đóng file
                     "compactToolbar": False,
                     "feedback": False,
                     "about": False,
                     "chat": True,  # Bật chat cho collaboration
                     "comments": True,  # Bật comments
                     "plugins": True,
+                },
+                "events": {
+                    "onDocumentReady": "onDocumentReady",
+                    "onDocumentStateChange": "onDocumentStateChange",
                 },
                 "coEditing": {
                     "mode": "fast",  # "fast" mode cho real-time collaboration

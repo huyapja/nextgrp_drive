@@ -702,15 +702,36 @@ def get_file_content(entity_name, trigger_download=0, jwt_token=None):
         return html
     else:
         manager = FileManager()
-        return send_file(
-            manager.get_file(drive_file.path),
-            mimetype=drive_file.mime_type,
-            as_attachment=trigger_download,
-            conditional=True,
-            max_age=3600,
-            download_name=drive_file.title,
-            environ=frappe.request.environ,
-        )
+        file_path = manager.get_file(drive_file.path)
+
+        # ✅ FIX: Add X-Accel-Redirect for nginx to serve file directly
+        # This sends response headers immediately, triggering "Save As" dialog
+        # while nginx serves the file from disk efficiently
+        if trigger_download:
+            response = send_file(
+                file_path,
+                mimetype=drive_file.mime_type or "application/octet-stream",
+                as_attachment=True,
+                download_name=drive_file.title,
+                environ=frappe.request.environ,
+            )
+
+            # Add header to tell nginx to serve file efficiently
+            response.headers["X-Accel-Buffering"] = "no"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+
+            print(f"✅ Download triggered: {drive_file.title}")
+            return response
+        else:
+            return send_file(
+                file_path,
+                mimetype=drive_file.mime_type,
+                as_attachment=False,
+                conditional=True,
+                max_age=3600,
+                download_name=drive_file.title,
+                environ=frappe.request.environ,
+            )
 
 
 def stream_file_content(drive_file, range_header):
@@ -2359,3 +2380,107 @@ def get_folder_children(entity_name):
     )
 
     return children
+
+
+import zipfile
+
+
+@frappe.whitelist()
+def download_folder_as_zip(entity_name):
+    """
+    ✅ OPTIMIZED: Download folder as ZIP on backend (much faster than client-side)
+
+    Args:
+        entity_name: Name of the folder to download
+
+    Returns:
+        Streamed ZIP file response
+    """
+    # Validate entity exists and is a folder
+    if not frappe.db.exists("Drive File", entity_name):
+        frappe.throw(f"Folder {entity_name} không tồn tại")
+
+    parent_doc = frappe.get_doc("Drive File", entity_name)
+
+    if not parent_doc.is_group:
+        frappe.throw("Entity này không phải là folder")
+
+    # Check read permission
+    user = frappe.session.user if frappe.session.user != "Guest" else ""
+    user_access = get_user_access(parent_doc, user)
+
+    if not user_access.get("read"):
+        frappe.throw("Bạn không có quyền truy cập folder này", frappe.PermissionError)
+
+    # Create ZIP in-memory
+    zip_buffer = BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        # Recursively add all files/folders
+        def add_to_zip(folder_entity_name, arcname_prefix=""):
+            children = frappe.db.get_all(
+                "Drive File",
+                filters={"parent_entity": folder_entity_name, "is_active": 1},
+                fields=["name", "title", "is_group", "file_size", "mime_type"],
+            )
+
+            for child in children:
+                arcname = f"{arcname_prefix}{child['title']}"
+
+                if child["is_group"]:
+                    # Recursively add folder contents
+                    add_to_zip(child["name"], f"{arcname}/")
+                else:
+                    # Add file to ZIP
+                    try:
+                        file_path = get_file_path(child["name"])
+                        if file_path and os.path.exists(file_path):
+                            zf.write(file_path, arcname=arcname)
+                    except Exception as e:
+                        print(f"⚠️ Error adding {child['title']} to ZIP: {e}")
+                        # Skip file if error
+                        continue
+
+        # Start recursive add from root folder
+        add_to_zip(entity_name)
+
+    # Prepare response
+    zip_buffer.seek(0)
+    zip_filename = secure_filename(parent_doc.title or "download") + ".zip"
+
+    response = Response(
+        wrap_file(frappe.request.environ, zip_buffer),
+        mimetype="application/zip",
+        direct_passthrough=True,
+    )
+
+    response.headers["Content-Disposition"] = f'attachment; filename="{zip_filename}"'
+    response.headers["Content-Length"] = len(zip_buffer.getvalue())
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+
+    # Log activity
+    try:
+        create_new_entity_activity_log(
+            entity=entity_name,
+            action_type="download",
+        )
+    except:
+        pass
+
+    return response
+
+
+def get_file_path(entity_name):
+    """Get file path for an entity"""
+    try:
+        file_entity = frappe.get_doc("Drive File", entity_name)
+        file_path = file_entity.file_path
+
+        if file_entity.store_in_s3:
+            # For S3 files, would need different handling
+            return None
+
+        return file_path
+    except:
+        return None

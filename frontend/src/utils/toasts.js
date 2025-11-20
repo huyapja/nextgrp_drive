@@ -103,6 +103,33 @@ export function toast(options) {
   return id
 }
 
+export function toastPersistent(options) {
+  // ✅ Toast that does NOT auto-dismiss (for progress/loading)
+  if (typeof options === "string") options = { title: options }
+  let id = `toast-${Math.random().toString(36).slice(2, 9)}`
+  let toast = reactive({
+    key: id,
+    position: "bottom-right",
+    ...options,
+    timeout: null, // No auto-dismiss
+  })
+  toasts.value.push(toast)
+  return id
+}
+
+export function updateToast(id, options) {
+  // ✅ Update existing toast (e.g., change message, icon)
+  const toastItem = toasts.value.find((t) => t.key === id)
+  if (toastItem) {
+    Object.assign(toastItem, options)
+  }
+}
+
+export function removeToast(id) {
+  // ✅ Manually remove toast
+  toasts.value = toasts.value.filter((t) => t.key !== id)
+}
+
 export function toastError(title) {
   toast({
     title,

@@ -81,6 +81,31 @@ const editorStyle = computed(() => ({
   width: '100%'
 }))
 
+// Fullscreen handlers
+function handleFullscreenChange() {
+  isFullscreen.value = !!(
+    document.fullscreenElement ||
+    document.webkitFullscreenElement ||
+    document.mozFullScreenElement ||
+    document.msFullscreenElement
+  )
+  
+  console.log('🖥️ Fullscreen mode:', isFullscreen.value)
+}
+
+// ✅ Handle tab/window close - trigger force save
+function handleBeforeUnload() {
+  console.log("⚠️ Page unload detected - triggering force save...")
+  
+  if (editorInstance.value && editorInstance.value.forceSaveButton) {
+    try {
+      editorInstance.value.forceSaveButton()
+      console.log("💾 Force save triggered on unload")
+    } catch (err) {
+      console.error("Error triggering force save:", err)
+    }
+  }
+}
 
 onMounted(() => {
   loadOnlyOfficeScript()
@@ -90,6 +115,9 @@ onMounted(() => {
   document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
   document.addEventListener('mozfullscreenchange', handleFullscreenChange)
   document.addEventListener('msfullscreenchange', handleFullscreenChange)
+  
+  // ✅ Save on tab/window close
+  window.addEventListener('beforeunload', handleBeforeUnload)
 })
 onUnmounted(() => {
   // cleanupSocketListener()
@@ -108,22 +136,10 @@ onUnmounted(() => {
   document.removeEventListener('webkitfullscreenchange', handleFullscreenChange)
   document.removeEventListener('mozfullscreenchange', handleFullscreenChange)
   document.removeEventListener('msfullscreenchange', handleFullscreenChange)
-})
-
-
-
-// Fullscreen handlers
-function handleFullscreenChange() {
-  isFullscreen.value = !!(
-    document.fullscreenElement ||
-    document.webkitFullscreenElement ||
-    document.mozFullScreenElement ||
-    document.msFullscreenElement
-  )
   
-  console.log('🖥️ Fullscreen mode:', isFullscreen.value)
-}
-
+  // ✅ Remove beforeunload listener
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+})
 
 
 // OnlyOffice initialization
@@ -287,7 +303,12 @@ function initEditor(config) {
         },
 
         onRequestClose: () => {
-          console.log("🚪 Close requested")
+          console.log("🚪 Close requested by user")
+          // ✅ Trigger force save when user closes
+          if (editorInstance.value && editorInstance.value.forceSaveButton) {
+            console.log("💾 Forcing save before close...")
+            editorInstance.value.forceSaveButton()
+          }
           handleCloseDocument()
         },
 
@@ -325,6 +346,15 @@ async function handleCloseDocument() {
   console.log("🚪 Closing document...")
 
   try {
+    // ✅ Step 1: Trigger force save before closing
+    if (editorInstance.value && editorInstance.value.forceSaveButton) {
+      console.log("💾 Triggering force save...")
+      editorInstance.value.forceSaveButton()
+      
+      // Wait a bit for save to complete
+      await new Promise(resolve => setTimeout(resolve, 1000))
+    }
+
     const response = await fetch(
       "/api/method/drive.api.onlyoffice.close_document",
       {
