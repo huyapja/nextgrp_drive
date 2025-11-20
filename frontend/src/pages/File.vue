@@ -102,6 +102,7 @@ const showPermissionModal = ref(false)
 const permissionModalTimer = ref(null)
 const permissionModalCountdown = ref(5)
 const permissionModalMessage = ref("")
+const saveTimeoutRef = ref(null)
 
 const currentEntity = ref(props.entityName)
 

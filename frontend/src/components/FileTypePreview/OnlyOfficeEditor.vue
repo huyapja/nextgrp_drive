@@ -225,9 +225,6 @@ function initEditor(config) {
         onDocumentStateChange: (event) => {
           console.log("📝 Document state changed:", event.data)
           if (event.data) {
-            if (saveTimeoutRef.value) {
-              clearTimeout(saveTimeoutRef.value)
-            }
             // Only handle save operations, permission check is handled by interval
           }
         },
@@ -241,12 +238,6 @@ function initEditor(config) {
 
         onRequestSave: () => {
           console.log("💾 Save requested by user")
-          
-
-          saveTimeoutRef.value = setTimeout(() => {
-            
-            lastSaved.value = new Date()
-          }, 3000)
         },
 
         onWarning: (event) => {
