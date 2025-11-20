@@ -65,7 +65,9 @@ app.use(FrappeUI, { socketio: false })
 const socket = initSocket()
 const realtime = new RealTimeHandler(socket)
 app.provide("realtime", realtime)
+app.provide("socket", socket)
 app.config.globalProperties.$realtime = realtime
+app.config.globalProperties.$socket = socket
 app.directive("on-outside-click", onOutsideClickDirective)
 app.use(
   VueTippy,

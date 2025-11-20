@@ -3,6 +3,23 @@
     class="onlyoffice-container"
     :style="containerStyle"
   >
+    <!-- Permission Modal -->
+    <div v-if="showPermissionModal" class="permission-modal-overlay">
+      <div class="permission-modal">
+        <div class="modal-header">
+          <h3>⚠️ Quyền truy cập đã thay đổi</h3>
+        </div>
+        <div class="modal-body">
+          <p>Quyền chỉnh sửa của bạn đã bị thu hồi hoặc thay đổi.</p>
+          <p>Trang sẽ tải lại trong <strong>{{ permissionModalCountdown }}</strong> giây...</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closePermissionModal">Đóng</button>
+          <button class="btn-primary" @click="reloadPageNow">Tải lại trang</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Status Bar - Hiển thị cả khi fullscreen -->
 
     <!-- Loading State -->
@@ -42,28 +59,12 @@
 
 <script setup>
 import { Button, createResource } from "frappe-ui"
-import { computed, onMounted, onUnmounted, ref } from "vue"
+import { computed, inject, onMounted, onUnmounted, ref } from "vue"
+import store from "../../store"
 
-// Import icons
-const ClockIcon = {
-  template:
-    '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
-}
-const CheckCircleIcon = {
-  template:
-    '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
-}
 const AlertCircleIcon = {
   template:
     '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>',
-}
-const UsersIcon = {
-  template:
-    '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" /></svg>',
-}
-const SaveIcon = {
-  template:
-    '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" /></svg>',
 }
 
 const props = defineProps({
@@ -83,6 +84,10 @@ const lastSaved = ref(null)
 const saveTimeoutRef = ref(null)
 const isSavingManually = ref(false)
 const isFullscreen = ref(false) // Track fullscreen state
+const permissionCheckInterval = ref(null)
+const showPermissionModal = ref(false)
+const permissionModalTimer = ref(null)
+const permissionModalCountdown = ref(5)
 
 const ONLYOFFICE_URL = "https://onlyoffice.nextgrp.vn/"
 
@@ -99,18 +104,190 @@ const editorStyle = computed(() => ({
   width: '100%'
 }))
 
-// Lifecycle hooks
+
+const socket = inject('socket')
+const realtime = inject('realtime')
+
+// Handle permission revoke
+function handlePermissionRevoked(data) {
+  console.log("🚫 Permission revoked handler called")
+  console.log("Data:", data)
+  
+  // Show modal
+  showPermissionModal.value = true
+  permissionModalCountdown.value = 5
+  
+  // Start countdown
+  permissionModalTimer.value = setInterval(() => {
+    permissionModalCountdown.value--
+    if (permissionModalCountdown.value <= 0) {
+      reloadPageNow()
+    }
+  }, 1000)
+}
+
+// Close modal without reloading
+function closePermissionModal() {
+  showPermissionModal.value = false
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+  }
+}
+
+// Reload page immediately
+function reloadPageNow() {
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+  }
+  window.location.reload()
+}
+
+// ⭐ Check permission status via API
+async function checkPermissionStatus(entityName) {
+  try {
+    const response = await fetch(
+      `/api/method/drive.api.onlyoffice.get_permission_status?entity_name=${entityName}`,
+      {
+        headers: {
+          "X-Frappe-CSRF-Token": window.csrf_token || "",
+        },
+      }
+    )
+    
+    const result = await response.json()
+    const data = result.message
+    
+    console.log("📋 Permission check:", data)
+    
+    // If permission changed, handle it
+    if (data.permission_changed) {
+      console.log("🚨 Permission changed detected!")
+      handlePermissionRevoked({
+        reason: "Your edit permission was revoked",
+        entity_name: entityName,
+      })
+      return true
+    }
+    
+    return false
+  } catch (err) {
+    console.error("❌ Permission check failed:", err)
+    return false
+  }
+}
+const currentUserEmail = computed(() => store.state.user.id)
 onMounted(() => {
+  const entityName = props.previewEntity.name
+  
+  console.log("=== SOCKET DEBUG ===")
+  console.log("Socket:", socket)
+  console.log("Socket ID:", socket?.id)
+  console.log("Connected:", socket?.connected)
+  console.log("Entity:", entityName)
+  console.log("📌 Current user:", currentUserEmail.value)
+  
+  if (!socket) {
+    console.error("❌ Socket not injected")
+    return
+  }
+  
+  try {
+    // Method 1: Try onAny (Socket.IO v3+)
+    if (typeof socket.onAny === 'function') {
+      console.log("📍 Using socket.onAny()...")
+      socket.onAny((eventName, ...args) => {
+        console.log(`📨 EVENT RECEIVED: "${eventName}"`, args)
+      })
+    } else {
+      console.log("⚠️ socket.onAny not available")
+    }
+  } catch (err) {
+    console.error("❌ Error with onAny:", err)
+  }
+  
+  // Setup permission_revoked listener
+  try {
+    if (socket.connected) {
+      console.log("✅ Socket connected, setting up listeners")
+      
+      // Listen for custom permission_revoked event
+      socket.on('permission_revoked', (data) => {
+        console.log("🔔 permission_revoked received:", data)
+        if (data && data.entity_name === entityName) {
+          console.log("✅ Event is for current entity, handling...")
+          handlePermissionRevoked(data)
+        }
+      })
+      
+      // Listen for msgprint event (Frappe built-in)
+      socket.on('msgprint', (data) => {
+        console.log("📨 msgprint received:", data)
+        if (data && data.action === 'permission_revoked' && data.entity_name === entityName) {
+          console.log("✅ Permission revoked via msgprint")
+          handlePermissionRevoked(data)
+        }
+      })
+      
+      // Listen for message event
+      socket.on('message', (data) => {
+        console.log("📨 message received:", data)
+        if (data && data.entity_name === entityName && data.action === 'permission_revoked') {
+          handlePermissionRevoked(data)
+        }
+      })
+      
+      // Also listen on realtime if available
+      if (realtime) {
+        realtime.on('permission_revoked', (data) => {
+          console.log("🔔 realtime permission_revoked:", data)
+          if (data && data.entity_name === entityName) {
+            handlePermissionRevoked(data)
+          }
+        })
+        
+        realtime.on('msgprint', (data) => {
+          console.log("📨 realtime msgprint:", data)
+          if (data && data.action === 'permission_revoked') {
+            handlePermissionRevoked(data)
+          }
+        })
+      }
+      
+      console.log("✅ All listeners registered")
+      console.log("Socket callbacks:", socket._callbacks)
+    } else {
+      console.warn("⚠️ Socket not connected")
+    }
+  } catch (err) {
+    console.error("❌ Error setting up listeners:", err.message)
+  }
+  
+  // Start permission check interval (10 seconds) - continuous polling for permission changes
+  // This detects both revoked permissions AND new permissions granted
+  permissionCheckInterval.value = setInterval(() => {
+    console.log("🔄 [INTERVAL 10s] Permission check")
+    checkPermissionStatus(entityName)
+  }, 10000) // 10 seconds - efficient enough, not too heavy
+  
   loadOnlyOfficeScript()
-  // Listen for fullscreen changes
+  
+  // Fullscreen listeners
   document.addEventListener('fullscreenchange', handleFullscreenChange)
   document.addEventListener('webkitfullscreenchange', handleFullscreenChange)
   document.addEventListener('mozfullscreenchange', handleFullscreenChange)
   document.addEventListener('msfullscreenchange', handleFullscreenChange)
 })
-
 onUnmounted(() => {
-  cleanupSocketListener()
+  // cleanupSocketListener()
+  
+  if (permissionCheckInterval.value) {
+    clearInterval(permissionCheckInterval.value)
+  }
+  
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+  }
+  
   if (editorInstance.value && editorInstance.value.destroyEditor) {
     try {
       editorInstance.value.destroyEditor()
@@ -248,6 +425,7 @@ function initEditor(config) {
             if (saveTimeoutRef.value) {
               clearTimeout(saveTimeoutRef.value)
             }
+            // Only handle save operations, permission check is handled by interval
           }
         },
 
@@ -625,6 +803,108 @@ function downloadFile() {
 
 .download-button:hover {
   background: #1d4ed8;
+}
+
+/* Permission Modal */
+.permission-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.permission-modal {
+  background: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  width: 90%;
+  max-width: 32rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+.modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  color: #374151;
+}
+
+.modal-body p {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.modal-body p:last-child {
+  margin-bottom: 0;
+}
+
+.modal-body strong {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.modal-footer {
+  padding: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.btn-secondary,
+.btn-primary {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.btn-secondary {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.btn-secondary:hover {
+  background: #d1d5db;
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes spin {

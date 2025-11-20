@@ -58,7 +58,7 @@ def get_editor_config(entity_name):
         # Callback URL for saving
         # callback_url = f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
         callback_url = (
-            "https://bd3eb031ab23.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
+            "https://27583d0d7ebe.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
         )
 
         # Build config với các tối ưu cho collaborative editing
@@ -293,6 +293,71 @@ def close_document(entity_name):
 
 
 @frappe.whitelist()
+def get_permission_status(entity_name):
+    """
+    Check current permission status of a file for the logged-in user
+    Compares current version with cached version to detect permission changes
+
+    Returns:
+    {
+        "can_edit": bool,
+        "can_read": bool,
+        "permission_changed": bool,
+        "current_version": int,
+        "cached_version": int
+    }
+    """
+    try:
+        print(f"🔍 Checking permission status for: {entity_name}")
+
+        # Check basic read permission
+        if not frappe.has_permission("Drive File", doc=entity_name, ptype="read"):
+            frappe.throw("You do not have permission to access this file")
+
+        # Get entity details
+        entity = frappe.get_doc("Drive File", entity_name)
+        current_version = entity.get("onlyoffice_version") or 1
+
+        # Check edit permission
+        can_edit = frappe.has_permission("Drive File", doc=entity_name, ptype="write")
+
+        # Get cached version from session (frontend passes this)
+        # We store it in session cache to detect permission changes
+        cache_key = f"onlyoffice_version_{entity_name}_{frappe.session.user}"
+        cached_version = frappe.cache().get_value(cache_key)
+
+        if cached_version is None:
+            # First check - initialize cache
+            frappe.cache().set_value(cache_key, current_version, expires_in_sec=3600)
+            permission_changed = False
+            print(f"📝 Initialized cache: version {current_version}")
+        else:
+            cached_version = int(cached_version)
+            # Check if version changed (permission revoked or restored)
+            permission_changed = current_version != cached_version
+            print(
+                f"📊 Version check: cached={cached_version}, current={current_version}, changed={permission_changed}"
+            )
+
+            if permission_changed:
+                # Update cache with new version
+                frappe.cache().set_value(cache_key, current_version, expires_in_sec=3600)
+                print(f"🔄 Cache updated to version {current_version}")
+
+        return {
+            "can_edit": can_edit,
+            "can_read": True,
+            "permission_changed": permission_changed,
+            "current_version": current_version,
+            "cached_version": cached_version or current_version,
+        }
+
+    except Exception as e:
+        print(f"❌ Error checking permission status: {str(e)}")
+        frappe.throw(str(e))
+
+
+@frappe.whitelist()
 def revoke_editing_access(entity_name, user_email):
     """
     Thu hồi quyền edit và force reload editor của user
@@ -326,23 +391,39 @@ def revoke_editing_access(entity_name, user_email):
         print(f"👤 Target user: {user_email}")
 
         # ⭐ Emit realtime event để frontend nhận được
-        frappe.publish_realtime(
-            event="permission_revoked",
-            message=message,
-            user=user_email,
-            after_commit=True,
-        )
-        print(f"✅ Event emitted to user: {user_email}")
-        frappe.publish_realtime(
-            event="msgprint",
-            message={
-                "message": f"Quyền chỉnh sửa file '{entity.title}' đã bị thu hồi",
-                "indicator": "red",
-                "title": "Quyền bị thu hồi",
-            },
-            user=user_email,
-            after_commit=True,
-        )
+        print(f"📡 About to emit realtime event...")
+        print(f"   Event name: permission_revoked")
+        print(f"   Target entity: {entity_name}")
+        print(f"   Message: {message}")
+
+        # Emit using frappe.msgprint with realtime
+        try:
+            # Method 1: Emit custom event
+            result = frappe.publish_realtime(
+                event="permission_revoked",
+                message=message,
+                after_commit=False,
+            )
+            print(f"✅ Custom event emitted")
+
+            # Method 2: Also emit via message (frappe built-in)
+            frappe.publish_realtime(
+                event="msgprint",
+                message={
+                    "message": f"Quyền chỉnh sửa bị thu hồi: {message.get('reason')}",
+                    "title": "Permission Changed",
+                    "indicator": "red",
+                    "entity_name": entity_name,
+                    "action": "permission_revoked",
+                },
+                after_commit=False,
+            )
+            print(f"✅ Message event also emitted")
+        except Exception as e:
+            print(f"❌ publish_realtime failed: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
 
         # 4. Drop user từ OnlyOffice
         try:
@@ -351,6 +432,7 @@ def revoke_editing_access(entity_name, user_email):
             print(f"⚠️ Could not drop user from OnlyOffice: {e}")
 
         frappe.db.commit()
+        print(f"✅ Database committed")
 
         print(f"✅ ✅ ✅ ALL EVENTS EMITTED SUCCESSFULLY ✅ ✅ ✅")
 

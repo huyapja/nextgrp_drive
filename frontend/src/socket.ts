@@ -1,23 +1,29 @@
-import { io } from "socket.io-client"
+import { io, Socket } from "socket.io-client"
 import { socketio_port } from "../../../../sites/common_site_config.json"
 
 export function initSocket(options = {}) {
   let host = window.location.hostname
-  let siteName = import.meta.env.DEV ? host : window.site_name
+  let siteName = "/socket.io/"
   let port = window.location.port ? `:${socketio_port}` : ""
   let protocol = port ? "http" : "https"
   let url = `${protocol}://${host}${port}/`
+
+  console.log("url", url, "sitename", siteName, "port", port, "protocol", protocol)
   // add exponential backoff
   let socket = io(url, {
     path: `${siteName}`,
-    withCredentials: true,
     reconnectionAttempts: 5,
     transports: ["websocket", "polling"],
+    timeout: 1000
   })
 
-  // socket.on("connect_error", (data) => {
-  //   console.log(data)
-  // })
+  socket.on("connect", () => {
+    console.log("✅ THÀNH CÔNG!", socket.id)
+  })
+
+  socket.on("connect_error", (error) => {
+    console.error("❌ Lỗi:", error.message)
+  })
   return socket
 }
 

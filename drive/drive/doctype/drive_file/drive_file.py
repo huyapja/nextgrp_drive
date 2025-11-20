@@ -493,13 +493,6 @@ class DriveFile(Document):
     def share(self, user=None, read=None, comment=None, share=None, write=None, valid_until=""):
         """
         Share this file or folder with the specified user.
-        If it has already been shared, update permissions.
-        Share defaults to one to let the non owner user unshare a file.
-        If sharing a folder, automatically share all children with same permissions.
-
-        :param user: User with whom this is to be shared
-        :param write: 1 if write permission is to be granted. Defaults to 0
-        :param share: 1 if share permission is to be granted. Defaults to 0
         """
         if frappe.session.user != self.owner:
             if not frappe.has_permission(
@@ -524,10 +517,15 @@ class DriveFile(Document):
                 "user": user or "",
             },
         )
-        if not permission:
-            permission = frappe.new_doc("Drive Permission")
+
+        # ✅ Check nếu user đang có quyền write và bị giảm xuống
+        old_write_permission = False
+        if permission:
+            old_permission = frappe.get_doc("Drive Permission", permission)
+            old_write_permission = old_permission.write
+            permission = old_permission
         else:
-            permission = frappe.get_doc("Drive Permission", permission)
+            permission = frappe.new_doc("Drive Permission")
 
         levels = [["read", read], ["comment", comment], ["share", share], ["write", write]]
         permission.update(
@@ -541,7 +539,10 @@ class DriveFile(Document):
 
         permission.save(ignore_permissions=True)
 
-        # ✅ Nếu đây là folder, tự động chia sẻ tất cả children bằng SQL
+        # ✅ Nếu đây là folder, tự động chia sẻ tất cả children
+        revoke_editing_access(self.name, user)
+        if old_write_permission and not write:
+            print(f"📉 User {user} write permission changed: True → False")
         if self.is_group:
             self._share_children_bulk(
                 user=user,
@@ -551,22 +552,9 @@ class DriveFile(Document):
                 write=write,
                 valid_until=valid_until,
             )
-        if write == 0:
-            print(f"DEBUG - Shared {self.name} with {user} {write} - Permissions updated.")
-            revoke_editing_access(self.name, user)
+        # ✅ Chỉ revoke nếu user đang có write và bị giảm xuống
 
         create_new_activity_log(entity=self.name, last_interaction=frappe.utils.now())
-        # frappe.enqueue(
-        #     notify_share,
-        #     queue="long",
-        #     job_id=f"fdocperm_{self.name}",
-        #     deduplicate=True,
-        #     timeout=None,
-        #     now=False,
-        #     at_front=False,
-        #     entity_name=self.name,
-        #     docperm_name=permission.name,
-        # )
         notify_share(self.name, permission.name)
 
     def _share_children_bulk(
