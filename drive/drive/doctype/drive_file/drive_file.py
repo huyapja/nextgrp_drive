@@ -726,6 +726,7 @@ class DriveFile(Document):
             },
         )
         if perm_name:
+            revoke_editing_access(self.name, user)
             frappe.delete_doc("Drive Permission", perm_name, ignore_permissions=True)
 
     @frappe.whitelist()

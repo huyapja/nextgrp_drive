@@ -50,6 +50,22 @@
 
     <InfoSidebar />
   </div>
+  <!-- Permission Modal -->
+    <div v-if="showPermissionModal" class="permission-modal-overlay">
+      <div class="permission-modal">
+        <div class="modal-header">
+          <h3>⚠️ Quyền truy cập đã thay đổi</h3>
+        </div>
+        <div class="modal-body">
+          <p>{{ permissionModalMessage }}</p>
+          <p>Trang sẽ tải lại trong <strong>{{ permissionModalCountdown }}</strong> giây...</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn-secondary" @click="closePermissionModal">Đóng</button>
+          <button class="btn-primary" @click="reloadPageNow">Tải lại ngay</button>
+        </div>
+      </div>
+    </div>
 </template>
 
 <script setup>
@@ -64,6 +80,7 @@ import {
   inject,
   onBeforeUnmount,
   onMounted,
+  onUnmounted,
   ref,
 } from "vue"
 import { useRoute, useRouter } from "vue-router"
@@ -79,6 +96,12 @@ const props = defineProps({
   entityName: String,
   team: String,
 })
+
+const permissionCheckInterval = ref(null)
+const showPermissionModal = ref(false)
+const permissionModalTimer = ref(null)
+const permissionModalCountdown = ref(5)
+const permissionModalMessage = ref("")
 
 const currentEntity = ref(props.entityName)
 
@@ -159,7 +182,90 @@ function scrollEntity(negative = false) {
   if (currentEntity.value) fetchFile(currentEntity.value.name)
 }
 
+// Close modal without reloading
+function closePermissionModal() {
+  showPermissionModal.value = false
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+  }
+}
+
+// Reload page immediately
+function reloadPageNow() {
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+  }
+  window.location.reload()
+}
+
+// Handle permission revoke or unshare
+function handlePermissionRevoked(data) {
+  console.log("🚫 Permission revoked handler called")
+  console.log("Data:", data)
+  
+  // Determine message based on type
+  if (data.unshared) {
+    permissionModalMessage.value = "Tệp này đã được gỡ chia sẻ với bạn. Bạn không còn có quyền truy cập."
+  } else if (data.can_edit === false) {
+    permissionModalMessage.value = "Quyền truy cập của bạn đã thay đổi."
+  } else {
+    permissionModalMessage.value = "Quyền truy cập của bạn đã thay đổi."
+  }
+  
+  // Show modal
+  showPermissionModal.value = true
+  permissionModalCountdown.value = 5
+  
+  // Start countdown
+  permissionModalTimer.value = setInterval(() => {
+    permissionModalCountdown.value--
+    if (permissionModalCountdown.value <= 0) {
+      reloadPageNow()
+    }
+  }, 1000)
+}
+
+// ⭐ Check permission status via API
+async function checkPermissionStatus(entityName) {
+  try {
+    const response = await fetch(
+      `/api/method/drive.api.onlyoffice.get_permission_status?entity_name=${entityName}`,
+      {
+        headers: {
+          "X-Frappe-CSRF-Token": window.csrf_token || "",
+        },
+      }
+    )
+    
+    const result = await response.json()
+    const data = result.message
+    
+    console.log("📋 Permission check:", data)
+    
+    // If permission changed, handle it
+    if (data.permission_changed) {
+      console.log("🚨 Permission changed detected!")
+      handlePermissionRevoked({
+        reason: "Your edit permission was revoked",
+        entity_name: entityName,
+        can_edit: data.can_edit,
+        unshared: data.unshared,
+      })
+      return true
+    }
+    
+    return false
+  } catch (err) {
+    console.error("❌ Permission check failed:", err)
+    return false
+  }
+}
+
 onMounted(() => {
+  permissionCheckInterval.value = setInterval(() => {
+    console.log("🔄 [INTERVAL 10s] Permission check")
+    checkPermissionStatus(props.entityName)
+  }, 10000) 
   // Lưu thông tin file share nếu user chưa login
   if (!store.getters.isLoggedIn) {
     const sharedFileInfo = {
@@ -177,6 +283,20 @@ onMounted(() => {
     store.state.connectedUsers = data.users
     userInfo.submit({ users: JSON.stringify(data.users) })
   })
+})
+
+onUnmounted(() => {
+  if (permissionCheckInterval.value) {
+    clearInterval(permissionCheckInterval.value)
+  }
+  
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+  }
+
+  if (saveTimeoutRef.value) {
+    clearTimeout(saveTimeoutRef.value)
+  }
 })
 
 onBeforeUnmount(() => {
@@ -223,5 +343,107 @@ let userInfo = createResource({
   height: 100%;
   left: 0;
   top: 0;
+}
+
+/* Permission Modal */
+.permission-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.permission-modal {
+  background: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  width: 90%;
+  max-width: 32rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+.modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.modal-body {
+  padding: 1.5rem;
+  color: #374151;
+}
+
+.modal-body p {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.modal-body p:last-child {
+  margin-bottom: 0;
+}
+
+.modal-body strong {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.modal-footer {
+  padding: 1.5rem;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 1rem;
+  justify-content: flex-end;
+}
+
+.btn-secondary,
+.btn-primary {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: none;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.btn-secondary {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+.btn-secondary:hover {
+  background: #d1d5db;
+}
+
+.btn-primary {
+  background: #2563eb;
+  color: white;
+}
+
+.btn-primary:hover {
+  background: #1d4ed8;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>

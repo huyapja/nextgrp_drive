@@ -297,12 +297,14 @@ def get_permission_status(entity_name):
     """
     Check current permission status of a file for the logged-in user
     Compares current version with cached version to detect permission changes
+    Also detects if file was unshared (no read access)
 
     Returns:
     {
         "can_edit": bool,
         "can_read": bool,
         "permission_changed": bool,
+        "unshared": bool,  # True if file was unshared (no read access)
         "current_version": int,
         "cached_version": int
     }
@@ -311,8 +313,19 @@ def get_permission_status(entity_name):
         print(f"🔍 Checking permission status for: {entity_name}")
 
         # Check basic read permission
-        if not frappe.has_permission("Drive File", doc=entity_name, ptype="read"):
-            frappe.throw("You do not have permission to access this file")
+        has_read = frappe.has_permission("Drive File", doc=entity_name, ptype="read")
+
+        # If no read permission, file was unshared
+        if not has_read:
+            print(f"❌ No read permission - file unshared!")
+            return {
+                "can_edit": False,
+                "can_read": False,
+                "permission_changed": True,
+                "unshared": True,
+                "current_version": 0,
+                "cached_version": None,
+            }
 
         # Get entity details
         entity = frappe.get_doc("Drive File", entity_name)
@@ -348,6 +361,7 @@ def get_permission_status(entity_name):
             "can_edit": can_edit,
             "can_read": True,
             "permission_changed": permission_changed,
+            "unshared": False,
             "current_version": current_version,
             "cached_version": cached_version or current_version,
         }
@@ -498,25 +512,6 @@ def drop_user_from_document(entity_name, user_id, old_version):
         print(f"❌ Error dropping user: {str(e)}")
         frappe.log_error(f"Drop user error: {str(e)}")
         return {"error": -1, "message": str(e)}
-
-
-@frappe.whitelist()
-def check_current_permission(entity_name):
-    """
-    Check quyền hiện tại của user
-    """
-    try:
-        has_edit = has_edit_permission(entity_name)
-        entity = frappe.get_doc("Drive File", entity_name)
-
-        return {
-            "permission": "edit" if has_edit else "view",
-            "can_edit": has_edit,
-            "can_download": frappe.has_permission("Drive File", doc=entity_name, ptype="read"),
-            "current_version": entity.get("onlyoffice_version") or 1,
-        }
-    except Exception as e:
-        frappe.throw(f"Error checking permission: {str(e)}")
 
 
 def generate_document_key(entity):
