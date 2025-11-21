@@ -1,11 +1,11 @@
 <template>
-    <Avatar v-if="image" :image="image" :size="size" :shape="shape" />
+    <Avatar v-if="image" :image="image" :size="size" :shape="shape" class="min-h-8 min-w-8"/>
     <Avatar
         v-else
         :label="label"
         :size="size"
         :shape="shape"
-        :class="randomBgClass + ' text-white'"
+        :class="randomBgClass + ' text-white min-h-8 min-w-8'"
     />
 </template>
 <script setup>

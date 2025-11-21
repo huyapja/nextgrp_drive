@@ -10,8 +10,8 @@
 
   <transition name="slide">
     <div
-      v-if="!isDrawer || (isDrawer && visible)"
-      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-50"
+      v-if="visible"
+      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-5"
       :class="isDrawer ? 'fixed right-0 top-0 min-w-[276px] max-w-[276px] h-full shadow-lg' : ''"
     >
       <!-- Header -->
@@ -198,6 +198,7 @@ let hideTimeout = null
 // Computed để sync với v-model từ parent
 const visible = computed({
   get() {
+    console.log('🟡 visible getter called, modelValue:', props.modelValue, 'internalVisible:', internalVisible.value)
     // Nếu có modelValue từ parent, dùng nó
     if (props.modelValue !== undefined) {
       return props.modelValue
@@ -206,8 +207,18 @@ const visible = computed({
     return internalVisible.value
   },
   set(value) {
+    console.log('🟢 visible.value setter called with:', value)
     internalVisible.value = value
     emit('update:modelValue', value)
+    console.log('🟢 Emitted update:modelValue with:', value)
+  }
+})
+
+// Watch để ensure internal state sync với prop
+watch(() => props.modelValue, (newVal) => {
+  console.log('🟣 props.modelValue changed to:', newVal)
+  if (newVal !== undefined) {
+    internalVisible.value = newVal
   }
 })
 
@@ -221,10 +232,8 @@ function checkScreenWidth() {
   const newIsDrawer = window.innerWidth + 250 < 1600
   isDrawer.value = newIsDrawer
   
-  // Nếu không phải drawer mode (desktop), tự động hiển thị
-  if (!newIsDrawer && props.modelValue === undefined) {
-    internalVisible.value = true
-  }
+  // ✅ FIX: Không tự động set visible=true trên desktop
+  // Parent sẽ control visible state via v-model
 }
 
 onMounted(() => {
@@ -284,8 +293,11 @@ const getInitials = (fullName) => {
 }
 
 const handleClose = () => {
-  visible.value = false
+  console.log('🔵 handleClose called')
+  internalVisible.value = false
+  emit('update:modelValue', false)
   emit('close')
+  console.log('🔵 All close events emitted')
 }
 
 const handleMemberHover = (event, member, type) => {
