@@ -103,6 +103,7 @@ const permissionModalTimer = ref(null)
 const permissionModalCountdown = ref(5)
 const permissionModalMessage = ref("")
 const saveTimeoutRef = ref(null)
+const cachedPermissionVersion = ref(null)  // ✅ Lưu version quyền hiện tại
 
 const currentEntity = ref(props.entityName)
 
@@ -242,12 +243,22 @@ async function checkPermissionStatus(entityName) {
     const data = result.message
     
     console.log("📋 Permission check:", data)
+    console.log(`   Version: cached=${cachedPermissionVersion.value}, current=${data.current_version}`)
     
-    // If permission changed, handle it
-    if (data.permission_changed) {
-      console.log("🚨 Permission changed detected!")
+    // ✅ Lần đầu tiên: lưu version hiện tại
+    if (cachedPermissionVersion.value === null) {
+      cachedPermissionVersion.value = data.current_version
+      console.log(`✅ Initialized cached version: ${cachedPermissionVersion.value}`)
+      return false
+    }
+    
+    // ✅ So sánh: nếu version thay đổi = quyền bị đổi
+    if (data.current_version !== cachedPermissionVersion.value) {
+      console.log(`🚨 Version changed! ${cachedPermissionVersion.value} → ${data.current_version}`)
+      cachedPermissionVersion.value = data.current_version // Cập nhật cache
+      
       handlePermissionRevoked({
-        reason: "Your edit permission was revoked",
+        reason: data.unshared ? "File was unshared" : "Your edit permission was revoked",
         entity_name: entityName,
         can_edit: data.can_edit,
         unshared: data.unshared,
