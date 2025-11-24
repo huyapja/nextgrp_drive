@@ -16,6 +16,9 @@ import requests
 import shutil
 from drive.api.activity import create_new_entity_activity_log
 import time
+from boto3.s3.transfer import TransferConfig
+from pathlib import Path
+from io import BytesIO
 
 from drive.utils.files import (
     get_home_folder,
@@ -2007,25 +2010,19 @@ def get_folders_by_parent(parent_entity_name, user_filter=None):
 @frappe.whitelist()
 def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
     """
-    Copy file or folder to a new location (Optimized)
-
-    :param entity_name: Name of the file/folder to copy
-    :param new_parent: Document-name of the destination folder
-    :param team: Team ID - if provided, will copy to root folder of that team
+    Copy file or folder - FIXED for FileManager.conn
     """
     try:
-        # ===== KIỂM TRA ENTITY CÓ TỒN TẠI KHÔNG =====
+        # Validate
         if not frappe.db.exists("Drive File", entity_name):
             frappe.throw(_("File hoặc thư mục không tồn tại"))
 
-        # Lấy thông tin entity gốc
         source_doc = frappe.get_doc("Drive File", entity_name)
 
-        # Kiểm tra entity có bị xóa không
         if source_doc.is_active == 0:
             frappe.throw(_("File hoặc thư mục đã bị xóa"))
 
-        # Xử lý parameter: ưu tiên new_parent, nếu không có mới dùng team
+        # Determine destination
         if not new_parent or not new_parent.strip():
             if team:
                 team_home_folder = get_home_folder(team)
@@ -2035,37 +2032,26 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
                     frappe.throw(f"Cannot find home folder for team {team}")
             else:
                 new_parent = get_home_folder(source_doc.team).name
-        else:
-            if team:
-                new_parent_team = frappe.db.get_value("Drive File", new_parent, "team")
-                if new_parent_team != team:
-                    print(
-                        f"Warning: new_parent team ({new_parent_team}) != provided team ({team})"
-                    )
 
-        # Kiểm tra new_parent có tồn tại không
         if not frappe.db.exists("Drive File", new_parent):
             frappe.throw(_("Thư mục đích không tồn tại"))
 
-        # Kiểm tra new_parent có phải là folder không
         is_group = frappe.db.get_value("Drive File", new_parent, "is_group")
         if not is_group:
             frappe.throw(_("Đích phải là một thư mục"))
 
-        # Lấy team của thư mục đích
         new_parent_team = frappe.db.get_value("Drive File", new_parent, "team")
         will_change_team = source_doc.team != new_parent_team
 
-        # ===== XỬ LÝ BẤT ĐỒNG BỘ CHO FOLDER LỚN =====
-        # Đếm số lượng file cần copy
+        # ===== ALWAYS BACKGROUND FOR FILES > 500KB =====
         total_items = count_items_recursive(entity_name)
 
-        # Nếu > 10 items, chạy background job
-        if total_items > 10:
+        # Run background job for: folders OR files > 500KB
+        if total_items > 1 or (not source_doc.is_group and source_doc.file_size > 500 * 1024):
             frappe.enqueue(
                 "drive.api.files.copy_file_or_folder_background",
                 queue="long",
-                timeout=3600,
+                timeout=7200,
                 entity_name=entity_name,
                 new_parent=new_parent,
                 new_parent_team=new_parent_team,
@@ -2076,108 +2062,152 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
 
             return {
                 "status": "queued",
-                "message": _(
-                    "Đang sao chép {0} mục. Bạn sẽ nhận được thông báo khi hoàn tất."
-                ).format(total_items),
+                "message": _("Đang sao chép. Bạn sẽ nhận được thông báo khi hoàn tất."),
                 "total_items": total_items,
             }
 
-        # Hàm đệ quy để copy (OPTIMIZED)
+        # Sync copy for small files only
         def copy_recursive(source_name, dest_parent, dest_team):
-            """Copy file/folder và tất cả con của nó - Optimized version"""
-            import tempfile
-            from concurrent.futures import ThreadPoolExecutor
-            import os
-
             source = frappe.get_doc("Drive File", source_name)
-
-            # Tạo bản copy
             copied = frappe.copy_doc(source)
             copied.parent_entity = dest_parent
             copied.team = dest_team
             copied.is_private = is_private
-
-            # Tạo tên mới nếu trùng
             copied.title = (
                 copied.title.strip() + " (Bản sao)"
-                if " (Bản sao)" not in copied.title
+                if "(Bản sao)" not in copied.title
                 else copied.title
             )
 
-            # Xóa permissions nếu chuyển team
             if will_change_team:
                 copied.permissions = []
 
-            # ===== COPY FILE VẬT LÝ (OPTIMIZED) =====
+            # ===== FILE COPY =====
             if not source.is_group and not source.is_link:
                 source_path = getattr(source, "path", None)
 
                 if source_path:
-                    # Insert trước để có ID
+                    # Insert BEFORE copy to get ID
                     copied.insert(ignore_permissions=True)
 
-                    # Tạo path mới
-                    home_folder = get_home_folder(dest_team)
-                    from pathlib import Path
+                    print(f"📁 Copy: {source.title}")
+                    print(f"  Source: {source_path}")
+                    print(f"  Size: {source.file_size} bytes")
+                    print(f"  MIME: {source.mime_type}")
 
+                    home_folder = get_home_folder(dest_team)
                     file_ext = Path(source_path).suffix
                     new_path_relative = f"{home_folder['name']}/{copied.name}{file_ext}"
+
+                    print(f"  Destination: {new_path_relative}")
 
                     manager = FileManager()
 
                     try:
-                        # Get file from S3
-                        file_obj = manager.get_file(source_path)
-                        file_content = file_obj.read()
+                        if not manager.s3_enabled:
+                            frappe.throw("S3 is not enabled")
 
-                        # Upload directly to new location (no temp file)
-                        from io import BytesIO
-
-                        file_buffer = BytesIO(file_content)
-
-                        # Upload via FileManager
-                        manager.upload_file_from_buffer(file_buffer, new_path_relative, copied)
-
-                        copied.path = new_path_relative
-                        copied.save(ignore_permissions=True)
-
-                        # ===== COPY THUMBNAIL (ASYNC) =====
-                        # Chỉ copy thumbnail, không generate để tăng tốc
+                        # ✅ METHOD 1: S3 Native Copy (FASTEST)
                         try:
-                            thumbnail = manager.get_thumbnail(source.team, source_name)
-                            thumbnail_content = thumbnail.read()
+                            print(f"🚀 S3 native copy...")
 
-                            # Upload thumbnail directly
-                            thumb_s3_path = f"thumbnails/{dest_team}/{copied.name}.jpg"
-                            thumb_buffer = BytesIO(thumbnail_content)
-                            manager.upload_file_from_buffer(thumb_buffer, thumb_s3_path, None)
-
-                            # Cache thumbnail
-                            frappe.cache().set_value(
-                                copied.name,
-                                BytesIO(thumbnail_content),
-                                expires_in_sec=60 * 60,
+                            manager.conn.copy_object(
+                                CopySource={"Bucket": manager.bucket, "Key": source_path},
+                                Bucket=manager.bucket,
+                                Key=new_path_relative,
+                                ContentType=source.mime_type,
+                                MetadataDirective="REPLACE",
+                                Metadata={
+                                    "original-name": source.title,
+                                    "file-size": str(source.file_size),
+                                },
                             )
-                        except FileNotFoundError:
-                            # Không có thumbnail - skip, sẽ generate sau khi user access
-                            pass
-                        except Exception as e:
-                            print(f"⚠ Thumbnail copy failed: {str(e)}")
+
+                            print(f"✅ S3 copy success!")
+
+                        except Exception as copy_err:
+                            # ✅ METHOD 2: Fallback download + upload
+                            print(f"⚠ S3 copy failed: {str(copy_err)}")
+                            print(f"🔄 Fallback: download + upload...")
+
+                            # Download
+                            file_obj = manager.get_file(source_path)
+                            file_content = file_obj.read()
+
+                            print(f"✓ Downloaded {len(file_content)} bytes")
+
+                            # Upload
+                            file_buffer = BytesIO(file_content)
+
+                            manager.conn.put_object(
+                                Bucket=manager.bucket,
+                                Key=new_path_relative,
+                                Body=file_buffer,
+                                ContentType=source.mime_type,
+                                ContentLength=source.file_size,
+                                Metadata={
+                                    "original-name": source.title,
+                                    "file-size": str(source.file_size),
+                                },
+                            )
+
+                            print(f"✅ Upload success!")
+
+                        # ✅ Update metadata AFTER successful copy
+                        copied.file_size = source.file_size
+                        copied.mime_type = source.mime_type
+                        copied.path = new_path_relative
+
+                        copied.flags.ignore_permissions = True
+                        copied.save(ignore_permissions=True)
+                        frappe.db.commit()  # ✅ CRITICAL: Force commit
+
+                        print(f"✅ Saved: {copied.name}")
+
+                        # Verify in DB
+                        db_verify = frappe.db.get_value(
+                            "Drive File",
+                            copied.name,
+                            ["path", "file_size", "mime_type"],
+                            as_dict=True,
+                        )
+                        print(f"✓ DB verify: {db_verify}")
+
+                        # Copy thumbnail async (non-blocking)
+                        if manager.can_create_thumbnail(source):
+                            frappe.enqueue(
+                                "drive.api.files.copy_thumbnail_background",
+                                queue="short",
+                                timeout=300,
+                                source_team=source.team,
+                                source_name=source_name,
+                                dest_team=dest_team,
+                                dest_name=copied.name,
+                            )
+
+                        return copied
 
                     except Exception as e:
-                        print(f"✗ File copy failed: {str(e)}")
+                        error_msg = f"Copy failed: {str(e)}"
+                        print(f"❌ {error_msg}")
+                        frappe.log_error(error_msg, "copy_file_error")
+
+                        # Mark as failed
                         copied.path = ""
+                        copied.file_size = 0
                         copied.save(ignore_permissions=True)
 
-                    return copied
+                        frappe.throw(error_msg)
+
                 else:
+                    # No path
                     copied.insert(ignore_permissions=True)
                     return copied
             else:
-                # Folder hoặc link
+                # Folder or link
                 copied.insert(ignore_permissions=True)
 
-            # Nếu là folder, copy tất cả file/folder con
+            # Copy children
             if source.is_group:
                 children = frappe.get_all(
                     "Drive File",
@@ -2185,30 +2215,21 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
                     fields=["name"],
                 )
 
-                # Copy children tuần tự (đã optimize mỗi item rồi)
                 for child in children:
                     copy_recursive(child.name, copied.name, dest_team)
 
             return copied
 
-        # Thực hiện copy
+        # Execute copy
         result_doc = copy_recursive(entity_name, new_parent, new_parent_team)
 
-        # Cập nhật file_size cho thư mục đích (async)
-        frappe.enqueue(
-            "drive.api.files.update_file_size",
-            queue="short",
-            new_parent=new_parent,
-            size=source_doc.file_size,
-        )
-
-        # Trả về thông tin
         return {
             "status": "success",
             "name": result_doc.name,
             "title": result_doc.title,
             "parent": new_parent,
-            "is_private": is_private,
+            "path": result_doc.path,
+            "file_size": result_doc.file_size,
         }
 
     except Exception as e:
@@ -2216,8 +2237,176 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
         frappe.throw(_("Lỗi khi sao chép: {0}").format(str(e)))
 
 
+def copy_file_or_folder_background(
+    entity_name, new_parent, new_parent_team, is_private, will_change_team, user
+):
+    """Background job for large files/folders"""
+    frappe.set_user(user)
+
+    try:
+
+        def copy_recursive_bg(source_name, dest_parent, dest_team):
+            source = frappe.get_doc("Drive File", source_name)
+            copied = frappe.copy_doc(source)
+            copied.parent_entity = dest_parent
+            copied.team = dest_team
+            copied.is_private = is_private
+            copied.title = (
+                copied.title.strip() + " (Bản sao)"
+                if "(Bản sao)" not in copied.title
+                else copied.title
+            )
+
+            if will_change_team:
+                copied.permissions = []
+
+            if not source.is_group and not source.is_link:
+                source_path = getattr(source, "path", None)
+
+                if source_path:
+                    copied.insert(ignore_permissions=True)
+
+                    home_folder = get_home_folder(dest_team)
+                    file_ext = Path(source_path).suffix
+                    new_path_relative = f"{home_folder['name']}/{copied.name}{file_ext}"
+
+                    manager = FileManager()
+
+                    try:
+                        if not manager.s3_enabled:
+                            frappe.throw("S3 is not enabled")
+
+                        # Try S3 copy first
+                        try:
+                            manager.conn.copy_object(
+                                CopySource={"Bucket": manager.bucket, "Key": source_path},
+                                Bucket=manager.bucket,
+                                Key=new_path_relative,
+                                ContentType=source.mime_type,
+                                MetadataDirective="REPLACE",
+                                Metadata={
+                                    "original-name": source.title,
+                                    "file-size": str(source.file_size),
+                                },
+                            )
+                        except Exception:
+                            # Fallback
+                            file_obj = manager.get_file(source_path)
+                            file_content = file_obj.read()
+                            file_buffer = BytesIO(file_content)
+
+                            manager.conn.put_object(
+                                Bucket=manager.bucket,
+                                Key=new_path_relative,
+                                Body=file_buffer,
+                                ContentType=source.mime_type,
+                                ContentLength=source.file_size,
+                            )
+
+                        # Save metadata
+                        copied.file_size = source.file_size
+                        copied.mime_type = source.mime_type
+                        copied.path = new_path_relative
+                        copied.save(ignore_permissions=True)
+                        frappe.db.commit()
+
+                        # Thumbnail
+                        if manager.can_create_thumbnail(source):
+                            frappe.enqueue(
+                                "drive.api.files.copy_thumbnail_background",
+                                queue="short",
+                                timeout=300,
+                                source_team=source.team,
+                                source_name=source_name,
+                                dest_team=dest_team,
+                                dest_name=copied.name,
+                            )
+
+                    except Exception as e:
+                        frappe.log_error(f"BG copy failed: {str(e)}", "copy_bg_error")
+                        copied.path = ""
+                        copied.file_size = 0
+                        copied.save(ignore_permissions=True)
+
+                    return copied
+                else:
+                    copied.insert(ignore_permissions=True)
+                    return copied
+            else:
+                copied.insert(ignore_permissions=True)
+
+            if source.is_group:
+                children = frappe.get_all(
+                    "Drive File",
+                    filters={"parent_entity": source_name, "is_active": 1},
+                    fields=["name"],
+                )
+
+                for child in children:
+                    copy_recursive_bg(child.name, copied.name, dest_team)
+
+            return copied
+
+        result_doc = copy_recursive_bg(entity_name, new_parent, new_parent_team)
+
+        # Notify user
+        frappe.publish_realtime(
+            event="copy_completed",
+            message={
+                "status": "success",
+                "name": result_doc.name,
+                "title": result_doc.title,
+                "path": result_doc.path,
+            },
+            user=user,
+        )
+
+    except Exception as e:
+        frappe.log_error(f"Background copy error: {str(e)}", "copy_background")
+        frappe.publish_realtime(
+            event="copy_failed", message={"status": "error", "error": str(e)}, user=user
+        )
+
+
+def copy_thumbnail_background(source_team, source_name, dest_team, dest_name):
+    """Copy thumbnail in background"""
+    try:
+        manager = FileManager()
+
+        if not manager.s3_enabled:
+            return
+
+        # Get source thumbnail path
+        source_thumb_path = str(manager.get_thumbnail_path(source_team, source_name))
+
+        # Get destination path
+        dest_home = get_home_folder(dest_team)
+        dest_thumb_path = str(Path(dest_home["name"]) / "thumbnails" / (dest_name + ".thumbnail"))
+
+        print(f"📸 Copy thumbnail:")
+        print(f"  From: {source_thumb_path}")
+        print(f"  To: {dest_thumb_path}")
+
+        try:
+            # Try S3 copy
+            manager.conn.copy_object(
+                CopySource={"Bucket": manager.bucket, "Key": source_thumb_path},
+                Bucket=manager.bucket,
+                Key=dest_thumb_path,
+                ContentType="image/webp",
+                MetadataDirective="REPLACE",
+            )
+            print(f"✅ Thumbnail copied")
+
+        except Exception as e:
+            print(f"⚠ Thumbnail copy failed (may not exist): {str(e)}")
+
+    except Exception as e:
+        print(f"⚠ Thumbnail background job failed: {str(e)}")
+
+
 def count_items_recursive(entity_name):
-    """Đếm số lượng items cần copy"""
+    """Count total items to copy"""
     source = frappe.get_doc("Drive File", entity_name)
 
     if not source.is_group:
@@ -2237,51 +2426,6 @@ def count_items_recursive(entity_name):
             count += 1
 
     return count
-
-
-def copy_file_or_folder_background(
-    entity_name, new_parent, new_parent_team, is_private, will_change_team, user
-):
-    """Background job cho copy lớn"""
-    frappe.set_user(user)
-
-    try:
-        # Thực hiện copy (code tương tự như trên)
-        # ... (copy logic here)
-
-        # Gửi notification khi hoàn tất
-        frappe.publish_realtime(
-            event="copy_completed",
-            message={"status": "success", "entity_name": entity_name, "destination": new_parent},
-            user=user,
-        )
-
-    except Exception as e:
-        frappe.log_error(f"Background copy error: {str(e)}", "copy_background")
-        frappe.publish_realtime(
-            event="copy_failed", message={"status": "error", "error": str(e)}, user=user
-        )
-
-
-# ===== HELPER: Upload from buffer (thêm vào FileManager class) =====
-def upload_file_from_buffer(self, buffer, path, doc=None):
-    """Upload file directly from BytesIO buffer - no temp file needed"""
-    try:
-        # Reset buffer position
-        buffer.seek(0)
-
-        # Upload to S3
-        self.s3_client.put_object(
-            Bucket=self.bucket,
-            Key=path,
-            Body=buffer,
-            ContentType=doc.mime_type if doc else "application/octet-stream",
-        )
-
-        return path
-    except Exception as e:
-        frappe.log_error(f"Upload from buffer failed: {str(e)}")
-        raise
 
 
 @frappe.whitelist()

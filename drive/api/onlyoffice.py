@@ -1,3 +1,4 @@
+from zipfile import Path
 import frappe
 import jwt
 from datetime import datetime
@@ -51,8 +52,10 @@ def get_editor_config(entity_name):
             )
 
         print(f"📎 Final file URL: {file_url}")
+        from pathlib import Path
 
-        file_ext = entity.title.split(".")[-1].lower() if entity.title else "txt"
+        clean_title = entity.title.replace(" (Bản sao)", "").replace(" (bản sao)", "")
+        file_ext = Path(clean_title).suffix[1:].lower() if Path(clean_title).suffix else "txt"
         document_type = get_document_type(file_ext)
 
         # Callback URL for saving
