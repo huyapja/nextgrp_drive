@@ -744,7 +744,7 @@ class DriveFile(Document):
 
             if self.owner == new_owner:
                 return
-
+            print(f"Moving ownership of {self.name} from {old_owner} to {new_owner}")
             if not user_has_permission(self, "share", frappe.session.user):
                 frappe.throw("Not permitted", frappe.PermissionError)
 
@@ -770,23 +770,31 @@ class DriveFile(Document):
                 entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
             )
 
-            # share with new owner with full permissions
-            self.share(
-                user=new_owner,
-                read=1,
-                write=1,
-                share=1,
-                comment=1,
-            )
+            frappe.get_doc(
+                {
+                    "doctype": "Drive Permission",
+                    "entity": self.name,
+                    "user": new_owner,
+                    "read": 1,
+                    "write": 1,
+                    "share": 1,
+                    "comment": 1,
+                }
+            ).insert(ignore_permissions=True)
 
-            # Share với user hiện tại (người thực hiện move)
-            self.share(
-                user=frappe.session.user,
-                read=1,
-                write=permission_old,
-                share=1,
-                comment=1,
-            )
+            frappe.get_doc(
+                {
+                    "doctype": "Drive Permission",
+                    "entity": self.name,
+                    "user": frappe.session.user,
+                    "read": 1,
+                    "write": permission_old,
+                    "share": 1,
+                    "comment": 1,
+                }
+            ).insert(ignore_permissions=True)
+
+            print(frappe.db.get_value("Drive File", self.name, ["owner", "is_private", "name"]))
 
             return {
                 "status": "success",

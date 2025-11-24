@@ -100,6 +100,7 @@ def get_editor_config(entity_name):
                     "chat": True,  # Bật chat cho collaboration
                     "comments": True,  # Bật comments
                     "plugins": True,
+                    "trackChanges": True,
                 },
                 "events": {
                     "onDocumentReady": "onDocumentReady",
