@@ -58,7 +58,7 @@
     v-model="dialog"
     :entities="selections"
     :for="'remove'"
-    @success="removeFromList(selections, false)"
+    @success="(successEntities) => removeFromList(successEntities, false)"
   />
   <GeneralDialog
     v-if="dialog === 'restore'"

@@ -32,7 +32,6 @@ import { getTrash } from "@/resources/files.js"
 import { sortEntities } from "@/utils/files.js"
 import { useTimeAgo } from "@vueuse/core"
 import { Dialog, ErrorMessage } from "frappe-ui"
-import { del } from "idb-keyval"
 import { mutate } from "../resources/files"
 import { toast } from "../utils/toasts"
 
@@ -102,7 +101,11 @@ export default {
             ),
             buttonMessage: __("Move to Trash"),
             mutate: (el) => (el.is_active = 0),
-            onSuccess: (e) => {
+            onSuccess: (e, data) => {
+              // e = successEntities (full objects)
+              // data = response từ backend (có success_files, failed_files)
+              
+              // Chỉ thêm vào Trash những files thành công
               getTrash.setData(
                 sortEntities([
                   ...(getTrash.data || []),
@@ -223,29 +226,28 @@ export default {
           
           // ✅ Xử lý các file thành công
           if (data.success && data.success_files && data.success_files.length > 0) {
-            this.$emit("success", data.success_files)
-            emitter.emit("recalculate")
+            // Lọc chỉ các entity thành công từ danh sách request
+            const successEntities = this.entities.filter(entity => 
+              data.success_files.includes(entity.name || entity.entity)
+            )
+            
+            this.$emit("success", successEntities)
+            
+            // Chỉ emit recalculate nếu TẤT CẢ đều thành công (không có failed files)
+            if (!data.failed_files || data.failed_files.length === 0) {
+              emitter.emit("recalculate")
+            }
+            
             this.$resources.method.reset()
             
             // Chỉ mutate các entity thành công
             if (this.dialogData.mutate) {
-              const successEntities = this.entities.filter(entity => 
-                data.success_files.includes(entity.name || entity.entity)
-              )
               mutate(successEntities, this.dialogData.mutate)
             }
             
             if (this.dialogData.onSuccess) {
-              const successEntities = this.entities.filter(entity => 
-                data.success_files.includes(entity.name || entity.entity)
-              )
               this.dialogData.onSuccess(successEntities, data)
             }
-            
-            // Delete from cache only successful files
-            data.success_files.forEach((entityName) => {
-              del(entityName)
-            })
             
             // Nếu tất cả thành công, đóng dialog
             if (!data.failed_files || data.failed_files.length === 0) {

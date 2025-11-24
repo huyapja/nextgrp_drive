@@ -60,10 +60,6 @@
           <p>{{ permissionModalMessage }}</p>
           <p>Trang sẽ tải lại trong <strong>{{ permissionModalCountdown }}</strong> giây...</p>
         </div>
-        <div class="modal-footer">
-          <button class="btn-secondary" @click="closePermissionModal">Đóng</button>
-          <button class="btn-primary" @click="reloadPageNow">Tải lại ngay</button>
-        </div>
       </div>
     </div>
 </template>

@@ -24,7 +24,7 @@
   <div
     v-else
     ref="container"
-    class="flex flex-col overflow-auto h-[calc(100vh-144px)] sm:h-[100vh] bg-surface-white pb-safe sm:pb-0"
+    class="flex flex-col overflow-auto h-[calc(100vh-144px)] sm:h-[calc(100vh-84px)] bg-surface-white pb-safe sm:pb-0"
     :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }"
   >
     <!-- Content Area with Team Members -->
@@ -408,7 +408,7 @@ const actionItems = computed(() => {
         label: "Xóa",
         icon: TrashIcon,
         action: () => (dialog.value = "remove"),
-        isEnabled: (e) => isMember.value || e.write,
+        isEnabled: (e) => !!isMember.value || e.write,
         important: true,
         multi: true,
         danger: true,

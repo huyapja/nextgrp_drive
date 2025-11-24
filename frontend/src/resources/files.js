@@ -65,10 +65,10 @@ export const getRecents = createResource({
 
 export const getPersonal = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files_multi_team",
+  url: "drive.api.list.get_personal_files",
   cache: "personal-folder-contents",
   makeParams: (params) => {
-    return { ...params, personal: 1, order_by: "title 1" }
+    return { ...params, order_by: "title 1" }
   },
 })
 
@@ -112,7 +112,7 @@ export const getShared = createResource({
 
 export const getTrash = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.files_multi_team",
+  url: "drive.api.list.get_trash_files",
   cache: "trash-folder-contents",
   makeParams: (params) => {
     return { ...params, is_active: 0, personal: -3 }

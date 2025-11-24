@@ -435,6 +435,13 @@ const currentLocationName = computed(() => {
 
 // Check if action can be performed
 const canPerformAction = computed(() => {
+  const currentTab = tabs.value[tabIndex.value]
+  
+  // Nếu đang ở tab "Nhóm" và chưa chọn team nào (breadcrumbs.length === 1)
+  if (currentTab?.value === "team" && breadcrumbs.value.length === 1) {
+    return false
+  }
+  
   return currentFolder.value !== "" || breadcrumbs.value[0].title !== route.name
 })
 
