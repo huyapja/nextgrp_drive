@@ -518,7 +518,6 @@ def create_mindmap_entity(title, personal, team, content=None, parent=None):
     :param team: Team name
     :param content: Optional description/content
     :param parent: Parent folder
-    :return: Created Drive File entity
     """
     origin_parent = parent
     home_directory = get_home_folder(team)
