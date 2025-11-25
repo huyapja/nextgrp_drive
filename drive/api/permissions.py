@@ -22,6 +22,7 @@ ENTITY_FIELDS = [
     "parent_entity",
     "is_private",
     "modified_by",
+    "mindmap",
 ]
 
 
@@ -181,6 +182,7 @@ def get_entity_with_permissions(entity_name):
     )
 
     create_new_entity_activity_log(entity=entity_name, action_type="view")
+
     return return_obj | entity_doc_content
 
 

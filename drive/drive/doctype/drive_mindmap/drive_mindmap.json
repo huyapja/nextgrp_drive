@@ -1,0 +1,235 @@
+{
+  "actions": [],
+  "allow_rename": 1,
+  "autoname": "field:title",
+  "creation": "2024-01-01 00:00:00.000000",
+  "doctype": "DocType",
+  "editable_grid": 1,
+  "engine": "InnoDB",
+  "field_order": [
+    "title",
+    "is_group",
+    "parent_mindmap",
+    "column_break_1",
+    "owner",
+    "modified_by",
+    "section_break_node_position",
+    "node_x",
+    "node_y",
+    "node_width",
+    "node_height",
+    "column_break_position",
+    "node_style",
+    "node_color",
+    "node_shape",
+    "section_break_2",
+    "mindmap_data",
+    "viewport_state",
+    "section_break_3",
+    "allow_comments",
+    "allow_download",
+    "color",
+    "section_break_metadata",
+    "last_edited",
+    "version"
+  ],
+  "fields": [
+    {
+      "fieldname": "title",
+      "fieldtype": "Data",
+      "in_list_view": 1,
+      "label": "Title",
+      "reqd": 1,
+      "unique": 1
+    },
+    {
+      "default": "0",
+      "fieldname": "is_group",
+      "fieldtype": "Check",
+      "label": "Is Folder"
+    },
+    {
+      "fieldname": "parent_mindmap",
+      "fieldtype": "Link",
+      "label": "Parent Folder",
+      "options": "Drive Mindmap"
+    },
+    {
+      "fieldname": "column_break_1",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "owner",
+      "fieldtype": "Link",
+      "label": "Owner",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "fieldname": "modified_by",
+      "fieldtype": "Link",
+      "label": "Modified By",
+      "options": "User",
+      "read_only": 1
+    },
+    {
+      "collapsible": 1,
+      "depends_on": "eval:!doc.is_group",
+      "fieldname": "section_break_node_position",
+      "fieldtype": "Section Break",
+      "label": "Node Position & Style"
+    },
+    {
+      "fieldname": "node_x",
+      "fieldtype": "Float",
+      "label": "Node X Position",
+      "precision": "2",
+      "description": "X coordinate của node trong canvas"
+    },
+    {
+      "fieldname": "node_y",
+      "fieldtype": "Float",
+      "label": "Node Y Position",
+      "precision": "2",
+      "description": "Y coordinate của node trong canvas"
+    },
+    {
+      "fieldname": "node_width",
+      "fieldtype": "Float",
+      "label": "Node Width",
+      "precision": "2",
+      "description": "Chiều rộng của node (optional)"
+    },
+    {
+      "fieldname": "node_height",
+      "fieldtype": "Float",
+      "label": "Node Height",
+      "precision": "2",
+      "description": "Chiều cao của node (optional)"
+    },
+    {
+      "fieldname": "column_break_position",
+      "fieldtype": "Column Break"
+    },
+    {
+      "fieldname": "node_style",
+      "fieldtype": "Small Text",
+      "label": "Node Style (JSON)",
+      "description": "Custom CSS styles như borderRadius, shadow, etc."
+    },
+    {
+      "fieldname": "node_color",
+      "fieldtype": "Color",
+      "label": "Node Color"
+    },
+    {
+      "default": "rectangle",
+      "fieldname": "node_shape",
+      "fieldtype": "Select",
+      "label": "Node Shape",
+      "options": "rectangle\ncircle\nrounded\ndiamond\nhexagon"
+    },
+    {
+      "fieldname": "section_break_2",
+      "fieldtype": "Section Break",
+      "label": "Mindmap Content"
+    },
+    {
+      "depends_on": "eval:!doc.is_group",
+      "fieldname": "mindmap_data",
+      "fieldtype": "Long Text",
+      "label": "Mindmap Data (JSON)",
+      "description": "Complete mindmap structure with nodes, edges, and metadata"
+    },
+    {
+      "fieldname": "viewport_state",
+      "fieldtype": "Small Text",
+      "label": "Viewport State (JSON)",
+      "description": "Lưu zoom level, pan position của canvas"
+    },
+    {
+      "fieldname": "section_break_3",
+      "fieldtype": "Section Break",
+      "label": "Settings"
+    },
+    {
+      "default": "1",
+      "fieldname": "allow_comments",
+      "fieldtype": "Check",
+      "label": "Allow Comments"
+    },
+    {
+      "default": "1",
+      "fieldname": "allow_download",
+      "fieldtype": "Check",
+      "label": "Allow Download"
+    },
+    {
+      "fieldname": "color",
+      "fieldtype": "Color",
+      "label": "Folder Color"
+    },
+    {
+      "collapsible": 1,
+      "fieldname": "section_break_metadata",
+      "fieldtype": "Section Break",
+      "label": "Metadata"
+    },
+    {
+      "fieldname": "last_edited",
+      "fieldtype": "Datetime",
+      "label": "Last Edited",
+      "read_only": 1
+    },
+    {
+      "default": "1",
+      "fieldname": "version",
+      "fieldtype": "Int",
+      "label": "Version",
+      "read_only": 1
+    }
+  ],
+  "index_web_pages_for_search": 1,
+  "is_tree": 1,
+  "links": [],
+  "modified": "2024-01-01 00:00:00.000000",
+  "modified_by": "Administrator",
+  "module": "Drive",
+  "name": "Drive Mindmap",
+  "naming_rule": "By fieldname",
+  "nsm_parent_field": "parent_mindmap",
+  "owner": "Administrator",
+  "permissions": [
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "System Manager",
+      "share": 1,
+      "write": 1
+    },
+    {
+      "create": 1,
+      "delete": 1,
+      "email": 1,
+      "export": 1,
+      "print": 1,
+      "read": 1,
+      "report": 1,
+      "role": "All",
+      "share": 1,
+      "write": 1
+    }
+  ],
+  "sort_field": "modified",
+  "sort_order": "DESC",
+  "states": [],
+  "track_changes": 1,
+  "track_seen": 1,
+  "track_views": 1,
+  "tree_structure": "Nested Set"
+}

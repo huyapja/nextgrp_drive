@@ -354,6 +354,7 @@ def create_document_entity(title, personal, team, content, parent=None):
         None,
         lambda _: "",
         document=drive_doc.name,
+        mind_map=None,
     )
     if origin_parent:
         get_permissions = frappe.get_all(
@@ -383,7 +384,16 @@ def get_upload_path(team_name, file_name):
 
 
 def create_drive_file(
-    team, personal, title, parent, file_size, mime_type, last_modified, entity_path, document=None
+    team,
+    personal,
+    title,
+    parent,
+    file_size,
+    mime_type,
+    last_modified,
+    entity_path,
+    document=None,
+    mind_map=None,
 ):
     drive_file = frappe.get_doc(
         {
@@ -394,7 +404,8 @@ def create_drive_file(
             "parent_entity": parent,
             "file_size": file_size,
             "mime_type": mime_type,
-            "document": document,
+            "document": document if document else "",
+            "mindmap": mind_map if mind_map else "",
         }
     )
     drive_file.flags.file_created = True

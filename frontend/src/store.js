@@ -61,6 +61,8 @@ const store = createStore({
       ? JSON.parse(localStorage.getItem("editorNewTab"))
       : false,
     folderRefreshTriggers: {},
+    mindmapData: null,
+    mindmapTree: null,
   },
   getters: {
     isLoggedIn: (state) => {
@@ -179,6 +181,12 @@ const store = createStore({
       if (state.folderRefreshTriggers[entityName]) {
         state.folderRefreshTriggers[entityName] = 0
       }
+    },
+    setMindmapData(state, data) {
+      state.mindmapData = data
+    },
+    setMindmapTree(state, tree) {
+      state.mindmapTree = tree
     },
   },
   actions: {

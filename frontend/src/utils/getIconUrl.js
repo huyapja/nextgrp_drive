@@ -6,7 +6,7 @@ export function getIconUrl(file_type) {
 }
 
 export function getThumbnailUrl(name, file_type) {
-  const HTML_THUMBNAILS = ["Markdown", "Code", "Text", "Document"]
+  const HTML_THUMBNAILS = ["Markdown", "Code", "Text", "Document", "MindMap"]
   const IMAGE_THUMBNAILS = ["Image", "Video", "PDF", "Presentation", "Link"]
 
   const is_image = IMAGE_THUMBNAILS.includes(file_type)

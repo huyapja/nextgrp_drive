@@ -103,7 +103,11 @@ def get_editor_config(entity_name):
                     "chat": True,  # Bật chat cho collaboration
                     "comments": True,  # Bật comments
                     "plugins": True,
-                    "trackChanges": True,
+                    "trackChanges": (
+                        True
+                        if document_type == "word" and entity.owner != frappe.session.user
+                        else False
+                    ),
                 },
                 "events": {
                     "onDocumentReady": "onDocumentReady",

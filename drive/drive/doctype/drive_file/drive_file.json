@@ -21,7 +21,8 @@
   "document",
   "is_private",
   "old_name",
-  "onlyoffice_version"
+  "onlyoffice_version",
+  "mindmap"
  ],
  "fields": [
   {
@@ -111,10 +112,16 @@
    "fieldname": "onlyoffice_version",
    "fieldtype": "Int",
    "label": "Onlyoffice Version"
+  },
+  {
+   "fieldname": "mindmap",
+   "fieldtype": "Link",
+   "label": "Mindmap",
+   "options": "Drive Mindmap"
   }
  ],
  "links": [],
- "modified": "2025-11-19 11:31:43.190138",
+ "modified": "2025-11-25 09:45:42.363600",
  "modified_by": "hoa00001@gmail.com",
  "module": "Drive",
  "name": "Drive File",
