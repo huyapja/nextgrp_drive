@@ -405,7 +405,7 @@ def create_drive_file(
             "file_size": file_size,
             "mime_type": mime_type,
             "document": document if document else "",
-            "mind_map": mind_map if mind_map else "",
+            "mindmap": mind_map if mind_map else "",
         }
     )
     drive_file.flags.file_created = True
