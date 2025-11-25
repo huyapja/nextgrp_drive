@@ -2007,10 +2007,51 @@ def get_folders_by_parent(parent_entity_name, user_filter=None):
     return folders
 
 
+import base64
+import unicodedata
+
+
+def sanitize_s3_metadata(text):
+    """
+    Sanitize text for S3 metadata - chỉ giữ ký tự ASCII
+
+    :param text: Text cần sanitize
+    :return: ASCII-safe text
+    """
+    if not text:
+        return ""
+
+    try:
+        # Method 1: Encode to base64 (giữ nguyên toàn bộ thông tin)
+        encoded = base64.b64encode(text.encode("utf-8")).decode("ascii")
+        return encoded
+    except:
+        # Method 2: Fallback - remove non-ASCII characters
+        return "".join(char for char in text if ord(char) < 128)
+
+
+def decode_s3_metadata(encoded_text):
+    """
+    Decode S3 metadata từ base64
+
+    :param encoded_text: Base64 encoded text
+    :return: Original text
+    """
+    if not encoded_text:
+        return ""
+
+    try:
+        decoded = base64.b64decode(encoded_text).decode("utf-8")
+        return decoded
+    except:
+        # Nếu không phải base64, trả về nguyên bản
+        return encoded_text
+
+
 @frappe.whitelist()
 def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
     """
-    Copy file or folder - FIXED for FileManager.conn
+    Copy file or folder - FIXED S3 metadata Unicode error
     """
     try:
         # Validate
@@ -2107,6 +2148,12 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
                         if not manager.s3_enabled:
                             frappe.throw("S3 is not enabled")
 
+                        # ✅ FIX: Sanitize metadata để tránh lỗi Unicode
+                        safe_metadata = {
+                            "original-name": sanitize_s3_metadata(source.title),
+                            "file-size": str(source.file_size),
+                        }
+
                         # ✅ METHOD 1: S3 Native Copy (FASTEST)
                         try:
                             print(f"🚀 S3 native copy...")
@@ -2117,10 +2164,7 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
                                 Key=new_path_relative,
                                 ContentType=source.mime_type,
                                 MetadataDirective="REPLACE",
-                                Metadata={
-                                    "original-name": source.title,
-                                    "file-size": str(source.file_size),
-                                },
+                                Metadata=safe_metadata,  # ← FIXED
                             )
 
                             print(f"✅ S3 copy success!")
@@ -2145,10 +2189,7 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
                                 Body=file_buffer,
                                 ContentType=source.mime_type,
                                 ContentLength=source.file_size,
-                                Metadata={
-                                    "original-name": source.title,
-                                    "file-size": str(source.file_size),
-                                },
+                                Metadata=safe_metadata,  # ← FIXED
                             )
 
                             print(f"✅ Upload success!")
@@ -2276,6 +2317,12 @@ def copy_file_or_folder_background(
                         if not manager.s3_enabled:
                             frappe.throw("S3 is not enabled")
 
+                        # ✅ FIX: Sanitize metadata
+                        safe_metadata = {
+                            "original-name": sanitize_s3_metadata(source.title),
+                            "file-size": str(source.file_size),
+                        }
+
                         # Try S3 copy first
                         try:
                             manager.conn.copy_object(
@@ -2284,10 +2331,7 @@ def copy_file_or_folder_background(
                                 Key=new_path_relative,
                                 ContentType=source.mime_type,
                                 MetadataDirective="REPLACE",
-                                Metadata={
-                                    "original-name": source.title,
-                                    "file-size": str(source.file_size),
-                                },
+                                Metadata=safe_metadata,  # ← FIXED
                             )
                         except Exception:
                             # Fallback
@@ -2301,6 +2345,7 @@ def copy_file_or_folder_background(
                                 Body=file_buffer,
                                 ContentType=source.mime_type,
                                 ContentLength=source.file_size,
+                                Metadata=safe_metadata,  # ← FIXED
                             )
 
                         # Save metadata
@@ -2366,43 +2411,6 @@ def copy_file_or_folder_background(
         frappe.publish_realtime(
             event="copy_failed", message={"status": "error", "error": str(e)}, user=user
         )
-
-
-def copy_thumbnail_background(source_team, source_name, dest_team, dest_name):
-    """Copy thumbnail in background"""
-    try:
-        manager = FileManager()
-
-        if not manager.s3_enabled:
-            return
-
-        # Get source thumbnail path
-        source_thumb_path = str(manager.get_thumbnail_path(source_team, source_name))
-
-        # Get destination path
-        dest_home = get_home_folder(dest_team)
-        dest_thumb_path = str(Path(dest_home["name"]) / "thumbnails" / (dest_name + ".thumbnail"))
-
-        print(f"📸 Copy thumbnail:")
-        print(f"  From: {source_thumb_path}")
-        print(f"  To: {dest_thumb_path}")
-
-        try:
-            # Try S3 copy
-            manager.conn.copy_object(
-                CopySource={"Bucket": manager.bucket, "Key": source_thumb_path},
-                Bucket=manager.bucket,
-                Key=dest_thumb_path,
-                ContentType="image/webp",
-                MetadataDirective="REPLACE",
-            )
-            print(f"✅ Thumbnail copied")
-
-        except Exception as e:
-            print(f"⚠ Thumbnail copy failed (may not exist): {str(e)}")
-
-    except Exception as e:
-        print(f"⚠ Thumbnail background job failed: {str(e)}")
 
 
 def count_items_recursive(entity_name):
