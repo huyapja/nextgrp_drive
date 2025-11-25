@@ -85,6 +85,9 @@ MIME_LIST_MAP = {
         "application/gzip",
         "application/x-bzip2",
     ],
+    "MindMap": [
+        "mindmap",
+    ],
 }
 
 

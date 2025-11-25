@@ -82,7 +82,7 @@
             <template #prefix>
               <NewDrive class="size-5" />
             </template>
-            Mới
+            Thêm mới
           </Button>
         </Dropdown>
       </div>
@@ -115,49 +115,9 @@
       class="flex flex-row items-center h-full gap-[12px] pt-3 px-2 z-0 bg-surface-white"
       v-if="route.name === 'File'"
     >
-      <!-- <Button
-        v-if="entity"
-        class="text-ink-gray-5 !px-0"
-        :class="[
-          tab === 1
-            ? 'bg-transparent text-[#0149C1]'
-            : 'hover:bg-surface-menu-bar',
-        ]"
-        variant="minimal"
-        @click="switchTab(1)"
-      >
-        <MessageIcon
-          :class="
-            tab === 1 && store.state.showInfo
-              ? 'size-6 text-[#0149C1]'
-              : 'size-6 text-black'
-          "
-        />
-      </Button> -->
-
-      <!-- <Button
-        v-if="entity"
-        class="text-ink-gray-5 !px-0"
-        :class="[
-          tab === 2
-            ? 'text-black bg-transparent'
-            : ' hover:bg-surface-menu-bar',
-        ]"
-        variant="minimal"
-        @click="switchTab(2)"
-      >
-        <CloudIcon
-          :class="
-            tab === 2 && store.state.showInfo
-              ? 'size-6 text-[#0149C1]'
-              : 'size-6 text-black'
-          "
-        />
-      </Button> -->
-      
-        <Button :variant="'ghost'" @click="enterFullScreen">
-          <LucideScan class="w-4 h-4" />
-        </Button>
+      <Button :variant="'ghost'" @click="enterFullScreen">
+        <LucideScan class="w-4 h-4" />
+      </Button>
       
       <Button
         class="text-ink-gray-5 !px-0"
@@ -177,26 +137,7 @@
           "
         />
       </Button>
-
-      <!-- Context Menu Button -->
-      <!-- <Button
-        class="text-ink-gray-5 !px-0 hover:bg-surface-menu-bar"
-        variant="minimal"
-        @click="onMoreClick"
-      >
-        <MoreIcon class="size-6 text-black" />
-      </Button> -->
     </div>
-
-    <!-- Context Menu -->
-    <!-- <ContextMenu
-      v-if="moreEvent && selectedEntity"
-      :key="selectedEntity?.name || 'context-menu'"
-      v-on-outside-click="() => (moreEvent = false)"
-      :close="() => (moreEvent = false)"
-      :action-items="dropdownActionItems(selectedEntity)"
-      :event="moreEvent"
-    /> -->
 
     <Dialogs
       v-if="$route.name === 'File' || $route.name === 'Document'"
@@ -205,13 +146,56 @@
       :get-entities="getEntities"
     />
 
-    <!-- Fixed Dialogs for Context Menu -->
-    <!-- <Dialogs
-      v-model="dialogContextMenu"
-      :selected-rows="entity ? [entity] : []"
-      :root-resource="props.rootResource"
-      :get-entities="getEntities"
-    /> -->
+    <!-- Dialog tạo MindMap -->
+    <Dialog
+      v-model:visible="showMindMapDialog"
+      modal
+      :header="'Tạo sơ đồ mới'"
+      :style="{ width: '500px' }"
+      :draggable="false"
+    >
+      <div>
+        <div class="flex flex-col gap-2">
+          <label for="mindmap-title" class="text-sm font-semibold text-gray-700">
+            Tên sơ đồ<span class="text-red-500">*</span>
+          </label>
+          <InputText
+            id="mindmap-title"
+            v-model="mindMapForm.title"
+            placeholder="Nhập tên MindMap"
+            class="w-full"
+          />
+        </div>
+        
+        <div class="flex flex-col gap-2 mt-4">
+          <label for="mindmap-description" class="text-sm font-semibold text-gray-700">
+            Mô tả
+          </label>
+          <Textarea
+            id="mindmap-description"
+            v-model="mindMapForm.description"
+            placeholder="Nhập mô tả (tùy chọn)"
+            rows="4"
+            class="w-full"
+          />
+        </div>
+      </div>
+      
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <PrimeButton
+            label="Hủy"
+            severity="secondary"
+            @click="showMindMapDialog = false"
+          />
+          <PrimeButton
+            label="Tạo"
+            :disabled="!mindMapForm.title.trim()"
+            @click="handleCreateMindMap"
+          />
+        </div>
+      </template>
+    </Dialog>
   </nav>
 </template>
 
@@ -229,6 +213,7 @@ import UploadDrive from "@/assets/Icons/UploadDrive.vue"
 import emitter from "@/emitter"
 import {
   createDocument,
+  createMindMap,
   getFavourites,
   getRecents,
   getTrash,
@@ -240,6 +225,10 @@ import {
   Dropdown,
   LoadingIndicator
 } from "frappe-ui"
+import PrimeButton from 'primevue/button'
+import Dialog from 'primevue/dialog'
+import InputText from 'primevue/inputtext'
+import Textarea from 'primevue/textarea'
 import { computed, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
@@ -251,9 +240,11 @@ import LucideFolderPlus from "~icons/lucide/folder-plus"
 import LucideFolderUp from "~icons/lucide/folder-up"
 import LucideHome from "~icons/lucide/home"
 import LucideLink from "~icons/lucide/link"
+import LucideScan from "~icons/lucide/scan"
 import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"
 import LucideUsers from "~icons/lucide/users"
+import LucideWorkflow from "~icons/lucide/workflow"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import ShortcutIcon from "../assets/Icons/ShortcutIcon.vue"
 import { getTeamMembers } from "../resources/team"
@@ -278,15 +269,20 @@ const props = defineProps({
   },
   triggerRoot: Function,
   rootResource: Object,
-  getEntities: Function, // Add this prop
+  getEntities: Function,
 })
-
-console.log("Navbar getEntities prop:", props.getEntities)
 
 // Composables
 const store = useStore()
 const route = useRoute()
 const router = useRouter()
+
+// MindMap Dialog
+const showMindMapDialog = ref(false)
+const mindMapForm = ref({
+  title: '',
+  description: ''
+})
 
 // Fetch khi team thay đổi
 watch(() => route.params.team, (team) => {
@@ -326,11 +322,10 @@ const onMoreClick = (event) => {
   event.preventDefault()
 }
 
-// Context menu items - FIXED
+// Context menu items
 const dropdownActionItems = (row) => {
   if (!row) return []
 
-  // Nếu có actions được truyền từ props, sử dụng chúng
   if (props.actions && props.actions.length > 0) {
     return props.actions
       .filter((a) => !a.isEnabled || a.isEnabled(row))
@@ -344,14 +339,13 @@ const dropdownActionItems = (row) => {
       }))
   }
 
-  // Default actions cho file - FIXED handlers
   return [
     {
       label: "Chia sẻ",
       icon: ShareIconBlack,
       handler: () => {
         moreEvent.value = false
-        dialogContextMenu.value = "s" // Fixed from "s" to "share"
+        dialogContextMenu.value = "s"
       },
       isEnabled: (e) => e.share,
       important: true,
@@ -369,11 +363,8 @@ const dropdownActionItems = (row) => {
       icon: LinkIcon,
       handler: () => {
         moreEvent.value = false
-        // Get current file URL
         const currentUrl = window.location.origin + window.location.pathname
         navigator.clipboard.writeText(currentUrl)
-        // Optional: Show toast notification
-        console.log("Link copied to clipboard")
       },
     },
     {
@@ -398,9 +389,7 @@ const dropdownActionItems = (row) => {
       icon: ShortcutIcon,
       action: ([entity]) => removeShortcut(entity),
       important: true,
-      isEnabled: () =>{
-        console.log(store.state.activeEntity, "store.state.activeEntity()")
-        return store.state.activeEntity?.is_shortcut && route.name === "Home"},
+      isEnabled: () => store.state.activeEntity?.is_shortcut && route.name === "Home",
     },
     { divider: true },
     {
@@ -427,7 +416,7 @@ const dropdownActionItems = (row) => {
       handler: () => {
         moreEvent.value = false
         store.commit("setShowInfo", true)
-        store.commit("setInfoSidebarTab", 0) // Set to info tab
+        store.commit("setInfoSidebarTab", 0)
       },
     },
     { divider: true },
@@ -462,7 +451,6 @@ watch(selectedEntity, (k) => {
     store.commit("setActiveEntity", k)
   }
 })
-
 
 // Button logic
 const possibleButtons = [
@@ -508,6 +496,43 @@ const newDocument = async () => {
   }
 }
 
+// Show dialog khi click vào MindMap
+const showMindMapDialogHandler = () => {
+  mindMapForm.value = {
+    title: '',
+    description: ''
+  }
+  showMindMapDialog.value = true
+}
+
+// Create new MindMap với tên và mô tả từ dialog
+const handleCreateMindMap = async () => {
+  if (!mindMapForm.value.title.trim()) {
+    return
+  }
+
+  try {
+    let data = await createMindMap.submit({
+      title: mindMapForm.value.title,
+      team: route.params.team,
+      personal: store.state.breadcrumbs[0].name === "Home" ? 1 : 0,
+      content: mindMapForm.value.description || null,
+      parent: store.state.currentFolder.name,
+      type: "mindmap",
+    })
+    
+    if (data?.name) {
+      showMindMapDialog.value = false
+      await router.push({
+        name: "MindMap",
+        params: { team: route.params.team, entityName: data.name },
+      })
+    }
+  } catch (error) {
+    console.error('Error creating MindMap:', error)
+  }
+}
+
 // Dropdown options
 const uploadOptions = [
   {
@@ -534,7 +559,12 @@ const createOptions = [
     onClick: () => emitter.emit("newFolder"),
   },
   {
-    label: "Liên kết mới",
+    label: "Sơ đồ tư duy",
+    icon: LucideWorkflow,
+    onClick: showMindMapDialogHandler, // Thay đổi ở đây
+  },
+  {
+    label: "Liên kết",
     icon: LucideLink,
     onClick: () => emitter.emit("newLink"),
   },
@@ -563,7 +593,6 @@ function enterFullScreen() {
     console.error('❌ Error entering fullscreen:', err)
   }
 }
-
 </script>
 
 <style scoped>

@@ -118,6 +118,14 @@ const routes = [
     props: true,
   },
   {
+    path: "/t/:team/mindmap/:entityName",
+    name: "MindMap",
+    component: () => import("@/pages/MindMap.vue"),
+    meta: { allowGuest: true },
+    beforeEnter: [manageBreadcrumbs],
+    props: true,
+  },
+  {
     path: "/t/:team/document/:entityName",
     name: "Document",
     meta: { documentPage: true, allowGuest: true },

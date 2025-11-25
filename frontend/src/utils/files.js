@@ -42,6 +42,14 @@ export const openEntity = (team = null, entity, new_tab = false, is_view = true)
     route: null,
   })
 
+  if (entity.mime_type === "mindmap") {
+    router.push({
+      name: "MindMap",
+      params: { team, entityName: entity.name },
+    })
+    return
+  }
+
   if (entity.name === "") {
     router.push({
       name: entity.is_private ? "Home" : "Team",

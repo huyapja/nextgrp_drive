@@ -61,11 +61,11 @@
                 <span
                   v-if="!!slotProps.data.is_shortcut"
                   class="shortcut-badge"
-                >
+                  >
                   <ShortCutIconFile />
                 </span>
-              </div>
-              <span class="file-name">{{
+                </div>
+                <span class="file-name">{{
                 getDisplayName(slotProps.data)
               }}</span>
             </div>

@@ -385,6 +385,13 @@ export const createDocument = createResource({
   makeParams: (params) => params,
 })
 
+export const createMindMap = createResource({
+  method: "POST",
+  url: "drive.api.mindmap.create_mindmap_entity",
+  makeParams: (params) => params,
+})
+
+
 export const togglePersonal = createResource({
   method: "POST",
   url: "drive.api.files.call_controller_method",
