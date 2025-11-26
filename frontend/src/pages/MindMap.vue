@@ -8,23 +8,6 @@
     />
     
     <div v-if="mindmap.data" class="w-full relative">
-      <!-- Toolbar -->
-      <div class="absolute top-2 left-2 z-10 flex gap-2">
-        <button
-          @click="deleteSelectedNode"
-          :disabled="!selectedNode || selectedNode.id === 'root'"
-          class="px-3 py-1.5 rounded-lg text-sm font-medium bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          🗑️ Xóa Node
-        </button>
-        <button
-          @click="resetLayout"
-          class="px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-600 text-white hover:bg-gray-700"
-        >
-          🔄 Reset Layout
-        </button>
-      </div>
-
       <!-- Status indicator -->
       <div class="absolute top-2 right-2 z-10 text-sm">
         <span v-if="isSaving" class="text-orange-500 flex items-center gap-1">
