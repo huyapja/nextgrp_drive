@@ -204,6 +204,7 @@ import CloudIconBlack from "@/assets/Icons/CloudIconBlack.vue"
 import InfoIcon from "@/assets/Icons/InfoIcon.vue"
 import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
 import LinkIcon from "@/assets/Icons/LinkIcon.vue"
+import MindmapIcon from "@/assets/Icons/MindmapIcon.vue"
 import MoveIcon from "@/assets/Icons/MoveIcon.vue"
 import NewDrive from "@/assets/Icons/NewDrive.vue"
 import RenameIcon from "@/assets/Icons/RenameIcon.vue"
@@ -244,7 +245,6 @@ import LucideScan from "~icons/lucide/scan"
 import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"
 import LucideUsers from "~icons/lucide/users"
-import LucideWorkflow from "~icons/lucide/workflow"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import ShortcutIcon from "../assets/Icons/ShortcutIcon.vue"
 import { getTeamMembers } from "../resources/team"
@@ -560,8 +560,8 @@ const createOptions = [
   },
   {
     label: "Sơ đồ tư duy",
-    icon: LucideWorkflow,
-    onClick: showMindMapDialogHandler, // Thay đổi ở đây
+    icon: MindmapIcon,
+    onClick: showMindMapDialogHandler,
   },
   {
     label: "Liên kết",

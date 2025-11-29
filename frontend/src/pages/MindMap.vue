@@ -269,26 +269,39 @@ const initD3Renderer = () => {
     onNodeEditingStart: (nodeId) => {
       editingNode.value = nodeId
     },
-    onNodeEditingEnd: () => {
+    onNodeEditingEnd: (nodeId) => {
       // Chỉ khi KẾT THÚC edit mới đổi tên file nếu là node root
-      const finishedNodeId = editingNode.value
+      const finishedNodeId = nodeId || editingNode.value
       if (finishedNodeId) {
         const node = nodes.value.find(n => n.id === finishedNodeId)
-        if (node && (node.id === 'root' || node.data?.isRoot)) {
-          let newTitle = (node.data?.label || '').trim()
+        if (node) {
+          // node.data.label đã được cập nhật trong renderer on('blur')
           
-          // Nếu xóa hết text, dùng tên mặc định
-          if (!newTitle) {
-            newTitle = "Sơ đồ"
-            node.data.label = newTitle
+          // Nếu là root node, đổi tên file
+          if (node.id === 'root' || node.data?.isRoot) {
+            let newTitle = (node.data?.label || '').trim()
+            
+            // Nếu xóa hết text, dùng tên mặc định
+            if (!newTitle) {
+              newTitle = "Sơ đồ"
+              node.data.label = newTitle
+            }
+            
+            renameMindmapTitle(newTitle)
           }
           
-          renameMindmapTitle(newTitle)
+          // Lưu layout/nội dung node
+          scheduleSave()
         }
       }
+      
+      // Clear editingNode trước khi update để watch không bị trigger
       editingNode.value = null
+      
       // Update layout sau khi edit xong để đảm bảo node size chính xác
-      updateD3RendererWithDelay(200)
+      // Tăng delay lên 300ms để đảm bảo DOM đã update và node size đã được tính toán lại
+      // Đặc biệt quan trọng khi edit node giữa có nhiều node con
+      updateD3RendererWithDelay(300)
     }
   })
   

@@ -217,7 +217,9 @@ export function calculateD3MindmapLayout(nodes, edges, options = {}) {
           // Sử dụng bottom của subtree trước đó để đảm bảo không overlap
           const prevResult = childResults[childResults.length - 1]
           const prevBottom = prevResult.bottom || (prevResult.y + prevResult.height)
-          currentY = prevBottom + nodeSpacing
+          // Đảm bảo khoảng cách tối thiểu giữa các nhánh (tối thiểu 50px)
+          const minSpacing = Math.max(nodeSpacing, 50)
+          currentY = prevBottom + minSpacing
         }
         
         // Layout child subtree
@@ -322,12 +324,16 @@ export function calculateD3MindmapLayout(nodes, edges, options = {}) {
   })
   
   // Layout đã được tính toán với khoảng cách đều nhau trong layoutNode
-  // Không cần equalizeSiblingSpacing nữa vì logic đã đơn giản hóa
+  // Tuy nhiên, cần điều chỉnh lại để đảm bảo các nhánh không bị overlap
+  
+  // Điều chỉnh khoảng cách giữa các nhánh con để tránh overlap
+  // Hàm này tính toán lại vị trí dựa trên subtree bounds để đảm bảo không overlap
+  equalizeSiblingSpacing(finalPositions, nodes, edges, nodeSizes, getNodeSize, nodeSpacing)
   
   // Đảm bảo node cha luôn căn giữa các node con
   recenterParents(finalPositions, nodes, edges, nodeSizes, getNodeSize, false)
   
-  // Collision detection and resolution
+  // Collision detection and resolution - xử lý các overlap còn lại
   resolveCollisions(finalPositions, nodeSizes, getNodeSize)
   
   // Đảm bảo node cha luôn căn giữa các node con sau khi resolve collisions
@@ -422,9 +428,6 @@ function equalizeSiblingSpacing(positionMap, nodes, edges, nodeSizes, getNodeSiz
     // Khoảng cách giữa các nhánh = nodeSpacing (cố định)
     // Mỗi node có khoảng cách với nhánh có nhiều node con nhất (subtree height lớn nhất)
     sortedChildren.forEach((childId, index) => {
-      const childPos = positionMap.get(childId)
-      if (!childPos) return
-      
       if (index === 0) {
         // Node đầu tiên: giữ nguyên vị trí
         return
@@ -432,32 +435,41 @@ function equalizeSiblingSpacing(positionMap, nodes, edges, nodeSizes, getNodeSiz
       
       // Node tiếp theo: đặt dựa trên bottom của subtree trước đó + nodeSpacing
       const prevChildId = sortedChildren[index - 1]
-      const prevBounds = childSubtreeBounds[index - 1].bounds
+      
+      // Tính lại bounds của subtree trước đó sau khi có thể đã di chuyển
+      const prevBounds = getSubtreeBounds(prevChildId)
       
       if (prevBounds && prevBounds.bottom > 0) {
         // Tính bottom của subtree trước đó
         const prevBottom = prevBounds.bottom
         
-        // Đặt node hiện tại dưới subtree trước đó với khoảng cách nodeSpacing
-        const currentBounds = childSubtreeBounds[index].bounds
-        const offsetY = (prevBottom + nodeSpacing) - currentBounds.top
+        // Tính lại bounds của node hiện tại (có thể đã bị ảnh hưởng bởi các node trước đó)
+        const currentBounds = getSubtreeBounds(childId)
         
-        // Cập nhật vị trí của node và tất cả node con
-        const updateNodePosition = (id, offset) => {
-          const pos = positionMap.get(id)
-          if (pos) {
-            positionMap.set(id, {
-              x: pos.x,
-              y: pos.y + offset
-            })
-            
-            // Cập nhật vị trí của tất cả node con
-            const grandchildren = childrenMap.get(id) || []
-            grandchildren.forEach(gcId => updateNodePosition(gcId, offset))
+        // Đảm bảo khoảng cách tối thiểu giữa các nhánh
+        // Tăng khoảng cách để edge render đẹp và không bị overlap (tối thiểu 60px)
+        const minSpacing = Math.max(nodeSpacing, 60)
+        const offsetY = (prevBottom + minSpacing) - currentBounds.top
+        
+        // Chỉ di chuyển nếu cần thiết (nếu offsetY > 0, nghĩa là node hiện tại đang overlap)
+        if (offsetY > 0) {
+          // Cập nhật vị trí của node và tất cả node con (toàn bộ subtree)
+          const updateNodePosition = (id, offset) => {
+            const pos = positionMap.get(id)
+            if (pos) {
+              positionMap.set(id, {
+                x: pos.x,
+                y: pos.y + offset
+              })
+              
+              // Cập nhật vị trí của tất cả node con (đệ quy)
+              const grandchildren = childrenMap.get(id) || []
+              grandchildren.forEach(gcId => updateNodePosition(gcId, offset))
+            }
           }
+          
+          updateNodePosition(childId, offsetY)
         }
-        
-        updateNodePosition(childId, offsetY)
       }
     })
   })
