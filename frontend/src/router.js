@@ -212,7 +212,10 @@ window.addEventListener('translationsReady', () => {
     const vietnameseTitle = titleMapping[currentRoute.name] || currentRoute.name
     document.title = vietnameseTitle
     
-    if (currentRoute.name !== "Team") {
+    // KHÔNG ghi đè breadcrumbs chi tiết của các trang entity (File, Document, MindMap, Folder)
+    // vì các trang này tự set breadcrumbs dựa trên dữ liệu backend.
+    const entityRoutes = ["File", "Document", "MindMap", "Folder"]
+    if (currentRoute.name !== "Team" && !entityRoutes.includes(currentRoute.name)) {
       store.commit("setBreadcrumbs", [
         { label: vietnameseTitle, name: currentRoute.name, route: currentRoute.path },
       ])

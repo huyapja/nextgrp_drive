@@ -18,64 +18,60 @@
         </span>
       </div>      
       
-      <div style="height: calc(100vh - 84px); width: 100%">
-        <VueFlow 
-          v-model="elements"
-          :default-zoom="1"
-          :min-zoom="0.5"
-          :max-zoom="2"
-          @node-click="onNodeClick"
-          @node-double-click="onNodeDoubleClick"
-          :nodes-draggable="false"
-          :nodes-deletable="false"
-          :edges-deletable="false"
-          :pan-on-scroll="true"
-          :zoom-on-scroll="true"
-          :fit-view-on-init="false"
-          :apply-default="true"
-        >
-          <Background pattern-color="#aaa" :gap="16" />
-          <Controls />
-          <MiniMap />
-          
-          <!-- Custom node template -->
-          <template #node-custom="{ data, id }">
-            <div :class="{ 'editing-node': editingNode === id }">
-              <MindmapNode 
-                :id="id"
-                :data="data"
-                :is-selected="selectedNode?.id === id"
-                :is-editing="editingNode === id"
-                @hover="hoveredNode = id"
-                @unhover="hoveredNode = null"
-                @add-child="addChildToNode"
-                @finish-editing="finishEditing"
-              />
-            </div>
-          </template>
-        </VueFlow>
+      <!-- Delete confirmation dialog -->
+      <div v-if="showDeleteDialog" class="delete-dialog-overlay" @click.self="showDeleteDialog = false">
+        <div class="delete-dialog">
+          <div class="delete-dialog-header">
+            <h3>Xác nhận xóa</h3>
+          </div>
+          <div class="delete-dialog-body">
+            <p>Xóa nhánh này sẽ xóa toàn bộ nhánh con.</p>
+          </div>
+          <div class="delete-dialog-footer">
+            <button @click="showDeleteDialog = false" class="btn-cancel">Hủy</button>
+            <button @click="confirmDelete" class="btn-delete">Xóa</button>
+          </div>
+        </div>
+      </div>
+      
+      <div style="height: calc(100vh - 84px); width: 100%" class="d3-mindmap-container">
+        <!-- D3.js Mindmap Renderer -->
+        <div ref="d3Container" class="d3-mindmap-wrapper"></div>
+        
+        <!-- Controls -->
+        <div class="d3-controls">
+          <button @click="fitView" class="control-btn" title="Fit View">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 2h12v12H2V2z"/>
+              <path d="M5 5h6v6H5V5z"/>
+            </svg>
+          </button>
+          <button @click="zoomIn" class="control-btn" title="Zoom In">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+          <button @click="zoomOut" class="control-btn" title="Zoom Out">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
+import { rename } from "@/resources/files"
+import { D3MindmapRenderer } from '@/utils/d3MindmapRenderer'
 import { setBreadCrumbs } from "@/utils/files"
-import { Background } from '@vue-flow/background'
-import { Controls } from '@vue-flow/controls'
-import { VueFlow } from '@vue-flow/core'
-import { MiniMap } from '@vue-flow/minimap'
-import * as ELKModule from 'elkjs'
 import { createResource } from "frappe-ui"
-import { computed, defineProps, inject, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
-import MindmapNode from "../components/MindmapNode.vue"
-
-const ELK = ELKModule.default || ELKModule
 
 const store = useStore()
 const emitter = inject("emitter")
-const elk = new ELK()
 
 const props = defineProps({
   entityName: String,
@@ -88,6 +84,9 @@ const lastSaved = ref(null)
 const selectedNode = ref(null)
 const hoveredNode = ref(null)
 const editingNode = ref(null)
+const showDeleteDialog = ref(false)
+const nodeToDelete = ref(null)
+const childCount = ref(0)
 let saveTimeout = null
 let layoutTimeout = null
 const SAVE_DELAY = 2000
@@ -95,42 +94,31 @@ const SAVE_DELAY = 2000
 // Elements ref
 const elements = ref([])
 
+// D3 Renderer
+const d3Container = ref(null)
+let d3Renderer = null
+
 // Node counter
 let nodeCounter = 0
 
+// Track node creation order and positions
+const nodePositions = ref(new Map()) // Store stable positions
+const nodeCreationOrder = ref(new Map()) // Track when nodes were created
+let creationOrderCounter = 0
+
 // ✅ Watch elements to ensure root node is NEVER deleted
 watch(elements, (newElements) => {
-  const hasRoot = newElements.some(el => el.id === 'root')
+  const nodes = newElements.filter(el => el.id && !el.source && !el.target)
+  const hasRoot = nodes.some(el => el.id === 'root')
   
-  if (!hasRoot && elements.value.length > 0) {
+  if (!hasRoot && nodes.length > 0) {
     console.log('🚨 ROOT NODE WAS DELETED! RESTORING...')
-    
-    const viewportHeight = window.innerHeight - 84
-    const centerY = viewportHeight / 2
     
     const rootNode = {
       id: 'root',
-      type: 'custom',
       data: { 
         label: mindmap.data?.title || 'Root',
         isRoot: true
-      },
-      position: { 
-        x: 50,
-        y: centerY
-      },
-      draggable: false,
-      style: {
-        padding: '10px 20px',
-        borderRadius: '8px',
-        border: 'none',
-        backgroundColor: '#3b82f6',
-        color: '#ffffff',
-        fontSize: '14px',
-        fontWeight: '600',
-        minWidth: '140px',
-        textAlign: 'center',
-        boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
       }
     }
     
@@ -161,93 +149,253 @@ const mindmap = createResource({
     store.commit("setActiveEntity", data)
     
     initializeMindmap(data)
-    
-    setBreadCrumbs([
-      { label: data.title, name: data.name }
-    ], data.is_private, () => {
-      emitter.emit("rename")
-    })
   },
   onError(error) {
     console.error("Error loading mindmap:", error)
   }
 })
 
+// Resource thứ hai: lấy thông tin entity (kèm breadcrumbs) giống Document.vue
+const mindmapEntity = createResource({
+  url: "drive.api.permissions.get_entity_with_permissions",
+  method: "GET",
+  auto: true,
+  params: {
+    entity_name: props.entityName,
+  },
+  onSuccess(data) {
+    // Chỉ dùng để thiết lập breadcrumbs, tránh ghi đè logic mindmap khác
+    if (data.breadcrumbs && Array.isArray(data.breadcrumbs)) {
+      setBreadCrumbs(data.breadcrumbs, data.is_private, () => {
+        data.write && emitter.emit("rename")
+      })
+    }
+  },
+})
+
 // Initialize mindmap with root node
-const initializeMindmap = (data) => {
+const initializeMindmap = async (data) => {
   if (data.mindmap_data && data.mindmap_data.nodes && data.mindmap_data.nodes.length > 0) {
-    elements.value = [
-      ...data.mindmap_data.nodes.map(node => ({
-        ...node,
-        draggable: false
-      })),
-      ...data.mindmap_data.edges
-    ]
+    // Convert VueFlow format to D3 format
+    const loadedNodes = data.mindmap_data.nodes.map(node => ({
+      id: node.id,
+      data: node.data || { label: node.label || '' }
+    }))
     
-    const maxId = Math.max(...data.mindmap_data.nodes.map(n => {
+    const loadedEdges = data.mindmap_data.edges.map(edge => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target
+    }))
+    
+    elements.value = [...loadedNodes, ...loadedEdges]
+    
+    const maxId = Math.max(...loadedNodes.map(n => {
       const match = n.id.match(/node-(\d+)/)
       return match ? parseInt(match[1]) : 0
     }))
     nodeCounter = maxId + 1
     
+    // Store existing positions and creation order
+    loadedNodes.forEach((node, index) => {
+      if (node.position) {
+        nodePositions.value.set(node.id, { ...node.position })
+      }
+      nodeCreationOrder.value.set(node.id, index)
+    })
+    creationOrderCounter = loadedNodes.length
+    
     console.log("✅ Loaded existing layout")
   } else {
-    const viewportHeight = window.innerHeight - 84
-    const centerY = viewportHeight / 2
-    
     const rootNode = {
       id: 'root',
-      type: 'custom',
       data: { 
         label: data.title,
         isRoot: true
-      },
-      position: { 
-        x: 50,
-        y: centerY
-      },
-      draggable: false,
-      style: {
-        padding: '10px 20px',
-        borderRadius: '8px',
-        border: 'none',
-        backgroundColor: '#3b82f6',
-        color: '#ffffff',
-        fontSize: '14px',
-        fontWeight: '600',
-        minWidth: '140px',
-        textAlign: 'center',
-        boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
       }
     }
     
     elements.value = [rootNode]
     nodeCounter = 1
     
-    console.log("✅ Created root node at left-center position")
+    // Store root
+    nodeCreationOrder.value.set('root', 0)
+    creationOrderCounter = 1
+    
+    console.log("✅ Created root node")
     
     setTimeout(() => scheduleSave(), 500)
   }
+  
+  // Initialize D3 renderer
+  await nextTick()
+  initD3Renderer()
 }
 
-// Node click handler
-const onNodeClick = (event) => {
-  selectedNode.value = event.node
-  console.log("Selected node:", event.node.id)
+// Initialize D3 Renderer
+const initD3Renderer = () => {
+  if (!d3Container.value) return
+  
+  d3Renderer = new D3MindmapRenderer(d3Container.value, {
+    width: window.innerWidth,
+    height: window.innerHeight - 84,
+    nodeSpacing: 50,
+    layerSpacing: 180,
+    padding: 20,
+    nodeCreationOrder: nodeCreationOrder
+  })
+  
+  d3Renderer.setCallbacks({
+    onNodeClick: (node) => {
+      selectedNode.value = node
+      d3Renderer.selectNode(node.id)
+      console.log("Selected node:", node.id)
+    },
+    onNodeDoubleClick: () => {
+      /* Editing happens inline inside each node */
+    },
+    onNodeAdd: (parentId) => {
+      addChildToNode(parentId)
+    },
+    onNodeUpdate: (nodeId, newLabel) => {
+      const node = nodes.value.find(n => n.id === nodeId)
+      if (node) {
+        // Cập nhật label cho node trong state, nhưng KHÔNG đổi tên file ngay
+        node.data.label = newLabel
+        // Chỉ lưu layout/nội dung node, không đổi tên file ở đây
+        scheduleSave()
+      }
+    },
+    onNodeEditingStart: (nodeId) => {
+      editingNode.value = nodeId
+    },
+    onNodeEditingEnd: () => {
+      // Chỉ khi KẾT THÚC edit mới đổi tên file nếu là node root
+      const finishedNodeId = editingNode.value
+      if (finishedNodeId) {
+        const node = nodes.value.find(n => n.id === finishedNodeId)
+        if (node && (node.id === 'root' || node.data?.isRoot)) {
+          let newTitle = (node.data?.label || '').trim()
+          
+          // Nếu xóa hết text, dùng tên mặc định
+          if (!newTitle) {
+            newTitle = "Sơ đồ"
+            node.data.label = newTitle
+          }
+          
+          renameMindmapTitle(newTitle)
+        }
+      }
+      editingNode.value = null
+      // Update layout sau khi edit xong để đảm bảo node size chính xác
+      updateD3RendererWithDelay(200)
+    }
+  })
+  
+  updateD3Renderer()
 }
 
-// Double click to edit
-const onNodeDoubleClick = (event) => {
-  editingNode.value = event.node.id
+// Đổi tên file mindmap khi sửa node root
+const renameMindmapTitle = (newTitle) => {
+  if (!newTitle || !newTitle.trim()) return
+  
+  // Cập nhật ngay trên client
+  if (mindmap.data) {
+    mindmap.data.title = newTitle
+  }
+  if (store.state.activeEntity) {
+    store.state.activeEntity.title = newTitle
+  }
+  window.document.title = newTitle
+  
+  // Cập nhật breadcrumbs trong store (cache) với tên mới
+  const currentBreadcrumbs = store.state.breadcrumbs || []
+  if (Array.isArray(currentBreadcrumbs) && currentBreadcrumbs.length > 0) {
+    const updated = currentBreadcrumbs.map((crumb, idx) => {
+      if (idx === currentBreadcrumbs.length - 1) {
+        return {
+          ...crumb,
+          label: newTitle,
+          title: newTitle,
+        }
+      }
+      return crumb
+    })
+    store.commit("setBreadcrumbs", updated)
+  }
+  
+  // Gửi request đổi tên entity
+  rename.submit({
+    entity_name: props.entityName,
+    new_title: newTitle.trim(),
+  })
 }
 
-// Finish editing
-const finishEditing = () => {
-  editingNode.value = null
-  scheduleSave()
+// Update D3 renderer
+const updateD3Renderer = async () => {
+  if (!d3Renderer) return
+  
+  await nextTick()
+  
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+    }, 100)
+  })
 }
 
-// ✅ IMPROVED Layout function - Lark Mindnotes style
+// Update D3 renderer with custom delay (for editing)
+const updateD3RendererWithDelay = async (delay = 200) => {
+  if (!d3Renderer) return
+  
+  await nextTick()
+  
+  void document.body.offsetHeight
+  
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      void document.body.offsetHeight
+      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+    }, delay)
+  })
+}
+
+// Helper: Get children of a node
+const getChildren = (nodeId) => {
+  return edges.value
+    .filter(edge => edge.source === nodeId)
+    .map(edge => nodes.value.find(n => n.id === edge.target))
+    .filter(Boolean)
+}
+
+// Helper: Get parent of a node
+const getParent = (nodeId) => {
+  const edge = edges.value.find(edge => edge.target === nodeId)
+  return edge ? nodes.value.find(n => n.id === edge.source) : null
+}
+
+// Zoom controls
+const fitView = () => {
+  if (d3Renderer) {
+    d3Renderer.fitView()
+  }
+}
+
+const zoomIn = () => {
+  if (d3Renderer && d3Renderer.svg) {
+    d3Renderer.svg.transition()
+      .call(d3Renderer.zoom.scaleBy, 1.2)
+  }
+}
+
+const zoomOut = () => {
+  if (d3Renderer && d3Renderer.svg) {
+    d3Renderer.svg.transition()
+      .call(d3Renderer.zoom.scaleBy, 0.8)
+  }
+}
+
+// ✅ D3.js Mindmap Layout - Lark-like features (deprecated, using D3 renderer now)
 const layoutWithElk = async () => {
   const allNodes = nodes.value
   const allEdges = edges.value
@@ -257,120 +405,87 @@ const layoutWithElk = async () => {
     return
   }
 
-  console.log("🔄 Starting layout with", allNodes.length, "nodes and", allEdges.length, "edges")
+  console.log("🔄 Starting D3 layout with", allNodes.length, "nodes")
 
-  // Use manual tree layout instead of ELK for better control
-  arrangeTreeLikeMindnotes()
-}
+  try {
+    // Get actual node dimensions from DOM
+    const nodeIds = allNodes.map(n => n.id)
+    const nodeSizes = getAllNodeSizesFromDOM(nodeIds)
 
-// ✅ Lark Mindnotes style layout - Clean and organized
-const arrangeTreeLikeMindnotes = () => {
-  console.log("🎨 Arranging tree like Lark Mindnotes")
-  
-  const rootNode = elements.value.find(el => el.id === 'root')
-  if (!rootNode) return
-  
-  // Layout configuration
-  const LEVEL_GAP = 200      // Horizontal distance between levels
-  const NODE_GAP = 15        // Vertical gap between sibling nodes
-  const NODE_HEIGHT = 50     // Estimated node height
-  
-  // Get children of a node, sorted by their current Y position
-  const getChildren = (parentId) => {
-    const childEdges = elements.value.filter(el => el.source === parentId && el.target)
-    const children = childEdges
-      .map(edge => elements.value.find(node => node.id === edge.target))
-      .filter(Boolean)
+    // Calculate layout using D3 algorithm with Lark-like features
+    // Use dynamic spacing that adapts to node sizes
+    const maxNodeWidth = Math.max(...Array.from(nodeSizes.values()).map(s => s.width), 200)
+    const dynamicLayerSpacing = Math.max(300, maxNodeWidth + 100) // At least 300px, or parent width + 100px
     
-    // Sort by current Y position to maintain order
-    children.sort((a, b) => a.position.y - b.position.y)
-    return children
-  }
-  
-  // Calculate total height needed for a subtree
-  const calculateSubtreeHeight = (nodeId) => {
-    const children = getChildren(nodeId)
-    if (children.length === 0) return NODE_HEIGHT
-    
-    let totalHeight = 0
-    children.forEach(child => {
-      totalHeight += calculateSubtreeHeight(child.id)
+    const positions = calculateD3MindmapLayout(allNodes, allEdges, {
+      nodeSizes: nodeSizes,
+      layerSpacing: dynamicLayerSpacing, // Dynamic spacing based on largest node
+      nodeSpacing: 100, // Vertical spacing between sibling nodes
+      padding: 40, // Padding around nodes
+      viewportHeight: window.innerHeight - 84
     })
-    
-    // Add gaps between children
-    totalHeight += (children.length - 1) * NODE_GAP
-    
-    return Math.max(totalHeight, NODE_HEIGHT)
-  }
-  
-  // Recursively arrange nodes
-  const arrangeNode = (nodeId, level, startY) => {
-    const node = elements.value.find(el => el.id === nodeId)
-    if (!node) return startY
-    
-    const children = getChildren(nodeId)
-    
-    // Leaf node - place it directly
-    if (children.length === 0) {
-      const nodeIndex = elements.value.findIndex(el => el.id === nodeId)
-      if (nodeIndex !== -1) {
-        elements.value[nodeIndex] = {
-          ...elements.value[nodeIndex],
-          position: { 
-            x: level * LEVEL_GAP, 
-            y: startY 
+
+    // Apply positions to elements
+    const newElements = elements.value.map(el => {
+      if (el.id && !el.source) {
+        const pos = positions.get(el.id)
+        if (pos) {
+          // Store position
+          nodePositions.value.set(el.id, { ...pos })
+          if (!nodeCreationOrder.value.has(el.id)) {
+            nodeCreationOrder.value.set(el.id, creationOrderCounter++)
+          }
+          
+          return {
+            ...el,
+            position: pos
           }
         }
       }
-      return startY + NODE_HEIGHT
-    }
-    
-    // Node with children - arrange children first, then center parent
-    let currentY = startY
-    const childYPositions = []
-    
-    children.forEach(child => {
-      const childY = currentY
-      childYPositions.push(childY)
-      currentY = arrangeNode(child.id, level + 1, childY)
-      currentY += NODE_GAP // Add gap after each child
+      return el
     })
-    
-    // Remove last gap
-    currentY -= NODE_GAP
-    
-    // Calculate parent's Y position (center of children)
-    const firstChildY = childYPositions[0]
-    const lastChildY = childYPositions[childYPositions.length - 1]
-    const parentY = (firstChildY + lastChildY) / 2
-    
-    // Place parent node
-    const nodeIndex = elements.value.findIndex(el => el.id === nodeId)
-    if (nodeIndex !== -1) {
-      elements.value[nodeIndex] = {
-        ...elements.value[nodeIndex],
-        position: { 
-          x: level * LEVEL_GAP, 
-          y: parentY 
+
+    // Second pass: Fix single child alignment (parent aligns with single child)
+    const finalElements = newElements.map(el => {
+      if (el.id && !el.source) {
+        const children = getChildren(el.id)
+        
+        // If this node has exactly one child, align parent with child
+        if (children.length === 1) {
+          const child = children[0]
+          const childEl = newElements.find(e => e.id === child.id)
+          
+          if (childEl && childEl.position) {
+            const parentHeight = document.querySelector(`[data-id="${el.id}"]`)?.offsetHeight || 50
+            const childHeight = document.querySelector(`[data-id="${child.id}"]`)?.offsetHeight || 50
+            
+            // Align centers vertically (keep X to maintain horizontal spacing)
+            const alignedY = childEl.position.y + childHeight / 2 - parentHeight / 2
+            
+            const alignedPos = {
+              x: el.position.x, // Keep X
+              y: alignedY
+            }
+            
+            // Update stored position
+            nodePositions.value.set(el.id, { ...alignedPos })
+            
+            return {
+              ...el,
+              position: alignedPos
+            }
+          }
         }
       }
-    }
-    
-    return currentY
+      return el
+    })
+
+    elements.value = finalElements
+
+    console.log("✅ D3 layout completed successfully")
+  } catch (error) {
+    console.error("❌ D3 layout error:", error)
   }
-  
-  // Calculate viewport center
-  const viewportHeight = window.innerHeight - 84
-  const totalTreeHeight = calculateSubtreeHeight('root')
-  const startY = Math.max(50, (viewportHeight - totalTreeHeight) / 2)
-  
-  // Start arranging from root
-  arrangeNode('root', 0, startY)
-  
-  // Trigger reactivity
-  elements.value = [...elements.value]
-  
-  console.log("✅ Mindnotes-style layout completed")
 }
 
 // Schedule layout with debounce
@@ -380,62 +495,71 @@ const scheduleLayout = () => {
   }
   
   layoutTimeout = setTimeout(() => {
-    arrangeTreeLikeMindnotes()
-  }, 100)
+    layoutWithElk()
+  }, 150)
 }
 
 // Add child to specific node
-const addChildToNode = (parentId) => {
-  const parent = elements.value.find(el => el.id === parentId)
+const addChildToNode = async (parentId) => {
+  const parent = nodes.value.find(n => n.id === parentId)
   if (!parent) return
   
   const newNodeId = `node-${nodeCounter++}`
   
-  // Temporary position - will be recalculated by ELK
   const newNode = {
     id: newNodeId,
-    type: 'custom',
     data: { 
       label: 'Nhánh mới',
       parentId: parentId
-    },
-    position: { 
-      x: parent.position.x + 250,
-      y: parent.position.y
-    },
-    draggable: false,
-    style: {
-      padding: '6px 12px',
-      borderRadius: '6px',
-      border: '1px solid #cbd5e1',
-      backgroundColor: '#ffffff',
-      fontSize: '13px',
-      fontWeight: '400',
-      minWidth: '100px',
-      textAlign: 'left',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
     }
   }
   
   const newEdge = {
     id: `edge-${parentId}-${newNodeId}`,
     source: parentId,
-    target: newNodeId,
-    type: 'smoothstep',
-    animated: false,
-    style: { 
-      stroke: '#3b82f6', 
-      strokeWidth: 2 
-    }
+    target: newNodeId
   }
   
-  elements.value = [...elements.value, newNode, newEdge]
+  // Store creation order
+  nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+  
+  // Add node and edge
+  elements.value = [
+    ...nodes.value,
+    newNode,
+    ...edges.value,
+    newEdge
+  ]
+  
   selectedNode.value = newNode
   
   console.log("✅ Added child node:", newNodeId)
   
-  // Use ELK layout
-  scheduleLayout()
+  // Wait for DOM to render
+  await nextTick()
+  
+  // Force reflow để đảm bảo DOM đã update
+  void document.body.offsetHeight
+  
+  // Clear layout timeout
+  if (layoutTimeout) {
+    clearTimeout(layoutTimeout)
+    layoutTimeout = null
+  }
+  
+  // Update D3 renderer với delay đủ lớn để đảm bảo layout được tính toán đúng
+  requestAnimationFrame(() => {
+    void document.body.offsetHeight
+    
+    setTimeout(() => {
+      updateD3RendererWithDelay(250)
+      // Select node mới sau khi render xong để hiển thị border xanh
+      if (d3Renderer) {
+        d3Renderer.selectNode(newNodeId)
+      }
+    }, 50)
+  })
+  
   scheduleSave()
 }
 
@@ -443,7 +567,7 @@ const addChildToNode = (parentId) => {
 const addSiblingToNode = (nodeId) => {
   if (nodeId === 'root') return
   
-  const parentEdge = elements.value.find(el => el.target === nodeId && el.source)
+  const parentEdge = edges.value.find(e => e.target === nodeId)
   
   if (!parentEdge) {
     console.error("Cannot find parent node")
@@ -451,57 +575,65 @@ const addSiblingToNode = (nodeId) => {
   }
   
   const parentId = parentEdge.source
-  const parent = elements.value.find(el => el.id === parentId)
-  const currentNode = elements.value.find(el => el.id === nodeId)
-  
-  if (!parent || !currentNode) return
   
   const newNodeId = `node-${nodeCounter++}`
   
   const newNode = {
     id: newNodeId,
-    type: 'custom',
     data: { 
       label: 'Nhánh mới',
       parentId: parentId
-    },
-    position: { 
-      x: currentNode.position.x,
-      y: currentNode.position.y + 80
-    },
-    draggable: false,
-    style: {
-      padding: '6px 12px',
-      borderRadius: '6px',
-      border: '1px solid #94a3b8',
-      backgroundColor: '#ffffff',
-      fontSize: '13px',
-      fontWeight: '400',
-      minWidth: '100px',
-      textAlign: 'left',
-      boxShadow: '0 2px 4px rgba(0,0,0,0.08)'
     }
   }
   
   const newEdge = {
     id: `edge-${parentId}-${newNodeId}`,
     source: parentId,
-    target: newNodeId,
-    type: 'smoothstep',
-    animated: false,
-    style: { 
-      stroke: '#3b82f6', 
-      strokeWidth: 2 
-    }
+    target: newNodeId
   }
   
-  elements.value = [...elements.value, newNode, newEdge]
+  // Store creation order
+  nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+  
+  // Add node and edge
+  elements.value = [
+    ...nodes.value,
+    newNode,
+    ...edges.value,
+    newEdge
+  ]
+  
   selectedNode.value = newNode
   
   console.log("✅ Added sibling node:", newNodeId)
   
-  scheduleLayout()
+  // Wait for DOM to render
+  nextTick().then(() => {
+    updateD3RendererWithDelay(250)
+  })
+  
   scheduleSave()
+}
+
+// Helper: Count all descendants (children + grandchildren + ...) of a node
+const countChildren = (nodeId) => {
+  const visited = new Set()
+  let count = 0
+  
+  const countDescendants = (id) => {
+    if (visited.has(id)) return
+    visited.add(id)
+    
+    const children = edges.value.filter(e => e.source === id)
+    count += children.length
+    
+    children.forEach(edge => {
+      countDescendants(edge.target)
+    })
+  }
+  
+  countDescendants(nodeId)
+  return count
 }
 
 // Delete node with cascade
@@ -514,13 +646,31 @@ const deleteSelectedNode = () => {
   }
   
   const nodeId = selectedNode.value.id
+  
+  // Kiểm tra xem node có node con không
+  const children = edges.value.filter(e => e.source === nodeId)
+  const totalChildren = countChildren(nodeId)
+  
+  if (children.length > 0) {
+    // Có node con: hiển thị popup cảnh báo
+    nodeToDelete.value = nodeId
+    childCount.value = totalChildren
+    showDeleteDialog.value = true
+    return
+  }
+  
+  // Không có node con: xóa trực tiếp
+  performDelete(nodeId)
+}
+
+// Thực hiện xóa node
+const performDelete = (nodeId) => {
   console.log(`🗑️ Starting cascade delete for node: ${nodeId}`)
   
-  const snapshot = [...elements.value]
   const nodesToDelete = new Set([nodeId])
   
   const collectDescendants = (id) => {
-    const childEdges = snapshot.filter(el => el.source === id && el.target)
+    const childEdges = edges.value.filter(e => e.source === id)
     
     childEdges.forEach(edge => {
       const childId = edge.target
@@ -533,33 +683,50 @@ const deleteSelectedNode = () => {
   
   console.log(`📋 Total nodes to delete: ${nodesToDelete.size}`, Array.from(nodesToDelete))
   
-  elements.value = snapshot.filter(el => {
-    if (el.id === 'root') return true
-    
-    if (el.id && nodesToDelete.has(el.id)) {
+  // Remove nodes and edges
+  const newNodes = nodes.value.filter(n => {
+    if (n.id === 'root') return true
+    if (nodesToDelete.has(n.id)) {
+      nodePositions.value.delete(n.id)
+      nodeCreationOrder.value.delete(n.id)
       return false
     }
-    
-    if (el.source && nodesToDelete.has(el.source)) {
-      return false
-    }
-    if (el.target && nodesToDelete.has(el.target)) {
-      return false
-    }
-    
     return true
   })
   
+  const newEdges = edges.value.filter(e => {
+    if (nodesToDelete.has(e.source) || nodesToDelete.has(e.target)) {
+      return false
+    }
+    return true
+  })
+  
+  elements.value = [...newNodes, ...newEdges]
   selectedNode.value = null
+  
   console.log(`✅ Cascade delete completed: ${nodesToDelete.size} nodes removed`)
   
   scheduleLayout()
   scheduleSave()
 }
 
+// Xác nhận xóa từ dialog
+const confirmDelete = () => {
+  if (nodeToDelete.value) {
+    performDelete(nodeToDelete.value)
+    nodeToDelete.value = null
+  }
+  showDeleteDialog.value = false
+}
+
 // Keyboard shortcuts handler
 const handleKeyDown = (event) => {
   if (editingNode.value) return
+  const target = event.target
+  const tagName = target?.tagName?.toLowerCase()
+  if (tagName === 'textarea' || tagName === 'input' || target?.isContentEditable) {
+    return
+  }
   if (!selectedNode.value) return
   
   const key = event.key
@@ -594,8 +761,16 @@ const handleKeyDown = (event) => {
 }
 
 // Computed
-const nodes = computed(() => elements.value.filter(el => el.id && !el.source))
-const edges = computed(() => elements.value.filter(el => el.source))
+const nodes = computed(() => elements.value.filter(el => el.id && !el.source && !el.target))
+const edges = computed(() => elements.value.filter(el => el.source && el.target))
+
+// Watch nodes/edges changes to update D3 renderer
+// KHÔNG update khi đang edit để tránh node nháy và text nhảy dòng
+watch([nodes, edges], () => {
+  if (d3Renderer && !editingNode.value) {
+    updateD3Renderer()
+  }
+}, { deep: true })
 
 // Save resource
 const saveLayoutResource = createResource({
@@ -623,9 +798,21 @@ const scheduleSave = () => {
   saveTimeout = setTimeout(() => {
     isSaving.value = true
     
+    // Get positions from D3 renderer if available
+    const nodesWithPositions = nodes.value.map(node => {
+      const nodeWithPos = { ...node }
+      if (d3Renderer && d3Renderer.positions) {
+        const pos = d3Renderer.positions.get(node.id)
+        if (pos) {
+          nodeWithPos.position = { ...pos }
+        }
+      }
+      return nodeWithPos
+    })
+    
     saveLayoutResource.submit({
       entity_name: props.entityName,
-      nodes: JSON.stringify(nodes.value),
+      nodes: JSON.stringify(nodesWithPositions),
       edges: JSON.stringify(edges.value),
       layout: "horizontal"
     })
@@ -643,13 +830,30 @@ onMounted(() => {
   
   window.addEventListener('keydown', handleKeyDown, true)
   
-  // Check ELK availability
-  console.log('🔍 ELK instance:', elk)
-  console.log('🔍 ELK layout function available:', typeof elk.layout === 'function')
+  // Handle window resize
+  window.addEventListener('resize', () => {
+    if (d3Renderer) {
+      d3Renderer.options.width = window.innerWidth
+      d3Renderer.options.height = window.innerHeight - 84
+      if (d3Renderer.svg) {
+        d3Renderer.svg.attr('width', window.innerWidth)
+        d3Renderer.svg.attr('height', window.innerHeight - 84)
+      }
+      updateD3Renderer()
+    }
+  })
+  
+  console.log('✅ D3 Mindmap renderer ready')
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown, true)
+  window.removeEventListener('resize', () => {})
+  
+  if (d3Renderer) {
+    d3Renderer.destroy()
+    d3Renderer = null
+  }
   
   if (saveTimeout) {
     clearTimeout(saveTimeout)
@@ -675,72 +879,139 @@ kbd {
   font-family: ui-monospace, monospace;
   font-size: 11px;
 }
-</style>
 
-<style>
-@import '@vue-flow/core/dist/style.css';
-@import '@vue-flow/core/dist/theme-default.css';
-@import '@vue-flow/controls/dist/style.css';
-@import '@vue-flow/minimap/dist/style.css';
-
-.vue-flow__node-custom {
-  background: transparent !important;
-  border: none !important;
-  padding: 0 !important;
-  transition: transform 0.2s ease !important;
-  z-index: 10 !important;
+.d3-mindmap-container {
+  position: relative;
 }
 
-.vue-flow__edge {
-  transition: all 0.3s ease !important;
-  z-index: 1 !important;
+.d3-mindmap-wrapper {
+  width: 100%;
+  height: 100%;
 }
 
-.vue-flow__edge-path {
-  stroke: #3b82f6 !important;
-  stroke-width: 2 !important;
-  transition: stroke 0.2s ease !important;
+.d3-controls {
+  position: absolute;
+  bottom: 20px;
+  left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 10;
 }
 
-.vue-flow__edge.selected .vue-flow__edge-path {
-  stroke: #2563eb !important;
-  stroke-width: 3 !important;
+.control-btn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #374151;
+  transition: all 0.2s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
-.vue-flow__handle {
-  width: 8px !important;
-  height: 8px !important;
-  background: #3b82f6 !important;
-  border: 2px solid white !important;
-  opacity: 0 !important;
-  transition: opacity 0.2s ease !important;
+.control-btn:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
 }
 
-.vue-flow__node:hover .vue-flow__handle {
-  opacity: 1 !important;
+.control-btn:active {
+  transform: scale(0.95);
 }
 
-.vue-flow__handle-left {
-  left: -4px !important;
-  border: transparent !important;
-  background-color: transparent !important;
+/* Delete confirmation dialog */
+.delete-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
 }
 
-.vue-flow__handle-right {
-  right: -4px !important;
-  border: transparent !important;
-  background-color: transparent !important;
+.delete-dialog {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 10px 15px rgba(0, 0, 0, 0.1);
+  width: 90%;
+  max-width: 400px;
+  overflow: hidden;
 }
 
-.vue-flow__handle-top {
-  top: -4px !important;
-  border: transparent !important;
-  background-color: transparent !important;
+.delete-dialog-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
-.vue-flow__handle-bottom {
-  bottom: -4px !important;
-  border: transparent !important;
-  background-color: transparent !important;
+.delete-dialog-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+
+.delete-dialog-body {
+  padding: 20px;
+  color: #374151;
+  line-height: 1.5;
+}
+
+.delete-dialog-body p {
+  margin: 0 0 12px 0;
+}
+
+.delete-dialog-body p:last-child {
+  margin-bottom: 0;
+}
+
+.delete-dialog-body strong {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.delete-dialog-footer {
+  padding: 16px 20px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.btn-cancel,
+.btn-delete {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.btn-cancel {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+.btn-cancel:hover {
+  background: #e5e7eb;
+}
+
+.btn-delete {
+  background: #dc2626;
+  color: white;
+}
+
+.btn-delete:hover {
+  background: #b91c1c;
 }
 </style>

@@ -37,17 +37,19 @@
       
       <div class="node-content">
         <textarea
-          v-if="isEditing"
           v-model="data.label"
           @blur="$emit('finish-editing')"
           @keydown.enter.exact.prevent="$emit('finish-editing')"
+          @input="autoResize"
+          @dblclick="startEdit"
           class="node-input"
+          :class="{ 'node-input-editing': isEditing }"
           ref="nodeInput"
           placeholder="Nhập"
-          rows="2"
-          autofocus
+          :readonly="!isEditing"
+          rows="1"
         />
-        <div v-else class="node-text">{{ data.label || 'Nhập' }}</div>
+        <span ref="measureSpan" class="measure-span">{{ data.label || 'Nhập' }}</span>
       </div>
       
       <!-- Hover controls -->
@@ -64,7 +66,7 @@
 
 <script setup>
 import { Handle } from '@vue-flow/core'
-import { defineEmits, defineProps, nextTick, ref, watch } from 'vue'
+import { defineEmits, defineProps, nextTick, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   id: {
@@ -85,20 +87,76 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['hover', 'unhover', 'add-child', 'finish-editing'])
+const emit = defineEmits(['hover', 'unhover', 'add-child', 'finish-editing', 'edit-start'])
 
 const nodeInput = ref(null)
+const measureSpan = ref(null)
+
+// ✅ Auto-resize textarea dựa trên span đo chiều rộng
+const autoResize = () => {
+  if (!nodeInput.value || !measureSpan.value) return
+  
+  const text = props.data.label || 'Nhập'
+  const MAX_CONTENT_WIDTH = 384 // 400 - 8*2 (padding của node)
+  
+  // Set width trước để textarea wrap text đúng
+  nodeInput.value.style.width = MAX_CONTENT_WIDTH + 'px'
+  nodeInput.value.style.height = 'auto'
+  
+  // Đo chiều cao sau khi wrap
+  const scrollHeight = nodeInput.value.scrollHeight
+  nodeInput.value.style.height = scrollHeight + 'px'
+  
+  // Bây giờ đo chiều rộng thực tế cần thiết
+  const lines = text.split('\n')
+  let maxWidth = 14
+  
+  lines.forEach(line => {
+    if (!line) {
+      maxWidth = Math.max(maxWidth, 14)
+      return
+    }
+    measureSpan.value.textContent = line
+    const lineWidth = measureSpan.value.offsetWidth
+    maxWidth = Math.max(maxWidth, lineWidth)
+  })
+  
+  // Apply width với constraints
+  const finalWidth = Math.max(14, Math.min(MAX_CONTENT_WIDTH, maxWidth + 4))
+  nodeInput.value.style.width = finalWidth + 'px'
+  
+  // Re-measure height với width mới
+  nodeInput.value.style.height = 'auto'
+  const finalHeight = nodeInput.value.scrollHeight
+  nodeInput.value.style.height = finalHeight + 'px'
+  
+  console.log('Auto resize:', { maxWidth, finalWidth, finalHeight, lines: lines.length })
+}
+
+// ✅ Start edit mode
+const startEdit = () => {
+  emit('edit-start')
+}
 
 // Focus input when editing starts
-watch(() => props.isEditing, (newVal) => {
+watch(() => props.isEditing, async (newVal) => {
   if (newVal) {
-    nextTick(() => {
-      if (nodeInput.value) {
-        nodeInput.value.focus()
-        nodeInput.value.select()
-      }
-    })
+    await nextTick()
+    if (nodeInput.value) {
+      nodeInput.value.focus()
+      nodeInput.value.select()
+      autoResize()
+    }
   }
+})
+
+// Watch label changes
+watch(() => props.data.label, () => {
+  nextTick(() => autoResize())
+})
+
+onMounted(() => {
+  autoResize()
 })
 </script>
 
@@ -110,16 +168,19 @@ watch(() => props.isEditing, (newVal) => {
 
 .mindmap-node {
   position: relative;
-  padding: 6px 10px;
+  padding: 8px 12px;
   background: white;
   border: 1px solid #e2e8f0;
   border-radius: 6px;
-  min-width: 80px;
-  max-width: 250px;
-  min-height: 30px;
+  min-width: 100px;
+  max-width: 400px;
+  width: fit-content;
+  min-height: 19px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 10;
+  display: inline-flex;
+  align-items: center;
 }
 
 .mindmap-node:hover {
@@ -134,39 +195,38 @@ watch(() => props.isEditing, (newVal) => {
 }
 
 .mindmap-node.is-root {
-  padding: 8px 16px;
+  padding: 8px 12px;
   background: #3b82f6;
   color: #ffffff;
   font-weight: 600;
-  min-width: 120px;
+  min-width: 100px;
   text-align: center;
   box-shadow: 0 2px 6px rgba(59, 130, 246, 0.25);
   border: none;
 }
 
 .node-content {
-  text-align: left;
+  position: relative;
+  width: fit-content;
+  max-width: 384px;
+  box-sizing: border-box;
+  line-height: 1.2;
+}
+
+/* ✅ Span ẩn dùng để đo chiều rộng text */
+.measure-span {
+  position: absolute;
+  visibility: hidden;
+  white-space: pre;
   font-size: 13px;
   font-weight: 500;
-  color: #1e293b;
-  word-break: break-word;
-  position: relative;
-  max-width: 100%;
-}
-
-.node-text {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  line-height: 1.5;
-  max-width: 230px;
-}
-
-.node-text:empty::before,
-.node-text:not(:empty):has(:empty)::before {
-  content: 'Nhập';
-  color: #94a3b8;
-  opacity: 0.7;
+  font-family: inherit;
+  line-height: 1.2;
+  padding: 0;
+  margin: 0;
+  pointer-events: none;
+  left: -9999px;
+  top: -9999px;
 }
 
 .is-root .node-content {
@@ -174,10 +234,8 @@ watch(() => props.isEditing, (newVal) => {
   color: #ffffff;
 }
 
+/* ✅ Textarea với chiều rộng được set bởi JS */
 .node-input {
-  width: 100%;
-  max-width: 230px;
-  min-height: 40px;
   background: transparent;
   text-align: left;
   font-size: 13px;
@@ -186,11 +244,21 @@ watch(() => props.isEditing, (newVal) => {
   border: none !important;
   outline: none !important;
   resize: none;
-  line-height: 1.5;
+  line-height: 1.2;
   font-family: inherit;
-  overflow-wrap: break-word;
   word-wrap: break-word;
+  word-break: break-word;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
+  padding: 0 !important;
+  margin: 0 !important;
+  height: auto;
+  overflow: hidden;
+  box-sizing: border-box !important;
+  display: block;
+  min-width: 14px;
+  max-width: 384px;
+  width: 384px;
 }
 
 .node-input::placeholder {
