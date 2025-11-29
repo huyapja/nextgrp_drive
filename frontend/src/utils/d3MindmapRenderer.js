@@ -30,6 +30,7 @@ export class D3MindmapRenderer {
     this.selectedNode = null
     this.editingNode = null
     this.positions = new Map() // Store calculated positions
+    this.nodeSizeCache = new Map() // Cache node sizes to avoid recalculating during editing
     
     this.zoom = null
     this.svg = null
@@ -156,13 +157,16 @@ export class D3MindmapRenderer {
     const nodeSizes = new Map()
     this.nodes.forEach(node => {
       // Nếu node đang được edit, dùng size từ cache (giữ width cố định)
-      if (this.editingNode === node.id && nodeSizeCache.has(node.id)) {
-        const cachedSize = nodeSizeCache.get(node.id)
+      if (this.editingNode === node.id && this.nodeSizeCache.has(node.id)) {
+        const cachedSize = this.nodeSizeCache.get(node.id)
         nodeSizes.set(node.id, cachedSize)
       } else {
         // Tính toán lại kích thước với text mới
+        // Ưu tiên sử dụng fixedWidth/fixedHeight nếu có (đã được set khi blur)
         const size = this.estimateNodeSize(node)
         nodeSizes.set(node.id, size)
+        // Cập nhật cache để đảm bảo đồng bộ
+        this.nodeSizeCache.set(node.id, size)
       }
     })
     
@@ -273,14 +277,17 @@ export class D3MindmapRenderer {
   
   renderNodes(positions) {
     // Pre-calculate node sizes to avoid repeated calculations
-    const nodeSizeCache = new Map()
+    // Sử dụng instance variable nodeSizeCache thay vì local variable
     this.nodes.forEach(node => {
-      const size = this.estimateNodeSize(node)
-      nodeSizeCache.set(node.id, size)
+      // Chỉ tính toán lại nếu chưa có trong cache hoặc node đang không được edit
+      if (!this.nodeSizeCache.has(node.id) || this.editingNode !== node.id) {
+        const size = this.estimateNodeSize(node)
+        this.nodeSizeCache.set(node.id, size)
+      }
     })
     
     const getNodeSize = (node) => {
-      return nodeSizeCache.get(node.id) || { width: 130, height: 43 } // Node mặc định 130px (textarea width)
+      return this.nodeSizeCache.get(node.id) || { width: 130, height: 43 } // Node mặc định 130px (textarea width)
     }
     
     const nodes = this.g.selectAll('.node-group')
@@ -605,7 +612,7 @@ export class D3MindmapRenderer {
             const rect = nodeGroup.select('.node-rect')
             
             // Lấy kích thước từ cache (đã được tính toán chính xác) hoặc từ rect
-            const cachedSize = nodeSizeCache.get(nodeData.id)
+            const cachedSize = this.nodeSizeCache.get(nodeData.id)
             const currentRectWidth = cachedSize?.width || parseFloat(rect.attr('width')) || 130
             const currentRectHeight = cachedSize?.height || parseFloat(rect.attr('height')) || 43
             
@@ -633,7 +640,7 @@ export class D3MindmapRenderer {
             }
             
             // Lưu vào cache với kích thước chính xác
-            nodeSizeCache.set(nodeData.id, { width: lockedWidth, height: lockedHeight })
+            this.nodeSizeCache.set(nodeData.id, { width: lockedWidth, height: lockedHeight })
             
             // Cập nhật rect với kích thước chính xác
             rect.attr('width', lockedWidth)
@@ -665,8 +672,12 @@ export class D3MindmapRenderer {
             wrapper.style('width', '100%')
             wrapper.style('height', '100%')
             
+            // Set editingNode TRƯỚC khi có thể có input event
+            // Đảm bảo editingNode được set đồng bộ để watch không trigger
             if (this.callbacks.onNodeEditingStart) {
               this.callbacks.onNodeEditingStart(nodeData.id)
+              // Đảm bảo editingNode được set trong renderer để render() không tính lại layout
+              this.editingNode = nodeData.id
             }
           })
           .on('blur', (event) => {
@@ -739,7 +750,7 @@ export class D3MindmapRenderer {
               event.target.style.whiteSpace = shouldKeepSingleLine ? 'nowrap' : 'pre-wrap'
               
               // Cập nhật cache
-              nodeSizeCache.set(nodeData.id, { width: finalWidth, height: finalHeight })
+              this.nodeSizeCache.set(nodeData.id, { width: finalWidth, height: finalHeight })
               
               // LƯU kích thước cố định và keepSingleLine vào data của node để các lần render sau hiển thị y hệt
               if (!nodeData.data) nodeData.data = {}
@@ -773,10 +784,20 @@ export class D3MindmapRenderer {
               nodeGroup.select('.add-child-text').attr('x', finalWidth + 20)
               nodeGroup.select('.add-child-text').attr('y', finalHeight / 2)
               
+              // QUAN TRỌNG: Cập nhật node.data.label với giá trị cuối cùng TRƯỚC khi gọi callback
+              // Điều này đảm bảo khi render lại, nó sẽ tính toán đúng kích thước
+              if (!nodeData.data) nodeData.data = {}
+              nodeData.data.label = finalValue
+              
               // GIỮ locked width/height cho lần render sau, KHÔNG reset width/height textarea
               // để kích thước sau edit vẫn y hệt kích thước lúc đang edit
             }
+            // Clear editingNode trong renderer
+            this.editingNode = null
+            
             if (this.callbacks.onNodeEditingEnd) {
+              // Truyền nodeId vào callback để component biết node nào vừa kết thúc edit
+              // Sau khi callback này được gọi, component sẽ trigger updateD3Renderer để tính toán lại layout
               this.callbacks.onNodeEditingEnd(nodeData.id)
             }
           })
@@ -1047,7 +1068,7 @@ export class D3MindmapRenderer {
             nodeGroup.select('.add-child-text').attr('y', finalHeight / 2)
             
             // Update cache với kích thước mới
-            nodeSizeCache.set(nodeData.id, { width: currentWidth, height: finalHeight })
+            this.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: finalHeight })
             
             if (this.callbacks.onNodeUpdate) {
               this.callbacks.onNodeUpdate(nodeData.id, newValue)
@@ -1066,7 +1087,7 @@ export class D3MindmapRenderer {
           // Tính toán chiều cao phù hợp
           let newHeight = this.adjustTextareaHeight(textareaNode, singleLineHeight)
           
-          const currentSize = nodeSizeCache.get(nodeData.id) || { width: 130, height: singleLineHeight }
+          const currentSize = this.nodeSizeCache.get(nodeData.id) || { width: 130, height: singleLineHeight }
           
           // Update node-rect trước
           const nodeGroup = d3.select(nodeArray[idx].parentNode)
@@ -1089,7 +1110,7 @@ export class D3MindmapRenderer {
           wrapper.style('width', '100%')
           
           // Update cached size so subsequent measurements use latest height
-          nodeSizeCache.set(nodeData.id, { ...currentSize, height: newHeight, width: actualRectWidth })
+          this.nodeSizeCache.set(nodeData.id, { ...currentSize, height: newHeight, width: actualRectWidth })
           nodeGroup.select('.add-child-btn').attr('cx', actualRectWidth + 20) // Ra ngoài bên phải, cách 20px
           nodeGroup.select('.add-child-btn').attr('cy', newHeight / 2)
           nodeGroup.select('.add-child-text').attr('x', actualRectWidth + 20) // Ra ngoài bên phải, cách 20px
@@ -1270,25 +1291,61 @@ export class D3MindmapRenderer {
   }
   
   fitView() {
-    const bounds = this.g.node().getBBox()
+    if (!this.positions || this.positions.size === 0) {
+      return
+    }
+    
+    // Tính bounds từ positions của các node (không bao gồm background rect)
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    
+    this.nodes.forEach(node => {
+      const pos = this.positions.get(node.id)
+      if (pos) {
+        // Tính node size
+        const size = this.estimateNodeSize(node)
+        
+        minX = Math.min(minX, pos.x)
+        minY = Math.min(minY, pos.y)
+        maxX = Math.max(maxX, pos.x + size.width)
+        maxY = Math.max(maxY, pos.y + size.height)
+      }
+    })
+    
+    // Nếu không có node nào, không làm gì
+    if (minX === Infinity) {
+      return
+    }
+    
+    const width = maxX - minX
+    const height = maxY - minY
+    const midX = (minX + maxX) / 2
+    const midY = (minY + maxY) / 2
+    
     const fullWidth = this.options.width
     const fullHeight = this.options.height
-    const width = bounds.width
-    const height = bounds.height
-    const midX = bounds.x + width / 2
-    const midY = bounds.y + height / 2
     
-    const scale = Math.min(fullWidth / width, fullHeight / height, 1) * 0.9
+    // Tính scale, đảm bảo có padding 40px mỗi bên
+    const padding = 40
+    const scaleX = (fullWidth - padding) / width
+    const scaleY = (fullHeight - padding) / height
+    const scale = Math.min(scaleX, scaleY, 2) // Giới hạn scale tối đa là 2x
+    
+    // Đảm bảo scale không quá nhỏ (tối thiểu 0.1)
+    const finalScale = Math.max(scale, 0.1)
+    
     const translate = [
-      fullWidth / 2 - scale * midX,
-      fullHeight / 2 - scale * midY
+      fullWidth / 2 - finalScale * midX,
+      fullHeight / 2 - finalScale * midY
     ]
     
     this.svg.transition()
       .duration(750)
       .call(
         this.zoom.transform,
-        d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
+        d3.zoomIdentity.translate(translate[0], translate[1]).scale(finalScale)
       )
   }
   
