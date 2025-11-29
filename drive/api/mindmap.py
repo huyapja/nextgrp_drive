@@ -319,7 +319,7 @@ def create_mindmap_entity(title, personal, team, content=None, parent=None):
     drive_file.parent_entity = parent
     drive_file.file_size = 0
     drive_file.mime_type = "mindmap"
-    drive_file.mindmap = drive_mindmap.name  # ← Link để kế thừa permissions
+    drive_file.mindmap = drive_mindmap.name
     drive_file.is_group = 0
 
     drive_file.insert()

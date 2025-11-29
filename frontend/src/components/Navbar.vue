@@ -162,7 +162,7 @@
           <InputText
             id="mindmap-title"
             v-model="mindMapForm.title"
-            placeholder="Nhập tên MindMap"
+            placeholder="Nhập tên sơ đồ"
             class="w-full"
           />
         </div>
