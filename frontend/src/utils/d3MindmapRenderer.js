@@ -10,7 +10,10 @@
  * - Horizontal layout giống Lark
  */
 
+import MindmapNodeEditor from '@/components/MindmapNodeEditor.vue'
 import * as d3 from 'd3'
+import { TextSelection } from 'prosemirror-state'
+import { createApp } from 'vue'
 import { calculateD3MindmapLayout } from './d3MindmapLayout'
 
 export class D3MindmapRenderer {
@@ -31,6 +34,7 @@ export class D3MindmapRenderer {
     this.editingNode = null
     this.positions = new Map() // Store calculated positions
     this.nodeSizeCache = new Map() // Cache node sizes to avoid recalculating during editing
+    this.vueApps = new Map() // Store Vue app instances for each node
     
     this.zoom = null
     this.svg = null
@@ -66,11 +70,42 @@ export class D3MindmapRenderer {
     // Setup zoom
     this.zoom = d3.zoom()
       .scaleExtent([0.5, 2])
+      .wheelDelta((event) => {
+        // Điều chỉnh độ nhạy zoom - giá trị âm để zoom in khi scroll down
+        return -event.deltaY * (event.deltaMode === 1 ? 0.05 : 0.001)
+      })
+      .filter((event) => {
+        // Xử lý wheel events - chỉ zoom khi có Ctrl/Meta
+        if (event.type === 'wheel') {
+          // Luôn yêu cầu Ctrl/Meta để zoom
+          return !!(event.ctrlKey || event.metaKey)
+        }
+        
+        // Cho phép middle mouse button để pan
+        if (event.type === 'mousedown') {
+          return event.button === 1 // Middle mouse button
+        }
+        
+        // Chặn các events khác (không cho phép left-click drag)
+        return false
+      })
       .on('zoom', (event) => {
         this.g.attr('transform', event.transform)
       })
     
     this.svg.call(this.zoom)
+    
+    // Ngăn browser zoom mặc định khi giữ Ctrl + wheel
+    // Thêm listener ở capture phase để preventDefault sớm
+    const svgNode = this.svg.node()
+    if (svgNode) {
+      svgNode.addEventListener('wheel', (event) => {
+        if (event.ctrlKey || event.metaKey) {
+          // Ngăn browser zoom mặc định
+          event.preventDefault()
+        }
+      }, { passive: false, capture: true })
+    }
     
     // Add background grid
     this.addGrid()
@@ -110,6 +145,13 @@ export class D3MindmapRenderer {
     this.callbacks = { ...this.callbacks, ...callbacks }
   }
 
+  // Helper function để lấy label một cách an toàn (luôn trả về string)
+  getNodeLabel(node) {
+    const label = node?.data?.label
+    if (label == null) return ''
+    return typeof label === 'string' ? label : String(label)
+  }
+  
   adjustTextareaHeight(textarea, minHeight = null) {
     if (!textarea) return 0
     
@@ -134,6 +176,509 @@ export class D3MindmapRenderer {
     
     return targetHeight
   }
+
+  // Mount Vue component vào container
+  mountNodeEditor(nodeId, container, props = {}) {
+    // Unmount component cũ nếu có
+    this.unmountNodeEditor(nodeId)
+    
+    // Tạo Vue app instance
+    const app = createApp(MindmapNodeEditor, {
+      modelValue: props.value || '',
+      placeholder: props.placeholder || 'Nhập...',
+      color: props.color || '#1f2937',
+      minHeight: props.minHeight || '43px',
+      width: props.width || '100%',
+      height: props.height || 'auto',
+      // Pass event handlers as props - component sẽ gọi chúng khi emit events
+      onInput: props.onInput || null,
+      onFocus: props.onFocus || null,
+      onBlur: props.onBlur || null,
+      isRoot: props.isRoot || false,
+    })
+    
+    // Mount vào container
+    const instance = app.mount(container)
+    
+    // Lưu app instance và component instance
+    this.vueApps.set(nodeId, { app, instance })
+    
+    return { app, instance }
+  }
+
+  // Unmount Vue component
+  unmountNodeEditor(nodeId) {
+    const entry = this.vueApps.get(nodeId)
+    if (entry) {
+      entry.app.unmount()
+      this.vueApps.delete(nodeId)
+    }
+  }
+
+  // Get editor instance từ Vue app
+  getEditorInstance(nodeId) {
+    const entry = this.vueApps.get(nodeId)
+    if (entry && entry.instance) {
+      // TipTap editor được lưu trong component instance
+      return entry.instance.editor || null
+    }
+    return null
+  }
+
+  // Handler cho editor input event
+  handleEditorInput(nodeId, value, foElement, nodeData) {
+    // Tương tự như textarea on('input') handler - tự động mở rộng khi nhập text
+    const nodeGroup = d3.select(foElement.parentNode)
+    const rect = nodeGroup.select('.node-rect')
+    
+    // Lấy kích thước hiện tại từ cache (được lock khi focus)
+    const cachedSize = this.nodeSizeCache.get(nodeId)
+    const lockedWidth = cachedSize?.width || parseFloat(rect.attr('width')) || 130
+    const lockedHeight = cachedSize?.height || parseFloat(rect.attr('height')) || 43
+    
+    // Lấy text trước đó để xác định có phải edit lần đầu không (TRƯỚC KHI cập nhật)
+    const previousText = this.getNodeLabel(nodeData)
+    const isFirstEdit = !previousText || !previousText.trim()
+    
+    // Cập nhật node data với giá trị mới
+    if (!nodeData.data) nodeData.data = {}
+    nodeData.data.label = value
+    
+    // Tính toán kích thước mới (tương tự logic textarea)
+    const maxWidth = 300
+    const minWidth = 130
+    const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
+    
+    const isEmpty = !value || !value.trim()
+    const isRootNode = nodeData.data?.isRoot || nodeId === 'root'
+    
+    // Tính toán width mới dựa trên nội dung
+    let newWidth = minWidth
+    if (!isEmpty) {
+      // Tạo temp node để tính toán kích thước
+      const tempNode = { ...nodeData, data: { ...nodeData.data, label: value } }
+      newWidth = this.estimateNodeWidth(tempNode, maxWidth)
+      newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth))
+    }
+    
+    // XỬ LÝ WIDTH: Giống mindmap Lark - node chỉ mở rộng đến maxWidth, sau đó text wrap
+    let currentWidth
+    if (isEmpty && isFirstEdit) {
+      // Nội dung rỗng VÀ edit lần đầu: reset về kích thước mặc định
+      currentWidth = minWidth
+      if (nodeData.data) {
+        delete nodeData.data.fixedWidth
+        delete nodeData.data.fixedHeight
+        nodeData.data.keepSingleLine = true
+      }
+    } else if (isEmpty && !isFirstEdit) {
+      // Nội dung rỗng NHƯNG đã có nội dung trước đó: giữ width hiện tại (không co lại khi đang edit)
+      currentWidth = lockedWidth
+    } else {
+      // Có nội dung: tính toán width dựa trên text
+      const text = value || ''
+      
+      // Extract plain text từ HTML nếu cần
+      let plainText = text
+      if (text.includes('<')) {
+        const tempDiv = document.createElement('div')
+        tempDiv.innerHTML = text
+        plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+      }
+      
+      if (!plainText || !plainText.trim()) {
+        // Không có text: dùng minWidth hoặc lockedWidth
+        currentWidth = Math.max(newWidth, lockedWidth || minWidth)
+      } else {
+        // Tính toán width cần thiết để chứa text trên 1 dòng
+        const tempSpan = document.createElement('span')
+        tempSpan.style.cssText = `
+          position: absolute;
+          visibility: hidden;
+          white-space: nowrap;
+          font-size: 19px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        `
+        tempSpan.textContent = plainText.trim()
+        document.body.appendChild(tempSpan)
+        void tempSpan.offsetHeight
+        
+        const textWidth = tempSpan.offsetWidth
+        const requiredWidth = textWidth + 42 // padding (32px) + margin (10px)
+        document.body.removeChild(tempSpan)
+        
+        // Logic giống Lark: node chỉ mở rộng đến maxWidth
+        // - Nếu text width < maxWidth: node width = textWidth + padding (nhưng tối thiểu minWidth)
+        // - Nếu text width >= maxWidth: node width = maxWidth, text sẽ wrap
+        if (requiredWidth < maxWidth) {
+          // Text chưa đạt maxWidth: mở rộng node đến width cần thiết
+          currentWidth = Math.max(minWidth, Math.min(requiredWidth, maxWidth))
+          // Không nhỏ hơn lockedWidth khi đang edit (để tránh co lại)
+          if (!isFirstEdit) {
+            currentWidth = Math.max(currentWidth, lockedWidth || minWidth)
+          }
+        } else {
+          // Text đã đạt hoặc vượt maxWidth: node width = maxWidth, text sẽ wrap
+          currentWidth = maxWidth
+        }
+      }
+    }
+    
+    // Cập nhật width trước để editor có width đúng khi đo height
+    rect.attr('width', currentWidth)
+    const fo = d3.select(foElement)
+    const borderOffset = 4 // 2px border mỗi bên
+    const foWidth = Math.max(0, currentWidth - borderOffset)
+    fo.attr('x', 2)
+    fo.attr('y', 2)
+    fo.attr('width', foWidth)
+    
+    // Đảm bảo editor content có width đúng NGAY LẬP TỨC để tránh text wrap sớm
+    const editorInstance = this.getEditorInstance(nodeId)
+    if (editorInstance && editorInstance.view && editorInstance.view.dom) {
+      const editorDOM = editorInstance.view.dom
+      const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+      
+      if (editorContent) {
+        // Set width ngay lập tức để tránh text wrap sớm
+        editorContent.style.width = `${foWidth}px`
+        
+        // Logic wrap giống mindmap Lark:
+        // - Luôn cho phép wrap để hiển thị đủ nội dung
+        // - Node sẽ mở rộng width đến maxWidth, sau đó text wrap
+        editorContent.style.whiteSpace = 'pre-wrap'
+        
+        // Force reflow để đảm bảo width đã được áp dụng
+        void editorContent.offsetWidth
+      }
+    }
+    
+    // Tính toán height mới dựa trên width và nội dung - tự động mở rộng để hiển thị đủ nội dung
+    let currentHeight
+    if (isEmpty && isFirstEdit) {
+      // Nội dung rỗng VÀ edit lần đầu: reset về chiều cao mặc định (1 dòng)
+      currentHeight = singleLineHeight
+    } else if (isEmpty && !isFirstEdit) {
+      // Nội dung rỗng NHƯNG đã có nội dung trước đó: giữ height hiện tại (không co lại khi đang edit)
+      currentHeight = lockedHeight
+    } else {
+      // Có nội dung: đo chiều cao trực tiếp từ TipTap editor DOM để đảm bảo chính xác
+      const editorInstance = this.getEditorInstance(nodeId)
+      let measuredHeight = singleLineHeight
+      
+      if (editorInstance && editorInstance.view && editorInstance.view.dom) {
+        const editorDOM = editorInstance.view.dom
+        // TipTap editor có class 'mindmap-editor-prose' và nội dung được render trong đó
+        const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+        
+        if (editorContent) {
+          // Editor đã có width đúng từ foreignObject, giờ đo height
+          // Đảm bảo editor có width đúng để đo height chính xác
+          const foWidth = currentWidth - borderOffset
+          editorContent.style.width = `${foWidth}px`
+          editorContent.style.height = 'auto' // Auto để đo được scrollHeight chính xác
+          editorContent.style.minHeight = `${singleLineHeight}px`
+          editorContent.style.maxHeight = 'none' // Cho phép mở rộng không giới hạn
+          
+          // Đảm bảo white-space cho phép wrap
+          editorContent.style.whiteSpace = 'pre-wrap'
+          
+          // Force reflow nhiều lần để đảm bảo DOM đã cập nhật và text đã wrap
+          void editorContent.offsetWidth
+          void editorContent.offsetHeight
+          void editorContent.scrollHeight
+          
+          // Đo chiều cao thực tế của nội dung (scrollHeight cho biết chiều cao đầy đủ)
+          const contentHeight = Math.max(
+            editorContent.scrollHeight || 0,
+            editorContent.offsetHeight || 0,
+            singleLineHeight
+          )
+          
+          measuredHeight = contentHeight
+          
+          // Đợi một frame để đo lại nếu cần (để xử lý trường hợp text wrap chưa hoàn tất)
+          requestAnimationFrame(() => {
+            const updatedHeight = Math.max(
+              editorContent.scrollHeight || 0,
+              editorContent.offsetHeight || 0,
+              singleLineHeight,
+              lockedHeight
+            )
+            
+            if (updatedHeight > measuredHeight) {
+              measuredHeight = updatedHeight
+              currentHeight = Math.max(measuredHeight, singleLineHeight, lockedHeight)
+              
+              // Cập nhật height
+              rect.attr('height', currentHeight)
+              fo.attr('height', Math.max(0, currentHeight - borderOffset))
+              
+              // Cập nhật vị trí nút add-child
+              nodeGroup.select('.add-child-btn').attr('cy', currentHeight / 2)
+              nodeGroup.select('.add-child-text').attr('y', currentHeight / 2)
+              
+              // Cập nhật cache
+              this.nodeSizeCache.set(nodeId, { width: currentWidth, height: currentHeight })
+            }
+          })
+        }
+      } else {
+        // Fallback: tính toán từ text nếu không lấy được editor DOM
+        const tempNode = { ...nodeData, data: { ...nodeData.data, label: value } }
+        measuredHeight = this.estimateNodeHeight(tempNode, currentWidth)
+      }
+      
+      // Tất cả các node (bao gồm root) dùng logic giống nhau: chỉ mở rộng (không co lại khi đang edit)
+      currentHeight = Math.max(measuredHeight, singleLineHeight, lockedHeight)
+    }
+    
+    // Cập nhật height của node-rect và foreignObject
+    rect.attr('height', currentHeight)
+    fo.attr('height', Math.max(0, currentHeight - borderOffset))
+    
+    // Cập nhật wrapper và editor container
+    const wrapper = fo.select('.node-content-wrapper')
+    wrapper.style('width', '100%')
+    wrapper.style('height', '100%')
+    
+    // Cập nhật vị trí nút add-child
+    nodeGroup.select('.add-child-btn').attr('cx', currentWidth + 20)
+    nodeGroup.select('.add-child-btn').attr('cy', currentHeight / 2)
+    nodeGroup.select('.add-child-text').attr('x', currentWidth + 20)
+    nodeGroup.select('.add-child-text').attr('y', currentHeight / 2)
+    
+    // Cập nhật cache với kích thước mới (để các lần tính toán sau dùng)
+    this.nodeSizeCache.set(nodeId, { width: currentWidth, height: currentHeight })
+    
+    // Trigger callback để cập nhật dữ liệu
+    if (this.callbacks.onNodeUpdate) {
+      this.callbacks.onNodeUpdate(nodeId, { label: value })
+    }
+  }
+
+  // Handler cho editor focus event
+  handleEditorFocus(nodeId, foElement, nodeData) {
+    // Tương tự textarea on('focus') handler
+    this.selectNode(nodeId)
+    
+    const nodeGroup = d3.select(foElement.parentNode)
+    nodeGroup.raise()
+    
+    const fo = d3.select(foElement)
+    const rect = nodeGroup.select('.node-rect')
+    
+    const cachedSize = this.nodeSizeCache.get(nodeId)
+    const currentRectWidth = cachedSize?.width || parseFloat(rect.attr('width')) || 130
+    const currentRectHeight = cachedSize?.height || parseFloat(rect.attr('height')) || 43
+    
+    const currentText = this.getNodeLabel(nodeData)
+    const isFirstEdit = !currentText || !currentText.trim()
+    
+    const lockedWidth = currentRectWidth
+    const lockedHeight = currentRectHeight
+    
+    this.nodeSizeCache.set(nodeId, { width: lockedWidth, height: lockedHeight })
+    
+    rect.attr('width', lockedWidth)
+    rect.attr('height', lockedHeight)
+    
+    const borderOffset = 4
+    fo.attr('x', 2).attr('y', 2)
+    fo.attr('width', Math.max(0, lockedWidth - borderOffset))
+    fo.attr('height', Math.max(0, lockedHeight - borderOffset))
+    
+    // Enable pointer events
+    const editorContainer = fo.select('.node-editor-container')
+    editorContainer.style('pointer-events', 'auto')
+    
+    // Nếu là lần đầu chỉnh sửa và text là "Nhánh mới", select all text
+    const isDefaultText = currentText === 'Nhánh mới' || (isFirstEdit && currentText)
+    if (isDefaultText) {
+      // Đợi một chút để editor sẵn sàng, sau đó select all text
+      setTimeout(() => {
+        const editorInstance = this.getEditorInstance(nodeId)
+        if (editorInstance && editorInstance.view) {
+          // Select all text trong editor bằng ProseMirror API
+          const { state } = editorInstance.view
+          const { doc } = state
+          
+          // Select từ đầu đến cuối document
+          if (doc.content.size > 0) {
+            const selection = TextSelection.create(doc, 0, doc.content.size)
+            const tr = state.tr.setSelection(selection)
+            editorInstance.view.dispatch(tr)
+          }
+        }
+      }, 50)
+    }
+    
+    if (this.callbacks.onNodeEditingStart) {
+      this.callbacks.onNodeEditingStart(nodeId)
+      this.editingNode = nodeId
+    }
+  }
+
+  // Handler cho editor blur event
+  handleEditorBlur(nodeId, foElement, nodeData) {
+    // Tương tự textarea on('blur') handler
+    const editor = this.getEditorInstance(nodeId)
+    // Lưu HTML để giữ formatting (bold, italic, etc.)
+    const finalValue = editor ? editor.getHTML() : (nodeData.data?.label || '')
+    
+    const nodeGroup = d3.select(foElement.parentNode)
+    const rect = nodeGroup.select('.node-rect')
+    
+    // Check isEmpty: extract plain text từ HTML nếu cần
+    let isEmpty = !finalValue || !finalValue.trim()
+    if (!isEmpty && finalValue.includes('<')) {
+      // Nếu là HTML, extract plain text để check empty
+      const tempDiv = document.createElement('div')
+      tempDiv.innerHTML = finalValue
+      const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+      isEmpty = !plainText || plainText === ''
+    }
+    const isRootNode = nodeData.data?.isRoot || nodeId === 'root'
+    const maxWidth = 300
+    const minWidth = 130
+    const singleLineHeight = Math.ceil(19 * 1.4) + 16
+    
+    let finalWidth, finalHeight
+    
+    if (isEmpty) {
+      finalWidth = minWidth
+      finalHeight = singleLineHeight
+    } else {
+      const tempNode = { ...nodeData, data: { ...nodeData.data, label: finalValue } }
+      if (tempNode.data) {
+        delete tempNode.data.fixedWidth
+        delete tempNode.data.fixedHeight
+      }
+      
+      const calculatedWidth = this.estimateNodeWidth(tempNode)
+      finalWidth = Math.max(calculatedWidth, minWidth)
+      
+      // LUÔN tính toán height dựa trên nội dung thực tế để hỗ trợ nhiều dòng
+      // Đo trực tiếp từ TipTap editor DOM để đảm bảo chính xác
+      let measuredHeight = singleLineHeight
+      
+      if (editor && editor.view && editor.view.dom) {
+        const editorDOM = editor.view.dom
+        const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+        
+        if (editorContent) {
+          // Đảm bảo editor có width đúng để đo height chính xác
+          const borderOffset = 4
+          const foWidth = finalWidth - borderOffset
+          editorContent.style.width = `${foWidth}px`
+          editorContent.style.height = 'auto' // Auto để đo được scrollHeight chính xác
+          editorContent.style.minHeight = `${singleLineHeight}px`
+          editorContent.style.maxHeight = 'none'
+          
+          // Đảm bảo white-space cho phép wrap để đo height đúng
+          editorContent.style.whiteSpace = 'pre-wrap'
+          
+          // Force reflow để đảm bảo DOM đã cập nhật
+          void editorContent.offsetWidth
+          void editorContent.offsetHeight
+          void editorContent.scrollHeight
+          
+          // Đo chiều cao thực tế (scrollHeight cho biết chiều cao đầy đủ của nội dung)
+          const contentHeight = Math.max(
+            editorContent.scrollHeight || 0,
+            editorContent.offsetHeight || 0,
+            singleLineHeight
+          )
+          
+          measuredHeight = contentHeight
+        }
+      }
+      
+      // Fallback: tính toán từ text nếu không lấy được từ editor DOM
+      if (measuredHeight === singleLineHeight) {
+        const calculatedHeight = this.estimateNodeHeight(tempNode, finalWidth)
+        measuredHeight = Math.max(calculatedHeight, singleLineHeight)
+      }
+      
+      finalHeight = measuredHeight
+    }
+    
+    // Cập nhật node data
+    if (nodeData.data) {
+      nodeData.data.label = finalValue
+      // Root node không lưu fixedWidth/fixedHeight để luôn tính toán lại dựa trên nội dung mới
+      // Điều này đảm bảo root node có thể hiển thị đầy đủ nội dung nhiều dòng
+      if (!isRootNode) {
+        nodeData.data.fixedWidth = finalWidth
+        nodeData.data.fixedHeight = finalHeight
+      } else {
+        // Root node: xóa fixedWidth/fixedHeight để tính toán lại
+        delete nodeData.data.fixedWidth
+        delete nodeData.data.fixedHeight
+        // Cache sẽ được cập nhật ở dưới
+      }
+      nodeData.data.keepSingleLine = (finalWidth < maxWidth)
+    }
+    
+    rect.attr('width', finalWidth)
+    rect.attr('height', finalHeight)
+    
+    // Cập nhật vị trí nút add-child
+    nodeGroup.select('.add-child-btn').attr('cx', finalWidth + 20)
+    nodeGroup.select('.add-child-btn').attr('cy', finalHeight / 2)
+    nodeGroup.select('.add-child-text').attr('x', finalWidth + 20)
+    nodeGroup.select('.add-child-text').attr('y', finalHeight / 2)
+    
+    const fo = d3.select(foElement)
+    const borderOffset = 4
+    fo.attr('width', Math.max(0, finalWidth - borderOffset))
+    fo.attr('height', Math.max(0, finalHeight - borderOffset))
+    
+    // Đảm bảo wrapper và editor container có height đúng để hiển thị đầy đủ nội dung
+    const wrapper = fo.select('.node-content-wrapper')
+    if (wrapper.node()) {
+      wrapper.style('width', '100%')
+      wrapper.style('height', '100%')
+      wrapper.style('overflow', 'hidden') // Hidden để không bị tràn ra ngoài
+    }
+    
+    // Disable pointer events
+    const editorContainer = fo.select('.node-editor-container')
+    if (editorContainer.node()) {
+      editorContainer.style('pointer-events', 'none')
+        .style('width', '100%')
+        .style('height', '100%') // 100% để fit vào wrapper
+        .style('overflow', 'hidden') // Hidden để không bị tràn
+    }
+    
+    // Đảm bảo editor có height đúng để hiển thị đầy đủ nội dung
+    if (editor && editor.view && editor.view.dom) {
+      const editorDOM = editor.view.dom
+      const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+      if (editorContent) {
+        editorContent.style.height = 'auto' // Auto để có thể mở rộng theo nội dung
+        editorContent.style.minHeight = '43px'
+        editorContent.style.maxHeight = 'none'
+        editorContent.style.overflow = 'visible' // Visible để hiển thị đủ nội dung
+        editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
+      }
+    }
+    
+    // Update cache TRƯỚC KHI clear editingNode để đảm bảo cache được cập nhật
+    this.nodeSizeCache.set(nodeId, { width: finalWidth, height: finalHeight })
+    
+    // Clear editingNode SAU KHI update cache để tránh nháy
+    this.editingNode = null
+    
+    // Trigger callback
+    if (this.callbacks.onNodeEditingEnd) {
+      this.callbacks.onNodeEditingEnd(nodeId, finalValue)
+    }
+    
+    // Không gọi render() ngay lập tức để tránh nháy
+    // Layout sẽ được cập nhật bởi callback onNodeEditingEnd trong MindMap.vue
+    // thông qua updateD3RendererWithDelay
+  }
   
   setData(nodes, edges, nodeCreationOrder = null) {
     this.nodes = nodes
@@ -156,10 +701,25 @@ export class D3MindmapRenderer {
     // NHƯNG: Nếu node đang được edit, giữ nguyên size từ cache để tránh nháy
     const nodeSizes = new Map()
     this.nodes.forEach(node => {
+      const isRootNode = node.data?.isRoot || node.id === 'root'
+      
       // Nếu node đang được edit, dùng size từ cache (giữ width cố định)
       if (this.editingNode === node.id && this.nodeSizeCache.has(node.id)) {
         const cachedSize = this.nodeSizeCache.get(node.id)
         nodeSizes.set(node.id, cachedSize)
+      } else if (isRootNode) {
+        // Với root node, luôn dùng size từ cache nếu có (đã được cập nhật trong handleEditorBlur)
+        // Nếu chưa có cache, tính toán một lần và lưu vào cache
+        // Tránh tính toán lại để không bị nháy
+        if (this.nodeSizeCache.has(node.id)) {
+          const cachedSize = this.nodeSizeCache.get(node.id)
+          nodeSizes.set(node.id, cachedSize)
+        } else {
+          // Lần đầu render, tính toán và lưu vào cache
+          const size = this.estimateNodeSize(node)
+          nodeSizes.set(node.id, size)
+          this.nodeSizeCache.set(node.id, size)
+        }
       } else {
         // Tính toán lại kích thước với text mới
         // Ưu tiên sử dụng fixedWidth/fixedHeight nếu có (đã được set khi blur)
@@ -331,8 +891,9 @@ export class D3MindmapRenderer {
     
     nodeTextEnter.append('xhtml:div')
       .attr('class', 'node-content-wrapper')
-      .append('xhtml:textarea')
-      .attr('class', 'node-textarea')
+      .append('xhtml:div')
+      .attr('class', 'node-editor-container')
+      .attr('data-node-id', d => d.id)
     
     // Add "Add Child" button (appears on hover) - đặt ra ngoài bên phải
     nodesEnter.append('circle')
@@ -374,13 +935,17 @@ export class D3MindmapRenderer {
         return `translate(${pos.x}, ${pos.y})`
       })
       .on('click', function(event, d) {
-        // Kiểm tra xem click có phải từ textarea hoặc nút add-child không
+        // Kiểm tra xem click có phải từ editor hoặc nút add-child không
         const target = event.target
-        const isTextareaClick = target && (target.tagName === 'TEXTAREA' || target.classList?.contains('node-textarea'))
+        const isEditorClick = target && (
+          target.closest('.mindmap-node-editor') || 
+          target.closest('.mindmap-editor-content') ||
+          target.closest('.mindmap-editor-prose')
+        )
         const isAddChildClick = target && (target.classList?.contains('add-child-btn') || target.classList?.contains('add-child-text'))
         
-        if (isTextareaClick || isAddChildClick) {
-          // Click vào textarea hoặc nút -> không xử lý ở đây
+        if (isEditorClick || isAddChildClick) {
+          // Click vào editor hoặc nút -> không xử lý ở đây
           return
         }
         
@@ -391,15 +956,16 @@ export class D3MindmapRenderer {
         nodeGroup.raise()
         
         // Click đơn giản để select node
-        const textarea = nodeGroup.select('.node-textarea').node()
-        if (textarea) {
-          // Blur textarea nếu đang focus
-          if (document.activeElement === textarea) {
-            textarea.blur()
-          }
-          // Đảm bảo pointer events bị disable và tabindex = -1
-          textarea.style.pointerEvents = 'none'
-          textarea.setAttribute('tabindex', '-1')
+        // Blur editor nếu đang focus
+        const editorInstance = that.getEditorInstance(d.id)
+        if (editorInstance && editorInstance.isFocused) {
+          editorInstance.commands.blur()
+        }
+        
+        // Disable pointer events cho editor container khi không edit
+        const editorContainer = nodeGroup.select('.node-editor-container')
+        if (editorContainer.node()) {
+          editorContainer.style('pointer-events', 'none')
         }
         
         that.selectNode(d.id)
@@ -408,12 +974,17 @@ export class D3MindmapRenderer {
         }
       })
       .on('dblclick', function(event, d) {
-        // Double click để edit - focus vào textarea nhưng không select text
+        // Double click để edit - focus vào TipTap editor
         const target = event.target
-        const isTextareaClick = target && (target.tagName === 'TEXTAREA' || target.classList?.contains('node-textarea'))
+        // Kiểm tra xem click có phải từ editor content không
+        const isEditorClick = target && (
+          target.closest('.mindmap-node-editor') || 
+          target.closest('.mindmap-editor-content') ||
+          target.closest('.mindmap-editor-prose')
+        )
         
-        if (isTextareaClick) {
-          // Double click vào textarea -> không xử lý ở đây
+        if (isEditorClick) {
+          // Double click vào editor -> không xử lý ở đây (editor tự xử lý)
           return
         }
         
@@ -429,22 +1000,33 @@ export class D3MindmapRenderer {
           nodeGroup.raise()
         }
         
-        const textarea = nodeGroup.select('.node-textarea').node()
-        if (textarea) {
-          // Enable pointer events và set tabindex để có thể focus
-          textarea.style.pointerEvents = 'auto'
-          textarea.setAttribute('tabindex', '0')
-          // Delay nhỏ để đảm bảo click event đã hoàn tất
-          setTimeout(() => {
-            textarea.focus()
-            // Chỉ focus, không select text (đặt cursor ở cuối)
-            const length = textarea.value.length
-            textarea.setSelectionRange(length, length)
-            if (that.callbacks.onNodeEditingStart) {
-              that.callbacks.onNodeEditingStart(d.id)
-            }
-          }, 10)
+        // Enable pointer events cho editor container
+        const fo = nodeGroup.select('.node-text')
+        const editorContainer = nodeGroup.select('.node-editor-container')
+        if (editorContainer.node()) {
+          editorContainer.style('pointer-events', 'auto')
         }
+        
+        // Lấy editor instance và focus vào nó
+        // Delay để đảm bảo DOM đã được cập nhật
+        setTimeout(() => {
+          const editorInstance = that.getEditorInstance(d.id)
+          if (editorInstance) {
+            // Focus vào editor và đặt cursor ở cuối - tất cả node (bao gồm root) dùng logic giống nhau
+            editorInstance.commands.focus('end')
+            // Gọi handleEditorFocus để setup đúng cách
+            that.handleEditorFocus(d.id, fo.node(), d)
+          } else {
+            // Nếu editor chưa sẵn sàng, thử lại sau
+            setTimeout(() => {
+              const editorInstance2 = that.getEditorInstance(d.id)
+              if (editorInstance2) {
+                editorInstance2.commands.focus('end')
+                that.handleEditorFocus(d.id, fo.node(), d)
+              }
+            }, 50)
+          }
+        }, 10)
       })
     
     // Update add child button position - ra ngoài bên phải
@@ -476,13 +1058,9 @@ export class D3MindmapRenderer {
           }
         }
         // Tính toán width dựa trên nội dung (130px - 300px)
-        const text = d.data?.label || ''
-        if (text) {
-          const estimatedWidth = this.estimateNodeWidth(d, 300)
-          return Math.max(130, Math.min(estimatedWidth, 300))
-        }
-        // Mặc định 130px
-        return 130
+        // Sử dụng estimateNodeSize để đảm bảo width và height được tính đúng
+        const nodeSize = getNodeSize(d)
+        return nodeSize.width
       })
       .attr('height', d => getNodeSize(d).height)
       .attr('fill', d => {
@@ -531,591 +1109,173 @@ export class D3MindmapRenderer {
         // Lấy kích thước từ node-rect thực tế và trừ border để fit
         const nodeGroup = d3.select(nodeArray[idx].parentNode)
         const rect = nodeGroup.select('.node-rect')
+        const isRootNode = nodeData.data?.isRoot || nodeData.id === 'root'
         const rectWidth = parseFloat(rect.attr('width')) || currentTextareaWidth
-        const rectHeight = parseFloat(rect.attr('height')) || nodeSize.height
+        
+        // Với root node, LUÔN dùng cache nếu có để tránh tính lại và nháy
+        // Với node khác, dùng height từ rect (có thể là fixedHeight) hoặc từ nodeSize
+        let rectHeight
+        if (isRootNode) {
+          // Root node: ưu tiên dùng cache để tránh nháy
+          if (this.nodeSizeCache.has(nodeData.id)) {
+            const cachedSize = this.nodeSizeCache.get(nodeData.id)
+            rectHeight = cachedSize.height
+            // Đảm bảo width cũng được cập nhật từ cache
+            if (rectWidth !== cachedSize.width) {
+              rect.attr('width', cachedSize.width)
+              rectWidth = cachedSize.width
+            }
+          } else {
+            // Nếu chưa có cache (lần đầu render), dùng từ nodeSize và lưu vào cache
+            rectHeight = nodeSize.height
+            this.nodeSizeCache.set(nodeData.id, { width: rectWidth, height: rectHeight })
+          }
+          rect.attr('height', rectHeight)
+          // Cập nhật vị trí nút add-child
+          nodeGroup.select('.add-child-btn').attr('cy', rectHeight / 2)
+          nodeGroup.select('.add-child-text').attr('y', rectHeight / 2)
+        } else {
+          // Node thường: dùng height từ rect (có thể là fixedHeight) hoặc từ nodeSize
+          rectHeight = parseFloat(rect.attr('height')) || nodeSize.height
+        }
         
         const borderOffset = 4 // 2px border mỗi bên (top/bottom và left/right)
         fo.attr('x', 2)
         fo.attr('y', 2)
         fo.attr('width', Math.max(0, rectWidth - borderOffset))
         fo.attr('height', Math.max(0, rectHeight - borderOffset))
-        
         const wrapper = fo.select('.node-content-wrapper')
           .style('width', '100%') // Wrapper chiếm 100% foreignObject
-          .style('height', '100%') // Wrapper chiếm 100% foreignObject
+          .style('height', '100%') // Tất cả node (bao gồm root) dùng 100% giống nhau
           .style('background', bgColor)
           .style('border-radius', '8px')
-          .style('overflow', 'hidden') // Ẩn phần tràn ra ngoài
+          .style('overflow', 'hidden') // Hidden để không bị tràn ra ngoài
           .style('border', 'none') // Không có border để không đè lên border của node-rect
           .style('outline', 'none') // Không có outline
           .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
         
-        const textarea = wrapper.select('.node-textarea')
-          .attr('data-node-id', nodeData.id)
-          .attr('placeholder', 'Nhập...')
-          .attr('tabindex', '-1') // Ngăn textarea tự động focus khi tab hoặc click
-          .style('width', '100%') // Textarea chiếm 100% wrapper
-          .style('box-sizing', 'border-box') // Padding tính trong width
-          .style('min-height', '43px') // Chiều cao 1 dòng
-          .style('height', '43px') // Bắt đầu với chiều cao 1 dòng
-          .style('padding', '8px 16px') // Padding như Lark
-          .style('font-size', '19px')
-          .style('color', color)
-          .style('background', 'transparent')
-          .style('border', 'none')
-          .style('border-width', '0')
-          .style('border-style', 'none')
-          .style('resize', 'none')
-          .style('outline', 'none')
-          .style('box-shadow', 'none')
-          .style('overflow', 'hidden')
-          .style('box-sizing', 'border-box')
-          .style('line-height', '1.4') // Line height tự nhiên cho đọc dễ
-          .style('font-family', "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif")
-          .style('caret-color', color)
-          // Nếu node được đánh dấu giữ 1 dòng (ví dụ root chưa đạt maxWidth),
-          // thì dùng 'nowrap' để đảm bảo không wrap lại sau khi render lại
-          .style('white-space', nodeData.data?.keepSingleLine ? 'nowrap' : 'pre-wrap')
-          .style('word-break', 'break-word') // Break word khi cần
-          .style('overflow-wrap', 'break-word') // Wrap text khi quá dài
-          .style('word-spacing', 'normal')
-          .style('letter-spacing', 'normal')
-          .style('overflow-x', 'hidden')
-          .style('transition', 'none')
-          .style('pointer-events', 'none') // Disable pointer events để ngăn click vào textarea khi chưa edit
-          .property('value', text)
-          .each(function() {
-            // Sau khi set value, kiểm tra lại và đảm bảo height đúng
-            const ta = this
-            const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px cho 1 dòng
-            const textValue = (ta.value || '').trim()
-            if (textValue.length === 0) {
-              // Nếu rỗng, set chiều cao 1 dòng
-              ta.style.height = `${singleLineHeight}px`
-            } else {
-              // Nếu có text, reset height và tính toán lại
-              ta.style.height = '0px'
-              ta.style.height = `${Math.max(ta.scrollHeight, singleLineHeight)}px`
-            }
-          })
-          .on('focus', (event) => {
-            event.stopPropagation()
-            this.selectNode(nodeData.id)
-            
-            // Đưa node đang edit lên cuối cùng trong DOM để hiển thị trên các node khác
-            // Sử dụng raise() của D3 để giữ nguyên transform
-            const nodeGroup = d3.select(nodeArray[idx].parentNode)
-            nodeGroup.raise()
-            
-            // Khi focus, khóa width hiện tại để tránh text nhảy dòng
-            const fo = d3.select(nodeArray[idx])
-            const rect = nodeGroup.select('.node-rect')
-            
-            // Lấy kích thước từ cache (đã được tính toán chính xác) hoặc từ rect
-            const cachedSize = this.nodeSizeCache.get(nodeData.id)
-            const currentRectWidth = cachedSize?.width || parseFloat(rect.attr('width')) || 130
-            const currentRectHeight = cachedSize?.height || parseFloat(rect.attr('height')) || 43
-            
-            // Tính toán lại kích thước dựa trên nội dung hiện tại để đảm bảo chính xác
-            const currentText = nodeData.data?.label || ''
-            
-            // PHÂN BIỆT 2 TRƯỜNG HỢP:
-            // Trường hợp 1: Edit lần đầu (node trống hoặc không có nội dung)
-            // Trường hợp 2: Sửa node đã có nội dung
-            const isFirstEdit = !currentText.trim()
-            
-            let lockedWidth, lockedHeight
-            
-            if (isFirstEdit) {
-              // TRƯỜNG HỢP 1: Edit lần đầu - cho phép co giãn tự do
-              // Dùng kích thước mặc định, không lock
-              lockedWidth = currentRectWidth
-              lockedHeight = currentRectHeight
-            } else {
-              // TRƯỜNG HỢP 2: Sửa node đã có - GIỮ NGUYÊN kích thước hiện tại
-              // KHÔNG tính lại để tránh node tự động tăng kích thước khi focus
-              // Chỉ dùng kích thước hiện tại từ rect/cache
-              lockedWidth = currentRectWidth
-              lockedHeight = currentRectHeight
-            }
-            
-            // Lưu vào cache với kích thước chính xác
-            this.nodeSizeCache.set(nodeData.id, { width: lockedWidth, height: lockedHeight })
-            
-            // Cập nhật rect với kích thước chính xác
-            rect.attr('width', lockedWidth)
-            rect.attr('height', lockedHeight)
-            
-            // Lưu vào data attributes
-            fo.attr('data-locked-width', lockedWidth)
-            fo.attr('data-locked-height', lockedHeight)
-            fo.attr('data-is-first-edit', isFirstEdit ? 'true' : 'false')
-            event.target.setAttribute('data-locked-width', lockedWidth)
-            event.target.setAttribute('data-locked-height', lockedHeight)
-            event.target.setAttribute('data-is-first-edit', isFirstEdit ? 'true' : 'false')
-            
-            // Cập nhật foreignObject với kích thước đã lock
-            const borderOffset = 4 // 2px border mỗi bên
-            fo.attr('x', 2).attr('y', 2) // Offset để không đè lên border 2px
-            fo.attr('width', Math.max(0, lockedWidth - borderOffset)) // Trừ border để không tràn
-            fo.attr('height', Math.max(0, lockedHeight - borderOffset)) // Trừ border để không tràn
-            
-            // Áp dụng width và height đã lock cho textarea
-            event.target.style.width = `${lockedWidth}px`
-            event.target.style.height = `${lockedHeight}px`
-            
-            // Lưu text ban đầu khi focus để so sánh trong on('input')
-            event.target.setAttribute('data-initial-text', currentText)
-            
-            // Wrapper chiếm 100% foreignObject
-            const wrapper = fo.select('.node-content-wrapper')
-            wrapper.style('width', '100%')
-            wrapper.style('height', '100%')
-            
-            // Set editingNode TRƯỚC khi có thể có input event
-            // Đảm bảo editingNode được set đồng bộ để watch không trigger
-            if (this.callbacks.onNodeEditingStart) {
-              this.callbacks.onNodeEditingStart(nodeData.id)
-              // Đảm bảo editingNode được set trong renderer để render() không tính lại layout
-              this.editingNode = nodeData.id
-            }
-          })
-          .on('blur', (event) => {
-            // Reset tabindex và disable pointer events khi blur để ngăn tự động focus
-            if (event.target) {
-              event.target.setAttribute('tabindex', '-1')
-              event.target.style.pointerEvents = 'none'
-              
-              // Khi blur, tính toán lại kích thước dựa trên nội dung mới
-              const finalValue = event.target.value || ''
-              const nodeGroup = d3.select(nodeArray[idx].parentNode)
-              const rect = nodeGroup.select('.node-rect')
-              
-              // XỬ LÝ CHUNG CHO CẢ TRƯỜNG HỢP CÓ VÀ KHÔNG CÓ NỘI DUNG
-              const isEmpty = !finalValue || !finalValue.trim()
-              const isRootNode = nodeData.data?.isRoot || nodeData.id === 'root'
-              const maxWidth = 300
-              const minWidth = 130
-              const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
-              
-              let finalWidth, finalHeight
-              
-              if (isEmpty) {
-                // Nội dung rỗng: reset về kích thước mặc định
-                finalWidth = minWidth
-                finalHeight = singleLineHeight
-              } else {
-                // Tính toán lại kích thước dựa trên nội dung mới (không dùng giá trị cũ)
-                // Tạo temp node với nội dung mới để tính toán chính xác
-                const tempNode = { ...nodeData, data: { ...nodeData.data, label: finalValue } }
-                
-                // Xóa fixedWidth/fixedHeight cũ để buộc tính toán lại
-                if (tempNode.data) {
-                  delete tempNode.data.fixedWidth
-                  delete tempNode.data.fixedHeight
-                }
-                
-                const calculatedWidth = this.estimateNodeWidth(tempNode)
-                finalWidth = Math.max(calculatedWidth, minWidth)
-                
-                if (finalWidth < maxWidth) {
-                  // Node chưa đạt maxWidth: giữ 1 dòng
-                  finalHeight = singleLineHeight
-                } else {
-                  // Node đã đạt maxWidth: tính chiều cao dựa trên nội dung
-                  const calculatedHeight = this.estimateNodeHeight(tempNode, finalWidth)
-                  finalHeight = Math.max(calculatedHeight, singleLineHeight)
-                }
-              }
-              
-              // Cập nhật node-rect, foreignObject, textarea với kích thước cuối cùng
-              // (Áp dụng cho cả trường hợp có và không có nội dung)
-                
-              rect.attr('width', finalWidth)
-              rect.attr('height', finalHeight)
-              
-              // Cập nhật foreignObject khớp với rect
-              const fo = d3.select(nodeArray[idx])
-              const borderOffset = 4
-              fo.attr('width', Math.max(0, finalWidth - borderOffset))
-              fo.attr('height', Math.max(0, finalHeight - borderOffset))
-              
-              // Đọc lại keepSingleLine từ nodeData để biết có cần giữ 1 dòng không
-              // Logic: nếu node chưa đạt maxWidth (300px) thì giữ 1 dòng
-              const shouldKeepSingleLine = (finalWidth < maxWidth)
-              
-              // Giữ textarea tràn đúng như lúc edit (chiều cao/width giữ nguyên, white-space giữ nguyên)
-              event.target.style.width = `${finalWidth}px`
-              event.target.style.height = `${finalHeight}px`
-              event.target.style.whiteSpace = shouldKeepSingleLine ? 'nowrap' : 'pre-wrap'
-              
-              // Cập nhật cache
-              this.nodeSizeCache.set(nodeData.id, { width: finalWidth, height: finalHeight })
-              
-              // LƯU kích thước cố định và keepSingleLine vào data của node để các lần render sau hiển thị y hệt
-              if (!nodeData.data) nodeData.data = {}
-              
-              // Đối với root node, KHÔNG lưu fixedWidth/fixedHeight để buộc tính toán lại mỗi lần render
-              // Điều này đảm bảo root node luôn có kích thước đúng với nội dung mới
-              // và layout được tính toán lại với kích thước mới khi xóa nội dung
-              if (isRootNode) {
-                // Xóa fixedWidth/fixedHeight để buộc tính toán lại dựa trên nội dung mới
-                delete nodeData.data.fixedWidth
-                delete nodeData.data.fixedHeight
-                nodeData.data.keepSingleLine = shouldKeepSingleLine
-              } else {
-                // Đối với node khác, lưu fixedWidth/fixedHeight để giữ kích thước cố định
-                if (isEmpty) {
-                  // Nếu nội dung rỗng: xóa fixedWidth/fixedHeight để lần render sau tính toán lại từ đầu
-                  delete nodeData.data.fixedWidth
-                  delete nodeData.data.fixedHeight
-                  nodeData.data.keepSingleLine = true
-                } else {
-                  // Nếu có nội dung: lưu kích thước cố định
-                  nodeData.data.fixedWidth = finalWidth
-                  nodeData.data.fixedHeight = finalHeight
-                  nodeData.data.keepSingleLine = shouldKeepSingleLine
-                }
-              }
-              
-              // Cập nhật vị trí nút add-child
-              nodeGroup.select('.add-child-btn').attr('cx', finalWidth + 20)
-              nodeGroup.select('.add-child-btn').attr('cy', finalHeight / 2)
-              nodeGroup.select('.add-child-text').attr('x', finalWidth + 20)
-              nodeGroup.select('.add-child-text').attr('y', finalHeight / 2)
-              
-              // QUAN TRỌNG: Cập nhật node.data.label với giá trị cuối cùng TRƯỚC khi gọi callback
-              // Điều này đảm bảo khi render lại, nó sẽ tính toán đúng kích thước
-              if (!nodeData.data) nodeData.data = {}
-              nodeData.data.label = finalValue
-              
-              // GIỮ locked width/height cho lần render sau, KHÔNG reset width/height textarea
-              // để kích thước sau edit vẫn y hệt kích thước lúc đang edit
-            }
-            // Clear editingNode trong renderer
-            this.editingNode = null
-            
-            if (this.callbacks.onNodeEditingEnd) {
-              // Truyền nodeId vào callback để component biết node nào vừa kết thúc edit
-              // Sau khi callback này được gọi, component sẽ trigger updateD3Renderer để tính toán lại layout
-              this.callbacks.onNodeEditingEnd(nodeData.id)
-            }
-          })
-          .on('mousedown', (event) => {
-            // Ngăn click event bubble lên node group
-            event.stopPropagation()
-            // Enable pointer events và set tabindex để có thể focus khi click trực tiếp vào textarea
-            if (event.target) {
-              event.target.style.pointerEvents = 'auto'
-              event.target.setAttribute('tabindex', '0')
-            }
-          })
-          .on('click', (event) => {
-            // Khi click vào textarea, select node và focus textarea
-            event.stopPropagation()
-            this.selectNode(nodeData.id)
-            // Focus textarea khi click trực tiếp vào nó
-            if (event.target && event.target.tagName === 'TEXTAREA') {
-              event.target.style.pointerEvents = 'auto'
-              event.target.setAttribute('tabindex', '0')
-              event.target.focus()
-              if (this.callbacks.onNodeEditingStart) {
-                this.callbacks.onNodeEditingStart(nodeData.id)
-              }
-            }
-          })
-          .on('keydown', (event) => {
-            event.stopPropagation()
-          })
-          .on('input', (event) => {
-            event.stopPropagation()
-            const newValue = event.target.value
-            if (!nodeData.data) nodeData.data = {}
-            nodeData.data.label = newValue
-            
-            const nodeGroup = d3.select(nodeArray[idx].parentNode)
-            const fo = d3.select(nodeArray[idx])
-            const wrapper = fo.select('.node-content-wrapper')
-            const rect = nodeGroup.select('.node-rect')
-            
-            // Lấy width và height đã lock từ data attribute hoặc từ rect hiện tại
-            const lockedWidth = parseFloat(event.target.getAttribute('data-locked-width')) || parseFloat(rect.attr('width')) || 130
-            const lockedHeight = parseFloat(event.target.getAttribute('data-locked-height')) || parseFloat(rect.attr('height')) || 43
-            
-            // Kiểm tra xem có phải edit lần đầu không
-            let isFirstEdit = event.target.getAttribute('data-is-first-edit') === 'true'
-            
-            // Đối với node root, luôn xử lý như TRƯỜNG HỢP 2 (không coi là edit lần đầu)
-            // để đảm bảo root luôn giữ 1 dòng cho đến khi đạt maxWidth
-            const isRootNode = nodeData.data?.isRoot || nodeData.id === 'root'
-            if (isRootNode) {
-              isFirstEdit = false
-            }
-            
-            // Tính toán width mới dựa trên nội dung hiện tại (không wrap)
-            const tempNode = { ...nodeData, data: { ...nodeData.data, label: newValue } }
-            const newWidth = this.estimateNodeWidth(tempNode)
-            const minWidth = 130 // Kích thước tối thiểu
-            const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
-            
-            // XỬ LÝ ĐẶC BIỆT: Nếu nội dung rỗng
-            const isEmpty = !newValue || !newValue.trim()
-            
-            // XỬ LÝ 2 TRƯỜNG HỢP:
-            let currentWidth
-            if (isEmpty && isFirstEdit) {
-              // Nội dung rỗng VÀ edit lần đầu: reset về kích thước mặc định
-              currentWidth = minWidth
-              // Xóa fixedWidth/fixedHeight để lần render sau không bị ảnh hưởng
-              if (nodeData.data) {
-                delete nodeData.data.fixedWidth
-                delete nodeData.data.fixedHeight
-                nodeData.data.keepSingleLine = true
-              }
-            } else if (isEmpty && !isFirstEdit) {
-              // Nội dung rỗng NHƯNG đã có nội dung trước đó: GIỮ kích thước khi đang edit
-              // Chỉ reset về kích thước mặc định khi blur, không reset khi đang edit
-              currentWidth = lockedWidth
-            } else if (isFirstEdit) {
-              // TRƯỜNG HỢP 1: Edit lần đầu - cho phép co giãn tự do
-              // Không có ràng buộc tối thiểu, dùng kích thước mới
-              currentWidth = newWidth
-            } else if (isRootNode) {
-              // TRƯỜNG HỢP ĐẶC BIỆT: Root node - GIỮ kích thước tối thiểu khi đang edit
-              // Khi đang edit, root node chỉ được mở rộng nếu text dài hơn, nhưng KHÔNG co lại
-              // Chỉ khi blur thì mới tính toán lại và cho phép co lại
-              // Điều này đảm bảo root node không bị thu lại ngay khi xóa text, chỉ thu lại khi blur
-              currentWidth = Math.max(newWidth, lockedWidth)
-            } else {
-              // TRƯỜNG HỢP 2: Sửa node đã có - GIỮ kích thước tối thiểu khi đang edit
-              // Khi đang edit, node chỉ được mở rộng nếu text dài hơn, nhưng KHÔNG co lại
-              // Chỉ khi blur thì mới tính toán lại và cho phép co lại
-              // Điều này đảm bảo node không bị thu lại ngay khi xóa text, chỉ thu lại khi blur
-              currentWidth = Math.max(newWidth, lockedWidth)
-            }
-            
-            const maxWidth = 300
-            const borderOffset = 4 // 2px border mỗi bên
-            
-            // QUAN TRỌNG: Để text không bị wrap sớm khi đang nhập ở dòng 1
-            // - Nếu chưa đạt maxWidth: textarea width phải ít nhất bằng newWidth để text không wrap
-            //   VÀ phải set white-space = 'nowrap' ngay từ đầu
-            // - Nếu đã đạt maxWidth: textarea width = maxWidth và cho phép wrap
-            
-            // Set white-space TRƯỚC KHI set width để đảm bảo text không wrap
-            if (currentWidth < maxWidth && !isEmpty) {
-              // Chưa đạt maxWidth và có nội dung: KHÔNG cho wrap
-              event.target.style.whiteSpace = 'nowrap'
-            } else if (!isEmpty) {
-              // Đã đạt maxWidth và có nội dung: cho phép wrap
-              event.target.style.whiteSpace = 'pre-wrap'
-            }
-            
-            let textareaWidthForInput
-            if (currentWidth < maxWidth && !isEmpty) {
-              // Chưa đạt maxWidth: textarea width PHẢI ít nhất bằng newWidth để text KHÔNG wrap
-              // Không bị giới hạn bởi currentWidth, vì textarea cần đủ rộng để chứa text trên 1 dòng
-              // Chỉ giới hạn bởi maxWidth
-              textareaWidthForInput = Math.min(newWidth, maxWidth)
-            } else if (!isEmpty) {
-              // Đã đạt maxWidth: textarea width = maxWidth (đã wrap, giữ maxWidth)
-              textareaWidthForInput = maxWidth
-            } else {
-              // Nội dung rỗng: dùng currentWidth
-              textareaWidthForInput = currentWidth
-            }
-            
-            // Set width cho textarea TRƯỚC khi tính height (dùng textareaWidthForInput để text không wrap)
-            event.target.style.width = `${textareaWidthForInput}px`
-            
-            // Force reflow để đảm bảo textarea đã render với width mới
-            void event.target.offsetHeight
-            
-            // ForeignObject và rect phải dùng currentWidth (kích thước thực tế của node)
-            // KHÔNG dùng textareaWidthForInput để đảm bảo kích thước node không lớn hơn thực tế
-            fo.attr('width', Math.max(0, currentWidth - borderOffset))
-            
-            // QUAN TRỌNG: Tính toán height mới
-            // - Khi chưa đạt maxWidth: height luôn = singleLineHeight (vì white-space = nowrap)
-            // - Khi đã đạt maxWidth: tính height dựa trên currentWidth (cho phép wrap)
-            let newHeight
-            if (currentWidth < maxWidth && !isEmpty) {
-              // Chưa đạt maxWidth: height luôn là 1 dòng (vì white-space = nowrap)
-              newHeight = singleLineHeight
-            } else {
-              // Đã đạt maxWidth hoặc rỗng: tính height dựa trên currentWidth
-              newHeight = this.estimateNodeHeight(tempNode, currentWidth)
-            }
-            
-            // XỬ LÝ HEIGHT THEO 2 TRƯỜNG HỢP (và ưu tiên giữ 1 dòng cho root):
-            let currentHeight
-            if (isEmpty && isFirstEdit) {
-              // Nội dung rỗng VÀ edit lần đầu: reset về chiều cao mặc định (1 dòng)
-              currentHeight = singleLineHeight
-            } else if (isEmpty && !isFirstEdit) {
-              // Nội dung rỗng NHƯNG đã có nội dung trước đó: GIỮ chiều cao khi đang edit
-              // Chỉ reset về chiều cao mặc định khi blur, không reset khi đang edit
-              currentHeight = lockedHeight
-            } else if (isFirstEdit) {
-              // TRƯỜNG HỢP 1: Edit lần đầu - cho phép co giãn tự do
-              currentHeight = newHeight
-            } else if (isRootNode) {
-              // TRƯỜNG HỢP ĐẶC BIỆT: Root node - GIỮ chiều cao tối thiểu khi đang edit
-              // Khi đang edit, root node chỉ được mở rộng nếu text dài hơn, nhưng KHÔNG co lại
-              // Chỉ khi blur thì mới tính toán lại và cho phép co lại
-              if (currentWidth < maxWidth) {
-                // Root node chưa đạt maxWidth: giữ 1 dòng, nhưng KHÔNG nhỏ hơn lockedHeight
-                currentHeight = Math.max(singleLineHeight, Math.max(newHeight, lockedHeight))
-              } else {
-                // Root node đã đạt maxWidth: GIỮ chiều cao tối thiểu = lockedHeight
-                currentHeight = Math.max(newHeight, lockedHeight)
-              }
-            } else if (currentWidth < maxWidth) {
-              // TRƯỜNG HỢP 2: Sửa node đã có + CHƯA đạt maxWidth
-              // GIỮ chiều cao tối thiểu khi đang edit (không co lại)
-              // Chỉ cho phép mở rộng nếu text dài hơn, nhưng không co lại cho đến khi blur
-              currentHeight = Math.max(newHeight, lockedHeight)
-            } else {
-              // TRƯỜNG HỢP 2: Sửa node đã có + ĐÃ đạt maxWidth
-              // GIỮ chiều cao tối thiểu khi đang edit (không co lại)
-              // Chỉ cho phép mở rộng nếu text dài hơn, nhưng không co lại cho đến khi blur
-              currentHeight = Math.max(newHeight, lockedHeight)
-            }
-            
-            // Nếu đã nhập nội dung, đánh dấu không còn là edit lần đầu nữa
-            if (isFirstEdit && newValue.trim()) {
-              event.target.setAttribute('data-is-first-edit', 'false')
-              fo.attr('data-is-first-edit', 'false')
-            }
-            
-            // Tính toán height mới dựa trên nội dung với width hiện tại
-            let finalHeight
-            
-            if (isEmpty && isFirstEdit) {
-              // Nội dung rỗng VÀ edit lần đầu: giữ 1 dòng với kích thước mặc định
-              event.target.style.whiteSpace = 'nowrap'
-              if (!nodeData.data) nodeData.data = {}
-              nodeData.data.keepSingleLine = true
-              finalHeight = singleLineHeight
-              event.target.style.height = `${finalHeight}px`
-            } else if (isEmpty && !isFirstEdit) {
-              // Nội dung rỗng NHƯNG đã có nội dung trước đó: GIỮ kích thước khi đang edit
-              // Chỉ reset về kích thước mặc định khi blur, không reset khi đang edit
-              event.target.style.whiteSpace = 'nowrap'
-              if (!nodeData.data) nodeData.data = {}
-              nodeData.data.keepSingleLine = true
-              finalHeight = lockedHeight
-              event.target.style.height = `${finalHeight}px`
-            } else if (isRootNode && currentWidth < maxWidth) {
-              // Root node chưa đạt maxWidth: giữ 1 dòng, GIỮ chiều cao tối thiểu khi đang edit
-              event.target.style.whiteSpace = 'nowrap'
-              if (!nodeData.data) nodeData.data = {}
-              nodeData.data.keepSingleLine = true
-              // GIỮ chiều cao tối thiểu = lockedHeight (không co lại khi đang edit)
-              // Chỉ cho phép mở rộng nếu text dài hơn, nhưng không co lại cho đến khi blur
-              finalHeight = Math.max(singleLineHeight, Math.max(currentHeight, lockedHeight))
-              event.target.style.height = `${finalHeight}px`
-            } else if (!isFirstEdit && currentWidth < maxWidth) {
-              // TRƯỜNG HỢP 2 + node CHƯA đạt maxWidth (không phải root):
-              // Giữ node đúng 1 dòng: không cho wrap, GIỮ chiều cao tối thiểu khi đang edit
-              event.target.style.whiteSpace = 'nowrap'
-              // Đánh dấu node giữ 1 dòng để khi render lại dùng 'nowrap'
-              if (!nodeData.data) nodeData.data = {}
-              nodeData.data.keepSingleLine = true
-              // GIỮ chiều cao tối thiểu = lockedHeight (không co lại khi đang edit)
-              // Chỉ cho phép mở rộng nếu text dài hơn, nhưng không co lại cho đến khi blur
-              finalHeight = Math.max(singleLineHeight, Math.max(currentHeight, lockedHeight))
-              event.target.style.height = `${finalHeight}px`
-            } else if (isFirstEdit && currentWidth < maxWidth) {
-              // TRƯỜNG HỢP 1: Edit lần đầu + CHƯA đạt maxWidth
-              // Giữ 1 dòng: không cho wrap khi đang nhập ở dòng 1
-              event.target.style.whiteSpace = 'nowrap'
-              if (!nodeData.data) nodeData.data = {}
-              nodeData.data.keepSingleLine = true
-              finalHeight = Math.max(singleLineHeight, currentHeight)
-              event.target.style.height = `${finalHeight}px`
-            } else {
-              // Đã đạt maxWidth: cho phép xuống dòng và tăng chiều cao
-              event.target.style.whiteSpace = 'pre-wrap'
-              if (!nodeData.data) nodeData.data = {}
-              nodeData.data.keepSingleLine = false
-              const adjustedHeight = this.adjustTextareaHeight(event.target, singleLineHeight)
-              // Đảm bảo height không nhỏ hơn currentHeight đã tính
-              finalHeight = Math.max(adjustedHeight, currentHeight)
-            }
-            
-            // Cập nhật node-rect với width thực tế (currentWidth) và height thực tế (finalHeight)
-            // Textarea và foreignObject vẫn giữ width = textareaWidthForInput để text không wrap sớm
-            rect.attr('width', currentWidth)
-            rect.attr('height', finalHeight)
-            
-            // Cập nhật data-locked-width và data-locked-height với kích thước THỰC TẾ của rect
-            // để đảm bảo khi blur, có thể đọc lại đúng kích thước lúc đang edit
-            event.target.setAttribute('data-locked-width', currentWidth)
-            fo.attr('data-locked-width', currentWidth)
-            event.target.setAttribute('data-locked-height', finalHeight)
-            fo.attr('data-locked-height', finalHeight)
-            
-            // ForeignObject width đã được set ở trên = currentWidth - borderOffset (kích thước thực tế)
-            // Cập nhật height
-            fo.attr('height', Math.max(0, finalHeight - borderOffset))
-            
-            wrapper.style('height', '100%')
-            wrapper.style('width', '100%')
-            nodeGroup.select('.add-child-btn').attr('cx', currentWidth + 20) // Ra ngoài bên phải, cách 20px
-            nodeGroup.select('.add-child-btn').attr('cy', finalHeight / 2)
-            nodeGroup.select('.add-child-text').attr('x', currentWidth + 20) // Ra ngoài bên phải, cách 20px
-            nodeGroup.select('.add-child-text').attr('y', finalHeight / 2)
-            
-            // Update cache với kích thước mới
-            this.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: finalHeight })
-            
-            if (this.callbacks.onNodeUpdate) {
-              this.callbacks.onNodeUpdate(nodeData.id, newValue)
-            }
-          })
+        // Mount Vue TipTap editor component
+        const editorContainer = wrapper.select('.node-editor-container')
+          .style('width', '100%')
+          .style('height', '100%') // 100% để fit vào wrapper
+          .style('pointer-events', 'none') // Disable pointer events để ngăn click khi chưa edit
+          .style('overflow', 'hidden') // Hidden để không bị tràn ra ngoài
+          .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
         
-        const textareaNode = textarea.node()
-        if (textareaNode) {
-          // Chiều cao mặc định
-          const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px cho 1 dòng
-          
-          // Kiểm tra xem textarea có rỗng không
-          const text = (textareaNode.value || '').trim()
-          const isEmpty = text.length === 0
-          
-          // Tính toán chiều cao phù hợp
-          let newHeight = this.adjustTextareaHeight(textareaNode, singleLineHeight)
-          
-          const currentSize = this.nodeSizeCache.get(nodeData.id) || { width: 130, height: singleLineHeight }
-          
-          // Update node-rect trước
-          const nodeGroup = d3.select(nodeArray[idx].parentNode)
-          const rect = nodeGroup.select('.node-rect')
-          const rectWidth = parseFloat(rect.attr('width')) || currentSize.width
-          rect.attr('height', newHeight)
-          rect.attr('width', rectWidth)
-          
-          // Lấy kích thước thực tế từ rect sau khi update
-          const actualRectWidth = parseFloat(rect.attr('width')) || rectWidth
-          const actualRectHeight = parseFloat(rect.attr('height')) || newHeight
-          
-          // Update foreignObject với kích thước từ rect
-          const borderOffset = 4 // 2px border mỗi bên
-          fo.attr('x', 2).attr('y', 2) // Offset để không đè lên border 2px
-          fo.attr('width', Math.max(0, actualRectWidth - borderOffset)) // Trừ border để không tràn
-          fo.attr('height', Math.max(0, actualRectHeight - borderOffset)) // Trừ border để không tràn
-          
-          wrapper.style('height', '100%')
-          wrapper.style('width', '100%')
-          
-          // Update cached size so subsequent measurements use latest height
-          this.nodeSizeCache.set(nodeData.id, { ...currentSize, height: newHeight, width: actualRectWidth })
-          nodeGroup.select('.add-child-btn').attr('cx', actualRectWidth + 20) // Ra ngoài bên phải, cách 20px
-          nodeGroup.select('.add-child-btn').attr('cy', newHeight / 2)
-          nodeGroup.select('.add-child-text').attr('x', actualRectWidth + 20) // Ra ngoài bên phải, cách 20px
-          nodeGroup.select('.add-child-text').attr('y', newHeight / 2)
+        // Mount hoặc update Vue component
+        const containerNode = editorContainer.node()
+        if (containerNode) {
+          // Kiểm tra xem component đã được mount chưa
+          if (!this.vueApps.has(nodeData.id)) {
+            // Mount component mới
+            this.mountNodeEditor(nodeData.id, containerNode, {
+              value: text,
+              placeholder: 'Nhập...',
+              color: color,
+              minHeight: '43px',
+              width: '100%',
+              height: 'auto',
+              isRoot: isRootNode,
+              onInput: (value) => {
+                // Handle input event - sẽ được cập nhật sau
+                this.handleEditorInput(nodeData.id, value, nodeArray[idx], nodeData)
+              },
+              onFocus: () => {
+                // Handle focus event - sẽ được cập nhật sau
+                this.handleEditorFocus(nodeData.id, nodeArray[idx], nodeData)
+              },
+              onBlur: () => {
+                // Handle blur event - sẽ được cập nhật sau
+                this.handleEditorBlur(nodeData.id, nodeArray[idx], nodeData)
+              },
+            })
+            
+            // Sau khi mount editor lần đầu, đợi một chút rồi đo lại height từ editor DOM cho root node
+            // Để đảm bảo root node hiển thị đủ nội dung ngay từ đầu
+            if (isRootNode) {
+              // Sử dụng requestAnimationFrame để đảm bảo DOM đã render xong
+              requestAnimationFrame(() => {
+                setTimeout(() => {
+                  const editor = this.getEditorInstance(nodeData.id)
+                  if (editor && editor.view && editor.view.dom) {
+                    const editorDOM = editor.view.dom
+                    const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+                    
+                    if (editorContent && editorContent.offsetHeight > 0) {
+                      // Đảm bảo editor có width đúng để đo height chính xác
+                      const borderOffset = 4
+                      const currentWidth = parseFloat(rect.attr('width')) || rectWidth
+                      const foWidth = currentWidth - borderOffset
+                      editorContent.style.width = `${foWidth}px`
+                      
+                      // Force reflow
+                      void editorContent.offsetWidth
+                      void editorContent.offsetHeight
+                      
+                      // Đo chiều cao thực tế từ DOM
+                      const contentHeight = Math.max(
+                        editorContent.scrollHeight || 0,
+                        editorContent.offsetHeight || 0,
+                        Math.ceil(19 * 1.4) + 16 // singleLineHeight
+                      )
+                      
+                      // Nếu height khác với height hiện tại, cập nhật lại
+                      const currentHeight = parseFloat(rect.attr('height')) || 0
+                      if (Math.abs(contentHeight - currentHeight) > 1) {
+                        // Cập nhật rect
+                        rect.attr('height', contentHeight)
+                        
+                        // Cập nhật foreignObject
+                        fo.attr('height', Math.max(0, contentHeight - borderOffset))
+                        
+                        // Cập nhật vị trí nút add-child
+                        nodeGroup.select('.add-child-btn').attr('cy', contentHeight / 2)
+                        nodeGroup.select('.add-child-text').attr('y', contentHeight / 2)
+                        
+                        // Cập nhật cache
+                        this.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
+                        
+                        // Không trigger layout update ngay lập tức để tránh nháy
+                        // Layout sẽ được update tự động khi cần thiết
+                      }
+                    }
+                  }
+                }, 150) // Đợi 150ms để đảm bảo editor DOM đã render xong hoàn toàn
+              })
+            }
+            
+          } else {
+            // Update existing component props
+            const entry = this.vueApps.get(nodeData.id)
+            if (entry && entry.instance) {
+              // Update modelValue nếu khác
+              if (entry.instance.modelValue !== text) {
+                entry.instance.modelValue = text
+              }
+              // Update isRoot prop
+              if (entry.instance.isRoot !== isRootNode) {
+                entry.instance.isRoot = isRootNode
+                // Cập nhật lại editor attributes để apply màu chữ
+                if (entry.instance.editor) {
+                  const editorEl = entry.instance.editor.view.dom
+                  if (editorEl) {
+                    if (isRootNode) {
+                      editorEl.classList.add('is-root')
+                      editorEl.style.color = '#ffffff'
+                    } else {
+                      editorEl.classList.remove('is-root')
+                      editorEl.style.color = ''
+                    }
+                  }
+                }
+              }
+            }
+            
+          }
         }
+        
+        // Note: Focus, blur, và input events được xử lý bởi Vue component handlers
+        // Không cần xử lý ở đây nữa
       })
     
     // Add shadow filter
@@ -1139,21 +1299,43 @@ export class D3MindmapRenderer {
       
       const feComponentTransfer = filter.append('feComponentTransfer')
         .attr('in', 'offsetblur')
+        .attr('result', 'shadow')
       
       feComponentTransfer.append('feFuncA')
         .attr('type', 'linear')
-        .attr('slope', 0.3)
+        .attr('slope', 0.2)
+      
+      filter.append('feComposite')
+        .attr('in', 'shadow')
+        .attr('in2', 'SourceAlpha')
+        .attr('operator', 'in')
+        .attr('result', 'shadow')
       
       filter.append('feMerge')
+        .append('feMergeNode')
+        .attr('in', 'shadow')
+      
+      filter.select('feMerge')
         .append('feMergeNode')
         .attr('in', 'SourceGraphic')
     }
   }
   
   estimateNodeWidth(node, maxWidth = 300) {
-    const text = node.data?.label || ''
+    // Đảm bảo text luôn là string
+    const text = this.getNodeLabel(node)
     const minWidth = 130 // Textarea width mặc định
-    if (!text) return minWidth
+    if (!text || text.trim() === '') return minWidth
+    
+    // Extract plain text từ HTML nếu cần (để đo width chính xác)
+    let plainText = text
+    if (text.includes('<')) {
+      const tempDiv = document.createElement('div')
+      tempDiv.innerHTML = text
+      plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+    }
+    
+    if (!plainText || plainText.trim() === '') return minWidth
     
     // Create a temporary element to measure text width accurately
     const tempDiv = document.createElement('div')
@@ -1168,13 +1350,14 @@ export class D3MindmapRenderer {
       width: ${maxWidth}px;
       box-sizing: border-box;
     `
-    tempDiv.textContent = text
+    tempDiv.textContent = plainText
     document.body.appendChild(tempDiv)
     
     // Force reflow để đảm bảo text đã được render
     void tempDiv.offsetHeight
     
-    const lines = text.split('\n')
+    // Split text thành các dòng
+    const lines = plainText.split('\n')
     let measuredWidth = 130
     
     // Measure each line to find the longest
@@ -1192,7 +1375,8 @@ export class D3MindmapRenderer {
         document.body.appendChild(lineSpan)
         // Force reflow
         void lineSpan.offsetHeight
-        measuredWidth = Math.max(measuredWidth, lineSpan.offsetWidth + 28)
+        // Padding: 16px mỗi bên = 32px, cộng thêm margin (8px) để đảm bảo không bị wrap
+        measuredWidth = Math.max(measuredWidth, lineSpan.offsetWidth + 40)
         // Đảm bảo tối thiểu 130px
         measuredWidth = Math.max(measuredWidth, 130)
         document.body.removeChild(lineSpan)
@@ -1206,15 +1390,27 @@ export class D3MindmapRenderer {
   }
   
   estimateNodeHeight(node, nodeWidth = null) {
-    const text = node.data?.label || ''
+    // Đảm bảo text luôn là string
+    let text = this.getNodeLabel(node)
     // Chiều cao 1 dòng = font-size * line-height + padding
     // 19px * 1.4 + 16px (padding top/bottom) = ~43px
     const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px cho 1 dòng
-    if (!text) return singleLineHeight
+    if (!text || text.trim() === '') return singleLineHeight
+    
+    // Extract plain text từ HTML nếu text là HTML (từ TipTap editor)
+    // TipTap lưu nội dung dưới dạng HTML, nhưng khi đo height cần plain text
+    if (text.includes('<') && text.includes('>')) {
+      const tempDiv2 = document.createElement('div')
+      tempDiv2.innerHTML = text
+      text = (tempDiv2.textContent || tempDiv2.innerText || '').trim()
+    }
     
     // Use provided width or estimate
     const width = nodeWidth || this.estimateNodeWidth(node)
     
+    // LUÔN tính toán height dựa trên width thực tế để hỗ trợ text wrap
+    // Không chỉ dựa trên việc có line breaks hay width đủ lớn
+    // Vì text có thể wrap thành nhiều dòng ngay cả khi không có \n
     // Create a temporary element to measure text height accurately
     const tempDiv = document.createElement('div')
     tempDiv.style.cssText = `
@@ -1222,6 +1418,7 @@ export class D3MindmapRenderer {
       visibility: hidden;
       white-space: pre-wrap;
       word-wrap: break-word;
+      overflow-wrap: break-word;
       font-size: 19px;
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       line-height: 1.4;
@@ -1229,14 +1426,22 @@ export class D3MindmapRenderer {
       width: ${width}px;
       box-sizing: border-box;
     `
+    // Sử dụng plain text (đã extract từ HTML nếu cần)
     tempDiv.textContent = text
     document.body.appendChild(tempDiv)
     
     // Force reflow để đảm bảo text đã được render và wrap đúng
+    void tempDiv.offsetWidth
     void tempDiv.offsetHeight
     
     // Lấy chiều cao thực tế
-    const actualHeight = tempDiv.offsetHeight
+    // scrollHeight cho biết chiều cao đầy đủ của nội dung (bao gồm cả phần bị ẩn do overflow)
+    // offsetHeight cho biết chiều cao hiển thị của element
+    // Với text dài, cần dùng scrollHeight để lấy chiều cao đầy đủ
+    const actualHeight = Math.max(
+      tempDiv.scrollHeight || 0,
+      tempDiv.offsetHeight || 0
+    )
     document.body.removeChild(tempDiv)
     
     // Trả về chiều cao thực tế, đảm bảo ít nhất bằng chiều cao 1 dòng
@@ -1247,16 +1452,31 @@ export class D3MindmapRenderer {
   estimateNodeSize(node) {
     // Nếu node có fixedWidth/fixedHeight (được set khi blur), ưu tiên dùng để
     // đảm bảo kích thước sau render giống hệt lúc đang edit
-    // LƯU Ý: Root node không lưu fixedWidth/fixedHeight nên sẽ luôn tính toán lại dựa trên nội dung mới
-    if (node.data && node.data.fixedWidth && node.data.fixedHeight) {
+    const isRootNode = node.data?.isRoot || node.id === 'root'
+    
+    // Với root node, ưu tiên dùng cache nếu có để tránh tính toán lại gây nháy
+    if (isRootNode && this.nodeSizeCache.has(node.id)) {
+      return this.nodeSizeCache.get(node.id)
+    }
+    
+    // Với node thường, ưu tiên dùng fixedWidth/fixedHeight nếu có
+    if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
       return {
         width: node.data.fixedWidth,
         height: node.data.fixedHeight,
       }
     }
     
+    // Tính toán width cần thiết để chứa text
+    const text = this.getNodeLabel(node)
+    
+    // Tính toán width
     const width = this.estimateNodeWidth(node)
+    
+    // Luôn tính toán height dựa trên width thực tế để hỗ trợ text wrap
+    // Đặc biệt quan trọng với root node có thể có nhiều dòng
     const height = this.estimateNodeHeight(node, width)
+    
     return { width, height }
   }
   

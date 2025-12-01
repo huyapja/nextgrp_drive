@@ -105,6 +105,7 @@ declare module 'vue' {
     MentionList: typeof import('./src/components/DocEditor/components/MentionList.vue')['default']
     Menu: typeof import('./src/components/DocEditor/components/Menu.vue')['default']
     MindmapNode: typeof import('./src/components/MindmapNode.vue')['default']
+    MindmapNodeEditor: typeof import('./src/components/MindmapNodeEditor.vue')['default']
     MoveDialog: typeof import('./src/components/MoveDialog.vue')['default']
     MoveOwnerDialog: typeof import('./src/components/MoveOwnerDialog.vue')['default']
     MSOfficePreview: typeof import('./src/components/FileTypePreview/MSOfficePreview.vue')['default']

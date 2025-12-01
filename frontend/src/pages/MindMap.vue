@@ -279,20 +279,37 @@ const initD3Renderer = () => {
           
           // Nếu là root node, đổi tên file
           if (node.id === 'root' || node.data?.isRoot) {
-            let newTitle = (node.data?.label || '').trim()
-            
-            // Nếu xóa hết text, dùng tên mặc định
-            if (!newTitle) {
-              newTitle = "Sơ đồ"
-              node.data.label = newTitle
-            }
-            
-            renameMindmapTitle(newTitle)
+          let originalLabel = (node.data?.label || '').trim()
+          let newTitle = originalLabel
+          
+          // Nếu label là HTML (từ TipTap editor), extract plain text
+          if (newTitle.includes('<')) {
+            const tempDiv = document.createElement('div')
+            tempDiv.innerHTML = newTitle
+            newTitle = (tempDiv.textContent || tempDiv.innerText || '').trim()
           }
+          
+          // Nếu xóa hết text, dùng tên mặc định
+          if (!newTitle) {
+            newTitle = "Sơ đồ"
+            // Cập nhật label với tên mặc định
+            node.data.label = newTitle
+          }
+          
+          // Truncate title xuống 140 ký tự CHỈ để rename file (không cập nhật label)
+          // Giữ nguyên label đầy đủ để hiển thị trong node
+          let titleForRename = newTitle
+          if (titleForRename.length > 140) {
+            titleForRename = titleForRename.substring(0, 140).trim()
+          }
+          
+          // Chỉ rename file với title đã truncate, nhưng giữ nguyên label đầy đủ
+          renameMindmapTitle(titleForRename)
+        }
           
           // Lưu layout/nội dung node
           scheduleSave()
-        }
+      }
       }
       
       // Clear editingNode trước khi update để watch không bị trigger
@@ -734,12 +751,31 @@ const confirmDelete = () => {
 
 // Keyboard shortcuts handler
 const handleKeyDown = (event) => {
-  if (editingNode.value) return
   const target = event.target
   const tagName = target?.tagName?.toLowerCase()
+  const isInEditor = target?.closest('.mindmap-node-editor') ||
+                    target?.closest('.mindmap-editor-content') ||
+                    target?.closest('.mindmap-editor-prose') ||
+                    target?.classList?.contains('ProseMirror') ||
+                    target?.closest('[contenteditable="true"]')
+  
+  // Nếu đang trong editor, cho phép editor xử lý keyboard shortcuts (Ctrl+B, Ctrl+I, etc.)
+  if (isInEditor || editingNode.value) {
+    // Cho phép editor xử lý các phím tắt của riêng nó (Ctrl+B, Ctrl+I, etc.)
+    // Không chặn các phím này
+    if (event.ctrlKey || event.metaKey) {
+      // Cho phép editor xử lý Ctrl/Cmd + key combinations
+      return
+    }
+    // Chặn các phím tắt khác khi đang trong editor
+    return
+  }
+  
+  // Nếu đang trong input/textarea khác, không xử lý
   if (tagName === 'textarea' || tagName === 'input' || target?.isContentEditable) {
     return
   }
+  
   if (!selectedNode.value) return
   
   const key = event.key
@@ -900,6 +936,21 @@ kbd {
 .d3-mindmap-wrapper {
   width: 100%;
   height: 100%;
+}
+
+/* Đảm bảo text selection hoạt động trong editor */
+.d3-mindmap-wrapper :deep(foreignObject) {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+}
+
+.d3-mindmap-wrapper :deep(.node-editor-container) {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
 }
 
 .d3-controls {
