@@ -221,7 +221,7 @@ def notify_share(entity_name, docperm_name):
         docshare = frappe.get_doc("Drive Permission", docperm_name)
 
         author_full_name = frappe.db.get_value("User", {"name": docshare.owner}, ["full_name"])
-        entity_type = "document" if entity.document else "folder" if entity.is_group else "file"
+        entity_type = "mindmap" if entity.mindmap else "document" if entity.document else "folder" if entity.is_group else  "file"
 
         message = f'{author_full_name} đã chia sẻ một {entity_type} với bạn: "{entity.title}"'
         create_notification(docshare.owner, docshare.user, "Share", entity, message)
@@ -250,7 +250,7 @@ def create_notification(from_user, to_user, type, entity, message=None, comment_
     user_access = get_user_access(entity.name, to_user)
     if user_access.get("read") == 0:
         return
-    entity_type = "Document" if entity.document else "Folder" if entity.is_group else "File"
+    entity_type = "mindmap" if entity.mindmap else "document" if entity.document else "folder" if entity.is_group else  "file"
     notif = frappe.get_doc(
         {
             "doctype": "Drive Notification",
