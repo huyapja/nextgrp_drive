@@ -440,6 +440,12 @@ class DriveFile(Document):
             entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
         )
         create_new_entity_activity_log(entity=self.name, action_type="edit")
+        
+        # Truncate title to 140 characters to prevent CharacterLengthExceededError
+        # Drive File.title fieldtype is Data (max 140 characters)
+        if len(new_title) > 140:
+            new_title = new_title[:140].strip()
+        
         self.title = new_title
         self.save()
         return self

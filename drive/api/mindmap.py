@@ -312,10 +312,14 @@ def create_mindmap_entity(title, personal, team, content=None, parent=None):
     print(f"✅ Created Drive Mindmap: {drive_mindmap.name}")
 
     # Step 2: Create Drive File entity (permissions container)
+    # Truncate title to 140 characters to prevent CharacterLengthExceededError
+    # Drive File.title fieldtype is Data (max 140 characters)
+    truncated_title = title[:140].strip() if len(title) > 140 else title
+    
     drive_file = frappe.new_doc("Drive File")
     drive_file.team = team
     drive_file.is_private = int(personal)
-    drive_file.title = title
+    drive_file.title = truncated_title
     drive_file.parent_entity = parent
     drive_file.file_size = 0
     drive_file.mime_type = "mindmap"

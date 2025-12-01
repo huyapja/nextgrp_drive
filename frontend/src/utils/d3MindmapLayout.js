@@ -454,21 +454,21 @@ function equalizeSiblingSpacing(positionMap, nodes, edges, nodeSizes, getNodeSiz
         // Chỉ di chuyển nếu cần thiết (nếu offsetY > 0, nghĩa là node hiện tại đang overlap)
         if (offsetY > 0) {
           // Cập nhật vị trí của node và tất cả node con (toàn bộ subtree)
-          const updateNodePosition = (id, offset) => {
-            const pos = positionMap.get(id)
-            if (pos) {
-              positionMap.set(id, {
-                x: pos.x,
-                y: pos.y + offset
-              })
-              
+        const updateNodePosition = (id, offset) => {
+          const pos = positionMap.get(id)
+          if (pos) {
+            positionMap.set(id, {
+              x: pos.x,
+              y: pos.y + offset
+            })
+            
               // Cập nhật vị trí của tất cả node con (đệ quy)
-              const grandchildren = childrenMap.get(id) || []
-              grandchildren.forEach(gcId => updateNodePosition(gcId, offset))
-            }
+            const grandchildren = childrenMap.get(id) || []
+            grandchildren.forEach(gcId => updateNodePosition(gcId, offset))
           }
-          
-          updateNodePosition(childId, offsetY)
+        }
+        
+        updateNodePosition(childId, offsetY)
         }
       }
     })
