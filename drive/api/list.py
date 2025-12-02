@@ -2593,3 +2593,129 @@ def calculate_days_remaining(modified_datetime):
     days_remaining = (deletion_date - now).days
 
     return max(0, days_remaining)  # Don't return negative numbers
+
+@frappe.whitelist()
+def drive_list_all_folders():
+    user = frappe.session.user
+    teams = get_teams()
+
+    # 1. Lấy default_team của user
+    default_team = frappe.db.get_value(
+        "Drive Settings",
+        {"user": user},
+        "default_team"
+    )
+
+    if not default_team:
+        frappe.throw("User has no default team configured in Drive Settings")
+
+    # 2. Lấy root (Drive - <team>)
+    home = get_home_folder(default_team)["name"]
+
+    # 3. Lấy tất cả folder personal ngay dưới root
+    personal_roots = frappe.get_all(
+        "Drive File",
+        filters={
+            "team": default_team,
+            "owner": user,
+            "is_active": 1,
+            "is_group": 1,
+            "is_private": 1,
+            "parent_entity": home
+        },
+        fields=["name", "title"]
+    )
+
+    # 4. Build tree con cho từng folder personal
+    personal_children = [
+        {
+            "name": r.name,
+            "title": r.title,
+            "children": _build_personal_subfolders(r.name, user),
+            "parent": default_team
+        }
+        for r in personal_roots
+    ]
+
+
+    personal_result = {
+        "name": default_team,
+        "title": "Tài liệu của tôi",
+        "is_personal": 1,
+        "parent": "",
+        "children": personal_children
+    }
+
+    teams_result = []
+    for team in teams:
+        home = get_home_folder(team)["name"]
+
+        team_info = frappe.db.get_value(
+            "Drive Team", team, ["name", "title"], as_dict=True
+        )
+
+        root_children = _build_team_subfolders(home)
+
+        team_entry = {
+            "name": team,
+            "team_name": team_info.title,
+        }
+
+        # Nếu có folder con thì mới trả root
+        if root_children:
+            team_entry["children"] = {
+                "name": home,
+                "title": team_info.title,
+                "parent": team,
+                "children": root_children
+            }
+
+        teams_result.append(team_entry)        
+
+    return {
+        "personal": personal_result,
+        "teams": teams_result
+    }
+
+
+def _build_personal_subfolders(parent, user):
+    rows = frappe.get_all(
+        "Drive File",
+        filters={
+            "parent_entity": parent,
+            "is_group": 1,
+            "is_active": 1,
+            "owner": user,
+            "is_private": 1
+        },
+        fields=["name", "title"]
+    )
+    return [
+        {
+            "name": r.name,
+            "title": r.title,
+            "children": _build_personal_subfolders(r.name, user)
+        }
+        for r in rows
+    ]
+
+
+def _build_team_subfolders(parent):
+    rows = frappe.get_all(
+        "Drive File",
+        filters={
+            "parent_entity": parent,
+            "is_group": 1,
+            "is_active": 1,
+            "is_private": 0
+        },
+        fields=["name", "title"]
+    )
+    return [
+        {
+            "name": r.name,
+            "title": r.title,
+            "children": _build_team_subfolders(r.name)
+        }
+        for r in rows
+    ]
