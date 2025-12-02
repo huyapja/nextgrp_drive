@@ -1110,7 +1110,7 @@ export class D3MindmapRenderer {
         const nodeGroup = d3.select(nodeArray[idx].parentNode)
         const rect = nodeGroup.select('.node-rect')
         const isRootNode = nodeData.data?.isRoot || nodeData.id === 'root'
-        const rectWidth = parseFloat(rect.attr('width')) || currentTextareaWidth
+        let rectWidth = parseFloat(rect.attr('width')) || currentTextareaWidth
         
         // Với root node, LUÔN dùng cache nếu có để tránh tính lại và nháy
         // Với node khác, dùng height từ rect (có thể là fixedHeight) hoặc từ nodeSize
