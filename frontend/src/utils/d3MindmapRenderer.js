@@ -31,10 +31,12 @@ export class D3MindmapRenderer {
     this.nodes = []
     this.edges = []
     this.selectedNode = null
+    this.hoveredNode = null
     this.editingNode = null
     this.positions = new Map() // Store calculated positions
     this.nodeSizeCache = new Map() // Cache node sizes to avoid recalculating during editing
     this.vueApps = new Map() // Store Vue app instances for each node
+    this.collapsedNodes = new Set() // Track collapsed nodes
     
     this.zoom = null
     this.svg = null
@@ -47,7 +49,9 @@ export class D3MindmapRenderer {
       onNodeUpdate: null,
       onNodeDelete: null,
       onNodeEditingStart: null,
-      onNodeEditingEnd: null
+      onNodeEditingEnd: null,
+      onNodeHover: null,
+      onNodeCollapse: null
     }
     
     this.init()
@@ -105,6 +109,33 @@ export class D3MindmapRenderer {
           event.preventDefault()
         }
       }, { passive: false, capture: true })
+      
+      // Xử lý click ra ngoài để ẩn icon collapse khi hover
+      svgNode.addEventListener('click', (event) => {
+        // Kiểm tra xem click có phải vào node hoặc button không
+        const target = event.target
+        const isNodeClick = target && (
+          target.closest('.node-group') ||
+          target.classList?.contains('node-group') ||
+          target.classList?.contains('collapse-btn-arrow') ||
+          target.classList?.contains('collapse-arrow') ||
+          target.closest('.collapse-btn-arrow') ||
+          target.closest('.collapse-arrow')
+        )
+        
+        // Nếu click ra ngoài node, ẩn tất cả icon collapse
+        if (!isNodeClick) {
+          this.hoveredNode = null
+          // Ẩn tất cả icon collapse-arrow
+          this.g.selectAll('.collapse-btn-arrow').attr('opacity', 0)
+          this.g.selectAll('.collapse-arrow').attr('opacity', 0)
+          
+          // Gọi callback để update state
+          if (this.callbacks.onNodeHover) {
+            this.callbacks.onNodeHover(null, false)
+          }
+        }
+      })
     }
     
     // Add background grid
@@ -693,77 +724,115 @@ export class D3MindmapRenderer {
   async render() {
     if (this.nodes.length === 0) return
     
-    // Force reflow để đảm bảo DOM đã update (quan trọng khi edit node)
+    // Force reflow
     void document.body.offsetHeight
     
-    // Calculate node sizes from text content (accurate measurement)
-    // Đảm bảo tính toán lại kích thước chính xác sau khi text thay đổi
-    // NHƯNG: Nếu node đang được edit, giữ nguyên size từ cache để tránh nháy
+    // Calculate node sizes - LUÔN tính toán lại để đảm bảo chính xác
     const nodeSizes = new Map()
     this.nodes.forEach(node => {
       const isRootNode = node.data?.isRoot || node.id === 'root'
       
-      // Nếu node đang được edit, dùng size từ cache (giữ width cố định)
+      // Nếu node đang được edit, dùng size từ cache
       if (this.editingNode === node.id && this.nodeSizeCache.has(node.id)) {
         const cachedSize = this.nodeSizeCache.get(node.id)
         nodeSizes.set(node.id, cachedSize)
-      } else if (isRootNode) {
-        // Với root node, luôn dùng size từ cache nếu có (đã được cập nhật trong handleEditorBlur)
-        // Nếu chưa có cache, tính toán một lần và lưu vào cache
-        // Tránh tính toán lại để không bị nháy
-        if (this.nodeSizeCache.has(node.id)) {
-          const cachedSize = this.nodeSizeCache.get(node.id)
-          nodeSizes.set(node.id, cachedSize)
-        } else {
-          // Lần đầu render, tính toán và lưu vào cache
-          const size = this.estimateNodeSize(node)
-          nodeSizes.set(node.id, size)
-          this.nodeSizeCache.set(node.id, size)
-        }
       } else {
-        // Tính toán lại kích thước với text mới
-        // Ưu tiên sử dụng fixedWidth/fixedHeight nếu có (đã được set khi blur)
+        // Tính toán size mới
         const size = this.estimateNodeSize(node)
         nodeSizes.set(node.id, size)
-        // Cập nhật cache để đảm bảo đồng bộ
+        // Cập nhật cache
         this.nodeSizeCache.set(node.id, size)
       }
     })
     
-    // Calculate layout với khoảng cách đều nhau
-    const maxNodeWidth = Math.max(...Array.from(nodeSizes.values()).map(s => s.width), 200)
-    // Sử dụng layerSpacing cố định, chỉ điều chỉnh nhỏ nếu cần
-    const dynamicLayerSpacing = Math.max(this.options.layerSpacing, maxNodeWidth * 0.3 + this.options.layerSpacing)
-    
-    // Lấy nodeCreationOrder từ Vue component (nếu có)
-    // Tạm thời tạo empty Map, sẽ được truyền từ component sau
-    const nodeCreationOrder = this.options.nodeCreationOrder || new Map()
-    
+    // Calculate layout với spacing cố định
     const positions = calculateD3MindmapLayout(this.nodes, this.edges, {
       nodeSizes: nodeSizes,
-      layerSpacing: dynamicLayerSpacing,
-      nodeSpacing: this.options.nodeSpacing,
+      layerSpacing: this.options.layerSpacing, // 200px cố định
+      nodeSpacing: this.options.nodeSpacing, // 80px cố định
       padding: this.options.padding,
       viewportHeight: this.options.height,
-      nodeCreationOrder: nodeCreationOrder
+      nodeCreationOrder: this.options.nodeCreationOrder || new Map(),
+      // Truyền danh sách node đã thu gọn để layout không chừa khoảng trống cho subtree con
+      collapsedNodes: this.collapsedNodes
     })
     
     // Store positions
     this.positions = positions
     
-    // Render edges
+    // Render edges first (behind nodes)
     this.renderEdges(positions)
     
     // Render nodes
     this.renderNodes(positions)
   }
   
+  // Helper: Check if a node is hidden due to collapsed ancestor
+  isNodeHidden(nodeId) {
+    // Check if any ancestor is collapsed
+    let currentId = nodeId
+    while (currentId) {
+      // Find parent edge
+      const parentEdge = this.edges.find(e => e.target === currentId)
+      if (!parentEdge) break
+      
+      // Check if parent is collapsed
+      if (this.collapsedNodes.has(parentEdge.source)) {
+        return true
+      }
+      
+      currentId = parentEdge.source
+    }
+    return false
+  }
+  
+  // Helper: Get all descendant node IDs
+  getDescendantIds(nodeId) {
+    const descendants = []
+    const children = this.edges.filter(e => e.source === nodeId).map(e => e.target)
+    
+    children.forEach(childId => {
+      descendants.push(childId)
+      descendants.push(...this.getDescendantIds(childId))
+    })
+    
+    return descendants
+  }
+  
+  // Helper: Count all descendants (children + cháu + ... ) của một node
+  // Dùng cho nút hiển thị tổng số nhánh con khi một node bị thu gọn.
+  countChildren(nodeId) {
+    const visited = new Set()
+    let count = 0
+    const stack = [nodeId]
+
+    while (stack.length > 0) {
+      const current = stack.pop()
+      const childrenEdges = this.edges.filter(e => e.source === current)
+
+      childrenEdges.forEach(edge => {
+        const childId = edge.target
+        if (!visited.has(childId)) {
+          visited.add(childId)
+          count += 1
+          stack.push(childId)
+        }
+      })
+    }
+
+    // Không tính chính node, chỉ tính toàn bộ descendants
+    return count
+  }
+  
   renderEdges(positions) {
+    // Render all edges, but hide collapsed ones
     const edges = this.g.selectAll('.edge')
       .data(this.edges, d => d.id)
     
+    // Remove old edges
     edges.exit().remove()
     
+    // Add new edges
     const edgesEnter = edges.enter()
       .append('path')
       .attr('class', 'edge')
@@ -772,9 +841,19 @@ export class D3MindmapRenderer {
       .attr('stroke-width', 2)
       .attr('stroke-linecap', 'round')
       .attr('stroke-linejoin', 'round')
-      .style('pointer-events', 'none')
+      .style('pointer-events', 'none') // Edges không chặn click vào nodes/nút
     
+    // Update all edges
     const edgesUpdate = edgesEnter.merge(edges)
+    
+    // Hide edges to collapsed children
+    edgesUpdate
+      .style('opacity', d => {
+        return this.isNodeHidden(d.target) ? 0 : 1
+      })
+      .style('pointer-events', d => {
+        return this.isNodeHidden(d.target) ? 'none' : 'auto'
+      })
     
     edgesUpdate.attr('d', d => {
       const sourcePos = positions.get(d.source)
@@ -782,6 +861,7 @@ export class D3MindmapRenderer {
       
       if (!sourcePos || !targetPos) return ''
       
+      // Get node sizes for proper connection points - luôn tính toán lại để đảm bảo chính xác
       const sourceNode = this.nodes.find(n => n.id === d.source)
       const targetNode = this.nodes.find(n => n.id === d.target)
       const sourceSize = this.estimateNodeSize(sourceNode)
@@ -791,44 +871,32 @@ export class D3MindmapRenderer {
       const targetWidth = targetSize.width
       const targetHeight = targetSize.height
       
-      // QUAN TRỌNG: Edge luôn kết nối tại CÙNG MỘT ĐỘ CAO (Y position)
-      // để tạo đường thẳng ngang hoàn hảo
-      // Source: right edge, center vertically
+      // Calculate connection points at center of nodes - LUÔN ở giữa node
+      // Source: right center of source node (giữa theo chiều dọc)
       const x1 = sourcePos.x + sourceWidth
       const y1 = sourcePos.y + (sourceHeight / 2)
       
-      // Target: left edge, center vertically  
+      // Target: left center of target node (giữa theo chiều dọc)
       const x2 = targetPos.x
       const y2 = targetPos.y + (targetHeight / 2)
       
       const dx = x2 - x1
       const dy = y2 - y1
-      
-      // Nếu 2 node gần như thẳng hàng (dy rất nhỏ), vẽ đường thẳng
-      if (Math.abs(dy) < 2) {
-        return `M ${x1} ${y1} L ${x2} ${y2}`
-      }
-      
-      // Với khoảng cách lớn hơn, dùng đường cong mượt mà
       const direction = dy >= 0 ? 1 : -1
-      
-      // Điều chỉnh độ cong dựa trên khoảng cách ngang
-      // Khoảng cách càng xa, độ cong càng lớn (nhưng có giới hạn)
-      const horizontalOffset = Math.min(Math.abs(dx) * 0.5, 100)
+      const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.45, 130))
+      const horizontalOffset = Math.min(baseOffset, dx - 16)
       const cornerRadius = Math.min(
-        20,
+        18,
         Math.abs(dy) / 2,
-        horizontalOffset / 3
+        Math.max(8, horizontalOffset / 3)
       )
       
-      // Nếu khoảng cách ngang quá ngắn, vẽ đường thẳng
+      // When nodes are very close horizontally, keep a straight line
       if (horizontalOffset < cornerRadius * 2 + 4) {
         return `M ${x1} ${y1} L ${x2} ${y2}`
       }
       
       const midX = x1 + horizontalOffset
-      
-      // Vẽ đường cong S-shape mượt mà
       const path = [
         `M ${x1} ${y1}`,
         `L ${midX - cornerRadius} ${y1}`,
@@ -840,9 +908,11 @@ export class D3MindmapRenderer {
       
       return path.join(' ')
     })
+    
   }
   
   renderNodes(positions) {
+    // Render all nodes, but hide collapsed ones (don't filter to preserve Vue components)
     // Pre-calculate node sizes to avoid repeated calculations
     // Sử dụng instance variable nodeSizeCache thay vì local variable
     this.nodes.forEach(node => {
@@ -857,10 +927,12 @@ export class D3MindmapRenderer {
       return this.nodeSizeCache.get(node.id) || { width: 130, height: 43 } // Node mặc định 130px (textarea width)
     }
     
+    const that = this // Store reference for use in callbacks
+    
     const nodes = this.g.selectAll('.node-group')
       .data(this.nodes, d => d.id)
     
-    // Remove old nodes
+    // Remove old nodes (only if they're not in this.nodes anymore)
     nodes.exit().remove()
     
     // Đưa node đang edit lên cuối cùng để hiển thị trên các node khác
@@ -902,7 +974,18 @@ export class D3MindmapRenderer {
       .attr('class', 'node-editor-container')
       .attr('data-node-id', d => d.id)
     
-    // Add "Add Child" button (appears on hover) - đặt ra ngoài bên phải
+    // Add hover layer mở rộng sang bên phải để giữ hover khi di chuột tới nút
+    // Layer này không hiển thị, chỉ dùng để bắt hover cho node (bao gồm phần thò sang bên phải)
+    nodesEnter.append('rect')
+      .attr('class', 'node-hover-layer')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', d => getNodeSize(d).width + 40) // node + khoảng ra nút
+      .attr('height', d => getNodeSize(d).height)
+      .attr('fill', 'transparent')
+      .style('pointer-events', 'none') // pointer-events sẽ được bật ở phần update
+    
+    // Add "Add Child" button (appears on hover) - đặt ra ngoài bên phải (cách 20px như ban đầu)
     nodesEnter.append('circle')
       .attr('class', 'add-child-btn')
       .attr('r', 12)
@@ -931,9 +1014,75 @@ export class D3MindmapRenderer {
       .style('pointer-events', 'none') // Text không cần pointer events
       .text('+')
     
+    // Add collapse button for collapsed state (shows number) - đặt bên phải
+    nodesEnter.append('circle')
+      .attr('class', 'collapse-btn-number')
+      .attr('r', 12)
+      .attr('cx', d => getNodeSize(d).width + 20) // Ra ngoài bên phải, cách 20px
+      .attr('cy', d => getNodeSize(d).height / 2)
+      .attr('fill', '#ffffff') // Nền trắng
+      .attr('stroke', '#3b82f6') // Border xanh dương
+      .attr('stroke-width', 2)
+      .attr('opacity', 0) // Sẽ được update trong nodesUpdate
+      .style('cursor', 'pointer')
+      .style('pointer-events', 'auto')
+      .style('z-index', '1000') // Đảm bảo nút ở trên cùng
+      .append('title')
+      .text('Expand')
+    
+    // Add number text for collapsed state - bên phải
+    // Text phải được append SAU circle để hiển thị trên circle
+    // Nhưng pointer-events: none để click vào text cũng trigger click của circle
+    nodesEnter.append('text')
+      .attr('class', 'collapse-text-number')
+      .attr('x', d => getNodeSize(d).width + 20)
+      .attr('y', d => getNodeSize(d).height / 2)
+      .attr('text-anchor', 'middle')
+      .attr('dominant-baseline', 'middle')
+      .attr('fill', '#3b82f6') // Text xanh dương
+      .attr('font-size', '11px')
+      .attr('font-weight', 'bold')
+      .attr('opacity', 0) // Sẽ được update trong nodesUpdate
+      .style('pointer-events', 'none') // Text không nhận click, click sẽ pass through đến circle
+      .style('user-select', 'none') // Không cho select text
+      .text(d => {
+        const count = that.countChildren(d.id)
+        return count > 0 ? count.toString() : ''
+      })
+    
+    // Add collapse button for expanded state (shows arrow) - đặt bên phải, chỉ khi hover
+    nodesEnter.append('circle')
+      .attr('class', 'collapse-btn-arrow')
+      .attr('r', 12)
+      .attr('cx', d => getNodeSize(d).width + 20) // Ra ngoài bên phải, cách 20px
+      .attr('cy', d => getNodeSize(d).height / 2)
+      .attr('fill', 'white') // Nền trắng
+      .attr('stroke', '#3b82f6') // Border xanh dương
+      .attr('stroke-width', 2)
+      .attr('opacity', 0) // Chỉ hiển thị khi hover
+      .style('cursor', 'pointer')
+      .style('pointer-events', 'auto')
+      .style('z-index', '1000') // Đảm bảo nổi trên edge
+      .append('title')
+      .text('Collapse')
+    
+    // Add SVG chevron arrow for expanded state - bên phải, chỉ khi hover
+    // Chevron trái xanh dương giống icon lucide-chevron-left
+    nodesEnter.append('path')
+      .attr('class', 'collapse-arrow')
+      .attr('d', 'M 15 18 L 9 12 L 15 6') // Path từ lucide-chevron-left, scale và center
+      .attr('fill', 'none')
+      .attr('stroke', '#3b82f6') // Mũi tên xanh dương
+      .attr('stroke-width', 2.5) // Tăng stroke-width để icon to hơn
+      .attr('stroke-linecap', 'round')
+      .attr('stroke-linejoin', 'round')
+      .attr('transform', d => `translate(${getNodeSize(d).width + 20}, ${getNodeSize(d).height / 2}) scale(0.7) translate(-12, -12)`) // Scale 0.7 để icon to hơn
+      .attr('opacity', 0) // Chỉ hiển thị khi hover
+      .style('pointer-events', 'none')
+      .style('z-index', '1000') // Đảm bảo nổi trên edge
+    
     // Update all nodes
     const nodesUpdate = nodesEnter.merge(nodes)
-    const that = this
     
     nodesUpdate
       .attr('transform', d => {
@@ -941,21 +1090,49 @@ export class D3MindmapRenderer {
         if (!pos) return 'translate(0, 0)'
         return `translate(${pos.x}, ${pos.y})`
       })
+      // Hide collapsed nodes instead of removing them
+      .style('opacity', d => {
+        return this.isNodeHidden(d.id) ? 0 : 1
+      })
+      .style('pointer-events', d => {
+        return this.isNodeHidden(d.id) ? 'none' : 'auto'
+      })
+    
+    // Đảm bảo toàn bộ node-group (bao gồm nút thu gọn) luôn nằm trên edge
+    nodesUpdate.raise()
       .on('click', function(event, d) {
-        // Kiểm tra xem click có phải từ editor hoặc nút add-child không
+        // Kiểm tra xem click có phải từ editor hoặc các nút không
         const target = event.target
         const isEditorClick = target && (
           target.closest('.mindmap-node-editor') || 
           target.closest('.mindmap-editor-content') ||
           target.closest('.mindmap-editor-prose')
         )
-        const isAddChildClick = target && (target.classList?.contains('add-child-btn') || target.classList?.contains('add-child-text'))
+        const isAddChildClick = target && (
+          target.classList?.contains('add-child-btn') || 
+          target.classList?.contains('add-child-text') ||
+          target.closest('.add-child-btn') ||
+          target.closest('.add-child-text')
+        )
+        const isCollapseClick = target && (
+          target.classList?.contains('collapse-btn-number') ||
+          target.classList?.contains('collapse-text-number') ||
+          target.classList?.contains('collapse-btn-arrow') ||
+          target.classList?.contains('collapse-arrow') ||
+          target.closest('.collapse-btn-number') ||
+          target.closest('.collapse-text-number') ||
+          target.closest('.collapse-btn-arrow') ||
+          target.closest('.collapse-arrow')
+        )
         
-        if (isEditorClick || isAddChildClick) {
-          // Click vào editor hoặc nút -> không xử lý ở đây
+        // QUAN TRỌNG: Nếu click vào collapse button, KHÔNG BAO GIỜ xử lý ở đây
+        // Collapse button sẽ tự xử lý và stop propagation
+        if (isEditorClick || isAddChildClick || isCollapseClick) {
+          // Click vào editor hoặc các nút -> không xử lý ở đây (để các nút tự xử lý)
+          console.log('🚫 Node group click ignored - clicked on button/editor')
           return
         }
-        
+
         event.stopPropagation()
         
         // Đưa node lên trên ngay lập tức để nút không bị che bởi edge
@@ -975,6 +1152,7 @@ export class D3MindmapRenderer {
           editorContainer.style('pointer-events', 'none')
         }
         
+        // CHỈ select node, KHÔNG BAO GIỜ gọi onNodeAdd ở đây
         that.selectNode(d.id)
         if (that.callbacks.onNodeClick) {
           that.callbacks.onNodeClick(d)
@@ -1035,21 +1213,399 @@ export class D3MindmapRenderer {
           }
         }, 10)
       })
+      .on('mouseenter', function(event, d) {
+        // Highlight node khi hover - NHẠT HƠN khi active
+        that.hoveredNode = d.id
+        const nodeGroup = d3.select(this)
+        
+        // Highlight node rect - nhạt hơn so với khi selected
+        const isSelected = that.selectedNode === d.id
+        nodeGroup.select('.node-rect')
+          .attr('fill', d => {
+            if (isSelected) {
+              // Selected: giữ màu selected (đậm)
+              return '#e0e7ff'
+            } else if (d.data?.isRoot) {
+              return '#2563eb' // Darker blue for root
+            } else {
+              return '#f9fafb' // Very light gray for hover (nhạt hơn #f3f4f6)
+            }
+          })
+          .attr('stroke', d => {
+            if (isSelected) {
+              return '#3b82f6' // Blue border for selected
+            } else if (d.data?.isRoot) {
+              return 'none'
+            } else {
+              return '#93c5fd' // Border xanh nhạt khi hover
+            }
+          })
+          .attr('stroke-width', 2)
+        
+        // Check if node has children
+        const hasChildren = that.edges.some(e => e.source === d.id)
+        const isCollapsed = that.collapsedNodes.has(d.id)
+        
+        // ✅ LOGIC HIỂN THỊ NÚT KHI HOVER - ƯU TIÊN RÕ RÀNG:
+        // 1. Nút số: hiển thị khi collapsed (ưu tiên cao nhất)
+        // 2. Nếu có children và chưa collapse: chỉ hiển thị nút collapse (mũi tên)
+        //    -> NÚT "+" sẽ KHÔNG hiển thị cho node có children để tránh bấm nhầm.
+        // 3. Chỉ với node KHÔNG có children: nút "+" hiển thị khi selected.
+        
+        // 1. Nút số (collapse-btn-number) - ưu tiên cao nhất
+        if (hasChildren && isCollapsed) {
+          nodeGroup.select('.collapse-btn-number')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+          
+          nodeGroup.select('.collapse-text-number')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+          
+          // Ẩn các nút khác khi đã collapse
+          nodeGroup.select('.add-child-btn').attr('opacity', 0)
+          nodeGroup.select('.add-child-text').attr('opacity', 0)
+          nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
+          nodeGroup.select('.collapse-arrow').attr('opacity', 0)
+        } else {
+          nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
+          nodeGroup.select('.collapse-text-number').attr('opacity', 0)
+          
+          if (hasChildren && !isCollapsed) {
+            // 2. Có children và chưa collapse -> CHỈ hiển thị nút collapse mũi tên
+            nodeGroup.select('.add-child-btn').attr('opacity', 0)
+            nodeGroup.select('.add-child-text').attr('opacity', 0)
+
+            nodeGroup.select('.collapse-btn-arrow')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+            
+            nodeGroup.select('.collapse-arrow')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+          } else {
+            // 3. Không có children -> có thể hiển thị nút "+" khi selected
+            nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
+            nodeGroup.select('.collapse-arrow').attr('opacity', 0)
+
+            if (isSelected && !isCollapsed) {
+              nodeGroup.select('.add-child-btn')
+                .transition()
+                .duration(150)
+                .attr('opacity', 1)
+              
+              nodeGroup.select('.add-child-text')
+                .transition()
+                .duration(150)
+                .attr('opacity', 1)
+            } else {
+              nodeGroup.select('.add-child-btn').attr('opacity', 0)
+              nodeGroup.select('.add-child-text').attr('opacity', 0)
+            }
+          }
+        }
+        
+        // Call callback
+        if (that.callbacks.onNodeHover) {
+          that.callbacks.onNodeHover(d.id, true)
+        }
+      })
+      .on('mouseleave', function(event, d) {
+        // Nếu chuột chỉ di chuyển sang phần tử con (ví dụ nút thu gọn / nút thêm con)
+        // thì KHÔNG xem là rời khỏi node. Tránh trường hợp vừa hover node rồi di chuyển
+        // sang nút collapse thì nút bị ẩn mất.
+        const related = event.relatedTarget
+        if (related) {
+          try {
+            const isSameGroup = related === this || (related.closest && related.closest('.node-group') === this)
+            const isButton =
+              related.classList && (
+                related.classList.contains('collapse-btn-arrow') ||
+                related.classList.contains('collapse-arrow') ||
+                related.classList.contains('add-child-btn') ||
+                related.classList.contains('add-child-text') ||
+                related.classList.contains('collapse-btn-number') ||
+                related.classList.contains('collapse-text-number') ||
+                related.classList.contains('node-hover-layer')
+              )
+            if (isSameGroup || isButton) {
+              return
+            }
+          } catch (e) {
+            // Bỏ qua lỗi nếu browser không hỗ trợ closest trên SVGElement
+          }
+        }
+
+        // Remove highlight khi không hover
+        that.hoveredNode = null
+        const nodeGroup = d3.select(this)
+        
+        // Restore node rect style
+        const isSelected = that.selectedNode === d.id
+        nodeGroup.select('.node-rect')
+          .attr('fill', d => {
+            if (isSelected) return '#e0e7ff' // Selected: đậm
+            return d.data?.isRoot ? '#3b82f6' : '#ffffff' // Default
+          })
+          .attr('stroke', d => {
+            if (isSelected) return '#3b82f6'
+            return d.data?.isRoot ? 'none' : '#cbd5e1'
+          })
+          .attr('stroke-width', 2)
+        
+        // ✅ LOGIC KHI KHÔNG HOVER - MỖI NÚT ĐỘC LẬP:
+        // 1. Nút số: giữ nếu collapsed
+        // 2. Nút thêm mới: giữ nếu selected
+        // 3. Nút collapse mũi tên: ẩn (chỉ hiện khi hover)
+        
+        const hasChildren = that.edges.some(e => e.source === d.id)
+        const isCollapsed = that.collapsedNodes.has(d.id)
+        
+        // 1. Nút số
+        if (hasChildren && isCollapsed) {
+          nodeGroup.select('.collapse-btn-number')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+          
+          nodeGroup.select('.collapse-text-number')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+        } else {
+          nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
+          nodeGroup.select('.collapse-text-number').attr('opacity', 0)
+        }
+        
+        // 2. Nút thêm mới
+        if (isSelected && !isCollapsed) {
+          nodeGroup.select('.add-child-btn')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+          
+          nodeGroup.select('.add-child-text')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+        } else {
+          nodeGroup.select('.add-child-btn').attr('opacity', 0)
+          nodeGroup.select('.add-child-text').attr('opacity', 0)
+        }
+        
+        // 3. Nút collapse mũi tên (ẩn khi không hover)
+        nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
+        nodeGroup.select('.collapse-arrow').attr('opacity', 0)
+        
+        // Call callback
+        if (that.callbacks.onNodeHover) {
+          that.callbacks.onNodeHover(d.id, false)
+        }
+      })
+    
+    // Store renderer reference for click handlers (cần khai báo trước khi sử dụng)
+    const renderer = this
     
     // Update add child button position - ra ngoài bên phải
     nodesUpdate.select('.add-child-btn')
       .attr('cx', d => getNodeSize(d).width + 20) // Ra ngoài bên phải, cách 20px
       .attr('cy', d => getNodeSize(d).height / 2)
-      .on('click', (event, d) => {
+      // Chỉ cho click khi nút đang hiển thị (selected + chưa collapse)
+      .style('pointer-events', d => {
+        const isSelected = renderer.selectedNode === d.id
+        const isCollapsed = renderer.collapsedNodes.has(d.id)
+        return (isSelected && !isCollapsed) ? 'auto' : 'none'
+      })
+      .on('click', function(event, d) {
         event.stopPropagation()
-        if (this.callbacks.onNodeAdd) {
-          this.callbacks.onNodeAdd(d.id)
+        event.preventDefault()
+        console.log('🔵 CLICKED on add-child-btn for node:', d.id)
+        
+        // Đảm bảo không trigger node group click
+        if (event.cancelBubble !== undefined) {
+          event.cancelBubble = true
+        }
+        
+        if (renderer.callbacks.onNodeAdd) {
+          renderer.callbacks.onNodeAdd(d.id)
         }
       })
     
     nodesUpdate.select('.add-child-text')
       .attr('x', d => getNodeSize(d).width + 20) // Ra ngoài bên phải, cách 20px
       .attr('y', d => getNodeSize(d).height / 2)
+    
+    // Update hover layer mở rộng sang bên phải
+    nodesUpdate.select('.node-hover-layer')
+      .attr('x', 0)
+      .attr('y', 0)
+      .attr('width', d => getNodeSize(d).width + 40)
+      .attr('height', d => getNodeSize(d).height)
+      // Không bắt sự kiện click/hover riêng, chỉ dùng để mở rộng vùng hình học của node-group,
+      // giúp mouseenter/mouseleave mượt hơn mà không chặn thao tác khác.
+      .style('pointer-events', 'none')
+    
+    // Number button (for collapsed state - shows number) - bên phải
+    nodesUpdate.select('.collapse-btn-number')
+      .attr('cx', d => getNodeSize(d).width + 20)
+      .attr('cy', d => getNodeSize(d).height / 2)
+      .attr('opacity', d => {
+        const count = renderer.countChildren(d.id)
+        const isCollapsed = renderer.collapsedNodes.has(d.id)
+        // Hiển thị nếu đã collapse và có children (kể cả khi đang selected)
+        const shouldShow = (count > 0 && isCollapsed)
+        if (shouldShow) {
+          console.log(`✅ Button visible for node ${d.id}: count=${count}, isCollapsed=${isCollapsed}`)
+        }
+        return shouldShow ? 1 : 0
+      })
+      .style('pointer-events', d => {
+        const count = renderer.countChildren(d.id)
+        const isCollapsed = renderer.collapsedNodes.has(d.id)
+        // Chỉ cho phép click khi button hiển thị
+        const canClick = (count > 0 && isCollapsed)
+        return canClick ? 'auto' : 'none'
+      })
+      .on('click', function(event, d) {
+        // QUAN TRỌNG: Stop propagation ngay lập tức để không trigger node group click
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        event.preventDefault()
+        
+        console.log('🔵 CLICKED on collapse-btn-number for node:', d.id)
+        console.log('Will EXPAND node:', d.id)
+        console.log('Current collapsed nodes:', Array.from(renderer.collapsedNodes))
+        
+        // Đảm bảo không trigger node group click
+        if (event.cancelBubble !== undefined) {
+          event.cancelBubble = true
+        }
+        
+        // CHỈ expand, KHÔNG BAO GIỜ gọi onNodeAdd
+        if (renderer.collapsedNodes.has(d.id)) {
+          // Expand node: xóa khỏi collapsedNodes
+          renderer.collapsedNodes.delete(d.id)
+          
+          console.log('✅ Expanding node:', d.id)
+          const children = renderer.edges.filter(e => e.source === d.id).map(e => e.target)
+          console.log('Children to show:', children)
+          console.log('Collapsed nodes after expand:', Array.from(renderer.collapsedNodes))
+          
+          // CHỈ gọi onNodeCollapse, KHÔNG gọi onNodeAdd
+          if (renderer.callbacks.onNodeCollapse) {
+            renderer.callbacks.onNodeCollapse(d.id, false)
+          }
+          
+          // Re-render để cập nhật layout và buttons
+          renderer.render()
+          
+          // Sau khi render xong, force update opacity một lần nữa để đảm bảo
+          requestAnimationFrame(() => {
+            renderer.g.selectAll('.node-group')
+              .each(function(nodeData) {
+                const isHidden = renderer.isNodeHidden(nodeData.id)
+                const nodeEl = d3.select(this)
+                const shouldBeVisible = !isHidden
+                
+                nodeEl
+                  .style('opacity', shouldBeVisible ? 1 : 0)
+                  .style('pointer-events', shouldBeVisible ? 'auto' : 'none')
+              })
+            
+            renderer.g.selectAll('.edge')
+              .each(function(edgeData) {
+                const isHidden = renderer.isNodeHidden(edgeData.target)
+                d3.select(this)
+                  .style('opacity', isHidden ? 0 : 1)
+                  .style('pointer-events', isHidden ? 'none' : 'auto')
+              })
+          })
+        } else {
+          console.log('⚠️ Node not collapsed:', d.id)
+        }
+        
+        // Đảm bảo return false để không trigger bất kỳ event nào khác
+        return false
+      })
+    
+    nodesUpdate.select('.collapse-text-number')
+      .attr('x', d => getNodeSize(d).width + 20)
+      .attr('y', d => getNodeSize(d).height / 2)
+      .text(d => {
+        const count = this.countChildren(d.id)
+        return count > 0 ? count.toString() : ''
+      })
+      .attr('opacity', d => {
+        const count = this.countChildren(d.id)
+        const isCollapsed = this.collapsedNodes.has(d.id)
+        // Hiển thị nếu đã collapse và có children (kể cả khi đang selected)
+        return (count > 0 && isCollapsed) ? 1 : 0
+      })
+    
+    // Arrow button (for expanded state - shows arrow, only on hover) - bên phải
+    // Opacity được điều khiển HOÀN TOÀN bởi mouseenter/mouseleave ở node-group,
+    // nên ở đây KHÔNG đụng vào opacity nữa, chỉ cập nhật vị trí + pointer-events.
+    nodesUpdate.select('.collapse-btn-arrow')
+      .attr('cx', d => getNodeSize(d).width + 20)
+      .attr('cy', d => getNodeSize(d).height / 2)
+      .style('pointer-events', d => {
+        const count = renderer.countChildren(d.id)
+        const isCollapsed = renderer.collapsedNodes.has(d.id)
+        const isSelected = renderer.selectedNode === d.id
+        // Chỉ cho phép click khi node có children, chưa collapse và không selected
+        return (count > 0 && !isCollapsed && !isSelected) ? 'auto' : 'none'
+      })
+      .on('click', function(event, d) {
+        // QUAN TRỌNG: Stop propagation ngay lập tức để không trigger node group click
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        event.preventDefault()
+        
+        console.log('🔵 CLICKED on collapse-btn-arrow for node:', d.id)
+        console.log('Will COLLAPSE node:', d.id)
+        console.log('Current collapsed nodes:', Array.from(renderer.collapsedNodes))
+        
+        // Đảm bảo không trigger node group click
+        if (event.cancelBubble !== undefined) {
+          event.cancelBubble = true
+        }
+        
+        // CHỈ collapse, KHÔNG BAO GIỜ gọi onNodeAdd
+        if (!renderer.collapsedNodes.has(d.id)) {
+          renderer.collapsedNodes.add(d.id)
+          console.log('✅ Collapsed node:', d.id)
+          console.log('Collapsed nodes after:', Array.from(renderer.collapsedNodes))
+
+          // Ẩn ngay nút thu gọn sau khi click
+          const nodeGroup = d3.select(this.parentNode)
+          nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
+          nodeGroup.select('.collapse-arrow').attr('opacity', 0)
+          
+          // CHỈ gọi onNodeCollapse, KHÔNG gọi onNodeAdd
+          if (renderer.callbacks.onNodeCollapse) {
+            renderer.callbacks.onNodeCollapse(d.id, true)
+          }
+          
+          // Re-render để ẩn children
+          renderer.render()
+        } else {
+          console.log('⚠️ Node already collapsed:', d.id)
+        }
+        
+        // Đảm bảo return false để không trigger bất kỳ event nào khác
+        return false
+      })
+    
+    nodesUpdate.select('.collapse-arrow')
+      .attr('transform', d => `translate(${getNodeSize(d).width + 20}, ${getNodeSize(d).height / 2}) scale(0.7) translate(-12, -12)`) // Scale 0.7 để icon to hơn
+      .each(function() {
+        // Đảm bảo icon nổi trên edge bằng cách raise lên trên cùng
+        d3.select(this).raise()
+      })
     
     // Update rectangle size and style
     // Node rect width = textarea width (130px - 400px)
@@ -1071,11 +1627,23 @@ export class D3MindmapRenderer {
       })
       .attr('height', d => getNodeSize(d).height)
       .attr('fill', d => {
+        // Hover state takes priority
+        if (this.hoveredNode === d.id) {
+          return d.data?.isRoot ? '#2563eb' : '#f3f4f6'
+        }
+        // Selected state
         if (this.selectedNode === d.id) return '#e0e7ff'
+        // Default state
         return d.data?.isRoot ? '#3b82f6' : '#ffffff'
       })
       .attr('stroke', d => {
+        // Hover state takes priority
+        if (this.hoveredNode === d.id) {
+          return d.data?.isRoot ? 'none' : '#3b82f6'
+        }
+        // Selected state
         if (this.selectedNode === d.id) return '#3b82f6'
+        // Default state
         return d.data?.isRoot ? 'none' : '#cbd5e1'
       })
       .attr('stroke-width', 2) // Border luôn là 2px
@@ -1503,12 +2071,44 @@ export class D3MindmapRenderer {
       })
       .attr('stroke-width', 2) // Border luôn là 2px
     
-    // Hiển thị nút "thêm node con" cho node được select, ẩn các node khác
+    // Hiển thị nút phù hợp cho mỗi node
     const that = this
     this.g.selectAll('.node-group').each(function(nodeData) {
       const isSelected = that.selectedNode === nodeData.id
-      d3.select(this).select('.add-child-btn').attr('opacity', isSelected ? 1 : 0)
-      d3.select(this).select('.add-child-text').attr('opacity', isSelected ? 1 : 0)
+      const hasChildren = that.edges.some(e => e.source === nodeData.id)
+      const isCollapsed = that.collapsedNodes.has(nodeData.id)
+      const nodeGroup = d3.select(this)
+      
+      if (isSelected && !isCollapsed) {
+        // Node được click và chưa collapse: hiển thị nút thêm mới
+        nodeGroup.select('.add-child-btn').attr('opacity', 1)
+        nodeGroup.select('.add-child-text').attr('opacity', 1)
+        nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
+        nodeGroup.select('.collapse-text-number').attr('opacity', 0)
+        nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
+        nodeGroup.select('.collapse-arrow').attr('opacity', 0)
+      }
+      
+      // 1. Nút số: hiển thị khi collapsed
+      if (hasChildren && isCollapsed) {
+        nodeGroup.select('.collapse-btn-number').attr('opacity', 1)
+        nodeGroup.select('.collapse-text-number').attr('opacity', 1)
+      } else {
+        nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
+        nodeGroup.select('.collapse-text-number').attr('opacity', 0)
+      }
+      
+      // 2. Nút thêm mới: hiển thị khi selected và chưa collapse
+      if (isSelected && !isCollapsed) {
+        nodeGroup.select('.add-child-btn').attr('opacity', 1)
+        nodeGroup.select('.add-child-text').attr('opacity', 1)
+      } else {
+        nodeGroup.select('.add-child-btn').attr('opacity', 0)
+        nodeGroup.select('.add-child-text').attr('opacity', 0)
+      }
+      
+      // 3. Nút collapse mũi tên: chỉ hiển thị khi hover (được xử lý trong mouseenter)
+      // Không cần update ở đây
     })
   }
   

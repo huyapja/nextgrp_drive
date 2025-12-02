@@ -20,13 +20,11 @@ export function buildD3Hierarchy(nodes, edges, rootId = 'root') {
   const childrenMap = new Map()
   const parentMap = new Map()
   
-  // Build node map
   nodes.forEach(node => {
     nodeMap.set(node.id, node)
     childrenMap.set(node.id, [])
   })
   
-  // Build parent-child relationships và sắp xếp theo creation order
   edges.forEach(edge => {
     const children = childrenMap.get(edge.source) || []
     children.push(edge.target)
@@ -34,19 +32,8 @@ export function buildD3Hierarchy(nodes, edges, rootId = 'root') {
     parentMap.set(edge.target, edge.source)
   })
   
-  // Sắp xếp children theo creation order (nếu có)
-  const sortChildren = (children, creationOrder) => {
-    return children.sort((a, b) => {
-      const orderA = creationOrder.get(a) ?? Infinity
-      const orderB = creationOrder.get(b) ?? Infinity
-      return orderA - orderB
-    })
-  }
-  
-  // Find root node
   let rootNode = nodes.find(n => n.id === rootId)
   if (!rootNode) {
-    // Find node without parent
     rootNode = nodes.find(n => !parentMap.has(n.id))
   }
   if (!rootNode && nodes.length > 0) {
@@ -55,7 +42,6 @@ export function buildD3Hierarchy(nodes, edges, rootId = 'root') {
   
   if (!rootNode) return null
   
-  // Build hierarchy recursively
   const buildNode = (nodeId) => {
     const node = nodeMap.get(nodeId)
     if (!node) return null
@@ -78,7 +64,7 @@ export function buildD3Hierarchy(nodes, edges, rootId = 'root') {
 export function getNodeSizeFromDOM(nodeId) {
   const domNode = document.querySelector(`[data-id="${nodeId}"]`)
   if (domNode) {
-    void domNode.offsetHeight // Force reflow
+    void domNode.offsetHeight
     const rect = domNode.getBoundingClientRect()
     return {
       width: Math.max(rect.width || domNode.offsetWidth || 120, 120),
@@ -94,11 +80,12 @@ export function getNodeSizeFromDOM(nodeId) {
 export function calculateD3MindmapLayout(nodes, edges, options = {}) {
   const {
     nodeSizes = new Map(),
-    layerSpacing = 30, // Khoảng cách CỐ ĐỊNH giữa layers
-    nodeSpacing = 50,
-    padding = 20,
+    layerSpacing = 200,
+    nodeSpacing = 80, 
+    padding = 40,
     viewportHeight = window.innerHeight - 84,
-    nodeCreationOrder = new Map()
+    nodeCreationOrder = new Map(),
+    collapsedNodes = new Set()
   } = options
   
   const root = buildD3Hierarchy(nodes, edges)
@@ -109,186 +96,134 @@ export function calculateD3MindmapLayout(nodes, edges, options = {}) {
   
   const getNodeSize = (nodeId) => {
     const size = nodeSizes.get(nodeId)
-    if (size) {
-      const extraPaddingX = Math.min(size.width * 0.1, 40)
-      const extraPaddingY = Math.min(size.height * 0.1, 20)
-      return {
-        width: size.width + padding + extraPaddingX,
-        height: size.height + padding + extraPaddingY
-      }
-    }
-    return { width: 150 + padding, height: 60 + padding }
+    if (size) return { width: size.width, height: size.height }
+    return { width: 150, height: 60 }
   }
   
-  // SỬA ĐỔI: Dùng khoảng cách CỐ ĐỊNH thay vì động
-  // Điều này đảm bảo edge có độ dài đồng đều
-  const getLayerSpacing = (parentNodeId) => {
-    // Trả về layerSpacing cố định, KHÔNG tính toán dựa trên parent width
-    return layerSpacing
-  }
-  
-  // Position map
   const positionMap = new Map()
+  const collapsedSet = new Set(collapsedNodes || [])
   
-  // Store previous sibling results để đặt node cùng cấp đúng vị trí
-  // QUAN TRỌNG: Clear map này mỗi lần layout để đảm bảo tính toán lại từ đầu
-  const siblingResultsMap = new Map() // Map<parentId, Array<{id, bottom}>>
-  
-  // Custom tree layout function (Lark-like)
-  // Trả về bounds của toàn bộ subtree (bao gồm node và tất cả node con)
-  const layoutNode = (node, x, y, parentId = null, siblingIndex = 0) => {
+  /**
+   * PHASE 1: Calculate subtree bounds (bottom-up)
+   * Returns: { width, height } of entire subtree
+   */
+  const calculateSubtreeBounds = (node) => {
     const nodeSize = getNodeSize(node.id)
-    let children = node.children || []
     
-    // QUAN TRỌNG: Sắp xếp children theo creation order để giữ đúng thứ tự
-    // Điều này đảm bảo thứ tự hiển thị không bị thay đổi khi thêm node con
+    let children = node.children || []
+
+    // Nếu node đang bị thu gọn, KHÔNG tính subtree children để layout
+    // → khoảng trống phía dưới sẽ thu lại như mong muốn
+    if (collapsedSet.has(node.id)) {
+      children = []
+    }
+    
+    // Sort children by creation order
     if (children.length > 0) {
       children = [...children].sort((a, b) => {
         const orderA = nodeCreationOrder.get(a.id) ?? Infinity
         const orderB = nodeCreationOrder.get(b.id) ?? Infinity
-        // Nếu không có creation order, giữ nguyên thứ tự ban đầu
-        if (orderA === Infinity && orderB === Infinity) {
-          return 0
-        }
+        if (orderA === Infinity && orderB === Infinity) return 0
         return orderA - orderB
       })
+      node.children = children // Update sorted order
     }
     
     if (children.length === 0) {
       // Leaf node
-      positionMap.set(node.id, { x, y })
-      return { 
-        y, // Top của node
-        height: nodeSize.height, // Chiều cao của node
-        bottom: y + nodeSize.height // Bottom của node (để tính cho node tiếp theo)
+      return {
+        width: nodeSize.width,
+        height: nodeSize.height
       }
     }
     
-    // Calculate children positions - Lark style: phân bổ xung quanh node cha
-    const childResults = []
-    const dynamicSpacing = parentId ? getLayerSpacing(parentId) : layerSpacing
+    // Calculate children bounds recursively
+    const childBounds = children.map(child => calculateSubtreeBounds(child))
     
-    // Đảm bảo dynamicSpacing đủ lớn để node con không overlap với node cha
-    // Tính toán lại dựa trên chiều rộng thực tế của node cha
-    const parentWidth = nodeSize.width
-    // Khoảng cách tối thiểu = chiều rộng node cha + padding nhỏ hơn
-    const minRequiredSpacing = parentWidth + padding * 2 + 30 // Giảm khoảng cách
-    const actualSpacing = Math.max(dynamicSpacing, minRequiredSpacing)
+    // Total height = sum of all children heights + spacing between them
+    const totalChildrenHeight = childBounds.reduce((sum, bounds, i) => {
+      return sum + bounds.height + (i < childBounds.length - 1 ? nodeSpacing : 0)
+    }, 0)
     
-    if (children.length === 1) {
-      // Single child: đặt ở giữa (cùng center Y với node cha) - thẳng hàng
-      const child = children[0]
-      const childSize = getNodeSize(child.id)
-      // Đảm bảo node con thẳng hàng với center của node cha
-      const childY = y + (nodeSize.height / 2) - (childSize.height / 2)
-      const childResult = layoutNode(child, x + actualSpacing, childY, node.id, 0)
-      childResults.push({
-        id: child.id,
-        y: childResult.y,
-        height: childResult.height,
-        bottom: childResult.bottom || (childResult.y + childResult.height)
-      })
-    } else if (children.length > 1) {
-      // Multiple children: sắp xếp theo creation order và đặt thẳng hàng dọc
-      // Giữ đúng thứ tự tạo node, không phân bổ top/middle/bottom
-      // Node đầu tiên đặt ở giữa (thẳng hàng với node cha), các node tiếp theo xếp dọc xuống
-      
-      let currentY = y
-      
-      children.forEach((child, index) => {
-        const childSize = getNodeSize(child.id)
-        
-        if (index === 0) {
-          // Node đầu tiên: đặt ở giữa (thẳng hàng với node cha)
-          currentY = y + (nodeSize.height / 2) - (childSize.height / 2)
-        } else {
-          // Các node tiếp theo: xếp dọc xuống dưới với khoảng cách cố định
-          // Sử dụng bottom của subtree trước đó để đảm bảo không overlap
-          const prevResult = childResults[childResults.length - 1]
-          const prevBottom = prevResult.bottom || (prevResult.y + prevResult.height)
-          // Đảm bảo khoảng cách tối thiểu giữa các nhánh (tối thiểu 50px)
-          const minSpacing = Math.max(nodeSpacing, 50)
-          currentY = prevBottom + minSpacing
-        }
-        
-        // Layout child subtree
-        const childResult = layoutNode(child, x + actualSpacing, currentY, node.id, index)
-        childResults.push({
-          id: child.id,
-          y: childResult.y,
-          height: childResult.height,
-          bottom: childResult.bottom || (childResult.y + childResult.height)
-        })
-      })
+    // Subtree width = node width + layer spacing + max child subtree width
+    const maxChildWidth = Math.max(...childBounds.map(b => b.width))
+    const subtreeWidth = nodeSize.width + layerSpacing + maxChildWidth
+    
+    // Subtree height = max of (node height, total children height)
+    const subtreeHeight = Math.max(nodeSize.height, totalChildrenHeight)
+    
+    return {
+      width: subtreeWidth,
+      height: subtreeHeight,
+      childBounds: childBounds,
+      totalChildrenHeight: totalChildrenHeight
     }
-    
-    // Calculate parent Y position - LUÔN CĂN GIỮA CÁC NODE CON (Lark style)
-    // Với layout mới, node con được phân bổ xung quanh node cha
-    // Node cha nên được căn giữa dựa trên tất cả node con
-    let parentY = y
-    
-    if (children.length === 1) {
-      // Single child: align parent vertically with child center
-      const childY = childResults[0].y
-      const childHeight = childResults[0].height
-      const childCenterY = childY + (childHeight / 2)
-      parentY = childCenterY - (nodeSize.height / 2)
-    } else if (children.length > 1) {
-      // Multiple children: center parent based on all children positions
-      // Tính toán dựa trên vị trí thực tế của tất cả node con
-      // Tìm top nhất và bottom nhất của tất cả node con
-      let minChildY = Infinity
-      let maxChildY = -Infinity
-      
-      childResults.forEach(result => {
-        minChildY = Math.min(minChildY, result.y)
-        // Sử dụng bottom của subtree (bao gồm tất cả node con) thay vì chỉ height của node
-        const resultBottom = result.bottom || (result.y + result.height)
-        maxChildY = Math.max(maxChildY, resultBottom)
-      })
-      
-      // Tính center Y của tất cả node con
-      const childrenCenterY = (minChildY + maxChildY) / 2
-      
-      // Căn giữa node cha với center của các node con
-      parentY = childrenCenterY - (nodeSize.height / 2)
-    }
-    
-    // Set parent position
-    positionMap.set(node.id, { x, y: parentY })
-    
-    // Return bounds của toàn bộ subtree (bao gồm node cha và tất cả node con)
-    // Điều này quan trọng để node cùng cấp tiếp theo biết được bottom của subtree này
-    const firstChildY = childResults[0]?.y || parentY
-    const lastChild = childResults[childResults.length - 1]
-    // Sử dụng bottom của subtree cuối cùng (bao gồm tất cả node con của nó)
-    const lastChildBottom = lastChild ? (lastChild.bottom || (lastChild.y + lastChild.height)) : parentY + nodeSize.height
-    const topMost = Math.min(firstChildY, parentY) // Top nhất của toàn bộ subtree
-    const bottomMost = Math.max(lastChildBottom, parentY + nodeSize.height) // Bottom nhất của toàn bộ subtree
-    const totalHeight = bottomMost - topMost
-    
-    const result = {
-      y: topMost, // Top của toàn bộ subtree
-      height: totalHeight, // Chiều cao của toàn bộ subtree
-      bottom: bottomMost, // Bottom của toàn bộ subtree (quan trọng cho node cùng cấp tiếp theo)
-      id: node.id // Lưu id để track
-    }
-    
-    // Lưu kết quả vào siblingResultsMap để node cùng cấp tiếp theo có thể sử dụng
-    if (parentId) {
-      if (!siblingResultsMap.has(parentId)) {
-        siblingResultsMap.set(parentId, [])
-      }
-      siblingResultsMap.get(parentId).push(result)
-    }
-    
-    return result
   }
   
-  // Start layout from root
-  const startX = padding
-  const startY = padding
-  layoutNode(root, startX, startY, null, 0)
+  /**
+   * PHASE 2: Position nodes (top-down)
+   * x, y = top-left corner of this subtree's bounding box
+   */
+  const positionNodes = (node, x, y, bounds) => {
+    const nodeSize = getNodeSize(node.id)
+    let children = node.children || []
+
+    // Nếu node đang bị thu gọn, không position children (giữ nguyên vị trí cũ, nhưng sẽ bị isNodeHidden ẩn đi)
+    if (collapsedSet.has(node.id)) {
+      children = []
+    }
+    
+    if (children.length === 0) {
+      // Leaf node - position at (x, y)
+      positionMap.set(node.id, { x, y })
+      return
+    }
+    
+    // Calculate where to position this node
+    // Node should be vertically centered relative to its children
+    const totalChildrenHeight = bounds.totalChildrenHeight
+    const childBounds = bounds.childBounds
+    
+    let nodeY
+    if (totalChildrenHeight < nodeSize.height) {
+      // Children are smaller than node - position node at top
+      nodeY = y
+    } else {
+      // Children are taller - center node vertically
+      nodeY = y + (totalChildrenHeight - nodeSize.height) / 2
+    }
+    
+    // Position this node
+    positionMap.set(node.id, { x, y: nodeY })
+    
+    // Position children
+    const childX = x + nodeSize.width + layerSpacing
+    let currentChildY = y
+    
+    // If node is taller than children, offset children to center them
+    if (nodeSize.height > totalChildrenHeight) {
+      currentChildY = y + (nodeSize.height - totalChildrenHeight) / 2
+    }
+    
+    children.forEach((child, i) => {
+      const childBound = childBounds[i]
+      
+      // Calculate child bounds recursively
+      const childSubtreeBounds = calculateSubtreeBounds(child)
+      
+      // Position child at currentChildY
+      positionNodes(child, childX, currentChildY, childSubtreeBounds)
+      
+      // Move to next child position
+      currentChildY += childBound.height + nodeSpacing
+    })
+  }
+  
+  // Calculate bounds for entire tree
+  const rootBounds = calculateSubtreeBounds(root)
+  
+  // Position all nodes starting from root
+  positionNodes(root, padding, padding, rootBounds)
   
   // Center vertically in viewport
   let minY = Infinity
@@ -311,22 +246,6 @@ export function calculateD3MindmapLayout(nodes, edges, options = {}) {
       y: pos.y + offsetY
     })
   })
-  
-  // Layout đã được tính toán với khoảng cách đều nhau trong layoutNode
-  // Tuy nhiên, cần điều chỉnh lại để đảm bảo các nhánh không bị overlap
-  
-  // Điều chỉnh khoảng cách giữa các nhánh con để tránh overlap
-  // Hàm này tính toán lại vị trí dựa trên subtree bounds để đảm bảo không overlap
-  equalizeSiblingSpacing(finalPositions, nodes, edges, nodeSizes, getNodeSize, nodeSpacing)
-  
-  // Đảm bảo node cha luôn căn giữa các node con
-  recenterParents(finalPositions, nodes, edges, nodeSizes, getNodeSize, false)
-  
-  // Collision detection and resolution - xử lý các overlap còn lại
-  resolveCollisions(finalPositions, nodeSizes, getNodeSize)
-  
-  // Đảm bảo node cha luôn căn giữa các node con sau khi resolve collisions
-  recenterParents(finalPositions, nodes, edges, nodeSizes, getNodeSize, true)
   
   return finalPositions
 }
@@ -675,11 +594,9 @@ function childOverlapsParent(childPos, childSize, parentPos, parentSize, padding
  */
 export function getAllNodeSizesFromDOM(nodeIds) {
   const sizes = new Map()
-  
   nodeIds.forEach(nodeId => {
     sizes.set(nodeId, getNodeSizeFromDOM(nodeId))
   })
-  
   return sizes
 }
 

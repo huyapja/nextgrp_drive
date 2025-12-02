@@ -88,7 +88,6 @@ const showDeleteDialog = ref(false)
 const nodeToDelete = ref(null)
 const childCount = ref(0)
 let saveTimeout = null
-let layoutTimeout = null
 const SAVE_DELAY = 2000
 
 // Elements ref
@@ -101,8 +100,7 @@ let d3Renderer = null
 // Node counter
 let nodeCounter = 0
 
-// Track node creation order and positions
-const nodePositions = ref(new Map()) // Store stable positions
+// Track node creation order
 const nodeCreationOrder = ref(new Map()) // Track when nodes were created
 let creationOrderCounter = 0
 
@@ -196,11 +194,8 @@ const initializeMindmap = async (data) => {
     }))
     nodeCounter = maxId + 1
     
-    // Store existing positions and creation order
+    // Store existing creation order
     loadedNodes.forEach((node, index) => {
-      if (node.position) {
-        nodePositions.value.set(node.id, { ...node.position })
-      }
       nodeCreationOrder.value.set(node.id, index)
     })
     creationOrderCounter = loadedNodes.length
@@ -239,8 +234,8 @@ const initD3Renderer = () => {
   d3Renderer = new D3MindmapRenderer(d3Container.value, {
     width: window.innerWidth,
     height: window.innerHeight - 84,
-    nodeSpacing: 50,
-    layerSpacing: 180,
+    nodeSpacing: 20,
+    layerSpacing: 40,
     padding: 20,
     nodeCreationOrder: nodeCreationOrder
   })
@@ -319,6 +314,14 @@ const initD3Renderer = () => {
       // Tăng delay lên 300ms để đảm bảo DOM đã update và node size đã được tính toán lại
       // Đặc biệt quan trọng khi edit node giữa có nhiều node con
       updateD3RendererWithDelay(300)
+    },
+    onNodeHover: (nodeId, isHovering) => {
+      hoveredNode.value = isHovering ? nodeId : null
+    },
+    onNodeCollapse: (nodeId, isCollapsed) => {
+      console.log(`Node ${nodeId} ${isCollapsed ? 'collapsed' : 'expanded'}`)
+      // Re-render sẽ được xử lý trong renderer
+      updateD3Renderer()
     }
   })
   
@@ -367,6 +370,9 @@ const updateD3Renderer = async () => {
   
   await nextTick()
   
+  // ✅ FIX: Đảm bảo nodeCreationOrder được update
+  d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
+  
   requestAnimationFrame(() => {
     setTimeout(() => {
       d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
@@ -375,12 +381,15 @@ const updateD3Renderer = async () => {
 }
 
 // Update D3 renderer with custom delay (for editing)
-const updateD3RendererWithDelay = async (delay = 200) => {
+const updateD3RendererWithDelay = async (delay = 150) => {
   if (!d3Renderer) return
   
   await nextTick()
   
   void document.body.offsetHeight
+  
+  // ✅ FIX: Đảm bảo nodeCreationOrder được update
+  d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
   
   requestAnimationFrame(() => {
     setTimeout(() => {
@@ -425,110 +434,6 @@ const zoomOut = () => {
   }
 }
 
-// ✅ D3.js Mindmap Layout - Lark-like features (deprecated, using D3 renderer now)
-const layoutWithElk = async () => {
-  const allNodes = nodes.value
-  const allEdges = edges.value
-
-  if (allNodes.length === 0) {
-    console.warn("⚠️ No nodes to layout")
-    return
-  }
-
-  console.log("🔄 Starting D3 layout with", allNodes.length, "nodes")
-
-  try {
-    // Get actual node dimensions from DOM
-    const nodeIds = allNodes.map(n => n.id)
-    const nodeSizes = getAllNodeSizesFromDOM(nodeIds)
-
-    // Calculate layout using D3 algorithm with Lark-like features
-    // Use dynamic spacing that adapts to node sizes
-    const maxNodeWidth = Math.max(...Array.from(nodeSizes.values()).map(s => s.width), 200)
-    const dynamicLayerSpacing = Math.max(300, maxNodeWidth + 100) // At least 300px, or parent width + 100px
-    
-    const positions = calculateD3MindmapLayout(allNodes, allEdges, {
-      nodeSizes: nodeSizes,
-      layerSpacing: dynamicLayerSpacing, // Dynamic spacing based on largest node
-      nodeSpacing: 100, // Vertical spacing between sibling nodes
-      padding: 40, // Padding around nodes
-      viewportHeight: window.innerHeight - 84
-    })
-
-    // Apply positions to elements
-    const newElements = elements.value.map(el => {
-      if (el.id && !el.source) {
-        const pos = positions.get(el.id)
-        if (pos) {
-          // Store position
-          nodePositions.value.set(el.id, { ...pos })
-          if (!nodeCreationOrder.value.has(el.id)) {
-            nodeCreationOrder.value.set(el.id, creationOrderCounter++)
-          }
-          
-          return {
-            ...el,
-            position: pos
-          }
-        }
-      }
-      return el
-    })
-
-    // Second pass: Fix single child alignment (parent aligns with single child)
-    const finalElements = newElements.map(el => {
-      if (el.id && !el.source) {
-        const children = getChildren(el.id)
-        
-        // If this node has exactly one child, align parent with child
-        if (children.length === 1) {
-          const child = children[0]
-          const childEl = newElements.find(e => e.id === child.id)
-          
-          if (childEl && childEl.position) {
-            const parentHeight = document.querySelector(`[data-id="${el.id}"]`)?.offsetHeight || 50
-            const childHeight = document.querySelector(`[data-id="${child.id}"]`)?.offsetHeight || 50
-            
-            // Align centers vertically (keep X to maintain horizontal spacing)
-            const alignedY = childEl.position.y + childHeight / 2 - parentHeight / 2
-            
-            const alignedPos = {
-              x: el.position.x, // Keep X
-              y: alignedY
-            }
-            
-            // Update stored position
-            nodePositions.value.set(el.id, { ...alignedPos })
-            
-            return {
-              ...el,
-              position: alignedPos
-            }
-          }
-        }
-      }
-      return el
-    })
-
-    elements.value = finalElements
-
-    console.log("✅ D3 layout completed successfully")
-  } catch (error) {
-    console.error("❌ D3 layout error:", error)
-  }
-}
-
-// Schedule layout with debounce
-const scheduleLayout = () => {
-  if (layoutTimeout) {
-    clearTimeout(layoutTimeout)
-  }
-  
-  layoutTimeout = setTimeout(() => {
-    layoutWithElk()
-  }, 150)
-}
-
 // Add child to specific node
 const addChildToNode = async (parentId) => {
   const parent = nodes.value.find(n => n.id === parentId)
@@ -550,7 +455,7 @@ const addChildToNode = async (parentId) => {
     target: newNodeId
   }
   
-  // Store creation order
+  // ✅ FIX: Store creation order BEFORE adding to elements
   nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
   
   // Add node and edge
@@ -563,38 +468,36 @@ const addChildToNode = async (parentId) => {
   
   selectedNode.value = newNode
   
-  console.log("✅ Added child node:", newNodeId)
+  console.log("✅ Added child node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
   
   // Wait for DOM to render
   await nextTick()
   
-  // Force reflow để đảm bảo DOM đã update
+  // Force reflow
   void document.body.offsetHeight
   
-  // Clear layout timeout
-  if (layoutTimeout) {
-    clearTimeout(layoutTimeout)
-    layoutTimeout = null
-  }
-  
-  // Update D3 renderer với delay đủ lớn để đảm bảo layout được tính toán đúng
+  // ✅ FIX: Update với delay nhỏ hơn để responsive hơn
   requestAnimationFrame(() => {
     void document.body.offsetHeight
     
     setTimeout(() => {
-      updateD3RendererWithDelay(250)
-      // Select node mới sau khi render xong để hiển thị border xanh
+      // Update với nodeCreationOrder mới
+      updateD3RendererWithDelay(100)
+      
+      // Select node mới sau khi render xong
       if (d3Renderer) {
-        d3Renderer.selectNode(newNodeId)
+        setTimeout(() => {
+          d3Renderer.selectNode(newNodeId)
+        }, 150)
       }
-    }, 50)
+    }, 30)
   })
   
   scheduleSave()
 }
 
 // Add sibling node
-const addSiblingToNode = (nodeId) => {
+const addSiblingToNode = async (nodeId) => {
   if (nodeId === 'root') return
   
   const parentEdge = edges.value.find(e => e.target === nodeId)
@@ -622,7 +525,7 @@ const addSiblingToNode = (nodeId) => {
     target: newNodeId
   }
   
-  // Store creation order
+  // ✅ FIX: Store creation order
   nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
   
   // Add node and edge
@@ -635,12 +538,12 @@ const addSiblingToNode = (nodeId) => {
   
   selectedNode.value = newNode
   
-  console.log("✅ Added sibling node:", newNodeId)
+  console.log("✅ Added sibling node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
   
   // Wait for DOM to render
-  nextTick().then(() => {
-    updateD3RendererWithDelay(250)
-  })
+  await nextTick()
+  
+  updateD3RendererWithDelay(100)
   
   scheduleSave()
 }
@@ -717,7 +620,6 @@ const performDelete = (nodeId) => {
   const newNodes = nodes.value.filter(n => {
     if (n.id === 'root') return true
     if (nodesToDelete.has(n.id)) {
-      nodePositions.value.delete(n.id)
       nodeCreationOrder.value.delete(n.id)
       return false
     }
@@ -736,7 +638,8 @@ const performDelete = (nodeId) => {
   
   console.log(`✅ Cascade delete completed: ${nodesToDelete.size} nodes removed`)
   
-  scheduleLayout()
+  // Update D3 renderer after deletion
+  updateD3Renderer()
   scheduleSave()
 }
 
@@ -785,6 +688,23 @@ const handleKeyDown = (event) => {
   if (key === 'Tab') {
     event.preventDefault()
     event.stopPropagation()
+
+    // Nếu node đang bị thu gọn, khi nhấn Tab để tạo node con
+    // thì đồng thời phải EXPAND nhánh để hiển thị lại tất cả node con (bao gồm node mới).
+    if (d3Renderer && d3Renderer.collapsedNodes && d3Renderer.collapsedNodes.has(selectedNode.value.id)) {
+      const parentId = selectedNode.value.id
+      d3Renderer.collapsedNodes.delete(parentId)
+      console.log('✅ Expanding collapsed node via Tab:', parentId)
+      console.log('Collapsed nodes after Tab expand:', Array.from(d3Renderer.collapsedNodes))
+      
+      if (d3Renderer.callbacks && d3Renderer.callbacks.onNodeCollapse) {
+        d3Renderer.callbacks.onNodeCollapse(parentId, false)
+      }
+      
+      // Render lại ngay để layout không còn thu gọn subtree
+      d3Renderer.render()
+    }
+
     addChildToNode(selectedNode.value.id)
   }
   else if (key === 'Enter') {
@@ -915,10 +835,6 @@ onBeforeUnmount(() => {
         layout: "horizontal"
       })
     }
-  }
-  
-  if (layoutTimeout) {
-    clearTimeout(layoutTimeout)
   }
 })
 </script>
