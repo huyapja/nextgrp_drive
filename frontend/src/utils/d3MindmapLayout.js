@@ -11,7 +11,6 @@
  * - Position preservation
  */
 
-import * as d3 from 'd3'
 
 /**
  * Convert VueFlow nodes/edges to D3 hierarchy format
@@ -95,25 +94,22 @@ export function getNodeSizeFromDOM(nodeId) {
 export function calculateD3MindmapLayout(nodes, edges, options = {}) {
   const {
     nodeSizes = new Map(),
-    layerSpacing = 180, // Khoảng cách ngang giữa layers
-    nodeSpacing = 50, // Khoảng cách dọc giữa siblings
-    padding = 20, // Padding chung
+    layerSpacing = 30, // Khoảng cách CỐ ĐỊNH giữa layers
+    nodeSpacing = 50,
+    padding = 20,
     viewportHeight = window.innerHeight - 84,
-    nodeCreationOrder = new Map() // Thứ tự tạo node để giữ đúng thứ tự
+    nodeCreationOrder = new Map()
   } = options
   
-  // Build hierarchy
   const root = buildD3Hierarchy(nodes, edges)
   if (!root) {
     console.warn('No root node found')
     return new Map()
   }
   
-  // Get node size helper
   const getNodeSize = (nodeId) => {
     const size = nodeSizes.get(nodeId)
     if (size) {
-      // Reduced padding for tighter spacing
       const extraPaddingX = Math.min(size.width * 0.1, 40)
       const extraPaddingY = Math.min(size.height * 0.1, 20)
       return {
@@ -124,18 +120,11 @@ export function calculateD3MindmapLayout(nodes, edges, options = {}) {
     return { width: 150 + padding, height: 60 + padding }
   }
   
-  // Calculate dynamic layer spacing based on parent width
-  // Đảm bảo khoảng cách đủ lớn để tránh overlap khi node cha có text dài
-  // Nhưng không quá lớn để giữ layout gọn
+  // SỬA ĐỔI: Dùng khoảng cách CỐ ĐỊNH thay vì động
+  // Điều này đảm bảo edge có độ dài đồng đều
   const getLayerSpacing = (parentNodeId) => {
-    const parentSize = getNodeSize(parentNodeId)
-    // Giảm khoảng cách: chỉ cần đảm bảo node con không overlap với node cha
-    // Khoảng cách tối thiểu = chiều rộng node cha + padding nhỏ hơn
-    const minSpacing = Math.max(
-      layerSpacing,
-      parentSize.width + padding * 2 + 30 // Giảm từ padding * 3 + 100 xuống padding * 2 + 30
-    )
-    return minSpacing
+    // Trả về layerSpacing cố định, KHÔNG tính toán dựa trên parent width
+    return layerSpacing
   }
   
   // Position map

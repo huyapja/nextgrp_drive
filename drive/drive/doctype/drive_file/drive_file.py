@@ -446,11 +446,35 @@ class DriveFile(Document):
         if len(new_title) > 140:
             new_title = new_title[:140].strip()
         
-        # Reload document to get latest timestamp and avoid TimestampMismatchError
-        self.reload()
-        self.title = new_title
-        self.save()
-        return self
+        # Retry logic để xử lý TimestampMismatchError khi có nhiều request đồng thời
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Reload document để lấy timestamp mới nhất
+                self.reload()
+                self.title = new_title
+                self.save()
+                return self
+            except frappe.exceptions.TimestampMismatchError:
+                if attempt < max_retries - 1:
+                    # Đợi một chút trước khi retry
+                    import time
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+                else:
+                    # Sau khi retry hết, dùng frappe.db.set_value như fallback
+                    # để tránh vấn đề timestamp khi có nhiều request đồng thời
+                    frappe.db.set_value(
+                        "Drive File",
+                        self.name,
+                        "title",
+                        new_title,
+                        update_modified=True
+                    )
+                    frappe.db.commit()
+                    # Reload để lấy giá trị mới
+                    self.reload()
+                    return self
 
     @frappe.whitelist()
     def change_color(self, new_color):

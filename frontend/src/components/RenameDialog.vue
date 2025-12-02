@@ -5,7 +5,7 @@
     :modal="true"
     :closable="true"
     :draggable="false"
-    class="w-[400px]"
+    :style="{ maxWidth: '400px' }"
   >
     <div class="flex flex-col gap-4">
       <div class="flex items-center gap-2">

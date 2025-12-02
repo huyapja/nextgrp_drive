@@ -245,7 +245,7 @@ export class D3MindmapRenderer {
     nodeData.data.label = value
     
     // Tính toán kích thước mới (tương tự logic textarea)
-    const maxWidth = 300
+    const maxWidth = 400
     const minWidth = 130
     const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
     
@@ -539,7 +539,7 @@ export class D3MindmapRenderer {
       isEmpty = !plainText || plainText === ''
     }
     const isRootNode = nodeData.data?.isRoot || nodeId === 'root'
-    const maxWidth = 300
+    const maxWidth = 400
     const minWidth = 130
     const singleLineHeight = Math.ceil(19 * 1.4) + 16
     
@@ -762,10 +762,8 @@ export class D3MindmapRenderer {
     const edges = this.g.selectAll('.edge')
       .data(this.edges, d => d.id)
     
-    // Remove old edges
     edges.exit().remove()
     
-    // Add new edges
     const edgesEnter = edges.enter()
       .append('path')
       .attr('class', 'edge')
@@ -774,9 +772,8 @@ export class D3MindmapRenderer {
       .attr('stroke-width', 2)
       .attr('stroke-linecap', 'round')
       .attr('stroke-linejoin', 'round')
-      .style('pointer-events', 'none') // Edges không chặn click vào nodes/nút
+      .style('pointer-events', 'none')
     
-    // Update all edges
     const edgesUpdate = edgesEnter.merge(edges)
     
     edgesUpdate.attr('d', d => {
@@ -785,7 +782,6 @@ export class D3MindmapRenderer {
       
       if (!sourcePos || !targetPos) return ''
       
-      // Get node sizes for proper connection points - luôn tính toán lại để đảm bảo chính xác
       const sourceNode = this.nodes.find(n => n.id === d.source)
       const targetNode = this.nodes.find(n => n.id === d.target)
       const sourceSize = this.estimateNodeSize(sourceNode)
@@ -795,32 +791,44 @@ export class D3MindmapRenderer {
       const targetWidth = targetSize.width
       const targetHeight = targetSize.height
       
-      // Calculate connection points at center of nodes - LUÔN ở giữa node
-      // Source: right center of source node (giữa theo chiều dọc)
+      // QUAN TRỌNG: Edge luôn kết nối tại CÙNG MỘT ĐỘ CAO (Y position)
+      // để tạo đường thẳng ngang hoàn hảo
+      // Source: right edge, center vertically
       const x1 = sourcePos.x + sourceWidth
       const y1 = sourcePos.y + (sourceHeight / 2)
       
-      // Target: left center of target node (giữa theo chiều dọc)
+      // Target: left edge, center vertically  
       const x2 = targetPos.x
       const y2 = targetPos.y + (targetHeight / 2)
       
       const dx = x2 - x1
       const dy = y2 - y1
+      
+      // Nếu 2 node gần như thẳng hàng (dy rất nhỏ), vẽ đường thẳng
+      if (Math.abs(dy) < 2) {
+        return `M ${x1} ${y1} L ${x2} ${y2}`
+      }
+      
+      // Với khoảng cách lớn hơn, dùng đường cong mượt mà
       const direction = dy >= 0 ? 1 : -1
-      const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.45, 130))
-      const horizontalOffset = Math.min(baseOffset, dx - 16)
+      
+      // Điều chỉnh độ cong dựa trên khoảng cách ngang
+      // Khoảng cách càng xa, độ cong càng lớn (nhưng có giới hạn)
+      const horizontalOffset = Math.min(Math.abs(dx) * 0.5, 100)
       const cornerRadius = Math.min(
-        18,
+        20,
         Math.abs(dy) / 2,
-        Math.max(8, horizontalOffset / 3)
+        horizontalOffset / 3
       )
       
-      // When nodes are very close horizontally, keep a straight line
+      // Nếu khoảng cách ngang quá ngắn, vẽ đường thẳng
       if (horizontalOffset < cornerRadius * 2 + 4) {
         return `M ${x1} ${y1} L ${x2} ${y2}`
       }
       
       const midX = x1 + horizontalOffset
+      
+      // Vẽ đường cong S-shape mượt mà
       const path = [
         `M ${x1} ${y1}`,
         `L ${midX - cornerRadius} ${y1}`,
@@ -832,7 +840,6 @@ export class D3MindmapRenderer {
       
       return path.join(' ')
     })
-    
   }
   
   renderNodes(positions) {
@@ -1045,7 +1052,7 @@ export class D3MindmapRenderer {
       .attr('y', d => getNodeSize(d).height / 2)
     
     // Update rectangle size and style
-    // Node rect width = textarea width (130px - 300px)
+    // Node rect width = textarea width (130px - 400px)
     nodesUpdate.select('.node-rect')
       .attr('width', d => {
         // Nếu đang edit, lấy width từ textarea
@@ -1057,7 +1064,7 @@ export class D3MindmapRenderer {
             if (locked) return locked
           }
         }
-        // Tính toán width dựa trên nội dung (130px - 300px)
+        // Tính toán width dựa trên nội dung (130px - 400px)
         // Sử dụng estimateNodeSize để đảm bảo width và height được tính đúng
         const nodeSize = getNodeSize(d)
         return nodeSize.width
@@ -1083,7 +1090,7 @@ export class D3MindmapRenderer {
         
         const nodeSize = getNodeSize(nodeData)
         const minWidth = 130
-        const maxWidth = 300
+        const maxWidth = 400
         
         // Nếu node đang được edit, lấy textarea width từ data attribute
         let currentTextareaWidth = minWidth
@@ -1096,7 +1103,7 @@ export class D3MindmapRenderer {
             }
           }
         } else {
-          // Nếu không edit, tính toán width dựa trên nội dung (130px - 300px)
+          // Nếu không edit, tính toán width dựa trên nội dung (130px - 400px)
           if (text) {
             const estimatedWidth = this.estimateNodeWidth(nodeData, maxWidth)
             currentTextareaWidth = Math.max(minWidth, Math.min(estimatedWidth, maxWidth))
@@ -1321,7 +1328,7 @@ export class D3MindmapRenderer {
     }
   }
   
-  estimateNodeWidth(node, maxWidth = 300) {
+  estimateNodeWidth(node, maxWidth = 400) {
     // Đảm bảo text luôn là string
     const text = this.getNodeLabel(node)
     const minWidth = 130 // Textarea width mặc định
@@ -1385,8 +1392,8 @@ export class D3MindmapRenderer {
     
     document.body.removeChild(tempDiv)
     
-    // Clamp between min (130px) and max (300px)
-    return Math.min(Math.max(measuredWidth, 130), 300)
+    // Clamp between min (130px) and max (400px)
+    return Math.min(Math.max(measuredWidth, 130), 400)
   }
   
   estimateNodeHeight(node, nodeWidth = null) {

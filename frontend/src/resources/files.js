@@ -65,10 +65,10 @@ export const getRecents = createResource({
 
 export const getPersonal = createResource({
   ...COMMON_OPTIONS,
-  url: "drive.api.list.get_personal_files",
+  url: "drive.api.list.files_multi_team",
   cache: "personal-folder-contents",
   makeParams: (params) => {
-    return { ...params, order_by: "title 1" }
+    return { ...params, personal: 1 }
   },
 })
 
