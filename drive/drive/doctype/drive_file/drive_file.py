@@ -446,6 +446,8 @@ class DriveFile(Document):
         if len(new_title) > 140:
             new_title = new_title[:140].strip()
         
+        # Reload document to get latest timestamp and avoid TimestampMismatchError
+        self.reload()
         self.title = new_title
         self.save()
         return self
