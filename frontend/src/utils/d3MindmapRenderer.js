@@ -511,87 +511,52 @@ export class D3MindmapRenderer {
     // Tính toán height mới dựa trên width và nội dung - tự động mở rộng để hiển thị đủ nội dung
     let currentHeight
     if (isEmpty && isFirstEdit) {
-      // Nội dung rỗng VÀ edit lần đầu: reset về chiều cao mặc định (1 dòng)
       currentHeight = singleLineHeight
     } else if (isEmpty && !isFirstEdit) {
-      // Nội dung rỗng NHƯNG đã có nội dung trước đó: giữ height hiện tại (không co lại khi đang edit)
       currentHeight = lockedHeight
     } else {
-      // Có nội dung: đo chiều cao trực tiếp từ TipTap editor DOM để đảm bảo chính xác
+      // ⚠️ FIX: Đo chiều cao trực tiếp từ TipTap editor DOM
       const editorInstance = this.getEditorInstance(nodeId)
       let measuredHeight = singleLineHeight
       
       if (editorInstance && editorInstance.view && editorInstance.view.dom) {
         const editorDOM = editorInstance.view.dom
-        // TipTap editor có class 'mindmap-editor-prose' và nội dung được render trong đó
         const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
         
         if (editorContent) {
-          // Editor đã có width đúng từ foreignObject, giờ đo height
-          // Đảm bảo editor có width đúng để đo height chính xác
+          // ⚠️ CRITICAL FIX: Set styles TRƯỚC KHI đo
           const foWidth = currentWidth - borderOffset
-          editorContent.style.boxSizing = 'border-box'
-          editorContent.style.width = `${foWidth}px`
-          editorContent.style.height = 'auto' // Auto để đo được scrollHeight chính xác
-          editorContent.style.minHeight = `${singleLineHeight}px`
-          editorContent.style.maxHeight = 'none' // Cho phép mở rộng không giới hạn
+          editorContent.style.cssText = `
+            box-sizing: border-box;
+            width: ${foWidth}px;
+            height: auto;
+            min-height: ${singleLineHeight}px;
+            max-height: none;
+            overflow: visible;
+            padding: 8px 16px;
+            white-space: ${currentWidth >= maxWidth ? 'pre-wrap' : 'nowrap'};
+          `
           
-          // Xác định có cần wrap không dựa trên currentWidth
-          const willWrap = currentWidth >= maxWidth
-          if (willWrap) {
-            editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
-          } else {
-            editorContent.style.whiteSpace = 'nowrap' // Không wrap - text trên 1 dòng
-          }
-          
-          // Force reflow nhiều lần để đảm bảo DOM đã cập nhật và text đã wrap
+          // Force reflow NHIỀU LẦN để đảm bảo DOM đã cập nhật
           void editorContent.offsetWidth
           void editorContent.offsetHeight
           void editorContent.scrollHeight
           
-          // Đo chiều cao thực tế của nội dung (scrollHeight cho biết chiều cao đầy đủ)
+          // ⚠️ FIX: Lấy offsetHeight thay vì scrollHeight để tránh thừa khoảng trắng
+          // offsetHeight = actual rendered height (không bao gồm overflow)
+          // scrollHeight = total content height (có thể lớn hơn cần thiết)
           const contentHeight = Math.max(
-            editorContent.scrollHeight || 0,
-            editorContent.offsetHeight || 0,
+            editorContent.offsetHeight || 0, // Dùng offsetHeight thay vì scrollHeight
             singleLineHeight
           )
           
           measuredHeight = contentHeight
-          
-          // Đợi một frame để đo lại nếu cần (để xử lý trường hợp text wrap chưa hoàn tất)
-          requestAnimationFrame(() => {
-            const updatedHeight = Math.max(
-              editorContent.scrollHeight || 0,
-              editorContent.offsetHeight || 0,
-              singleLineHeight,
-              lockedHeight
-            )
-            
-            if (updatedHeight > measuredHeight) {
-              measuredHeight = updatedHeight
-              currentHeight = Math.max(measuredHeight, singleLineHeight, lockedHeight)
-              
-              // Cập nhật height
-              rect.attr('height', currentHeight)
-              fo.attr('height', Math.max(0, currentHeight - borderOffset))
-              
-              // Cập nhật vị trí nút add-child
-              nodeGroup.select('.add-child-btn').attr('cy', currentHeight / 2)
-              nodeGroup.select('.add-child-text').attr('y', currentHeight / 2)
-              
-              // Cập nhật cache
-              this.nodeSizeCache.set(nodeId, { width: currentWidth, height: currentHeight })
-            }
-          })
         }
-      } else {
-        // Fallback: tính toán từ text nếu không lấy được editor DOM
-        const tempNode = { ...nodeData, data: { ...nodeData.data, label: value } }
-        measuredHeight = this.estimateNodeHeight(tempNode, currentWidth)
       }
       
-      // Tất cả các node (bao gồm root) dùng logic giống nhau: chỉ mở rộng (không co lại khi đang edit)
-      currentHeight = Math.max(measuredHeight, singleLineHeight, lockedHeight)
+      // ⚠️ FIX: Không tăng height vô tội vạ khi đang edit
+      currentHeight = Math.max(measuredHeight, singleLineHeight)
+      // KHÔNG lấy max với lockedHeight để tránh node to ra khi không cần
     }
     
     // Cập nhật height của node-rect và foreignObject
@@ -719,8 +684,7 @@ export class D3MindmapRenderer {
       const calculatedWidth = this.estimateNodeWidth(tempNode)
       finalWidth = Math.max(calculatedWidth, minWidth)
       
-      // LUÔN tính toán height dựa trên nội dung thực tế để hỗ trợ nhiều dòng
-      // Đo trực tiếp từ TipTap editor DOM để đảm bảo chính xác
+      // ⚠️ FIX: Đo height từ DOM thực tế thay vì tính toán
       let measuredHeight = singleLineHeight
       
       if (editor && editor.view && editor.view.dom) {
@@ -728,31 +692,27 @@ export class D3MindmapRenderer {
         const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
         
         if (editorContent) {
-          // Đảm bảo editor có width đúng để đo height chính xác
           const borderOffset = 4
           const foWidth = finalWidth - borderOffset
-          editorContent.style.boxSizing = 'border-box'
-          editorContent.style.width = `${foWidth}px`
-          editorContent.style.height = 'auto' // Auto để đo được scrollHeight chính xác
-          editorContent.style.minHeight = `${singleLineHeight}px`
-          editorContent.style.maxHeight = 'none'
           
-          // Xác định có cần wrap không dựa trên finalWidth
-          const willWrap = finalWidth >= maxWidth
-          if (willWrap) {
-            editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
-          } else {
-            editorContent.style.whiteSpace = 'nowrap' // Không wrap - text trên 1 dòng
-          }
+          // ⚠️ CRITICAL FIX: Set styles để đo chính xác
+          editorContent.style.cssText = `
+            box-sizing: border-box;
+            width: ${foWidth}px;
+            height: auto;
+            min-height: ${singleLineHeight}px;
+            max-height: none;
+            overflow: visible;
+            padding: 8px 16px;
+            white-space: ${finalWidth >= maxWidth ? 'pre-wrap' : 'nowrap'};
+          `
           
-          // Force reflow để đảm bảo DOM đã cập nhật
+          // Force reflow
           void editorContent.offsetWidth
           void editorContent.offsetHeight
-          void editorContent.scrollHeight
           
-          // Đo chiều cao thực tế (scrollHeight cho biết chiều cao đầy đủ của nội dung)
+          // ⚠️ FIX: Dùng offsetHeight để lấy height chính xác
           const contentHeight = Math.max(
-            editorContent.scrollHeight || 0,
             editorContent.offsetHeight || 0,
             singleLineHeight
           )
@@ -761,8 +721,8 @@ export class D3MindmapRenderer {
         }
       }
       
-      // Fallback: tính toán từ text nếu không lấy được từ editor DOM
-      if (measuredHeight === singleLineHeight) {
+      // ⚠️ FIX: Fallback chỉ khi không lấy được từ DOM
+      if (measuredHeight === singleLineHeight && finalValue && finalValue.trim()) {
         const calculatedHeight = this.estimateNodeHeight(tempNode, finalWidth)
         measuredHeight = Math.max(calculatedHeight, singleLineHeight)
       }
@@ -865,50 +825,51 @@ export class D3MindmapRenderer {
     this.render()
   }
   
+  // In render method, around line 750-800
   async render() {
     if (this.nodes.length === 0) return
     
-    // Force reflow
     void document.body.offsetHeight
     
-    // Calculate node sizes - LUÔN tính toán lại để đảm bảo chính xác
+    // ⚠️ FIX: Tính toán node sizes - XÓA cache root node để tính lại
     const nodeSizes = new Map()
     this.nodes.forEach(node => {
       const isRootNode = node.data?.isRoot || node.id === 'root'
       
-      // Nếu node đang được edit, dùng size từ cache
       if (this.editingNode === node.id && this.nodeSizeCache.has(node.id)) {
+        // Node đang edit: giữ nguyên cache
         const cachedSize = this.nodeSizeCache.get(node.id)
         nodeSizes.set(node.id, cachedSize)
       } else {
-        // Tính toán size mới
+        // ⚠️ FIX: Tính toán lại size (bao gồm root node)
+        // KHÔNG ưu tiên cache cho root node khi reload
         const size = this.estimateNodeSize(node)
         nodeSizes.set(node.id, size)
-        // Cập nhật cache
         this.nodeSizeCache.set(node.id, size)
       }
     })
     
-    // Calculate layout với spacing cố định
+    // Calculate layout
     const positions = calculateD3MindmapLayout(this.nodes, this.edges, {
       nodeSizes: nodeSizes,
-      layerSpacing: this.options.layerSpacing, // 200px cố định
-      nodeSpacing: this.options.nodeSpacing, // 80px cố định
+      layerSpacing: this.options.layerSpacing,
+      nodeSpacing: this.options.nodeSpacing,
       padding: this.options.padding,
       viewportHeight: this.options.height,
       nodeCreationOrder: this.options.nodeCreationOrder || new Map(),
-      // Truyền danh sách node đã thu gọn để layout không chừa khoảng trống cho subtree con
       collapsedNodes: this.collapsedNodes
     })
     
-    // Store positions
     this.positions = positions
     
-    // Render edges first (behind nodes)
-    this.renderEdges(positions)
-    
-    // Render nodes
+    // ⚠️ FIX: Render nodes trước
     this.renderNodes(positions)
+    
+    // ⚠️ FIX: Đợi DOM update trước khi render edges
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    
+    // Render edges sau
+    this.renderEdges(positions)
   }
   
   // Helper: Check if a node is hidden due to collapsed ancestor
@@ -999,49 +960,67 @@ export class D3MindmapRenderer {
         return this.isNodeHidden(d.target) ? 'none' : 'auto'
       })
     
-    edgesUpdate.attr('d', d => {
-      const sourcePos = positions.get(d.source)
-      const targetPos = positions.get(d.target)
-      
-      if (!sourcePos || !targetPos) return ''
-      
-      // Get node sizes for proper connection points
-      // Ưu tiên dùng cache để đảm bảo chính xác, đặc biệt khi reload
-      const sourceNode = this.nodes.find(n => n.id === d.source)
-      const targetNode = this.nodes.find(n => n.id === d.target)
-      
-      // Ưu tiên dùng cache, nếu không có thì tính toán
-      let sourceSize = this.nodeSizeCache.get(d.source)
-      if (!sourceSize && sourceNode) {
-        sourceSize = this.estimateNodeSize(sourceNode)
-        this.nodeSizeCache.set(d.source, sourceSize)
-      }
-      if (!sourceSize) {
-        sourceSize = { width: 130, height: 43 } // Default size
-      }
-      
-      let targetSize = this.nodeSizeCache.get(d.target)
-      if (!targetSize && targetNode) {
-        targetSize = this.estimateNodeSize(targetNode)
-        this.nodeSizeCache.set(d.target, targetSize)
-      }
-      if (!targetSize) {
-        targetSize = { width: 130, height: 43 } // Default size
-      }
-      
-      const sourceWidth = sourceSize.width
-      const sourceHeight = sourceSize.height
-      const targetWidth = targetSize.width
-      const targetHeight = targetSize.height
-      
-      // Calculate connection points at center of nodes - LUÔN ở giữa node
-      // Source: right center of source node (giữa theo chiều dọc)
-      const x1 = sourcePos.x + sourceWidth
-      const y1 = sourcePos.y + (sourceHeight / 2)
-      
-      // Target: left center of target node (giữa theo chiều dọc)
-      const x2 = targetPos.x
-      const y2 = targetPos.y + (targetHeight / 2)
+      edgesUpdate.attr('d', d => {
+        const sourcePos = positions.get(d.source)
+        const targetPos = positions.get(d.target)
+        
+        if (!sourcePos || !targetPos) return ''
+        
+        // ⚠️ FIX: Lấy kích thước từ DOM thực tế thay vì chỉ dùng cache
+        const sourceNode = this.nodes.find(n => n.id === d.source)
+        const targetNode = this.nodes.find(n => n.id === d.target)
+        
+        // Ưu tiên lấy từ DOM rect thực tế (đã render)
+        const sourceRect = this.g.select(`[data-node-id="${d.source}"] .node-rect`)
+        const targetRect = this.g.select(`[data-node-id="${d.target}"] .node-rect`)
+        
+        let sourceSize
+        if (!sourceRect.empty()) {
+          sourceSize = {
+            width: parseFloat(sourceRect.attr('width')) || 130,
+            height: parseFloat(sourceRect.attr('height')) || 43
+          }
+        } else {
+          // Fallback: dùng cache hoặc tính toán
+          sourceSize = this.nodeSizeCache.get(d.source)
+          if (!sourceSize && sourceNode) {
+            sourceSize = this.estimateNodeSize(sourceNode)
+            this.nodeSizeCache.set(d.source, sourceSize)
+          }
+          if (!sourceSize) {
+            sourceSize = { width: 130, height: 43 }
+          }
+        }
+        
+        let targetSize
+        if (!targetRect.empty()) {
+          targetSize = {
+            width: parseFloat(targetRect.attr('width')) || 130,
+            height: parseFloat(targetRect.attr('height')) || 43
+          }
+        } else {
+          // Fallback: dùng cache hoặc tính toán
+          targetSize = this.nodeSizeCache.get(d.target)
+          if (!targetSize && targetNode) {
+            targetSize = this.estimateNodeSize(targetNode)
+            this.nodeSizeCache.set(d.target, targetSize)
+          }
+          if (!targetSize) {
+            targetSize = { width: 130, height: 43 }
+          }
+        }
+        
+        const sourceWidth = sourceSize.width
+        const sourceHeight = sourceSize.height
+        const targetWidth = targetSize.width
+        const targetHeight = targetSize.height
+        
+        // ⚠️ FIX: Connection points LUÔN ở giữa node theo chiều dọc
+        const x1 = sourcePos.x + sourceWidth
+        const y1 = sourcePos.y + (sourceHeight / 2) // Giữa node theo chiều dọc
+        
+        const x2 = targetPos.x
+        const y2 = targetPos.y + (targetHeight / 2)
       
       const dx = x2 - x1
       const dy = y2 - y1
@@ -2474,34 +2453,28 @@ export class D3MindmapRenderer {
     return Math.min(Math.max(measuredWidth, 130), 400)
   }
   
+  // In estimateNodeHeight method, around line 1520-1580                
   estimateNodeHeight(node, nodeWidth = null) {
-    // Đảm bảo text luôn là string
     let text = this.getNodeLabel(node)
-    // Chiều cao 1 dòng = font-size * line-height + padding
-    // 19px * 1.4 + 16px (padding top/bottom) = ~43px
-    const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px cho 1 dòng
+    const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
     if (!text || text.trim() === '') return singleLineHeight
     
-    // Extract plain text từ HTML nếu text là HTML (từ TipTap editor)
-    // TipTap lưu nội dung dưới dạng HTML, nhưng khi đo height cần plain text
-    if (text.includes('<') && text.includes('>')) {
-      const tempDiv2 = document.createElement('div')
-      tempDiv2.innerHTML = text
-      text = (tempDiv2.textContent || tempDiv2.innerText || '').trim()
+    // Extract plain text từ HTML
+    let plainText = text
+    if (text.includes('<')) {
+      const tempDiv = document.createElement('div')
+      tempDiv.innerHTML = text
+      plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
     }
     
-    // Use provided width or estimate
     const width = nodeWidth || this.estimateNodeWidth(node)
     
-    // LUÔN tính toán height dựa trên width thực tế để hỗ trợ text wrap
-    // Không chỉ dựa trên việc có line breaks hay width đủ lớn
-    // Vì text có thể wrap thành nhiều dòng ngay cả khi không có \n
-    // Create a temporary element to measure text height accurately
+    // ⚠️ FIX: Tạo temp element với ĐÚNG STYLES như TipTap editor
     const tempDiv = document.createElement('div')
     tempDiv.style.cssText = `
       position: absolute;
       visibility: hidden;
-      white-space: pre-wrap;
+      white-space: ${width >= 400 ? 'pre-wrap' : 'nowrap'};
       word-wrap: break-word;
       overflow-wrap: break-word;
       font-size: 19px;
@@ -2510,27 +2483,31 @@ export class D3MindmapRenderer {
       padding: 8px 16px;
       width: ${width}px;
       box-sizing: border-box;
+      overflow: visible;
     `
-    // Sử dụng plain text (đã extract từ HTML nếu cần)
-    tempDiv.textContent = text
+    
+    // ⚠️ FIX: Dùng innerHTML nếu là HTML để giữ formatting
+    if (text.includes('<')) {
+      tempDiv.innerHTML = text
+    } else {
+      tempDiv.textContent = plainText
+    }
+    
     document.body.appendChild(tempDiv)
     
-    // Force reflow để đảm bảo text đã được render và wrap đúng
+    // Force reflow
     void tempDiv.offsetWidth
     void tempDiv.offsetHeight
     
-    // Lấy chiều cao thực tế
-    // scrollHeight cho biết chiều cao đầy đủ của nội dung (bao gồm cả phần bị ẩn do overflow)
-    // offsetHeight cho biết chiều cao hiển thị của element
-    // Với text dài, cần dùng scrollHeight để lấy chiều cao đầy đủ
+    // ⚠️ FIX: Dùng offsetHeight thay vì scrollHeight
     const actualHeight = Math.max(
-      tempDiv.scrollHeight || 0,
-      tempDiv.offsetHeight || 0
+      tempDiv.offsetHeight || 0, // Dùng offsetHeight
+      singleLineHeight
     )
+    
     document.body.removeChild(tempDiv)
     
-    // Trả về chiều cao thực tế, đảm bảo ít nhất bằng chiều cao 1 dòng
-    return Math.max(actualHeight, singleLineHeight)
+    return actualHeight
   }
   
   // Get both width and height together to avoid circular dependency

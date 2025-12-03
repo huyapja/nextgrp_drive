@@ -1,6 +1,6 @@
 {
   "actions": [],
-  "allow_rename": 1,
+  "allow_rename": 0,
   "autoname": "hash",
   "creation": "2024-01-01 00:00:00.000000",
   "doctype": "DocType",
@@ -36,8 +36,7 @@
   "fields": [
     {
       "fieldname": "title",
-      "fieldtype": "Data",
-      "in_list_view": 1,
+      "fieldtype": "Text",
       "label": "Title",
       "reqd": 1
     },
