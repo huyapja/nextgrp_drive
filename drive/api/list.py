@@ -2632,7 +2632,8 @@ def drive_list_all_folders():
             "name": r.name,
             "title": r.title,
             "children": _build_personal_subfolders(r.name, user),
-            "parent": default_team
+            "parent": default_team,
+            "parent_entity": r.name,
         }
         for r in personal_roots
     ]
@@ -2641,6 +2642,7 @@ def drive_list_all_folders():
     personal_result = {
         "name": default_team,
         "title": "Tài liệu của tôi",
+        "parent_entity": home,
         "is_personal": 1,
         "parent": "",
         "children": personal_children
@@ -2659,6 +2661,7 @@ def drive_list_all_folders():
         team_entry = {
             "name": team,
             "team_name": team_info.title,
+            "parent_entity": home,
         }
 
         # Nếu có folder con thì mới trả root
@@ -2667,6 +2670,7 @@ def drive_list_all_folders():
                 "name": home,
                 "title": team_info.title,
                 "parent": team,
+                "parent_entity": home,
                 "children": root_children
             }
 
@@ -2674,7 +2678,7 @@ def drive_list_all_folders():
 
     return {
         "personal": personal_result,
-        "teams": teams_result
+        "teams": teams_result,
     }
 
 
@@ -2715,6 +2719,7 @@ def _build_team_subfolders(parent):
         {
             "name": r.name,
             "title": r.title,
+            "parent_entity": parent,
             "children": _build_team_subfolders(r.name)
         }
         for r in rows
