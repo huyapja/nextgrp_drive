@@ -4,6 +4,7 @@
 import frappe
 from frappe import _
 import json
+import html
 
 
 @frappe.whitelist()
@@ -303,8 +304,31 @@ def create_mindmap_entity(title, personal, team, content=None, parent=None):
     drive_mindmap.is_group = 0  # Not a folder
     drive_mindmap.parent_mindmap = None  # Root level
 
-    # Initialize với empty mindmap_data (sẽ được tạo root node ở frontend)
-    drive_mindmap.mindmap_data = json.dumps({"nodes": [], "edges": [], "layout": "custom"})
+    # Tạo root node với title và description (nếu có)
+    # Format label: HTML với paragraph cho title và blockquote cho description
+    # Escape HTML trong title để tránh XSS
+    escaped_title = html.escape(title)
+    root_label = f"<p>{escaped_title}</p>"
+    if content and content.strip():
+        # Escape HTML trong description để tránh XSS
+        escaped_content = html.escape(content.strip())
+        root_label += f"<blockquote><p>{escaped_content}</p></blockquote>"
+    
+    root_node = {
+        "id": "root",
+        "data": {
+            "label": root_label,
+            "isRoot": True
+        }
+    }
+    
+    # Initialize mindmap_data với root node
+    mindmap_data = {
+        "nodes": [root_node],
+        "edges": [],
+        "layout": "custom"
+    }
+    drive_mindmap.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
 
     drive_mindmap.insert()
     frappe.db.commit()
@@ -312,14 +336,11 @@ def create_mindmap_entity(title, personal, team, content=None, parent=None):
     print(f"✅ Created Drive Mindmap: {drive_mindmap.name}")
 
     # Step 2: Create Drive File entity (permissions container)
-    # Truncate title to 140 characters to prevent CharacterLengthExceededError
-    # Drive File.title fieldtype is Data (max 140 characters)
-    truncated_title = title[:140].strip() if len(title) > 140 else title
-    
+    # Title giờ là Text, không cần cắt nữa - dùng trực tiếp title
     drive_file = frappe.new_doc("Drive File")
     drive_file.team = team
     drive_file.is_private = int(personal)
-    drive_file.title = truncated_title
+    drive_file.title = title
     drive_file.parent_entity = parent
     drive_file.file_size = 0
     drive_file.mime_type = "mindmap"

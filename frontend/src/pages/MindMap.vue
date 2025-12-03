@@ -242,9 +242,16 @@ const initD3Renderer = () => {
   
   d3Renderer.setCallbacks({
     onNodeClick: (node) => {
-      selectedNode.value = node
-      d3Renderer.selectNode(node.id)
-      console.log("Selected node:", node.id)
+      if (node) {
+        selectedNode.value = node
+        d3Renderer.selectNode(node.id)
+        console.log("Selected node:", node.id)
+      } else {
+        // Deselect node
+        selectedNode.value = null
+        d3Renderer.selectNode(null)
+        console.log("Deselected node")
+      }
     },
     onNodeDoubleClick: () => {
       /* Editing happens inline inside each node */
@@ -291,15 +298,8 @@ const initD3Renderer = () => {
             node.data.label = newTitle
           }
           
-          // Truncate title xuống 140 ký tự CHỈ để rename file (không cập nhật label)
-          // Giữ nguyên label đầy đủ để hiển thị trong node
-          let titleForRename = newTitle
-          if (titleForRename.length > 140) {
-            titleForRename = titleForRename.substring(0, 140).trim()
-          }
-          
-          // Chỉ rename file với title đã truncate, nhưng giữ nguyên label đầy đủ
-          renameMindmapTitle(titleForRename)
+          // Title giờ là Text, không cần cắt nữa - dùng trực tiếp newTitle để rename
+          renameMindmapTitle(newTitle)
         }
           
           // Lưu layout/nội dung node
@@ -468,6 +468,11 @@ const addChildToNode = async (parentId) => {
   
   selectedNode.value = newNode
   
+  // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
+  if (d3Renderer) {
+    d3Renderer.selectedNode = newNodeId
+  }
+  
   console.log("✅ Added child node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
   
   // Wait for DOM to render
@@ -484,7 +489,7 @@ const addChildToNode = async (parentId) => {
       // Update với nodeCreationOrder mới
       updateD3RendererWithDelay(100)
       
-      // Select node mới sau khi render xong
+      // Đảm bảo selectedNode vẫn được set sau khi render
       if (d3Renderer) {
         setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
@@ -538,12 +543,35 @@ const addSiblingToNode = async (nodeId) => {
   
   selectedNode.value = newNode
   
+  // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
+  if (d3Renderer) {
+    d3Renderer.selectedNode = newNodeId
+  }
+  
   console.log("✅ Added sibling node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
   
   // Wait for DOM to render
   await nextTick()
   
-  updateD3RendererWithDelay(100)
+  // Force reflow
+  void document.body.offsetHeight
+  
+  // ✅ FIX: Update với delay nhỏ hơn để responsive hơn
+  requestAnimationFrame(() => {
+    void document.body.offsetHeight
+    
+    setTimeout(() => {
+      // Update với nodeCreationOrder mới
+      updateD3RendererWithDelay(100)
+      
+      // Đảm bảo selectedNode vẫn được set sau khi render
+      if (d3Renderer) {
+        setTimeout(() => {
+          d3Renderer.selectNode(newNodeId)
+        }, 150)
+      }
+    }, 30)
+  })
   
   scheduleSave()
 }

@@ -599,4 +599,14 @@ function enterFullScreen() {
 .breadcrumbs-custom ::v-deep > div {
   flex-wrap: wrap !important;
 }
+
+.breadcrumbs-custom ::v-deep button,
+.breadcrumbs-custom ::v-deep a,
+.breadcrumbs-custom ::v-deep span {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+}
 </style>

@@ -98,39 +98,48 @@ const autoResize = () => {
   
   const text = props.data.label || 'Nhập'
   const MAX_CONTENT_WIDTH = 384 // 400 - 8*2 (padding của node)
+  const MIN_WIDTH = 14
   
-  // Set width trước để textarea wrap text đúng
-  nodeInput.value.style.width = MAX_CONTENT_WIDTH + 'px'
-  nodeInput.value.style.height = 'auto'
-  
-  // Đo chiều cao sau khi wrap
-  const scrollHeight = nodeInput.value.scrollHeight
-  nodeInput.value.style.height = scrollHeight + 'px'
-  
-  // Bây giờ đo chiều rộng thực tế cần thiết
+  // Đo chiều rộng text thực tế TRƯỚC (không set width cố định)
   const lines = text.split('\n')
-  let maxWidth = 14
+  let maxLineWidth = MIN_WIDTH
   
   lines.forEach(line => {
     if (!line) {
-      maxWidth = Math.max(maxWidth, 14)
+      maxLineWidth = Math.max(maxLineWidth, MIN_WIDTH)
       return
     }
     measureSpan.value.textContent = line
     const lineWidth = measureSpan.value.offsetWidth
-    maxWidth = Math.max(maxWidth, lineWidth)
+    maxLineWidth = Math.max(maxLineWidth, lineWidth)
   })
   
-  // Apply width với constraints
-  const finalWidth = Math.max(14, Math.min(MAX_CONTENT_WIDTH, maxWidth + 4))
-  nodeInput.value.style.width = finalWidth + 'px'
+  // Xác định width cuối cùng:
+  // - Nếu text width < MAX_CONTENT_WIDTH: dùng text width (không wrap)
+  // - Nếu text width >= MAX_CONTENT_WIDTH: dùng MAX_CONTENT_WIDTH (wrap)
+  const finalWidth = Math.max(MIN_WIDTH, Math.min(MAX_CONTENT_WIDTH, maxLineWidth + 4))
+  const willWrap = finalWidth >= MAX_CONTENT_WIDTH
   
-  // Re-measure height với width mới
+  // Set white-space dựa trên việc có wrap hay không
+  // - Nếu không wrap: dùng nowrap để text không xuống dòng
+  // - Nếu wrap: dùng pre-wrap để text có thể wrap
+  if (willWrap) {
+    nodeInput.value.style.whiteSpace = 'pre-wrap'
+  } else {
+    nodeInput.value.style.whiteSpace = 'nowrap'
+  }
+  
+  // Set width cho textarea
+  nodeInput.value.style.width = finalWidth + 'px'
   nodeInput.value.style.height = 'auto'
+  
+  // Đo chiều cao sau khi set width
+  // Nếu không wrap, height sẽ là 1 dòng
+  // Nếu wrap, height sẽ là nhiều dòng
   const finalHeight = nodeInput.value.scrollHeight
   nodeInput.value.style.height = finalHeight + 'px'
   
-  console.log('Auto resize:', { maxWidth, finalWidth, finalHeight, lines: lines.length })
+  console.log('Auto resize:', { maxLineWidth, finalWidth, finalHeight, lines: lines.length, willWrap })
 }
 
 // ✅ Start edit mode
@@ -211,6 +220,7 @@ onMounted(() => {
   max-width: 384px;
   box-sizing: border-box;
   line-height: 1.2;
+  display: inline-block; /* Để width fit-content hoạt động đúng */
 }
 
 /* ✅ Span ẩn dùng để đo chiều rộng text */
@@ -258,7 +268,7 @@ onMounted(() => {
   display: block;
   min-width: 14px;
   max-width: 384px;
-  width: 384px;
+  width: auto; /* Để JS set width động */
 }
 
 .node-input::placeholder {

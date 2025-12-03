@@ -110,32 +110,71 @@ export class D3MindmapRenderer {
         }
       }, { passive: false, capture: true })
       
-      // Xử lý click ra ngoài để ẩn icon collapse khi hover
+      // Xử lý click ra ngoài để deselect node và ẩn icon collapse khi hover
+      // Dùng capture phase để bắt event trước khi nó đến node-group
       svgNode.addEventListener('click', (event) => {
-        // Kiểm tra xem click có phải vào node hoặc button không
+        // Kiểm tra xem click có phải vào node, button, hoặc editor không
         const target = event.target
         const isNodeClick = target && (
           target.closest('.node-group') ||
+          target.closest('.mindmap-node-editor') ||
+          target.closest('.mindmap-editor-content') ||
+          target.closest('.mindmap-editor-prose') ||
           target.classList?.contains('node-group') ||
+          target.classList?.contains('add-child-btn') ||
+          target.classList?.contains('add-child-text') ||
+          target.classList?.contains('collapse-btn-number') ||
+          target.classList?.contains('collapse-text-number') ||
           target.classList?.contains('collapse-btn-arrow') ||
           target.classList?.contains('collapse-arrow') ||
+          target.closest('.add-child-btn') ||
+          target.closest('.add-child-text') ||
+          target.closest('.collapse-btn-number') ||
+          target.closest('.collapse-text-number') ||
           target.closest('.collapse-btn-arrow') ||
           target.closest('.collapse-arrow')
         )
         
-        // Nếu click ra ngoài node, ẩn tất cả icon collapse
+        // Nếu click ra ngoài node, deselect node và ẩn tất cả icon collapse
         if (!isNodeClick) {
+          event.stopPropagation() // Ngăn event bubble lên
+          
+          // Deselect node TRƯỚC KHI ẩn buttons
+          const hadSelectedNode = !!this.selectedNode
+          if (this.selectedNode) {
+            this.selectedNode = null // Set ngay để selectNode() biết là deselect
+            this.selectNode(null)
+          }
+          
           this.hoveredNode = null
-          // Ẩn tất cả icon collapse-arrow
-          this.g.selectAll('.collapse-btn-arrow').attr('opacity', 0)
-          this.g.selectAll('.collapse-arrow').attr('opacity', 0)
+          
+          // Ẩn tất cả buttons ngay lập tức (không có transition) cho TẤT CẢ nodes
+          this.g.selectAll('.node-group').each(function() {
+            const nodeGroup = d3.select(this)
+            nodeGroup.select('.add-child-btn')
+              .interrupt()
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.add-child-text')
+              .interrupt()
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.collapse-btn-arrow')
+              .interrupt()
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.collapse-arrow')
+              .interrupt()
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+          })
           
           // Gọi callback để update state
           if (this.callbacks.onNodeHover) {
             this.callbacks.onNodeHover(null, false)
           }
         }
-      })
+      }, true) // Dùng capture phase để bắt event trước
     }
     
     // Add background grid
@@ -321,24 +360,100 @@ export class D3MindmapRenderer {
         // Không có text: dùng minWidth hoặc lockedWidth
         currentWidth = Math.max(newWidth, lockedWidth || minWidth)
       } else {
-        // Tính toán width cần thiết để chứa text trên 1 dòng
-        const tempSpan = document.createElement('span')
-        tempSpan.style.cssText = `
-          position: absolute;
-          visibility: hidden;
-          white-space: nowrap;
-          font-size: 19px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        `
-        tempSpan.textContent = plainText.trim()
-        document.body.appendChild(tempSpan)
-        void tempSpan.offsetHeight
+        // Parse HTML để tách riêng title (paragraph) và description (blockquote)
+        let titleText = ''
+        let descriptionText = ''
         
-        const textWidth = tempSpan.offsetWidth
-        const requiredWidth = textWidth + 42 // padding (32px) + margin (10px)
-        document.body.removeChild(tempSpan)
+        if (text.includes('<')) {
+          const tempDiv = document.createElement('div')
+          tempDiv.innerHTML = text
+          
+          // Lấy tất cả paragraph không trong blockquote (title)
+          const paragraphs = tempDiv.querySelectorAll('p')
+          paragraphs.forEach(p => {
+            let inBlockquote = false
+            let parent = p.parentElement
+            while (parent && parent !== tempDiv) {
+              if (parent.tagName === 'BLOCKQUOTE') {
+                inBlockquote = true
+                break
+              }
+              parent = parent.parentElement
+            }
+            
+            if (!inBlockquote) {
+              const paraText = (p.textContent || p.innerText || '').trim()
+              if (paraText) {
+                titleText += (titleText ? '\n' : '') + paraText
+              }
+            }
+          })
+          
+          // Lấy tất cả text trong blockquote (description)
+          const blockquotes = tempDiv.querySelectorAll('blockquote')
+          blockquotes.forEach(blockquote => {
+            const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
+            if (blockquoteText) {
+              descriptionText += (descriptionText ? '\n' : '') + blockquoteText
+            }
+          })
+        } else {
+          // Plain text: coi như title
+          titleText = plainText
+        }
         
-        // Logic giống Lark: node chỉ mở rộng đến maxWidth
+        // Đo width của title (font-size 19px)
+        let titleWidth = 0
+        if (titleText) {
+          const titleLines = titleText.split('\n')
+          titleLines.forEach(line => {
+            if (line.trim()) {
+              const lineSpan = document.createElement('span')
+              lineSpan.style.cssText = `
+                position: absolute;
+                visibility: hidden;
+                white-space: nowrap;
+                font-size: 19px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              `
+              lineSpan.textContent = line.trim()
+              document.body.appendChild(lineSpan)
+              void lineSpan.offsetHeight
+              titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
+              document.body.removeChild(lineSpan)
+            }
+          })
+        }
+        
+        // Đo width của description (font-size 16px)
+        let descriptionWidth = 0
+        if (descriptionText) {
+          const descLines = descriptionText.split('\n')
+          descLines.forEach(line => {
+            if (line.trim()) {
+              const lineSpan = document.createElement('span')
+              lineSpan.style.cssText = `
+                position: absolute;
+                visibility: hidden;
+                white-space: nowrap;
+                font-size: 16px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+              `
+              lineSpan.textContent = line.trim()
+              document.body.appendChild(lineSpan)
+              void lineSpan.offsetHeight
+              descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth)
+              document.body.removeChild(lineSpan)
+            }
+          })
+        }
+        
+        // Lấy width lớn nhất giữa title và description
+        const maxTextWidth = Math.max(titleWidth, descriptionWidth)
+        // Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
+        const requiredWidth = maxTextWidth + 32 + 4
+        
+        // Logic giống Lark: node chỉ mở rộng đến maxWidth, sau đó text wrap
         // - Nếu text width < maxWidth: node width = textWidth + padding (nhưng tối thiểu minWidth)
         // - Nếu text width >= maxWidth: node width = maxWidth, text sẽ wrap
         if (requiredWidth < maxWidth) {
@@ -371,15 +486,24 @@ export class D3MindmapRenderer {
       const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
       
       if (editorContent) {
+        // Set box-sizing để padding được tính đúng
+        editorContent.style.boxSizing = 'border-box'
         // Set width ngay lập tức để tránh text wrap sớm
         editorContent.style.width = `${foWidth}px`
         
-        // Logic wrap giống mindmap Lark:
-        // - Luôn cho phép wrap để hiển thị đủ nội dung
-        // - Node sẽ mở rộng width đến maxWidth, sau đó text wrap
-        editorContent.style.whiteSpace = 'pre-wrap'
+        // Xác định có cần wrap không dựa trên currentWidth
+        // Nếu currentWidth < maxWidth: text chưa đạt max-width, không wrap
+        // Nếu currentWidth >= maxWidth: text đã đạt max-width, cho phép wrap
+        const willWrap = currentWidth >= maxWidth
         
-        // Force reflow để đảm bảo width đã được áp dụng
+        // Set white-space dựa trên việc có wrap hay không
+        if (willWrap) {
+          editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
+        } else {
+          editorContent.style.whiteSpace = 'nowrap' // Không wrap - text trên 1 dòng
+        }
+        
+        // Force reflow để đảm bảo width và white-space đã được áp dụng
         void editorContent.offsetWidth
       }
     }
@@ -406,13 +530,19 @@ export class D3MindmapRenderer {
           // Editor đã có width đúng từ foreignObject, giờ đo height
           // Đảm bảo editor có width đúng để đo height chính xác
           const foWidth = currentWidth - borderOffset
+          editorContent.style.boxSizing = 'border-box'
           editorContent.style.width = `${foWidth}px`
           editorContent.style.height = 'auto' // Auto để đo được scrollHeight chính xác
           editorContent.style.minHeight = `${singleLineHeight}px`
           editorContent.style.maxHeight = 'none' // Cho phép mở rộng không giới hạn
           
-          // Đảm bảo white-space cho phép wrap
-          editorContent.style.whiteSpace = 'pre-wrap'
+          // Xác định có cần wrap không dựa trên currentWidth
+          const willWrap = currentWidth >= maxWidth
+          if (willWrap) {
+            editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
+          } else {
+            editorContent.style.whiteSpace = 'nowrap' // Không wrap - text trên 1 dòng
+          }
           
           // Force reflow nhiều lần để đảm bảo DOM đã cập nhật và text đã wrap
           void editorContent.offsetWidth
@@ -601,13 +731,19 @@ export class D3MindmapRenderer {
           // Đảm bảo editor có width đúng để đo height chính xác
           const borderOffset = 4
           const foWidth = finalWidth - borderOffset
+          editorContent.style.boxSizing = 'border-box'
           editorContent.style.width = `${foWidth}px`
           editorContent.style.height = 'auto' // Auto để đo được scrollHeight chính xác
           editorContent.style.minHeight = `${singleLineHeight}px`
           editorContent.style.maxHeight = 'none'
           
-          // Đảm bảo white-space cho phép wrap để đo height đúng
-          editorContent.style.whiteSpace = 'pre-wrap'
+          // Xác định có cần wrap không dựa trên finalWidth
+          const willWrap = finalWidth >= maxWidth
+          if (willWrap) {
+            editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
+          } else {
+            editorContent.style.whiteSpace = 'nowrap' // Không wrap - text trên 1 dòng
+          }
           
           // Force reflow để đảm bảo DOM đã cập nhật
           void editorContent.offsetWidth
@@ -691,7 +827,15 @@ export class D3MindmapRenderer {
         editorContent.style.minHeight = '43px'
         editorContent.style.maxHeight = 'none'
         editorContent.style.overflow = 'visible' // Visible để hiển thị đủ nội dung
-        editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
+        
+        // Xác định có cần wrap không dựa trên finalWidth
+        const maxWidth = 400
+        const willWrap = finalWidth >= maxWidth
+        if (willWrap) {
+          editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
+        } else {
+          editorContent.style.whiteSpace = 'nowrap' // Không wrap - text trên 1 dòng
+        }
       }
     }
     
@@ -861,11 +1005,30 @@ export class D3MindmapRenderer {
       
       if (!sourcePos || !targetPos) return ''
       
-      // Get node sizes for proper connection points - luôn tính toán lại để đảm bảo chính xác
+      // Get node sizes for proper connection points
+      // Ưu tiên dùng cache để đảm bảo chính xác, đặc biệt khi reload
       const sourceNode = this.nodes.find(n => n.id === d.source)
       const targetNode = this.nodes.find(n => n.id === d.target)
-      const sourceSize = this.estimateNodeSize(sourceNode)
-      const targetSize = this.estimateNodeSize(targetNode)
+      
+      // Ưu tiên dùng cache, nếu không có thì tính toán
+      let sourceSize = this.nodeSizeCache.get(d.source)
+      if (!sourceSize && sourceNode) {
+        sourceSize = this.estimateNodeSize(sourceNode)
+        this.nodeSizeCache.set(d.source, sourceSize)
+      }
+      if (!sourceSize) {
+        sourceSize = { width: 130, height: 43 } // Default size
+      }
+      
+      let targetSize = this.nodeSizeCache.get(d.target)
+      if (!targetSize && targetNode) {
+        targetSize = this.estimateNodeSize(targetNode)
+        this.nodeSizeCache.set(d.target, targetSize)
+      }
+      if (!targetSize) {
+        targetSize = { width: 130, height: 43 } // Default size
+      }
+      
       const sourceWidth = sourceSize.width
       const sourceHeight = sourceSize.height
       const targetWidth = targetSize.width
@@ -915,15 +1078,33 @@ export class D3MindmapRenderer {
     // Render all nodes, but hide collapsed ones (don't filter to preserve Vue components)
     // Pre-calculate node sizes to avoid repeated calculations
     // Sử dụng instance variable nodeSizeCache thay vì local variable
+    // Ưu tiên sử dụng fixedWidth/fixedHeight nếu có (được set khi blur)
     this.nodes.forEach(node => {
-      // Chỉ tính toán lại nếu chưa có trong cache hoặc node đang không được edit
-      if (!this.nodeSizeCache.has(node.id) || this.editingNode !== node.id) {
+      const isRootNode = node.data?.isRoot || node.id === 'root'
+      
+      // Nếu node có fixedWidth/fixedHeight, dùng trực tiếp và cập nhật cache
+      if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
+        this.nodeSizeCache.set(node.id, {
+          width: node.data.fixedWidth,
+          height: node.data.fixedHeight,
+        })
+      } else if (!this.nodeSizeCache.has(node.id) || this.editingNode !== node.id) {
+        // Chỉ tính toán lại nếu chưa có trong cache hoặc node đang không được edit
         const size = this.estimateNodeSize(node)
         this.nodeSizeCache.set(node.id, size)
       }
     })
     
     const getNodeSize = (node) => {
+      // Ưu tiên dùng fixedWidth/fixedHeight nếu có
+      const isRootNode = node.data?.isRoot || node.id === 'root'
+      if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
+        return {
+          width: node.data.fixedWidth,
+          height: node.data.fixedHeight,
+        }
+      }
+      // Fallback: dùng cache hoặc mặc định
       return this.nodeSizeCache.get(node.id) || { width: 130, height: 43 } // Node mặc định 130px (textarea width)
     }
     
@@ -1084,6 +1265,18 @@ export class D3MindmapRenderer {
     // Update all nodes
     const nodesUpdate = nodesEnter.merge(nodes)
     
+    // Update node rect style dựa trên selectedNode
+    nodesUpdate.select('.node-rect')
+      .attr('fill', d => {
+        if (this.selectedNode === d.id) return '#e0e7ff' // Selected: đậm
+        return d.data?.isRoot ? '#3b82f6' : '#ffffff' // Default
+      })
+      .attr('stroke', d => {
+        if (this.selectedNode === d.id) return '#3b82f6' // Blue border for selected
+        return d.data?.isRoot ? 'none' : '#cbd5e1' // Default
+      })
+      .attr('stroke-width', 2)
+    
     nodesUpdate
       .attr('transform', d => {
         const pos = positions.get(d.id)
@@ -1219,6 +1412,7 @@ export class D3MindmapRenderer {
         const nodeGroup = d3.select(this)
         
         // Highlight node rect - nhạt hơn so với khi selected
+        // QUAN TRỌNG: Kiểm tra selectedNode TRƯỚC KHI sử dụng
         const isSelected = that.selectedNode === d.id
         nodeGroup.select('.node-rect')
           .attr('fill', d => {
@@ -1246,66 +1440,103 @@ export class D3MindmapRenderer {
         const hasChildren = that.edges.some(e => e.source === d.id)
         const isCollapsed = that.collapsedNodes.has(d.id)
         
-        // ✅ LOGIC HIỂN THỊ NÚT KHI HOVER - ƯU TIÊN RÕ RÀNG:
-        // 1. Nút số: hiển thị khi collapsed (ưu tiên cao nhất)
-        // 2. Nếu có children và chưa collapse: chỉ hiển thị nút collapse (mũi tên)
-        //    -> NÚT "+" sẽ KHÔNG hiển thị cho node có children để tránh bấm nhầm.
-        // 3. Chỉ với node KHÔNG có children: nút "+" hiển thị khi selected.
+        // ✅ LOGIC HIỂN THỊ NÚT KHI HOVER - 3 NÚT TÁCH BIỆT:
+        // 1. Nút số: chỉ khi collapsed (ưu tiên cao nhất)
+        // 2. Nút thu gọn: chỉ khi hover, có children, chưa collapse VÀ KHÔNG selected
+        // 3. Nút thêm mới: chỉ khi selected và chưa collapse
         
         // 1. Nút số (collapse-btn-number) - ưu tiên cao nhất
         if (hasChildren && isCollapsed) {
+          // Trường hợp 1: Collapsed -> chỉ hiện nút số
           nodeGroup.select('.collapse-btn-number')
             .transition()
             .duration(150)
             .attr('opacity', 1)
+            .style('pointer-events', 'auto')
           
           nodeGroup.select('.collapse-text-number')
             .transition()
             .duration(150)
             .attr('opacity', 1)
           
-          // Ẩn các nút khác khi đã collapse
-          nodeGroup.select('.add-child-btn').attr('opacity', 0)
-          nodeGroup.select('.add-child-text').attr('opacity', 0)
-          nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
-          nodeGroup.select('.collapse-arrow').attr('opacity', 0)
+          // Ẩn tất cả nút khác và tắt pointer-events để title không hiển thị
+          nodeGroup.select('.add-child-btn')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          nodeGroup.select('.add-child-text')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          nodeGroup.select('.collapse-btn-arrow')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          nodeGroup.select('.collapse-arrow')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
         } else {
+          // Không collapsed
           nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
           nodeGroup.select('.collapse-text-number').attr('opacity', 0)
           
-          if (hasChildren && !isCollapsed) {
-            // 2. Có children và chưa collapse -> CHỈ hiển thị nút collapse mũi tên
-            nodeGroup.select('.add-child-btn').attr('opacity', 0)
-            nodeGroup.select('.add-child-text').attr('opacity', 0)
-
+          if (isSelected && !isCollapsed) {
+            // Trường hợp 3: Selected -> chỉ hiện nút thêm mới
+            nodeGroup.select('.add-child-btn')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+              .style('pointer-events', 'auto')
+            
+            nodeGroup.select('.add-child-text')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+            
+            // Ẩn nút thu gọn và tắt pointer-events để title không hiển thị
+            nodeGroup.select('.collapse-btn-arrow')
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.collapse-arrow')
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+          } else if (hasChildren && !isCollapsed && !isSelected) {
+            // Trường hợp 2: Hover, có children, chưa collapse, KHÔNG selected -> chỉ hiện nút thu gọn
             nodeGroup.select('.collapse-btn-arrow')
               .transition()
               .duration(150)
               .attr('opacity', 1)
+              .style('pointer-events', 'auto')
             
             nodeGroup.select('.collapse-arrow')
               .transition()
               .duration(150)
               .attr('opacity', 1)
+            
+            // Ẩn nút thêm mới và tắt pointer-events để title không hiển thị
+            nodeGroup.select('.add-child-btn')
+              .interrupt() // Dừng transition nếu đang chạy
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.add-child-text')
+              .interrupt() // Dừng transition nếu đang chạy
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
           } else {
-            // 3. Không có children -> có thể hiển thị nút "+" khi selected
-            nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
-            nodeGroup.select('.collapse-arrow').attr('opacity', 0)
-
-            if (isSelected && !isCollapsed) {
-              nodeGroup.select('.add-child-btn')
-                .transition()
-                .duration(150)
-                .attr('opacity', 1)
-              
-              nodeGroup.select('.add-child-text')
-                .transition()
-                .duration(150)
-                .attr('opacity', 1)
-            } else {
-              nodeGroup.select('.add-child-btn').attr('opacity', 0)
-              nodeGroup.select('.add-child-text').attr('opacity', 0)
-            }
+            // Không có gì -> ẩn tất cả và tắt pointer-events
+            nodeGroup.select('.add-child-btn')
+              .interrupt() // Dừng transition nếu đang chạy
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.add-child-text')
+              .interrupt() // Dừng transition nếu đang chạy
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.collapse-btn-arrow')
+              .interrupt() // Dừng transition nếu đang chạy
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.collapse-arrow')
+              .interrupt() // Dừng transition nếu đang chạy
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
           }
         }
         
@@ -1322,8 +1553,13 @@ export class D3MindmapRenderer {
         if (related) {
           try {
             const isSameGroup = related === this || (related.closest && related.closest('.node-group') === this)
-            const isButton =
-              related.classList && (
+            
+            // Kiểm tra nhiều cách để xác định button
+            let isButton = false
+            
+            // Cách 1: Kiểm tra classList (nếu có)
+            if (related.classList) {
+              isButton = 
                 related.classList.contains('collapse-btn-arrow') ||
                 related.classList.contains('collapse-arrow') ||
                 related.classList.contains('add-child-btn') ||
@@ -1331,12 +1567,56 @@ export class D3MindmapRenderer {
                 related.classList.contains('collapse-btn-number') ||
                 related.classList.contains('collapse-text-number') ||
                 related.classList.contains('node-hover-layer')
-              )
+            }
+            
+            // Cách 2: Kiểm tra className (cho SVG elements)
+            if (!isButton && related.className) {
+              const className = typeof related.className === 'string' 
+                ? related.className 
+                : related.className.baseVal || ''
+              isButton = 
+                className.includes('collapse-btn-arrow') ||
+                className.includes('collapse-arrow') ||
+                className.includes('add-child-btn') ||
+                className.includes('add-child-text') ||
+                className.includes('collapse-btn-number') ||
+                className.includes('collapse-text-number') ||
+                className.includes('node-hover-layer')
+            }
+            
+            // Cách 3: Kiểm tra parentNode (nếu related là child của button)
+            if (!isButton && related.parentNode) {
+              const parent = related.parentNode
+              if (parent.classList) {
+                isButton = 
+                  parent.classList.contains('collapse-btn-arrow') ||
+                  parent.classList.contains('collapse-arrow') ||
+                  parent.classList.contains('add-child-btn') ||
+                  parent.classList.contains('add-child-text') ||
+                  parent.classList.contains('collapse-btn-number') ||
+                  parent.classList.contains('collapse-text-number')
+              }
+              // Kiểm tra className của parent
+              if (!isButton && parent.className) {
+                const parentClassName = typeof parent.className === 'string' 
+                  ? parent.className 
+                  : parent.className.baseVal || ''
+                isButton = 
+                  parentClassName.includes('collapse-btn-arrow') ||
+                  parentClassName.includes('collapse-arrow') ||
+                  parentClassName.includes('add-child-btn') ||
+                  parentClassName.includes('add-child-text') ||
+                  parentClassName.includes('collapse-btn-number') ||
+                  parentClassName.includes('collapse-text-number')
+              }
+            }
+            
             if (isSameGroup || isButton) {
               return
             }
           } catch (e) {
-            // Bỏ qua lỗi nếu browser không hỗ trợ closest trên SVGElement
+            // Bỏ qua lỗi nếu browser không hỗ trợ
+            console.warn('Error checking relatedTarget:', e)
           }
         }
 
@@ -1357,49 +1637,83 @@ export class D3MindmapRenderer {
           })
           .attr('stroke-width', 2)
         
-        // ✅ LOGIC KHI KHÔNG HOVER - MỖI NÚT ĐỘC LẬP:
+        // ✅ LOGIC KHI KHÔNG HOVER - 3 NÚT TÁCH BIỆT:
         // 1. Nút số: giữ nếu collapsed
-        // 2. Nút thêm mới: giữ nếu selected
-        // 3. Nút collapse mũi tên: ẩn (chỉ hiện khi hover)
+        // 2. Nút thêm mới: giữ nếu selected và chưa collapse
+        // 3. Nút collapse mũi tên: luôn ẩn (chỉ hiện khi hover)
         
         const hasChildren = that.edges.some(e => e.source === d.id)
         const isCollapsed = that.collapsedNodes.has(d.id)
         
-        // 1. Nút số
+        // 1. Nút số: chỉ khi collapsed
         if (hasChildren && isCollapsed) {
           nodeGroup.select('.collapse-btn-number')
             .transition()
             .duration(150)
             .attr('opacity', 1)
+            .style('pointer-events', 'auto')
           
           nodeGroup.select('.collapse-text-number')
             .transition()
             .duration(150)
             .attr('opacity', 1)
-        } else {
-          nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
-          nodeGroup.select('.collapse-text-number').attr('opacity', 0)
-        }
-        
-        // 2. Nút thêm mới
-        if (isSelected && !isCollapsed) {
-          nodeGroup.select('.add-child-btn')
-            .transition()
-            .duration(150)
-            .attr('opacity', 1)
           
+          // Ẩn nút thêm mới khi collapsed và tắt pointer-events
+          nodeGroup.select('.add-child-btn')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
           nodeGroup.select('.add-child-text')
-            .transition()
-            .duration(150)
-            .attr('opacity', 1)
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
         } else {
-          nodeGroup.select('.add-child-btn').attr('opacity', 0)
-          nodeGroup.select('.add-child-text').attr('opacity', 0)
+          nodeGroup.select('.collapse-btn-number')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          nodeGroup.select('.collapse-text-number')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          
+          // 2. Nút thêm mới: chỉ khi selected và chưa collapse
+          if (isSelected && !isCollapsed) {
+            nodeGroup.select('.add-child-btn')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+              .style('pointer-events', 'auto')
+            
+            nodeGroup.select('.add-child-text')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+          } else {
+            nodeGroup.select('.add-child-btn')
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            nodeGroup.select('.add-child-text')
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+          }
         }
         
-        // 3. Nút collapse mũi tên (ẩn khi không hover)
-        nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
-        nodeGroup.select('.collapse-arrow').attr('opacity', 0)
+        // 3. Nút collapse mũi tên: chỉ ẩn nếu không còn điều kiện hiển thị
+        // (mouseenter của button sẽ tự giữ nó hiển thị nếu chuột vào button)
+        // hasChildren, isCollapsed, isSelected đã được khai báo ở trên
+        
+        // Chỉ ẩn nếu không còn điều kiện hiển thị (có children, chưa collapse, không selected)
+        if (!hasChildren || isCollapsed || isSelected) {
+          nodeGroup.select('.collapse-btn-arrow')
+            .transition()
+            .duration(100)
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          nodeGroup.select('.collapse-arrow')
+            .transition()
+            .duration(100)
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+        }
+        // Nếu vẫn còn điều kiện hiển thị (hasChildren && !isCollapsed && !isSelected),
+        // để mouseenter của button tự xử lý việc giữ nó hiển thị
         
         // Call callback
         if (that.callbacks.onNodeHover) {
@@ -1558,6 +1872,50 @@ export class D3MindmapRenderer {
         const isSelected = renderer.selectedNode === d.id
         // Chỉ cho phép click khi node có children, chưa collapse và không selected
         return (count > 0 && !isCollapsed && !isSelected) ? 'auto' : 'none'
+      })
+      .on('mouseenter', function(event, d) {
+        // Giữ collapse arrow hiển thị khi chuột vào button
+        event.stopPropagation()
+        const nodeGroup = d3.select(this.parentNode)
+        nodeGroup.select('.collapse-btn-arrow')
+          .attr('opacity', 1)
+          .style('pointer-events', 'auto')
+        nodeGroup.select('.collapse-arrow')
+          .attr('opacity', 1)
+      })
+      .on('mouseleave', function(event, d) {
+        // Chỉ ẩn nếu chuột không di chuyển sang phần tử liên quan
+        const related = event.relatedTarget
+        if (related) {
+          try {
+            const isSameGroup = related === this || (related.closest && related.closest('.node-group') === this.parentNode)
+            const isButton = 
+              (related.classList && related.classList.contains('collapse-btn-arrow')) ||
+              (related.classList && related.classList.contains('collapse-arrow')) ||
+              (related.parentNode && related.parentNode.classList && related.parentNode.classList.contains('collapse-btn-arrow'))
+            
+            if (isSameGroup || isButton) {
+              return
+            }
+          } catch (e) {
+            // Bỏ qua lỗi
+          }
+        }
+        
+        // Ẩn collapse arrow khi rời khỏi button
+        const nodeGroup = d3.select(this.parentNode)
+        const hasChildren = renderer.edges.some(e => e.source === d.id)
+        const isCollapsed = renderer.collapsedNodes.has(d.id)
+        const isSelected = renderer.selectedNode === d.id
+        
+        // Chỉ ẩn nếu không còn điều kiện hiển thị
+        if (!hasChildren || isCollapsed || isSelected) {
+          nodeGroup.select('.collapse-btn-arrow')
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          nodeGroup.select('.collapse-arrow')
+            .attr('opacity', 0)
+        }
       })
       .on('click', function(event, d) {
         // QUAN TRỌNG: Stop propagation ngay lập tức để không trigger node group click
@@ -1765,7 +2123,7 @@ export class D3MindmapRenderer {
               },
             })
             
-            // Sau khi mount editor lần đầu, đợi một chút rồi đo lại height từ editor DOM cho root node
+            // Sau khi mount editor lần đầu, đợi một chút rồi đo lại width và height từ editor DOM cho root node
             // Để đảm bảo root node hiển thị đủ nội dung ngay từ đầu
             if (isRootNode) {
               // Sử dụng requestAnimationFrame để đảm bảo DOM đã render xong
@@ -1777,11 +2135,132 @@ export class D3MindmapRenderer {
                     const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
                     
                     if (editorContent && editorContent.offsetHeight > 0) {
-                      // Đảm bảo editor có width đúng để đo height chính xác
                       const borderOffset = 4
-                      const currentWidth = parseFloat(rect.attr('width')) || rectWidth
+                      const minWidth = 130
+                      const maxWidth = 400
+                      let currentWidth = parseFloat(rect.attr('width')) || rectWidth
+                      
+                      // Lấy HTML từ editor để parse title và description
+                      const editorHTML = editor.getHTML() || ''
+                      
+                      if (editorHTML) {
+                        // Parse HTML để tách riêng title (paragraph) và description (blockquote)
+                        let titleText = ''
+                        let descriptionText = ''
+                        
+                        const tempDiv = document.createElement('div')
+                        tempDiv.innerHTML = editorHTML
+                        
+                        // Lấy tất cả paragraph không trong blockquote (title)
+                        const paragraphs = tempDiv.querySelectorAll('p')
+                        paragraphs.forEach(p => {
+                          let inBlockquote = false
+                          let parent = p.parentElement
+                          while (parent && parent !== tempDiv) {
+                            if (parent.tagName === 'BLOCKQUOTE') {
+                              inBlockquote = true
+                              break
+                            }
+                            parent = parent.parentElement
+                          }
+                          
+                          if (!inBlockquote) {
+                            const paraText = (p.textContent || p.innerText || '').trim()
+                            if (paraText) {
+                              titleText += (titleText ? '\n' : '') + paraText
+                            }
+                          }
+                        })
+                        
+                        // Lấy tất cả text trong blockquote (description)
+                        const blockquotes = tempDiv.querySelectorAll('blockquote')
+                        blockquotes.forEach(blockquote => {
+                          const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
+                          if (blockquoteText) {
+                            descriptionText += (descriptionText ? '\n' : '') + blockquoteText
+                          }
+                        })
+                        
+                        // Đo width của title (font-size 19px)
+                        let titleWidth = 0
+                        if (titleText) {
+                          const titleLines = titleText.split('\n')
+                          titleLines.forEach(line => {
+                            if (line.trim()) {
+                              const lineSpan = document.createElement('span')
+                              lineSpan.style.cssText = `
+                                position: absolute;
+                                visibility: hidden;
+                                white-space: nowrap;
+                                font-size: 19px;
+                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                              `
+                              lineSpan.textContent = line.trim()
+                              document.body.appendChild(lineSpan)
+                              void lineSpan.offsetHeight
+                              titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
+                              document.body.removeChild(lineSpan)
+                            }
+                          })
+                        }
+                        
+                        // Đo width của description (font-size 16px)
+                        let descriptionWidth = 0
+                        if (descriptionText) {
+                          const descLines = descriptionText.split('\n')
+                          descLines.forEach(line => {
+                            if (line.trim()) {
+                              const lineSpan = document.createElement('span')
+                              lineSpan.style.cssText = `
+                                position: absolute;
+                                visibility: hidden;
+                                white-space: nowrap;
+                                font-size: 16px;
+                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                              `
+                              lineSpan.textContent = line.trim()
+                              document.body.appendChild(lineSpan)
+                              void lineSpan.offsetHeight
+                              descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth)
+                              document.body.removeChild(lineSpan)
+                            }
+                          })
+                        }
+                        
+                        // Lấy width lớn nhất giữa title và description
+                        const maxTextWidth = Math.max(titleWidth, descriptionWidth)
+                        // Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
+                        const requiredWidth = maxTextWidth + 32 + 4
+                        
+                        // Tính toán width đúng dựa trên text thực tế
+                        if (requiredWidth < maxWidth) {
+                          currentWidth = Math.max(minWidth, Math.min(requiredWidth, maxWidth))
+                        } else {
+                          currentWidth = maxWidth
+                        }
+                        
+                        // Chỉ cập nhật nếu width khác với width hiện tại
+                        if (Math.abs(currentWidth - parseFloat(rect.attr('width'))) > 1) {
+                          // Cập nhật rect và foreignObject với width đúng
+                          rect.attr('width', currentWidth)
+                          const foWidth = currentWidth - borderOffset
+                          fo.attr('width', Math.max(0, foWidth))
+                          
+                          // Cập nhật vị trí nút add-child
+                          nodeGroup.select('.add-child-btn').attr('cx', currentWidth + 20)
+                          nodeGroup.select('.add-child-text').attr('x', currentWidth + 20)
+                        }
+                      }
+                      
+                      // Set width và white-space đúng cho editor content
                       const foWidth = currentWidth - borderOffset
                       editorContent.style.width = `${foWidth}px`
+                      const willWrap = currentWidth >= maxWidth
+                      if (willWrap) {
+                        editorContent.style.whiteSpace = 'pre-wrap'
+                      } else {
+                        editorContent.style.whiteSpace = 'nowrap'
+                      }
                       
                       // Force reflow
                       void editorContent.offsetWidth
@@ -1794,24 +2273,21 @@ export class D3MindmapRenderer {
                         Math.ceil(19 * 1.4) + 16 // singleLineHeight
                       )
                       
-                      // Nếu height khác với height hiện tại, cập nhật lại
+                      // Cập nhật height nếu khác
                       const currentHeight = parseFloat(rect.attr('height')) || 0
                       if (Math.abs(contentHeight - currentHeight) > 1) {
-                        // Cập nhật rect
                         rect.attr('height', contentHeight)
-                        
-                        // Cập nhật foreignObject
                         fo.attr('height', Math.max(0, contentHeight - borderOffset))
-                        
-                        // Cập nhật vị trí nút add-child
                         nodeGroup.select('.add-child-btn').attr('cy', contentHeight / 2)
                         nodeGroup.select('.add-child-text').attr('y', contentHeight / 2)
-                        
-                        // Cập nhật cache
-                        this.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
-                        
-                        // Không trigger layout update ngay lập tức để tránh nháy
-                        // Layout sẽ được update tự động khi cần thiết
+                      }
+                      
+                      // Cập nhật cache với width và height chính xác
+                      this.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
+                      
+                      // Re-render edges để cập nhật vị trí kết nối với size mới
+                      if (this.positions && this.positions.size > 0) {
+                        this.renderEdges(this.positions)
                       }
                     }
                   }
@@ -1902,63 +2378,97 @@ export class D3MindmapRenderer {
     const minWidth = 130 // Textarea width mặc định
     if (!text || text.trim() === '') return minWidth
     
-    // Extract plain text từ HTML nếu cần (để đo width chính xác)
-    let plainText = text
+    // Parse HTML để tách riêng title (paragraph) và description (blockquote)
+    let titleText = ''
+    let descriptionText = ''
+    
     if (text.includes('<')) {
       const tempDiv = document.createElement('div')
       tempDiv.innerHTML = text
-      plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+      
+      // Lấy tất cả paragraph không trong blockquote (title)
+      const paragraphs = tempDiv.querySelectorAll('p')
+      paragraphs.forEach(p => {
+        // Kiểm tra xem paragraph có trong blockquote không
+        let inBlockquote = false
+        let parent = p.parentElement
+        while (parent && parent !== tempDiv) {
+          if (parent.tagName === 'BLOCKQUOTE') {
+            inBlockquote = true
+            break
+          }
+          parent = parent.parentElement
+        }
+        
+        if (!inBlockquote) {
+          const paraText = (p.textContent || p.innerText || '').trim()
+          if (paraText) {
+            titleText += (titleText ? '\n' : '') + paraText
+          }
+        }
+      })
+      
+      // Lấy tất cả text trong blockquote (description)
+      const blockquotes = tempDiv.querySelectorAll('blockquote')
+      blockquotes.forEach(blockquote => {
+        const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
+        if (blockquoteText) {
+          descriptionText += (descriptionText ? '\n' : '') + blockquoteText
+        }
+      })
+    } else {
+      // Plain text: coi như title
+      titleText = text.trim()
     }
     
-    if (!plainText || plainText.trim() === '') return minWidth
+    // Đo width của title (font-size 19px)
+    let titleWidth = minWidth
+    if (titleText) {
+      const titleLines = titleText.split('\n')
+      titleLines.forEach(line => {
+        if (line.trim()) {
+          const lineSpan = document.createElement('span')
+          lineSpan.style.cssText = `
+            position: absolute;
+            visibility: hidden;
+            font-size: 19px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            white-space: nowrap;
+          `
+          lineSpan.textContent = line.trim()
+          document.body.appendChild(lineSpan)
+          void lineSpan.offsetHeight
+          titleWidth = Math.max(titleWidth, lineSpan.offsetWidth + 40) // padding + margin
+          document.body.removeChild(lineSpan)
+        }
+      })
+    }
     
-    // Create a temporary element to measure text width accurately
-    const tempDiv = document.createElement('div')
-    tempDiv.style.cssText = `
-      position: absolute;
-      visibility: hidden;
-      white-space: pre-wrap;
-      word-wrap: break-word;
-      font-size: 19px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      padding: 8px 16px;
-      width: ${maxWidth}px;
-      box-sizing: border-box;
-    `
-    tempDiv.textContent = plainText
-    document.body.appendChild(tempDiv)
+    // Đo width của description (font-size 16px)
+    let descriptionWidth = minWidth
+    if (descriptionText) {
+      const descLines = descriptionText.split('\n')
+      descLines.forEach(line => {
+        if (line.trim()) {
+          const lineSpan = document.createElement('span')
+          lineSpan.style.cssText = `
+            position: absolute;
+            visibility: hidden;
+            font-size: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            white-space: nowrap;
+          `
+          lineSpan.textContent = line.trim()
+          document.body.appendChild(lineSpan)
+          void lineSpan.offsetHeight
+          descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth + 40) // padding + margin
+          document.body.removeChild(lineSpan)
+        }
+      })
+    }
     
-    // Force reflow để đảm bảo text đã được render
-    void tempDiv.offsetHeight
-    
-    // Split text thành các dòng
-    const lines = plainText.split('\n')
-    let measuredWidth = 130
-    
-    // Measure each line to find the longest
-    lines.forEach(line => {
-      if (line.trim()) {
-        const lineSpan = document.createElement('span')
-        lineSpan.style.cssText = `
-          position: absolute;
-          visibility: hidden;
-          font-size: 19px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          white-space: nowrap;
-        `
-        lineSpan.textContent = line
-        document.body.appendChild(lineSpan)
-        // Force reflow
-        void lineSpan.offsetHeight
-        // Padding: 16px mỗi bên = 32px, cộng thêm margin (8px) để đảm bảo không bị wrap
-        measuredWidth = Math.max(measuredWidth, lineSpan.offsetWidth + 40)
-        // Đảm bảo tối thiểu 130px
-        measuredWidth = Math.max(measuredWidth, 130)
-        document.body.removeChild(lineSpan)
-      }
-    })
-    
-    document.body.removeChild(tempDiv)
+    // Lấy width lớn nhất giữa title và description
+    const measuredWidth = Math.max(titleWidth, descriptionWidth)
     
     // Clamp between min (130px) and max (400px)
     return Math.min(Math.max(measuredWidth, 130), 400)
@@ -2071,7 +2581,30 @@ export class D3MindmapRenderer {
       })
       .attr('stroke-width', 2) // Border luôn là 2px
     
-    // Hiển thị nút phù hợp cho mỗi node
+    // Nếu deselect (nodeId === null), gọi callback để cập nhật Vue component
+    if (nodeId === null && this.callbacks.onNodeClick) {
+      this.callbacks.onNodeClick(null)
+    }
+    
+    // Nếu deselect, đảm bảo tất cả buttons đều được ẩn ngay lập tức
+    if (nodeId === null) {
+      this.g.selectAll('.node-group').each(function() {
+        const nodeGroup = d3.select(this)
+        nodeGroup.select('.add-child-btn')
+          .interrupt()
+          .attr('opacity', 0)
+          .style('pointer-events', 'none')
+        nodeGroup.select('.add-child-text')
+          .interrupt()
+          .attr('opacity', 0)
+          .style('pointer-events', 'none')
+      })
+    }
+    
+    // ✅ LOGIC HIỂN THỊ NÚT - 3 NÚT TÁCH BIỆT:
+    // 1. Nút số: chỉ khi collapsed (ưu tiên cao nhất)
+    // 2. Nút thêm mới: chỉ khi selected và chưa collapse
+    // 3. Nút collapse mũi tên: luôn ẩn (chỉ hiện khi hover)
     const that = this
     this.g.selectAll('.node-group').each(function(nodeData) {
       const isSelected = that.selectedNode === nodeData.id
@@ -2079,36 +2612,60 @@ export class D3MindmapRenderer {
       const isCollapsed = that.collapsedNodes.has(nodeData.id)
       const nodeGroup = d3.select(this)
       
-      if (isSelected && !isCollapsed) {
-        // Node được click và chưa collapse: hiển thị nút thêm mới
-        nodeGroup.select('.add-child-btn').attr('opacity', 1)
-        nodeGroup.select('.add-child-text').attr('opacity', 1)
-        nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
-        nodeGroup.select('.collapse-text-number').attr('opacity', 0)
-        nodeGroup.select('.collapse-btn-arrow').attr('opacity', 0)
-        nodeGroup.select('.collapse-arrow').attr('opacity', 0)
-      }
-      
-      // 1. Nút số: hiển thị khi collapsed
+      // 1. Nút số: chỉ khi collapsed (ưu tiên cao nhất)
       if (hasChildren && isCollapsed) {
-        nodeGroup.select('.collapse-btn-number').attr('opacity', 1)
-        nodeGroup.select('.collapse-text-number').attr('opacity', 1)
+        nodeGroup.select('.collapse-btn-number')
+          .attr('opacity', 1)
+          .style('pointer-events', 'auto')
+        nodeGroup.select('.collapse-text-number')
+          .attr('opacity', 1)
+        
+        // Ẩn nút thêm mới khi collapsed và tắt pointer-events
+        nodeGroup.select('.add-child-btn')
+          .attr('opacity', 0)
+          .style('pointer-events', 'none')
+        nodeGroup.select('.add-child-text')
+          .attr('opacity', 0)
+          .style('pointer-events', 'none')
       } else {
-        nodeGroup.select('.collapse-btn-number').attr('opacity', 0)
-        nodeGroup.select('.collapse-text-number').attr('opacity', 0)
+        nodeGroup.select('.collapse-btn-number')
+          .attr('opacity', 0)
+          .style('pointer-events', 'none')
+        nodeGroup.select('.collapse-text-number')
+          .attr('opacity', 0)
+          .style('pointer-events', 'none')
+        
+        // 2. Nút thêm mới: chỉ khi selected và chưa collapse
+        if (isSelected && !isCollapsed) {
+          nodeGroup.select('.add-child-btn')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+            .style('pointer-events', 'auto')
+          nodeGroup.select('.add-child-text')
+            .transition()
+            .duration(150)
+            .attr('opacity', 1)
+        } else {
+          // Ẩn ngay lập tức khi deselect (không có transition để tránh delay)
+          nodeGroup.select('.add-child-btn')
+            .interrupt() // Dừng transition nếu đang chạy
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+          nodeGroup.select('.add-child-text')
+            .interrupt() // Dừng transition nếu đang chạy
+            .attr('opacity', 0)
+            .style('pointer-events', 'none')
+        }
       }
       
-      // 2. Nút thêm mới: hiển thị khi selected và chưa collapse
-      if (isSelected && !isCollapsed) {
-        nodeGroup.select('.add-child-btn').attr('opacity', 1)
-        nodeGroup.select('.add-child-text').attr('opacity', 1)
-      } else {
-        nodeGroup.select('.add-child-btn').attr('opacity', 0)
-        nodeGroup.select('.add-child-text').attr('opacity', 0)
-      }
-      
-      // 3. Nút collapse mũi tên: chỉ hiển thị khi hover (được xử lý trong mouseenter)
-      // Không cần update ở đây
+      // 3. Nút collapse mũi tên: luôn ẩn (chỉ hiện khi hover trong mouseenter) và tắt pointer-events
+      nodeGroup.select('.collapse-btn-arrow')
+        .attr('opacity', 0)
+        .style('pointer-events', 'none')
+      nodeGroup.select('.collapse-arrow')
+        .attr('opacity', 0)
+        .style('pointer-events', 'none')
     })
   }
   

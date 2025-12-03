@@ -27,7 +27,7 @@
  "fields": [
   {
    "fieldname": "title",
-   "fieldtype": "Data",
+   "fieldtype": "Text",
    "in_list_view": 1,
    "label": "Title",
    "reqd": 1
@@ -121,7 +121,7 @@
   }
  ],
  "links": [],
- "modified": "2025-11-25 09:45:42.363600",
+ "modified": "2025-12-03 08:51:36.460618",
  "modified_by": "hoa00001@gmail.com",
  "module": "Drive",
  "name": "Drive File",

@@ -8,15 +8,19 @@
 </template>
 
 <script>
-import { Editor, EditorContent } from "@tiptap/vue-3"
-import { Extension } from "@tiptap/core"
-import { Plugin, PluginKey } from "prosemirror-state"
 import { Document } from "@/components/DocEditor/extensions/document"
 import { Paragraph } from "@/components/DocEditor/extensions/paragraph"
-import { Text } from "@/components/DocEditor/extensions/text"
 import { Placeholder } from "@/components/DocEditor/extensions/placeholder"
+import { Text } from "@/components/DocEditor/extensions/text"
+import { Underline } from "@/components/DocEditor/extensions/underline"
+import { Extension } from "@tiptap/core"
 import Bold from "@tiptap/extension-bold"
+import Code from "@tiptap/extension-code"
 import Italic from "@tiptap/extension-italic"
+import Link from "@tiptap/extension-link"
+import Typography from "@tiptap/extension-typography"
+import StarterKit from "@tiptap/starter-kit"
+import { Editor, EditorContent } from "@tiptap/vue-3"
 
 // Extension đơn giản - ProseMirror text nodes tự nhiên preserve trailing spaces
 // Chúng ta chỉ cần đảm bảo không bị normalize khi parse HTML
@@ -66,12 +70,16 @@ export default {
       type: Function,
       default: null,
     },
+    onCreateDescription: {
+      type: Function,
+      default: null,
+    },
     isRoot: {
       type: Boolean,
       default: false,
     },
   },
-  emits: ["update:modelValue", "focus", "blur", "input"],
+  emits: ["update:modelValue", "focus", "blur", "input", "create-description"],
 
   data() {
     return {
@@ -180,12 +188,32 @@ export default {
         Document,
         Paragraph,
         Text,
-        Bold, // Thêm Bold extension để hỗ trợ Ctrl+B
-        Italic, // Thêm Italic extension để hỗ trợ Ctrl+I
+        Bold,
+        Italic,
+        Underline,
+        StarterKit.configure({
+          // Disable các extension không cần thiết từ StarterKit
+          bold: false, // Dùng extension riêng
+          italic: false, // Dùng extension riêng
+          code: false, // Dùng extension riêng
+          history: false, // Không cần undo/redo trong mindmap node
+          heading: false,
+          blockquote: true, // Bật blockquote để dùng cho description
+          codeBlock: false,
+          horizontalRule: false,
+          bulletList: false,
+          orderedList: false,
+          listItem: false,
+        }),
+        Code,
+        Link.configure({
+          openOnClick: false,
+          autolink: true,
+        }),
+        Typography,
         Placeholder.configure({
           placeholder: this.placeholder,
         }),
-        // PreserveTrailingSpaces - tạm thời comment để test
       ],
       editorProps: {
         attributes: {
@@ -211,12 +239,93 @@ export default {
           return false
         },
         handleKeyDown: (view, event) => {
+          // Xử lý Shift + Enter để chuyển focus giữa title và description
+          if (event.key === 'Enter' && event.shiftKey) {
+            event.preventDefault()
+            event.stopPropagation()
+            
+            const { state } = view
+            const { doc, selection } = state
+            const { $from } = selection
+            let isInBlockquote = false
+            
+            // Tìm node blockquote trong parent chain
+            for (let depth = $from.depth; depth > 0; depth--) {
+              const node = $from.node(depth)
+              if (node.type.name === 'blockquote') {
+                isInBlockquote = true
+                break
+              }
+            }
+            
+            if (isInBlockquote) {
+              // Đang ở trong blockquote: focus lên title (paragraph đầu tiên)
+              // Đơn giản: di chuyển lên đầu document
+              this.editor.chain()
+                .focus('start')
+                .run()
+            } else {
+              // Đang ở paragraph (title): kiểm tra xem đã có blockquote chưa
+              let hasBlockquote = false
+              
+              // Tìm blockquote đầu tiên
+              doc.forEach((node) => {
+                if (node.type.name === 'blockquote' && !hasBlockquote) {
+                  hasBlockquote = true
+                }
+              })
+              
+              if (hasBlockquote) {
+                // Đã có blockquote: focus vào blockquote (di chuyển xuống cuối và tìm blockquote)
+                // Tìm vị trí blockquote đầu tiên
+                let blockquoteOffset = null
+                doc.forEach((node, offset) => {
+                  if (node.type.name === 'blockquote' && blockquoteOffset === null) {
+                    blockquoteOffset = offset
+                  }
+                })
+                
+                if (blockquoteOffset !== null) {
+                  // Focus vào đầu blockquote
+                  try {
+                    const resolvedPos = state.doc.resolve(blockquoteOffset + 1)
+                    this.editor.chain()
+                      .setTextSelection(resolvedPos.pos)
+                      .focus()
+                      .run()
+                  } catch (e) {
+                    // Fallback: focus vào cuối
+                    this.editor.chain()
+                      .focus('end')
+                      .run()
+                  }
+                }
+              } else {
+                // Chưa có blockquote: tạo blockquote mới
+                this.editor.chain()
+                  .focus('end')
+                  .insertContent('<blockquote><p></p></blockquote>')
+                  .run()
+                
+                // Focus vào paragraph trong blockquote vừa tạo
+                this.$nextTick(() => {
+                  // Đơn giản: focus vào cuối (sẽ vào blockquote vừa tạo)
+                  this.editor.commands.focus('end')
+                })
+              }
+            }
+            
+            // Emit event để parent component xử lý (nếu cần)
+            this.$emit('create-description')
+            return true
+          }
+          
           // Ngăn chặn các phím tắt của trình duyệt khi editor đang focus
           // Chỉ xử lý trong editor, không ảnh hưởng đến trình duyệt
           if (event.ctrlKey || event.metaKey) {
             const key = event.key.toLowerCase()
             
-            // Các phím tắt editor (Ctrl+B, Ctrl+I, Ctrl+Z, Ctrl+Y, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+A)
+            // Các phím tắt editor (Ctrl+B, Ctrl+I, Ctrl+U, Ctrl+Shift+X, Ctrl+E, Ctrl+Z, Ctrl+Y, Ctrl+X, Ctrl+C, Ctrl+V, Ctrl+A)
             // TipTap sẽ tự động preventDefault cho các phím tắt của nó
             // Chúng ta chỉ cần stopPropagation để không trigger event handler ở MindMap.vue
             if (['b', 'i', 'u', 'z', 'y', 'x', 'c', 'v', 'a'].includes(key)) {
@@ -224,6 +333,18 @@ export default {
               event.stopPropagation()
               // Cho phép TipTap xử lý các phím tắt này
               // TipTap extensions sẽ tự động preventDefault nếu cần
+              return false
+            }
+            
+            // Xử lý Ctrl+Shift+X cho strikethrough
+            if (key === 'x' && event.shiftKey) {
+              event.stopPropagation()
+              return false
+            }
+            
+            // Xử lý Ctrl+E cho code
+            if (key === 'e') {
+              event.stopPropagation()
               return false
             }
           }
@@ -236,6 +357,54 @@ export default {
       onUpdate: () => {
         // Skip nếu đang update từ modelValue để tránh vòng lặp
         if (this.isUpdatingFromModelValue) return
+        
+        // Không override style khi đang edit - để d3MindmapRenderer kiểm soát width và white-space
+        // Chỉ set style mặc định khi không edit (khi white-space chưa được set)
+        this.$nextTick(() => {
+          if (this.editor && this.editor.view && this.editor.view.dom) {
+            const editorDOM = this.editor.view.dom
+            const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+            if (editorContent) {
+              // Chỉ set style mặc định nếu chưa được set bởi d3MindmapRenderer
+              // Nếu white-space đã được set (nowrap hoặc pre-wrap), không override
+              if (!editorContent.style.whiteSpace) {
+                editorContent.style.width = '100%'
+                editorContent.style.maxWidth = '100%'
+                editorContent.style.whiteSpace = 'pre-wrap'
+              }
+              // Luôn đảm bảo box-sizing
+              editorContent.style.boxSizing = 'border-box'
+            }
+          }
+        })
+        
+        // Xóa các paragraph trống ở cuối document
+        const { state } = this.editor
+        const { doc } = state
+        
+        // Chỉ xóa paragraph trống nếu có nhiều hơn 1 node
+        if (doc.childCount > 1) {
+          const lastNode = doc.lastChild
+          
+          // Xóa paragraph trống ở cuối (không phải blockquote)
+          if (lastNode && lastNode.type.name === 'paragraph' && lastNode.textContent.trim() === '') {
+            // Đặt flag để tránh vòng lặp
+            this.isUpdatingFromModelValue = true
+            
+            const lastPos = doc.content.size - lastNode.nodeSize
+            this.editor.chain()
+              .deleteRange({ from: lastPos, to: doc.content.size })
+              .run()
+            
+            // Reset flag sau khi xóa
+            this.$nextTick(() => {
+              this.isUpdatingFromModelValue = false
+            })
+            
+            // Return sớm vì sẽ có onUpdate mới được trigger
+            return
+          }
+        }
         
         // Lấy HTML content để giữ formatting (bold, italic)
         const html = this.editor.getHTML()
@@ -273,11 +442,48 @@ export default {
       this.$el.style.minHeight = this.minHeight
     }
     
+    // Function để đảm bảo style luôn đúng
+    // Không override style khi đang edit - để d3MindmapRenderer kiểm soát width và white-space
+    const ensureCorrectStyles = () => {
+      if (this.editor && this.editor.view && this.editor.view.dom) {
+        const editorDOM = this.editor.view.dom
+        const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+        
+        if (editorContent) {
+          // Chỉ set style mặc định nếu chưa được set bởi d3MindmapRenderer
+          // Nếu white-space đã được set (nowrap hoặc pre-wrap), không override
+          if (!editorContent.style.whiteSpace) {
+            editorContent.style.width = '100%'
+            editorContent.style.maxWidth = '100%'
+            editorContent.style.whiteSpace = 'pre-wrap'
+          }
+          // Luôn đảm bảo box-sizing
+          editorContent.style.boxSizing = 'border-box'
+        }
+      }
+    }
+    
     // Thêm event listener để ngăn chặn các phím tắt của trình duyệt khi editor đang focus
     // Đảm bảo các phím tắt chỉ hoạt động trong editor, không ảnh hưởng đến trình duyệt
     this.$nextTick(() => {
+      ensureCorrectStyles()
+      
       if (this.editor && this.editor.view && this.editor.view.dom) {
         const editorDOM = this.editor.view.dom
+        
+        // MutationObserver để theo dõi thay đổi style và override lại
+        const observer = new MutationObserver(() => {
+          ensureCorrectStyles()
+        })
+        
+        observer.observe(editorDOM, {
+          attributes: true,
+          attributeFilter: ['style'],
+          subtree: true
+        })
+        
+        // Lưu observer để có thể disconnect khi unmount
+        this._styleObserver = observer
         
         // Event listener để ngăn chặn các phím tắt lan truyền lên MindMap.vue
         // Chỉ stop propagation để không trigger event handler ở MindMap.vue
@@ -307,6 +513,12 @@ export default {
     })
   },
   beforeUnmount() {
+    // Disconnect MutationObserver nếu có
+    if (this._styleObserver) {
+      this._styleObserver.disconnect()
+      this._styleObserver = null
+    }
+    
     // Remove event listener nếu có
     if (this.editor && this.editor.view && this.editor.view.dom && this._editorKeyDownHandler) {
       this.editor.view.dom.removeEventListener('keydown', this._editorKeyDownHandler, true)
@@ -325,20 +537,36 @@ export default {
   width: 100%;
   height: 100%; /* 100% để fit vào container */
   min-height: 43px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   user-select: text; /* Cho phép bôi đen text */
   -webkit-user-select: text;
   -moz-user-select: text;
   -ms-user-select: text;
+  overflow: visible; /* Visible để hiển thị đủ nội dung */
 }
 
 .mindmap-editor-content {
   width: 100%;
   height: 100%; /* 100% để fit vào editor */
   min-height: 43px;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+:deep(.mindmap-editor-content > div) {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
 }
 
 :deep(.mindmap-editor-prose) {
+  /* Không dùng !important cho width và white-space để d3MindmapRenderer có thể set chính xác khi edit */
   width: 100%;
+  max-width: 100%;
   height: auto; /* Auto để có thể mở rộng theo nội dung */
   min-height: 43px;
   padding: 8px 16px;
@@ -353,11 +581,18 @@ export default {
   box-sizing: border-box;
   word-break: break-word;
   overflow-wrap: break-word;
-  white-space: pre-wrap;
+  /* Không set white-space mặc định - để d3MindmapRenderer kiểm soát (nowrap khi < 400px, pre-wrap khi >= 400px) */
   user-select: text; /* Cho phép bôi đen text */
   -webkit-user-select: text;
   -moz-user-select: text;
   -ms-user-select: text;
+  min-width: 0;
+}
+
+:deep(.mindmap-editor-prose > *) {
+  max-width: 100%;
+  box-sizing: border-box;
+  width: 100%;
 }
 
 :deep(.mindmap-editor-prose.is-root) {
@@ -385,6 +620,11 @@ export default {
 :deep(.mindmap-editor-prose p) {
   margin: 0;
   padding: 0;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 :deep(.mindmap-editor-prose p.is-editor-empty:first-child::before) {
@@ -417,6 +657,96 @@ export default {
 :deep(.mindmap-editor-prose.is-root i) {
   font-style: italic;
   color: #ffffff;
+}
+
+:deep(.mindmap-editor-prose u) {
+  text-decoration: underline;
+}
+
+:deep(.mindmap-editor-prose s),
+:deep(.mindmap-editor-prose del) {
+  text-decoration: line-through;
+}
+
+:deep(.mindmap-editor-prose code) {
+  background: #f3f4f6;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+:deep(.mindmap-editor-prose a) {
+  color: #3b82f6;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+:deep(.mindmap-editor-prose.is-root u) {
+  text-decoration: underline;
+  color: #ffffff;
+}
+
+:deep(.mindmap-editor-prose.is-root s),
+:deep(.mindmap-editor-prose.is-root del) {
+  text-decoration: line-through;
+  color: #ffffff;
+}
+
+:deep(.mindmap-editor-prose.is-root code) {
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+}
+
+:deep(.mindmap-editor-prose.is-root a) {
+  color: #ffffff;
+  text-decoration: underline;
+}
+
+/* Blockquote styling cho description */
+:deep(.mindmap-editor-prose blockquote) {
+  margin: 4px 0;
+  margin-right: 0 !important;
+  margin-left: 0;
+  padding-left: 6px;
+  padding-right: 0 !important;
+  border-left: 3px solid #adc6ee;
+  color: #a19c9c;
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  display: block;
+  min-width: 0;
+}
+
+:deep(.mindmap-editor-prose blockquote p) {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+}
+
+:deep(.mindmap-editor-prose blockquote p:first-child) {
+  margin-top: 0;
+}
+
+:deep(.mindmap-editor-prose blockquote p:last-child) {
+  margin-bottom: 0;
+}
+
+/* Style cho root node blockquote */
+:deep(.mindmap-editor-prose.is-root blockquote) {
+  border-left-color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.8);
 }
 </style>
 

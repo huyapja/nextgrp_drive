@@ -38,6 +38,8 @@ import router from "./router"
 import { initSocket, RealTimeHandler } from "./socket"
 import store from "./store"
 import translationPlugin from "./translation"
+import { handleResourceError } from "./utils/errorHandler"
+import { toast } from "./utils/toasts"
 
 const app = createApp(App)
 
@@ -84,6 +86,13 @@ setConfig("resourceFetcher", (options) => {
   return frappeRequest({
     ...options,
     onError(err) {
+      // Xử lý lỗi mất kết nối mạng trước
+      if (handleResourceError(err)) {
+        // Đã xử lý lỗi mạng, không cần xử lý thêm
+        return
+      }
+      
+      // Xử lý các lỗi khác
       if (err.messages && err.messages[0]) {
         return
       }
@@ -92,4 +101,39 @@ setConfig("resourceFetcher", (options) => {
 })
 
 app.component("Button", Button)
+
+// Xử lý sự kiện online/offline để thông báo mất kết nối mạng
+if (typeof window !== 'undefined') {
+  let offlineToastId = null
+  
+  window.addEventListener('online', () => {
+    // Kết nối lại mạng
+    if (offlineToastId) {
+      // Có thể thêm logic để remove toast offline nếu cần
+    }
+    toast({
+      title: "Đã kết nối lại",
+      text: "Kết nối mạng đã được khôi phục",
+      icon: "check-circle",
+      iconClasses: "text-green-600",
+      background: "bg-surface-green-2",
+      position: "bottom-right",
+      timeout: 3,
+    })
+  })
+  
+  window.addEventListener('offline', () => {
+    // Mất kết nối mạng
+    offlineToastId = toast({
+      title: "Thất bại",
+      text: "Vui lòng kiểm tra kết nối mạng và thử lại",
+      icon: "x",
+      iconClasses: "text-red-600",
+      background: "bg-surface-red-2",
+      position: "bottom-right",
+      timeout: null, // Không tự động đóng khi mất mạng
+    })
+  })
+}
+
 app.mount("#app")

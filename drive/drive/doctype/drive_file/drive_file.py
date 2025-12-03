@@ -441,10 +441,7 @@ class DriveFile(Document):
         )
         create_new_entity_activity_log(entity=self.name, action_type="edit")
         
-        # Truncate title to 140 characters to prevent CharacterLengthExceededError
-        # Drive File.title fieldtype is Data (max 140 characters)
-        if len(new_title) > 140:
-            new_title = new_title[:140].strip()
+        # Title giờ là Text, không cần cắt nữa - dùng trực tiếp new_title
         
         # Retry logic để xử lý TimestampMismatchError khi có nhiều request đồng thời
         max_retries = 3
@@ -454,6 +451,50 @@ class DriveFile(Document):
                 self.reload()
                 self.title = new_title
                 self.save()
+                
+                # Nếu là mindmap, cũng update title của Drive Mindmap và node root
+                if self.mime_type == "mindmap" and self.mindmap:
+                    try:
+                        import json
+                        mindmap_doc = frappe.get_doc("Drive Mindmap", self.mindmap)
+                        old_mindmap_title = mindmap_doc.title
+                        mindmap_doc.title = new_title
+                        
+                        # Cập nhật label của node root trong mindmap_data
+                        if mindmap_doc.mindmap_data:
+                            try:
+                                mindmap_data = mindmap_doc.mindmap_data
+                                if isinstance(mindmap_data, str):
+                                    mindmap_data = json.loads(mindmap_data)
+                                
+                                # Tìm và cập nhật node root
+                                if isinstance(mindmap_data, dict) and "nodes" in mindmap_data:
+                                    for node in mindmap_data["nodes"]:
+                                        if node.get("id") == "root":
+                                            # Cập nhật label trong data
+                                            if "data" in node and isinstance(node["data"], dict):
+                                                node["data"]["label"] = new_title
+                                            # Cũng cập nhật label trực tiếp nếu có (backward compatibility)
+                                            if "label" in node:
+                                                node["label"] = new_title
+                                            break
+                                    
+                                    # Lưu lại mindmap_data đã cập nhật
+                                    mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
+                                    print(f"✅ Updated root node label in mindmap_data: '{new_title}'")
+                            except Exception as e:
+                                # Log error nhưng không throw để không ảnh hưởng đến rename
+                                frappe.log_error(f"Error updating root node label: {str(e)}", "Rename Mindmap Root Node")
+                                print(f"⚠️ Warning: Could not update root node label: {str(e)}")
+                        
+                        mindmap_doc.save(ignore_permissions=True)
+                        frappe.db.commit()
+                        print(f"✅ Updated Drive Mindmap title: '{old_mindmap_title}' → '{new_title}' (mindmap: {self.mindmap})")
+                    except Exception as e:
+                        # Log error nhưng không throw để không ảnh hưởng đến rename Drive File
+                        frappe.log_error(f"Error updating mindmap title: {str(e)}", "Rename Mindmap Title")
+                        print(f"❌ Error updating mindmap title: {str(e)}")
+                
                 return self
             except frappe.exceptions.TimestampMismatchError:
                 if attempt < max_retries - 1:
@@ -474,6 +515,50 @@ class DriveFile(Document):
                     frappe.db.commit()
                     # Reload để lấy giá trị mới
                     self.reload()
+                    
+                    # Nếu là mindmap, cũng update title của Drive Mindmap và node root
+                    if self.mime_type == "mindmap" and self.mindmap:
+                        try:
+                            import json
+                            mindmap_doc = frappe.get_doc("Drive Mindmap", self.mindmap)
+                            old_mindmap_title = mindmap_doc.title
+                            mindmap_doc.title = new_title
+                            
+                            # Cập nhật label của node root trong mindmap_data
+                            if mindmap_doc.mindmap_data:
+                                try:
+                                    mindmap_data = mindmap_doc.mindmap_data
+                                    if isinstance(mindmap_data, str):
+                                        mindmap_data = json.loads(mindmap_data)
+                                    
+                                    # Tìm và cập nhật node root
+                                    if isinstance(mindmap_data, dict) and "nodes" in mindmap_data:
+                                        for node in mindmap_data["nodes"]:
+                                            if node.get("id") == "root":
+                                                # Cập nhật label trong data
+                                                if "data" in node and isinstance(node["data"], dict):
+                                                    node["data"]["label"] = new_title
+                                                # Cũng cập nhật label trực tiếp nếu có (backward compatibility)
+                                                if "label" in node:
+                                                    node["label"] = new_title
+                                                break
+                                        
+                                        # Lưu lại mindmap_data đã cập nhật
+                                        mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
+                                        print(f"✅ Updated root node label in mindmap_data (fallback): '{new_title}'")
+                                except Exception as e:
+                                    # Log error nhưng không throw để không ảnh hưởng đến rename
+                                    frappe.log_error(f"Error updating root node label: {str(e)}", "Rename Mindmap Root Node")
+                                    print(f"⚠️ Warning: Could not update root node label (fallback): {str(e)}")
+                            
+                            mindmap_doc.save(ignore_permissions=True)
+                            frappe.db.commit()
+                            print(f"✅ Updated Drive Mindmap title (fallback): '{old_mindmap_title}' → '{new_title}' (mindmap: {self.mindmap})")
+                        except Exception as e:
+                            # Log error nhưng không throw để không ảnh hưởng đến rename Drive File
+                            frappe.log_error(f"Error updating mindmap title: {str(e)}", "Rename Mindmap Title")
+                            print(f"❌ Error updating mindmap title (fallback): {str(e)}")
+                    
                     return self
 
     @frappe.whitelist()

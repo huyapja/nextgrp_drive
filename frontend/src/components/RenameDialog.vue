@@ -5,16 +5,18 @@
     :modal="true"
     :closable="true"
     :draggable="false"
-    :style="{ maxWidth: '400px' }"
+    :style="{ maxWidth: '450px', width: '90vw' }"
   >
     <div class="flex flex-col gap-4">
       <div class="flex items-center gap-2">
         <InputText
+          ref="nameInput"
           v-model="newName"
           v-focus
           class="flex-1"
           placeholder="Nhập tên mới"
           @keyup.enter="submit"
+          @focus="selectAllText"
           autofocus
         />
         <Chip
@@ -52,7 +54,7 @@ import Button from "primevue/button"
 import Chip from "primevue/chip"
 import Dialog from "primevue/dialog"
 import InputText from "primevue/inputtext"
-import { computed, ref } from "vue"
+import { computed, nextTick, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import { rename } from "../resources/files"
@@ -60,22 +62,48 @@ import { rename } from "../resources/files"
 const props = defineProps({ entity: Object, modelValue: String })
 const emit = defineEmits(["update:modelValue", "success"])
 const store = useStore()
+const route = useRoute()
 
 const newName = ref("")
 const ext = ref("")
+const nameInput = ref(null)
+const isInitialized = ref(false)
 
-if (props.entity.is_group || props.entity.document) {
-  newName.value = props.entity.is_shortcut ? props.entity.shortcut_title : props.entity.title
-  if (useRoute().meta.documentPage) {
-    store.state.activeEntity.title = newName.value
-  }
-} else {
-  const parts = props.entity.is_shortcut ? props.entity.shortcut_title.split(".") : props.entity.title.split(".")
-  if (parts.length > 1) {
-    newName.value = parts.slice(0, -1).join(".").trim()
-    ext.value = parts[parts.length - 1]
+// Khởi tạo newName mỗi khi dialog mở
+const initializeName = () => {
+  if (!props.entity) return
+  
+  if (props.entity.is_group || props.entity.document) {
+    newName.value = props.entity.is_shortcut ? props.entity.shortcut_title : props.entity.title
+    if (route.meta.documentPage) {
+      store.state.activeEntity.title = newName.value
+    }
   } else {
-    newName.value = parts[0]
+    const parts = props.entity.is_shortcut ? props.entity.shortcut_title.split(".") : props.entity.title.split(".")
+    if (parts.length > 1) {
+      newName.value = parts.slice(0, -1).join(".").trim()
+      ext.value = parts[parts.length - 1]
+    } else {
+      newName.value = parts[0]
+      ext.value = ""
+    }
+  }
+  
+  isInitialized.value = true
+  
+  // Select toàn bộ text sau khi khởi tạo
+  nextTick(() => {
+    selectAllText()
+  })
+}
+
+// Select toàn bộ text trong input
+const selectAllText = () => {
+  if (nameInput.value && nameInput.value.$el) {
+    const inputElement = nameInput.value.$el.querySelector('input') || nameInput.value.$el
+    if (inputElement && inputElement.select) {
+      inputElement.select()
+    }
   }
 }
 
@@ -85,9 +113,27 @@ const open = computed({
   },
   set: (value) => {
     emit("update:modelValue", value || "")
-    if (!value) newName.value = ""
+    if (!value) {
+      newName.value = ""
+      ext.value = ""
+      isInitialized.value = false
+    }
   },
 })
+
+// Watch khi dialog mở để khởi tạo lại newName
+watch(() => props.modelValue, (newVal, oldVal) => {
+  // Khởi tạo khi dialog mở (chuyển từ đóng sang mở hoặc mở ngay từ đầu)
+  if (newVal === "rn" && props.entity && !isInitialized.value) {
+    // Sử dụng nextTick để đảm bảo dialog đã render xong
+    nextTick(() => {
+      initializeName()
+    })
+  } else if (newVal !== "rn") {
+    // Reset flag khi dialog đóng
+    isInitialized.value = false
+  }
+}, { immediate: true })
 
 const submit = () => {
   if (!newName.value.trim()) return
