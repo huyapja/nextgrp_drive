@@ -37,6 +37,19 @@ export class D3MindmapRenderer {
     this.nodeSizeCache = new Map() // Cache node sizes to avoid recalculating during editing
     this.vueApps = new Map() // Store Vue app instances for each node
     this.collapsedNodes = new Set() // Track collapsed nodes
+    this.draggedNode = null // Track node being dragged
+    this.dragTargetNode = null // Track node being hovered during drag
+    this.dragGhost = null // Ghost/preview element during drag
+    this.dragGhostEdgesGroup = null // Group chứa ghost edges
+    this.dragOffset = { x: 0, y: 0 } // Offset của ghost so với con trỏ chuột
+    this.dragStartTimeout = null // Timeout để delay drag start
+    this.isDragStarting = false // Flag để track xem có đang trong quá trình delay drag không
+    this.mouseUpOccurred = false // Flag để track xem mouseup đã xảy ra chưa (để phân biệt click và drag)
+    this.dragStartPosition = null // Vị trí bắt đầu drag để kiểm tra xem có di chuyển nhiều không
+    this.dragStartTime = null // Timestamp khi mousedown để kiểm tra xem có phải click nhanh không
+    this.dragGhostEdges = null // Thông tin về ghost edges để cập nhật khi drag
+    this.dragBranchGhost = null // Rect bao quanh nhánh ở vị trí cũ
+    this.dragBranchNodeIds = [] // Danh sách các node ID trong nhánh để restore sau
     
     this.zoom = null
     this.svg = null
@@ -1464,6 +1477,51 @@ export class D3MindmapRenderer {
     return descendants
   }
   
+  // Helper: Check if a node is a descendant of another node
+  isDescendant(ancestorId, nodeId) {
+    if (ancestorId === nodeId) return false
+    const descendants = this.getDescendantIds(ancestorId)
+    return descendants.includes(nodeId)
+  }
+  
+  // Helper: Cleanup drag branch effects (restore opacity, remove border, etc.)
+  cleanupDragBranchEffects() {
+    // Xóa border nét đứt bao quanh nhánh
+    if (this.dragBranchGhost) {
+      this.dragBranchGhost.remove()
+      this.dragBranchGhost = null
+    }
+    
+    // Restore opacity của tất cả các node trong nhánh
+    this.dragBranchNodeIds.forEach(nodeId => {
+      const branchNodeGroup = this.g.select(`[data-node-id="${nodeId}"]`)
+      if (!branchNodeGroup.empty()) {
+        branchNodeGroup.style('opacity', 1)
+        branchNodeGroup.style('pointer-events', 'auto')
+      }
+    })
+    
+    // Restore opacity của tất cả các edge liên quan đến nhánh
+    const branchNodeIdsSet = new Set(this.dragBranchNodeIds)
+    this.edges.forEach(edge => {
+      const isSourceInBranch = branchNodeIdsSet.has(edge.source)
+      const isTargetInBranch = branchNodeIdsSet.has(edge.target)
+      
+      // Restore tất cả edge có source hoặc target trong nhánh
+      if (isSourceInBranch || isTargetInBranch) {
+        const edgeElement = this.g.select(`.edge[data-edge-id="${edge.id}"]`)
+        if (!edgeElement.empty()) {
+          edgeElement
+            .classed('drag-branch-edge', false) // Xóa class đánh dấu
+            .style('opacity', 1) // Restore opacity về 1
+        }
+      }
+    })
+    
+    // Reset danh sách node trong nhánh
+    this.dragBranchNodeIds = []
+  }
+  
   // Helper: Count all descendants (children + cháu + ... ) của một node
   // Dùng cho nút hiển thị tổng số nhánh con khi một node bị thu gọn.
   countChildren(nodeId) {
@@ -1501,6 +1559,7 @@ export class D3MindmapRenderer {
     const edgesEnter = edges.enter()
       .append('path')
       .attr('class', 'edge')
+      .attr('data-edge-id', d => d.id) // Thêm data-edge-id để có thể select sau
       .attr('fill', 'none')
       .attr('stroke', '#3b82f6')
       .attr('stroke-width', 2)
@@ -1511,13 +1570,23 @@ export class D3MindmapRenderer {
     // Update all edges
     const edgesUpdate = edgesEnter.merge(edges)
     
+    // Đảm bảo data-edge-id luôn được set
+    edgesUpdate.attr('data-edge-id', d => d.id)
+    
     // Hide edges to collapsed children
+    // Không override opacity của edge đang được làm mờ do drag
+    const that = this
     edgesUpdate
-      .style('opacity', d => {
-        return this.isNodeHidden(d.target) ? 0 : 1
+      .style('opacity', function(d) {
+        const element = d3.select(this)
+        // Nếu edge đang được làm mờ do drag, giữ nguyên opacity
+        if (element.classed('drag-branch-edge')) {
+          return parseFloat(element.style('opacity')) || 0.2
+        }
+        return that.isNodeHidden(d.target) ? 0 : 1
       })
       .style('pointer-events', d => {
-        return this.isNodeHidden(d.target) ? 'none' : 'auto'
+        return that.isNodeHidden(d.target) ? 'none' : 'auto'
       })
     
       edgesUpdate.attr('d', d => {
@@ -1901,6 +1970,121 @@ export class D3MindmapRenderer {
     
     // Đảm bảo toàn bộ node-group (bao gồm nút thu gọn) luôn nằm trên edge
     nodesUpdate.raise()
+      .on('mousedown', function(event, d) {
+        // Bắt đầu delay drag - chỉ cho phép drag sau 200ms
+        const isRoot = d.data?.isRoot || d.id === 'root'
+        const isEditing = that.editingNode === d.id
+        
+        // Nếu là root hoặc đang edit thì không cho phép drag
+        if (isRoot || isEditing) {
+          return
+        }
+        
+        // Kiểm tra xem click có phải vào editor hoặc button không
+        const target = event.target
+        if (target) {
+          const checkElement = (el, classes) => {
+            if (!el) return false
+            if (el.classList) {
+              return classes.some(cls => el.classList.contains(cls))
+            }
+            if (el.className) {
+              const className = typeof el.className === 'string' 
+                ? el.className 
+                : el.className.baseVal || ''
+              return classes.some(cls => className.includes(cls))
+            }
+            return false
+          }
+          
+          const editorClasses = [
+            'mindmap-node-editor',
+            'mindmap-editor-content',
+            'mindmap-editor-prose',
+            'ProseMirror',
+            'ProseMirror-focused'
+          ]
+          
+          const buttonClasses = [
+            'add-child-btn',
+            'add-child-text',
+            'collapse-btn-arrow',
+            'collapse-btn-number',
+            'collapse-text-number',
+            'collapse-arrow'
+          ]
+          
+          let current = target
+          let depth = 0
+          while (current && depth < 10) {
+            if (checkElement(current, editorClasses) || checkElement(current, buttonClasses)) {
+              return // Block drag nếu click vào editor hoặc button
+            }
+            current = current.parentNode
+            depth++
+          }
+        }
+        
+        // Lưu vị trí ban đầu của mouse
+        const startX = event.clientX
+        const startY = event.clientY
+        const nodeId = d.id
+        
+        console.log('[MOUSEDOWN] Starting drag delay for node:', nodeId)
+        
+        // Reset flags và lưu vị trí bắt đầu
+        that.isDragStarting = true
+        that.mouseUpOccurred = false
+        that.dragStartPosition = { x: startX, y: startY }
+        that.dragStartTime = Date.now() // Lưu timestamp khi mousedown
+        
+        // Clear timeout cũ nếu có
+        if (that.dragStartTimeout) {
+          clearTimeout(that.dragStartTimeout)
+        }
+        
+        // Handler để cancel delay nếu thả chuột
+        const cancelDrag = () => {
+          console.log('[MOUSEDOWN] Mouse up, canceling drag delay')
+          that.mouseUpOccurred = true // Đánh dấu mouseup đã xảy ra
+          if (that.dragStartTimeout) {
+            clearTimeout(that.dragStartTimeout)
+            that.dragStartTimeout = null
+          }
+          that.isDragStarting = false
+          document.removeEventListener('mousemove', checkMouseMove)
+          document.removeEventListener('mouseup', cancelDrag)
+        }
+        
+        // Kiểm tra xem có di chuyển chuột nhiều không (nếu di chuyển > 5px thì cho phép drag ngay)
+        const checkMouseMove = (e) => {
+          const deltaX = Math.abs(e.clientX - startX)
+          const deltaY = Math.abs(e.clientY - startY)
+          if (deltaX > 5 || deltaY > 5) {
+            // Di chuyển nhiều -> cho phép drag ngay (không cancel, chỉ cho phép)
+            console.log('[MOUSEDOWN] Mouse moved > 5px, allowing drag immediately')
+            if (that.dragStartTimeout) {
+              clearTimeout(that.dragStartTimeout)
+              that.dragStartTimeout = null
+            }
+            that.isDragStarting = false // Cho phép drag ngay
+            document.removeEventListener('mousemove', checkMouseMove)
+            // KHÔNG remove mouseup listener vì cần để cleanup sau khi drag xong
+          }
+        }
+        
+        // Thêm listeners để cancel delay nếu thả chuột hoặc cho phép drag nếu di chuyển nhiều
+        document.addEventListener('mousemove', checkMouseMove)
+        document.addEventListener('mouseup', cancelDrag)
+        
+        // Sau 200ms, cho phép drag
+        that.dragStartTimeout = setTimeout(() => {
+          console.log('[MOUSEDOWN] Delay finished (200ms), allowing drag')
+          that.isDragStarting = false // Cho phép drag sau delay
+          document.removeEventListener('mousemove', checkMouseMove)
+          document.removeEventListener('mouseup', cancelDrag)
+        }, 200)
+      })
       .on('click', function(event, d) {
         // Kiểm tra xem click có phải từ editor hoặc các nút không
         const target = event.target
@@ -2014,6 +2198,916 @@ export class D3MindmapRenderer {
           }
         }, 10)
       })
+      .call(d3.drag()
+        .filter(function(event, d) {
+          // Chỉ kiểm tra điều kiện cơ bản trong filter (button, không block delay)
+          // Logic delay sẽ được xử lý trong on('start')
+          
+          // Chỉ cho phép drag với left mouse button
+          // Kiểm tra event.sourceEvent tồn tại và có button
+          console.log('[DRAG FILTER] Node:', d.id, 'event:', event, 'event.sourceEvent:', event.sourceEvent)
+          
+          // Nếu không có sourceEvent, có thể là touch event hoặc event khác, cho phép mặc định
+          if (!event.sourceEvent) {
+            console.log('[DRAG FILTER] No sourceEvent, allowing drag (might be touch event)')
+            return true
+          }
+          
+          // Kiểm tra button: 0 = left mouse button
+          const allow = event.sourceEvent.button === 0 || event.sourceEvent.button === undefined
+          console.log('[DRAG FILTER] Node:', d.id, 'button:', event.sourceEvent.button, 'allow:', allow)
+          return allow
+        })
+        .on('start', function(event, d) {
+          console.log('[DRAG START] Node:', d.id, 'event:', event, 'event.sourceEvent:', event.sourceEvent, 'isDragStarting:', that.isDragStarting, 'mouseUpOccurred:', that.mouseUpOccurred)
+          
+          // Kiểm tra xem có phải là click đơn giản không (mouseup đã xảy ra)
+          if (that.mouseUpOccurred) {
+            console.log('[DRAG START] Blocked - mouseup already occurred, this is a click, not a drag')
+            if (event.sourceEvent) {
+              event.sourceEvent.preventDefault()
+              event.sourceEvent.stopPropagation()
+            }
+            // Cleanup drag branch effects nếu đã được tạo
+            that.cleanupDragBranchEffects()
+            // Disable drag handlers
+            d3.select(this).on('drag', null).on('end', null)
+            // Reset flags
+            that.isDragStarting = false
+            that.mouseUpOccurred = false
+            that.dragStartPosition = null
+            that.dragStartTime = null
+            return
+          }
+          
+          // Kiểm tra xem có di chuyển nhiều từ vị trí ban đầu không
+          let hasMoved = false
+          if (that.dragStartPosition && event.sourceEvent) {
+            const currentX = event.sourceEvent.clientX || event.sourceEvent.pageX
+            const currentY = event.sourceEvent.clientY || event.sourceEvent.pageY
+            const deltaX = Math.abs(currentX - that.dragStartPosition.x)
+            const deltaY = Math.abs(currentY - that.dragStartPosition.y)
+            
+            // Nếu di chuyển > 5px thì coi là đã di chuyển
+            hasMoved = deltaX > 5 || deltaY > 5
+          }
+          
+          // Kiểm tra thời gian: nếu từ mousedown đến start < 150ms và không di chuyển nhiều, có thể là click
+          if (that.dragStartTime && !hasMoved) {
+            const timeSinceMouseDown = Date.now() - that.dragStartTime
+            if (timeSinceMouseDown < 150) {
+              console.log('[DRAG START] Blocked - too fast (< 150ms) and no movement, this is likely a click')
+              if (event.sourceEvent) {
+                event.sourceEvent.preventDefault()
+                event.sourceEvent.stopPropagation()
+              }
+              // Cleanup drag branch effects nếu đã được tạo
+              that.cleanupDragBranchEffects()
+              // Disable drag handlers
+              d3.select(this).on('drag', null).on('end', null)
+              // Reset flags
+              that.isDragStarting = false
+              that.mouseUpOccurred = false
+              that.dragStartPosition = null
+              that.dragStartTime = null
+              return
+            }
+          }
+          
+          // Nếu đang trong delay, cancel delay và cho phép drag
+          if (that.isDragStarting) {
+            console.log('[DRAG START] Delay finished, allowing drag')
+            if (that.dragStartTimeout) {
+              clearTimeout(that.dragStartTimeout)
+              that.dragStartTimeout = null
+            }
+            that.isDragStarting = false
+          }
+          
+          const isRoot = d.data?.isRoot || d.id === 'root'
+          const isEditing = that.editingNode === d.id
+          
+          console.log('[DRAG START] Node:', d.id, 'isRoot:', isRoot, 'isEditing:', isEditing)
+          
+          // Nếu là root hoặc đang edit thì không cho phép drag
+          if (isRoot || isEditing) {
+            console.log('[DRAG START] Blocked - isRoot:', isRoot, 'isEditing:', isEditing)
+            if (event.sourceEvent) {
+              event.sourceEvent.preventDefault()
+              event.sourceEvent.stopPropagation()
+            }
+            // Disable drag handlers
+            d3.select(this).on('drag', null).on('end', null)
+            // Reset flags
+            that.isDragStarting = false
+            that.mouseUpOccurred = false
+            that.dragStartPosition = null
+            return
+          }
+          
+          // Kiểm tra xem click có phải vào editor hoặc button không
+          // Lấy target từ sourceEvent nếu có, nếu không thì từ event
+          const target = event.sourceEvent?.target || (event.originalEvent?.target) || null
+          
+          if (target) {
+            console.log('[DRAG START] Target:', target)
+            // Helper function để kiểm tra element
+            const checkElement = (el, classes) => {
+              if (!el) return false
+              if (el.classList) {
+                return classes.some(cls => el.classList.contains(cls))
+              }
+              if (el.className) {
+                const className = typeof el.className === 'string' 
+                  ? el.className 
+                  : el.className.baseVal || ''
+                return classes.some(cls => className.includes(cls))
+              }
+              return false
+            }
+            
+            // Kiểm tra editor classes
+            const editorClasses = [
+              'mindmap-node-editor',
+              'mindmap-editor-content',
+              'mindmap-editor-prose',
+              'ProseMirror',
+              'ProseMirror-focused',
+              'node-content-wrapper' // Block drag khi click vào content wrapper
+            ]
+            
+            // Kiểm tra button classes
+            const buttonClasses = [
+              'add-child-btn',
+              'add-child-text',
+              'collapse-btn-arrow',
+              'collapse-btn-number',
+              'collapse-text-number',
+              'collapse-arrow'
+            ]
+            
+            // Kiểm tra target và các parent của nó, hoặc dùng closest() nếu có
+            let shouldBlock = false
+            if (target.closest) {
+              // Sử dụng closest() để tìm element cha có class cần thiết
+              shouldBlock = !!(
+                target.closest('.mindmap-node-editor') ||
+                target.closest('.mindmap-editor-content') ||
+                target.closest('.mindmap-editor-prose') ||
+                target.closest('.ProseMirror') ||
+                target.closest('.node-content-wrapper') ||
+                target.closest('.add-child-btn') ||
+                target.closest('.add-child-text') ||
+                target.closest('.collapse-btn-arrow') ||
+                target.closest('.collapse-btn-number') ||
+                target.closest('.collapse-text-number') ||
+                target.closest('.collapse-arrow')
+              )
+            } else {
+              // Fallback: kiểm tra từng parent
+              let current = target
+              let depth = 0
+              while (current && depth < 10) {
+                const isEditor = checkElement(current, editorClasses)
+                const isButton = checkElement(current, buttonClasses)
+                if (isEditor || isButton) {
+                  shouldBlock = true
+                  break
+                }
+                current = current.parentNode
+                depth++
+              }
+            }
+            
+            if (shouldBlock) {
+              console.log('[DRAG START] Blocked - clicked on editor/button/content-wrapper:', {
+                target: target,
+                className: target.className
+              })
+              if (event.sourceEvent) {
+                event.sourceEvent.preventDefault()
+                event.sourceEvent.stopPropagation()
+              }
+              // Cleanup drag branch effects nếu đã được tạo
+              that.cleanupDragBranchEffects()
+              // Disable drag handlers
+              d3.select(this).on('drag', null).on('end', null)
+              // Reset flags
+              that.isDragStarting = false
+              that.mouseUpOccurred = false
+              that.dragStartPosition = null
+              that.dragStartTime = null
+              return // Block drag nếu click vào editor, button hoặc content wrapper
+            }
+            console.log('[DRAG START] Passed editor/button check for node:', d.id)
+          }
+          
+          // Bắt đầu drag
+          console.log('[DRAG START] ✅ Starting drag for node:', d.id)
+          // KHÔNG stopPropagation ở đây để không chặn click/dblclick events
+          // Chỉ stopPropagation khi thực sự đang drag (trong on('drag'))
+          that.draggedNode = d.id
+          const nodeGroup = d3.select(this)
+          const nodeRect = nodeGroup.select('.node-rect')
+          const rectWidth = parseFloat(nodeRect.attr('width')) || 130
+          const rectHeight = parseFloat(nodeRect.attr('height')) || 43
+          
+          console.log('[DRAG START] Node size:', { rectWidth, rectHeight })
+          
+          // Lấy vị trí ban đầu của node để tính offset
+          const pos = that.positions.get(d.id)
+          const [x, y] = d3.pointer(event, that.g.node())
+          
+          console.log('[DRAG START] Position:', { pos, x, y })
+          
+          // Tính offset để ghost không che con trỏ chuột
+          // Offset dựa trên vị trí click trong node
+          const offsetX = pos ? (x - pos.x - rectWidth / 2) : -rectWidth / 2
+          const offsetY = pos ? (y - pos.y - rectHeight / 2) : -rectHeight / 2
+          
+          console.log('[DRAG START] Offset:', { offsetX, offsetY })
+          
+          // Lưu offset để sử dụng trong drag
+          that.dragOffset = { x: offsetX, y: offsetY }
+          
+          // Tạo ghost/preview element
+          // Định nghĩa ghostX và ghostY ở ngoài try-catch để có thể sử dụng khi tạo ghost edges
+          const ghostX = x + offsetX
+          const ghostY = y + offsetY
+          
+          try {
+            console.log('[DRAG START] Creating ghost element', { ghostX, ghostY, rectWidth, rectHeight })
+            
+            // Tạo group cho ghost node
+            that.dragGhost = that.g.append('g')
+              .attr('class', 'drag-ghost')
+              .attr('transform', `translate(${ghostX}, ${ghostY})`)
+              .style('opacity', 0.8)
+              .style('pointer-events', 'none')
+              .style('visibility', 'visible')
+              .style('display', 'block')
+            
+            // Đảm bảo ghost node ở trên cùng
+            that.dragGhost.raise()
+            
+            console.log('[DRAG START] Ghost node created:', {
+              element: that.dragGhost.node(),
+              transform: that.dragGhost.attr('transform'),
+              opacity: that.dragGhost.style('opacity')
+            })
+          } catch (error) {
+            console.error('[DRAG START] Error creating ghost node:', error)
+            that.dragGhost = null
+          }
+          
+          // Copy node rect với border dashed (giống Lark)
+          that.dragGhost.append('rect')
+            .attr('width', rectWidth)
+            .attr('height', rectHeight)
+            .attr('rx', 8)
+            .attr('fill', '#f3f4f6')
+            .attr('stroke', '#3b82f6')
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', '8,4')
+          
+          // Bỏ số lượng con ở ghost node
+          
+          // Copy node text (simplified)
+          const nodeLabel = d.data?.label || ''
+          const textContent = nodeLabel.replace(/<[^>]*>/g, '').trim() || 'Node'
+          // Giới hạn độ dài text để không quá dài
+          const displayText = textContent.length > 30 ? textContent.substring(0, 30) + '...' : textContent
+          that.dragGhost.append('text')
+            .attr('x', rectWidth / 2)
+            .attr('y', rectHeight / 2)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .attr('fill', '#374151')
+            .attr('font-size', '14px')
+            .attr('font-weight', '400')
+            .text(displayText)
+          
+          // Tạo group riêng cho ghost edges (ở level riêng, không có transform)
+          that.dragGhostEdgesGroup = that.g.append('g')
+            .attr('class', 'drag-ghost-edges')
+            .style('pointer-events', 'none')
+            .style('visibility', 'visible')
+            .style('display', 'block')
+          
+          // Đảm bảo ghost edges ở trên cùng
+          that.dragGhostEdgesGroup.raise()
+          
+          console.log('[DRAG START] Ghost edges group created:', {
+            element: that.dragGhostEdgesGroup.node()
+          })
+          
+          // Tạo ghost edges (edge từ parent đến node này và từ node này đến children)
+          const parentEdge = that.edges.find(e => e.target === d.id)
+          const childrenEdges = that.edges.filter(e => e.source === d.id)
+          
+          console.log('[DRAG START] Ghost edges info:', { 
+            hasParentEdge: !!parentEdge, 
+            childrenEdgesCount: childrenEdges.length 
+          })
+          
+          // Helper function để tính toán edge path (giống renderEdges)
+          const calculateEdgePath = (sourcePos, targetPos, sourceSize, targetSize) => {
+            if (!sourcePos || !targetPos) return ''
+            
+            const sourceWidth = sourceSize.width
+            const sourceHeight = sourceSize.height
+            const targetWidth = targetSize.width
+            const targetHeight = targetSize.height
+            
+            const x1 = sourcePos.x + sourceWidth
+            const y1 = sourcePos.y + (sourceHeight / 2)
+            
+            const x2 = targetPos.x
+            const y2 = targetPos.y + (targetHeight / 2)
+            
+            const dx = x2 - x1
+            const dy = y2 - y1
+            const direction = dy >= 0 ? 1 : -1
+            const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.45, 130))
+            const horizontalOffset = Math.min(baseOffset, dx - 16)
+            const cornerRadius = Math.min(
+              18,
+              Math.abs(dy) / 2,
+              Math.max(8, horizontalOffset / 3)
+            )
+            
+            if (horizontalOffset < cornerRadius * 2 + 4) {
+              return `M ${x1} ${y1} L ${x2} ${y2}`
+            }
+            
+            const midX = x1 + horizontalOffset
+            const path = [
+              `M ${x1} ${y1}`,
+              `L ${midX - cornerRadius} ${y1}`,
+              `Q ${midX} ${y1} ${midX} ${y1 + direction * cornerRadius}`,
+              `L ${midX} ${y2 - direction * cornerRadius}`,
+              `Q ${midX} ${y2} ${midX + cornerRadius} ${y2}`,
+              `L ${x2} ${y2}`
+            ]
+            
+            return path.join(' ')
+          }
+          
+          // KHÔNG tạo ghost edges từ parent và children (màu xanh dương)
+          // Chỉ tạo ghost edge xanh lá đến target node khi có target
+          
+          // Lấy tất cả các node con cháu của node đang được kéo
+          const descendantIds = that.getDescendantIds(d.id)
+          that.dragBranchNodeIds = [d.id, ...descendantIds] // Bao gồm cả node gốc
+          
+          // Làm mờ tất cả các node trong nhánh (bao gồm tất cả phần tử con như text, buttons, v.v.)
+          that.dragBranchNodeIds.forEach(nodeId => {
+            const branchNodeGroup = that.g.select(`[data-node-id="${nodeId}"]`)
+            if (!branchNodeGroup.empty()) {
+              branchNodeGroup.style('opacity', 0.2) // Làm mờ rõ ràng hơn
+              branchNodeGroup.style('pointer-events', 'none')
+            }
+          })
+          
+          // Tính bounding box của toàn bộ nhánh
+          let minX = Infinity
+          let minY = Infinity
+          let maxX = -Infinity
+          let maxY = -Infinity
+          
+          that.dragBranchNodeIds.forEach(nodeId => {
+            const pos = that.positions.get(nodeId)
+            if (pos) {
+              const nodeSize = that.nodeSizeCache.get(nodeId) || that.estimateNodeSize(that.nodes.find(n => n.id === nodeId))
+              const nodeLeft = pos.x
+              const nodeRight = pos.x + nodeSize.width
+              const nodeTop = pos.y
+              const nodeBottom = pos.y + nodeSize.height
+              
+              minX = Math.min(minX, nodeLeft)
+              minY = Math.min(minY, nodeTop)
+              maxX = Math.max(maxX, nodeRight)
+              maxY = Math.max(maxY, nodeBottom)
+            }
+          })
+          
+          // Làm mờ tất cả các edge liên quan đến nhánh
+          // Bao gồm: edge có source hoặc target là một trong các node trong nhánh
+          const branchNodeIdsSet = new Set(that.dragBranchNodeIds)
+          that.edges.forEach(edge => {
+            const isSourceInBranch = branchNodeIdsSet.has(edge.source)
+            const isTargetInBranch = branchNodeIdsSet.has(edge.target)
+            
+            // Làm mờ tất cả edge có source hoặc target trong nhánh
+            if (isSourceInBranch || isTargetInBranch) {
+              const edgeElement = that.g.select(`.edge[data-edge-id="${edge.id}"]`)
+              if (!edgeElement.empty()) {
+                edgeElement
+                  .classed('drag-branch-edge', true) // Đánh dấu edge đang được làm mờ
+                  .style('opacity', 0.2) // Làm mờ edge
+              }
+            }
+          })
+          
+          // Tạo border nét đứt bao quanh nhánh ở vị trí cũ
+          if (minX !== Infinity && minY !== Infinity && maxX !== -Infinity && maxY !== -Infinity) {
+            const padding = 10 // Padding xung quanh border
+            that.dragBranchGhost = that.g.append('rect')
+              .attr('class', 'drag-branch-ghost')
+              .attr('x', minX - padding)
+              .attr('y', minY - padding)
+              .attr('width', maxX - minX + padding * 2)
+              .attr('height', maxY - minY + padding * 2)
+              .attr('rx', 8)
+              .attr('fill', 'none')
+              .attr('stroke', '#3b82f6')
+              .attr('stroke-width', 2)
+              .attr('stroke-dasharray', '8,4') // Nét đứt
+              .attr('opacity', 0.6)
+              .style('pointer-events', 'none')
+              .lower() // Đặt ở dưới các node để không che
+          }
+        })
+        .on('drag', function(event, d) {
+          // Khi đang drag
+          console.log('[DRAG] Dragging node:', d.id)
+          // Stop propagation khi đang drag để tránh conflict với các event khác
+          if (event.sourceEvent) {
+            event.sourceEvent.stopPropagation()
+          }
+          const [x, y] = d3.pointer(event, that.g.node())
+          
+          // Vị trí mới của ghost node
+          const ghostX = x + that.dragOffset.x
+          const ghostY = y + that.dragOffset.y
+          const ghostNodePos = { x: ghostX, y: ghostY }
+          
+          // Cập nhật vị trí ghost node
+          if (that.dragGhost) {
+            that.dragGhost.attr('transform', `translate(${ghostX}, ${ghostY})`)
+            console.log('[DRAG] Updated ghost node position:', { ghostX, ghostY })
+          } else {
+            console.log('[DRAG] WARNING: dragGhost is null! Creating ghost node now...')
+            // Tạo ghost node nếu chưa có (có thể on('start') không được gọi)
+            try {
+              const nodeGroup = d3.select(this)
+              const nodeRect = nodeGroup.select('.node-rect')
+              const rectWidth = parseFloat(nodeRect.attr('width')) || 130
+              const rectHeight = parseFloat(nodeRect.attr('height')) || 43
+              
+              that.dragGhost = that.g.append('g')
+                .attr('class', 'drag-ghost')
+                .attr('transform', `translate(${ghostX}, ${ghostY})`)
+                .style('opacity', 0.8)
+                .style('pointer-events', 'none')
+                .style('visibility', 'visible')
+                .style('display', 'block')
+              
+              that.dragGhost.raise()
+              
+              // Copy node rect với border dashed
+              that.dragGhost.append('rect')
+                .attr('width', rectWidth)
+                .attr('height', rectHeight)
+                .attr('rx', 8)
+                .attr('fill', '#f3f4f6')
+                .attr('stroke', '#3b82f6')
+                .attr('stroke-width', 2)
+                .attr('stroke-dasharray', '8,4')
+              
+              // Copy node text
+              const nodeLabel = d.data?.label || ''
+              const textContent = nodeLabel.replace(/<[^>]*>/g, '').trim() || 'Node'
+              const displayText = textContent.length > 30 ? textContent.substring(0, 30) + '...' : textContent
+              that.dragGhost.append('text')
+                .attr('x', rectWidth / 2)
+                .attr('y', rectHeight / 2)
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('fill', '#374151')
+                .attr('font-size', '14px')
+                .attr('font-weight', '400')
+                .text(displayText)
+              
+              console.log('[DRAG] Ghost node created in drag handler')
+              
+              // Tạo ghost edges group nếu chưa có (chỉ để chứa ghost edge xanh lá đến target)
+              if (!that.dragGhostEdgesGroup) {
+                // Tạo group riêng cho ghost edges
+                that.dragGhostEdgesGroup = that.g.append('g')
+                  .attr('class', 'drag-ghost-edges')
+                  .style('pointer-events', 'none')
+                  .style('visibility', 'visible')
+                  .style('display', 'block')
+                
+                that.dragGhostEdgesGroup.raise()
+              }
+            } catch (error) {
+              console.error('[DRAG] Error creating ghost node in drag handler:', error)
+            }
+          }
+          
+          // KHÔNG cập nhật ghost edges xanh dương (đã bỏ)
+          // Chỉ cập nhật ghost edge xanh lá đến target node nếu có
+          if (that.dragGhostEdgesGroup && that.dragTargetNode) {
+            const targetGhostEdge = that.dragGhostEdgesGroup.select('.drag-ghost-edge-target')
+            if (!targetGhostEdge.empty()) {
+              const targetNode = that.nodes.find(n => n.id === that.dragTargetNode)
+              if (targetNode) {
+                const targetPos = that.positions.get(that.dragTargetNode)
+                const targetSize = that.nodeSizeCache.get(that.dragTargetNode) || { width: 130, height: 43 }
+                const ghostNodeSize = that.nodeSizeCache.get(d.id) || { width: 130, height: 43 }
+                
+                if (targetPos) {
+                  // Helper function để tính toán edge path từ bên trái ghost node đến bên phải target node
+                  // Từ bên trái node di chuyển đến bên phải node cha mới
+                  const calculateTargetEdgePath = (sourcePos, targetPos, sourceSize, targetSize) => {
+                    if (!sourcePos || !targetPos) return ''
+                    
+                    const sourceWidth = sourceSize.width
+                    const sourceHeight = sourceSize.height
+                    const targetWidth = targetSize.width
+                    const targetHeight = targetSize.height
+                    
+                    // Bắt đầu từ bên trái của ghost node (giữa theo chiều dọc)
+                    const x1 = sourcePos.x
+                    const y1 = sourcePos.y + (sourceHeight / 2)
+                    
+                    // Edge bên phải của target node - luôn nối vào chính giữa
+                    const x2 = targetPos.x + targetWidth
+                    const y2 = targetPos.y + (targetHeight / 2) // Chính giữa bên phải của target node
+                    
+                    const dx = x2 - x1
+                    const dy = y2 - y1
+                    const direction = dy >= 0 ? 1 : -1
+                    
+                    // Tính toán horizontal offset để tạo đường cong mượt mà
+                    // dx luôn dương khi đi từ trái sang phải
+                    const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.45, 130))
+                    const horizontalOffset = Math.min(baseOffset, dx - 16)
+                    const cornerRadius = Math.min(
+                      18,
+                      Math.abs(dy) / 2,
+                      Math.max(8, horizontalOffset / 3)
+                    )
+                    
+                    // Nếu khoảng cách quá ngắn, vẽ đường thẳng
+                    if (horizontalOffset < cornerRadius * 2 + 4) {
+                      return `M ${x1} ${y1} L ${x2} ${y2}`
+                    }
+                    
+                    // Tính điểm giữa cho đường cong
+                    // Đi từ bên trái ghost node sang bên phải target node
+                    const midX = x1 + horizontalOffset
+                    
+                    // Tạo đường cong mượt mà: đi ngang từ x1, sau đó cong lên/xuống, rồi đi ngang đến x2
+                    const path = [
+                      `M ${x1} ${y1}`, // Bắt đầu từ bên trái ghost node
+                      `L ${midX - cornerRadius} ${y1}`, // Đi ngang sang phải
+                      `Q ${midX} ${y1} ${midX} ${y1 + direction * cornerRadius}`, // Cong lên/xuống
+                      `L ${midX} ${y2 - direction * cornerRadius}`, // Đi dọc đến gần y2
+                      `Q ${midX} ${y2} ${midX + cornerRadius} ${y2}`, // Cong để đi ngang
+                      `L ${x2} ${y2}` // Đi ngang đến edge bên phải target node
+                    ]
+                    
+                    return path.join(' ')
+                  }
+                  
+                  const edgePath = calculateTargetEdgePath(
+                    ghostNodePos,
+                    targetPos,
+                    ghostNodeSize,
+                    targetSize
+                  )
+                  
+                  targetGhostEdge.attr('d', edgePath)
+                }
+              }
+            }
+          }
+          
+          // Tìm node đích (node đang hover) bằng cách tìm node gần nhất với edge bên phải của node
+          // Giống Lark: ghost edge chỉ xuất hiện khi pointer đến gần edge bên phải của target node
+          let targetNodeGroup = null
+          let minDistance = Infinity
+          let closestNode = null
+          
+          // Ngưỡng khoảng cách để coi node là target (pixels) - chỉ tính từ edge bên phải
+          const maxTargetDistance = 150 // Khoảng cách tối đa từ pointer đến edge bên phải (tăng để dễ detect hơn)
+          
+          // Tìm node gần nhất với edge bên phải của node
+          that.nodes.forEach(node => {
+            const pos = that.positions.get(node.id)
+            if (pos) {
+              const nodeSize = that.nodeSizeCache.get(node.id) || that.estimateNodeSize(node)
+              
+              const nodeRight = pos.x + nodeSize.width // Edge bên phải của node
+              const nodeTop = pos.y
+              const nodeBottom = pos.y + nodeSize.height
+              
+              // Chỉ tính khoảng cách đến edge bên phải của node (không phải toàn bộ node)
+              // Pointer có thể ở bên trái hoặc bên phải edge một chút
+              const edgeX = nodeRight
+              
+              // Tính khoảng cách từ pointer đến edge bên phải
+              // Khoảng cách ngang: từ pointer đến edge (có thể âm nếu pointer ở bên trái edge)
+              const dx = Math.abs(x - edgeX)
+              
+              // Khoảng cách dọc: từ pointer đến điểm gần nhất trên edge
+              let dy
+              if (y < nodeTop) {
+                // Pointer ở trên edge -> khoảng cách đến điểm trên cùng của edge
+                dy = nodeTop - y
+              } else if (y > nodeBottom) {
+                // Pointer ở dưới edge -> khoảng cách đến điểm dưới cùng của edge
+                dy = y - nodeBottom
+              } else {
+                // Pointer ở trong phạm vi dọc của edge -> khoảng cách dọc = 0
+                dy = 0
+              }
+              
+              // Tính khoảng cách tổng từ pointer đến edge bên phải
+              const distance = Math.sqrt(dx * dx + dy * dy)
+              
+              // Chỉ xem xét node nếu khoảng cách <= maxTargetDistance
+              // Và pointer phải ở gần edge (không quá xa về phía trái)
+              if (distance <= maxTargetDistance && x >= edgeX - maxTargetDistance && distance < minDistance) {
+                minDistance = distance
+                closestNode = node
+              }
+            }
+          })
+          
+          if (closestNode) {
+            console.log('[DRAG] Found closest node:', closestNode.id, 'distance:', minDistance)
+            targetNodeGroup = that.g.select(`[data-node-id="${closestNode.id}"]`)
+          } else {
+            console.log('[DRAG] No closest node found')
+          }
+          
+          if (targetNodeGroup && targetNodeGroup.node() && targetNodeGroup.datum()) {
+            const targetDatum = targetNodeGroup.datum()
+            const isRoot = targetDatum.data?.isRoot || targetDatum.id === 'root'
+            const isSameNode = targetDatum.id === d.id
+            const isDescendant = that.isDescendant(d.id, targetDatum.id)
+            
+            console.log('[DRAG] Target node check:', {
+              targetId: targetDatum.id,
+              isRoot,
+              isSameNode,
+              isDescendant,
+              isValid: !isSameNode && !isDescendant
+            })
+            
+            // Chỉ highlight nếu không phải cùng node và không phải descendant
+            // Cho phép drop vào root node (giống Lark)
+            if (!isSameNode && !isDescendant) {
+              // Remove highlight từ node cũ
+              if (that.dragTargetNode && that.dragTargetNode !== targetDatum.id) {
+                const oldTarget = that.g.select(`[data-node-id="${that.dragTargetNode}"]`)
+                oldTarget.select('.node-rect')
+                  .attr('stroke', d => {
+                    if (d.data?.isRoot) return 'none'
+                    if (that.selectedNode === d.id) return '#3b82f6'
+                    return '#cbd5e1'
+                  })
+                  .attr('stroke-width', d => that.selectedNode === d.id ? 2 : 2)
+              }
+              
+              // Highlight node mới với màu xanh dương giống như khi được select
+              that.dragTargetNode = targetDatum.id
+              targetNodeGroup.select('.node-rect')
+                .attr('stroke', '#3b82f6')
+                .attr('stroke-width', 2) // Giống như khi được select
+                // Không có stroke-dasharray để border active không nét đứt
+              
+              // Tạo/cập nhật ghost edge từ ghost node đến target node
+              if (that.dragGhostEdgesGroup) {
+                const targetPos = that.positions.get(targetDatum.id)
+                const targetSize = that.nodeSizeCache.get(targetDatum.id) || { width: 130, height: 43 }
+                const ghostNodeSize = that.nodeSizeCache.get(d.id) || { width: 130, height: 43 }
+                
+                if (targetPos) {
+                  // Helper function để tính toán edge path từ bên trái ghost node đến bên phải target node
+                  // Từ bên trái node di chuyển đến bên phải node cha mới
+                  const calculateTargetEdgePath = (sourcePos, targetPos, sourceSize, targetSize) => {
+                    if (!sourcePos || !targetPos) return ''
+                    
+                    const sourceWidth = sourceSize.width
+                    const sourceHeight = sourceSize.height
+                    const targetWidth = targetSize.width
+                    const targetHeight = targetSize.height
+                    
+                    // Bắt đầu từ bên trái của ghost node (giữa theo chiều dọc)
+                    const x1 = sourcePos.x
+                    const y1 = sourcePos.y + (sourceHeight / 2)
+                    
+                    // Edge bên phải của target node - luôn nối vào chính giữa
+                    const x2 = targetPos.x + targetWidth
+                    const y2 = targetPos.y + (targetHeight / 2) // Chính giữa bên phải của target node
+                    
+                    const dx = x2 - x1
+                    const dy = y2 - y1
+                    const direction = dy >= 0 ? 1 : -1
+                    
+                    // Tính toán horizontal offset để tạo đường cong mượt mà
+                    // dx luôn dương khi đi từ trái sang phải
+                    const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.45, 130))
+                    const horizontalOffset = Math.min(baseOffset, dx - 16)
+                    const cornerRadius = Math.min(
+                      18,
+                      Math.abs(dy) / 2,
+                      Math.max(8, horizontalOffset / 3)
+                    )
+                    
+                    // Nếu khoảng cách quá ngắn, vẽ đường thẳng
+                    if (horizontalOffset < cornerRadius * 2 + 4) {
+                      return `M ${x1} ${y1} L ${x2} ${y2}`
+                    }
+                    
+                    // Tính điểm giữa cho đường cong
+                    // Đi từ bên trái ghost node sang bên phải target node
+                    const midX = x1 + horizontalOffset
+                    
+                    // Tạo đường cong mượt mà: đi ngang từ x1, sau đó cong lên/xuống, rồi đi ngang đến x2
+                    const path = [
+                      `M ${x1} ${y1}`, // Bắt đầu từ bên trái ghost node
+                      `L ${midX - cornerRadius} ${y1}`, // Đi ngang sang phải
+                      `Q ${midX} ${y1} ${midX} ${y1 + direction * cornerRadius}`, // Cong lên/xuống
+                      `L ${midX} ${y2 - direction * cornerRadius}`, // Đi dọc đến gần y2
+                      `Q ${midX} ${y2} ${midX + cornerRadius} ${y2}`, // Cong để đi ngang
+                      `L ${x2} ${y2}` // Đi ngang đến edge bên phải target node
+                    ]
+                    
+                    return path.join(' ')
+                  }
+                  
+                  const edgePath = calculateTargetEdgePath(
+                    ghostNodePos,
+                    targetPos,
+                    ghostNodeSize,
+                    targetSize
+                  )
+                  
+                  // Kiểm tra xem đã có ghost edge đến target chưa
+                  let targetGhostEdge = that.dragGhostEdgesGroup.select('.drag-ghost-edge-target')
+                  
+                  if (targetGhostEdge.empty()) {
+                    // Tạo mới ghost edge đến target với màu xanh dương giống Lark
+                    targetGhostEdge = that.dragGhostEdgesGroup.append('path')
+                      .attr('class', 'drag-ghost-edge-target')
+                      .attr('fill', 'none')
+                      .attr('stroke', '#3b82f6') // Màu xanh dương
+                      .attr('stroke-width', 2) // Bằng với edge bình thường
+                      .attr('stroke-dasharray', '8,4') // Nét đứt
+                      .attr('stroke-opacity', 0.6) // Màu nhạt hơn
+                      .attr('stroke-linecap', 'round')
+                      .attr('stroke-linejoin', 'round')
+                      .raise() // Đảm bảo edge đến target luôn ở trên cùng
+                  }
+                  
+                  // Cập nhật path và đảm bảo edge đến target luôn ở trên cùng
+                  targetGhostEdge.attr('d', edgePath).raise()
+                }
+              }
+            } else {
+              // Remove highlight nếu không hợp lệ
+              if (that.dragTargetNode) {
+                const oldTarget = that.g.select(`[data-node-id="${that.dragTargetNode}"]`)
+                oldTarget.select('.node-rect')
+                  .attr('stroke', d => {
+                    if (d.data?.isRoot) return 'none'
+                    if (that.selectedNode === d.id) return '#3b82f6'
+                    return '#cbd5e1'
+                  })
+                  .attr('stroke-width', d => that.selectedNode === d.id ? 2 : 2)
+                  .attr('stroke-dasharray', null)
+                that.dragTargetNode = null
+                
+                // Xóa ghost edge đến target
+                if (that.dragGhostEdgesGroup) {
+                  that.dragGhostEdgesGroup.select('.drag-ghost-edge-target').remove()
+                }
+              }
+            }
+          } else {
+            // Remove highlight nếu không có target
+            if (that.dragTargetNode) {
+              const oldTarget = that.g.select(`[data-node-id="${that.dragTargetNode}"]`)
+              oldTarget.select('.node-rect')
+                .attr('stroke', d => d.data?.isRoot ? 'none' : '#cbd5e1')
+                .attr('stroke-width', 2)
+              that.dragTargetNode = null
+              
+              // Xóa ghost edge đến target
+              if (that.dragGhostEdgesGroup) {
+                that.dragGhostEdgesGroup.select('.drag-ghost-edge-target').remove()
+              }
+            }
+          }
+        })
+        .on('end', function(event, d) {
+          // Kết thúc drag
+          console.log('[DRAG END] Ending drag for node:', d.id, 'targetNodeId:', that.dragTargetNode)
+          const targetNodeId = that.dragTargetNode
+          
+          // Xóa ghost
+          if (that.dragGhost) {
+            that.dragGhost.remove()
+            that.dragGhost = null
+          }
+          
+          // Xóa ghost edges group
+          if (that.dragGhostEdgesGroup) {
+            that.dragGhostEdgesGroup.remove()
+            that.dragGhostEdgesGroup = null
+          }
+          
+          // Xóa thông tin ghost edges
+          that.dragGhostEdges = null
+          
+          // Cleanup drag branch effects (restore opacity, remove border, etc.)
+          that.cleanupDragBranchEffects()
+          
+          // Restore node gốc
+          const nodeGroup = d3.select(this)
+          nodeGroup.style('opacity', 1)
+          nodeGroup.style('pointer-events', 'auto')
+          
+          // Restore border của node gốc về trạng thái ban đầu
+          const isSelected = that.selectedNode === d.id
+          nodeGroup.select('.node-rect')
+            .attr('stroke', d => {
+              if (d.data?.isRoot) return 'none'
+              if (isSelected) return '#3b82f6'
+              return '#cbd5e1'
+            })
+            .attr('stroke-width', 2)
+            .attr('stroke-dasharray', null)
+          
+          // Reset danh sách node trong nhánh
+          that.dragBranchNodeIds = []
+          
+          // Remove highlight từ node đích
+          if (that.dragTargetNode) {
+            const targetNode = that.g.select(`[data-node-id="${that.dragTargetNode}"]`)
+            const targetDatum = targetNode.datum()
+            targetNode.select('.node-rect')
+              .attr('stroke', d => {
+                if (d.data?.isRoot) return 'none'
+                if (that.selectedNode === d.id) return '#3b82f6'
+                return '#cbd5e1'
+              })
+              .attr('stroke-width', 2)
+              .attr('stroke-dasharray', null)
+          }
+          
+          // Reset drag offset
+          that.dragOffset = { x: 0, y: 0 }
+          
+          // Xử lý drop
+          if (targetNodeId && targetNodeId !== d.id) {
+            const targetNode = that.nodes.find(n => n.id === targetNodeId)
+            const isDescendant = that.isDescendant(d.id, targetNodeId)
+            
+            // Cho phép drop vào bất kỳ node nào (bao gồm root) trừ khi là descendant
+            if (targetNode && !isDescendant) {
+              // Cập nhật parent của node
+              const oldEdge = that.edges.find(e => e.target === d.id)
+              const newSource = targetNodeId
+              
+              if (oldEdge) {
+                // Cập nhật edge hiện có
+                oldEdge.source = newSource
+                oldEdge.id = `edge-${newSource}-${d.id}`
+              } else {
+                // Tạo edge mới nếu chưa có
+                that.edges.push({
+                  id: `edge-${newSource}-${d.id}`,
+                  source: newSource,
+                  target: d.id
+                })
+              }
+              
+              // Re-render mindmap với layout mới
+              that.render()
+              
+              // Gọi callback để cập nhật data
+              if (that.callbacks.onNodeUpdate) {
+                that.callbacks.onNodeUpdate(d.id, { parentId: newSource })
+              }
+            }
+          }
+          
+          // Reset drag state
+          that.draggedNode = null
+          that.dragTargetNode = null
+          that.isDragStarting = false
+          that.mouseUpOccurred = false
+          that.dragStartPosition = null
+          that.dragStartTime = null
+        })
+      )
       .on('mouseenter', function(event, d) {
         // Highlight node khi hover - NHẠT HƠN khi active
         that.hoveredNode = d.id
