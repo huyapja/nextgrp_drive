@@ -1,7 +1,7 @@
 <template>
-  <div class="mindmap-node-editor">
+  <div :class="['mindmap-node-editor', { 'is-root': isRoot }]">
     <editor-content
-      class="mindmap-editor-content"
+      :class="['mindmap-editor-content', { 'is-root': isRoot }]"
       :editor="editor"
     />
   </div>
@@ -547,6 +547,13 @@ export default {
   overflow: visible; /* Visible để hiển thị đủ nội dung */
 }
 
+/* ⚠️ CRITICAL: Root node không bị giới hạn height */
+.mindmap-node-editor.is-root {
+  height: auto !important;
+  min-height: 43px !important;
+  max-height: none !important;
+}
+
 .mindmap-editor-content {
   width: 100%;
   height: 100%; /* 100% để fit vào editor */
@@ -554,6 +561,13 @@ export default {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+}
+
+/* ⚠️ CRITICAL: Root node content không bị giới hạn height */
+.mindmap-editor-content.is-root {
+  height: auto !important;
+  min-height: 43px !important;
+  max-height: none !important;
 }
 
 :deep(.mindmap-editor-content > div) {
@@ -598,10 +612,26 @@ export default {
 :deep(.mindmap-editor-prose.is-root) {
   color: #ffffff;
   caret-color: #ffffff; /* Cursor nháy màu trắng */
+  /* ⚠️ CRITICAL: Đảm bảo root node hiển thị đầy đủ nội dung */
+  /* ⚠️ NOTE: white-space được kiểm soát bởi d3MindmapRenderer dựa trên width */
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  overflow: visible !important;
+  max-height: none !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  display: block !important;
 }
 
 :deep(.mindmap-editor-prose.is-root p) {
   color: #ffffff;
+  /* ⚠️ CRITICAL: Đảm bảo paragraph hiển thị đầy đủ */
+  /* ⚠️ NOTE: white-space được kiểm soát bởi d3MindmapRenderer dựa trên width */
+  word-wrap: break-word !important;
+  overflow-wrap: break-word !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  display: block !important;
 }
 
 :deep(.mindmap-editor-prose.is-root *::selection) {
