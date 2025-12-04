@@ -2607,7 +2607,10 @@ def drive_list_all_folders():
     )
 
     if not default_team:
-        frappe.throw("User has no default team configured in Drive Settings")
+        return {
+            "personal": {},
+            "teams": []
+        }
 
     # 2. Lấy root (Drive - <team>)
     home = get_home_folder(default_team)["name"]
