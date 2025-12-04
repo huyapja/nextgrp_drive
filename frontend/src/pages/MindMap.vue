@@ -271,11 +271,30 @@ const initD3Renderer = () => {
     onNodeAdd: (parentId) => {
       addChildToNode(parentId)
     },
-    onNodeUpdate: (nodeId, newLabel) => {
+    onNodeUpdate: (nodeId, updates) => {
       const node = nodes.value.find(n => n.id === nodeId)
       if (node) {
-        // Cập nhật label cho node trong state, nhưng KHÔNG đổi tên file ngay
-        node.data.label = newLabel
+        // Cập nhật label nếu có
+        if (updates.label !== undefined) {
+          node.data.label = updates.label
+        }
+        // Cập nhật parentId nếu có (drag-and-drop)
+        if (updates.parentId !== undefined) {
+          // Tìm và cập nhật edge
+          const edgeIndex = edges.value.findIndex(e => e.target === nodeId)
+          if (edgeIndex !== -1) {
+            edges.value[edgeIndex].source = updates.parentId
+          } else {
+            // Tạo edge mới nếu chưa có
+            edges.value.push({
+              id: `edge-${updates.parentId}-${nodeId}`,
+              source: updates.parentId,
+              target: nodeId
+            })
+          }
+          // Cập nhật layout
+          updateD3RendererWithDelay()
+        }
         // Chỉ lưu layout/nội dung node, không đổi tên file ở đây
         scheduleSave()
       }
