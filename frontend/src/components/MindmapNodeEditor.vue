@@ -564,10 +564,9 @@ export default {
 }
 
 :deep(.mindmap-editor-prose) {
-  /* Không dùng !important cho width và white-space để d3MindmapRenderer có thể set chính xác khi edit */
   width: 100%;
   max-width: 100%;
-  height: auto; /* Auto để có thể mở rộng theo nội dung */
+  height: auto;
   min-height: 43px;
   padding: 8px 16px;
   font-size: 19px;
@@ -577,16 +576,17 @@ export default {
   border: none;
   outline: none;
   resize: none;
-  overflow: visible; /* Visible để hiển thị đủ nội dung */
+  overflow: visible; /* ⚠️ CRITICAL: visible để hiển thị đủ nội dung khi edit */
   box-sizing: border-box;
   word-break: break-word;
   overflow-wrap: break-word;
-  /* Không set white-space mặc định - để d3MindmapRenderer kiểm soát (nowrap khi < 400px, pre-wrap khi >= 400px) */
-  user-select: text; /* Cho phép bôi đen text */
+  user-select: text;
   -webkit-user-select: text;
   -moz-user-select: text;
   -ms-user-select: text;
   min-width: 0;
+  margin: 0; /* ⚠️ NEW: Xóa margin thừa */
+  padding-bottom: 8px; /* ⚠️ FIX: Padding đều 8px (không thừa) */
 }
 
 :deep(.mindmap-editor-prose > *) {
@@ -618,13 +618,14 @@ export default {
 }
 
 :deep(.mindmap-editor-prose p) {
-  margin: 0;
-  padding: 0;
+  margin: 0; /* ⚠️ CRITICAL: Xóa margin thừa */
+  padding: 0; /* ⚠️ CRITICAL: Xóa padding thừa */
   max-width: 100%;
   width: 100%;
   box-sizing: border-box;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  line-height: 1.4; /* ⚠️ NEW: Match với editor line-height */
 }
 
 :deep(.mindmap-editor-prose p.is-editor-empty:first-child::before) {
@@ -743,10 +744,94 @@ export default {
   margin-bottom: 0;
 }
 
-/* Style cho root node blockquote */
-:deep(.mindmap-editor-prose.is-root blockquote) {
-  border-left-color: rgba(255, 255, 255, 0.5);
-  color: rgba(255, 255, 255, 0.8);
+:deep(.mindmap-editor-prose) {
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  min-height: 43px;
+  padding: 8px 16px;
+  font-size: 19px;
+  line-height: 1.4;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  overflow: visible; /* ⚠️ CRITICAL: visible để hiển thị đủ nội dung khi edit */
+  box-sizing: border-box;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  min-width: 0;
+  margin: 0; /* ⚠️ NEW: Xóa margin thừa */
+  padding-bottom: 8px; /* ⚠️ FIX: Padding đều 8px (không thừa) */
+}
+
+:deep(.mindmap-editor-prose p) {
+  margin: 0; /* ⚠️ CRITICAL: Xóa margin thừa */
+  padding: 0; /* ⚠️ CRITICAL: Xóa padding thừa */
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  line-height: 1.4; /* ⚠️ NEW: Match với editor line-height */
+}
+
+:deep(.mindmap-editor-prose blockquote) {
+  margin: 4px 0 0 0; /* ⚠️ FIX: Chỉ margin-top, không có margin-bottom */
+  margin-right: 0 !important;
+  margin-left: 0;
+  padding-left: 6px;
+  padding-right: 0 !important;
+  padding-top: 0; /* ⚠️ NEW: Xóa padding-top thừa */
+  padding-bottom: 0; /* ⚠️ NEW: Xóa padding-bottom thừa */
+  border-left: 3px solid #adc6ee;
+  color: #a19c9c;
+  font-size: 12px;
+  line-height: 1.6;
+  max-width: 100%;
+  width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+  
+  /* Ellipsis khi không edit */
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  white-space: normal;
+}
+
+/* Khi đang edit: hiển thị tất cả dòng */
+:deep(.mindmap-editor-prose:focus-within blockquote),
+:deep(.mindmap-editor-prose.ProseMirror-focused blockquote) {
+  display: block;
+  -webkit-line-clamp: unset;
+  -webkit-box-orient: unset;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  margin-bottom: 0; /* ⚠️ NEW: Không có margin-bottom khi edit */
+}
+
+:deep(.mindmap-editor-prose blockquote p) {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+  line-height: 1.6; /* ⚠️ NEW: Match với blockquote line-height */
 }
 </style>
 

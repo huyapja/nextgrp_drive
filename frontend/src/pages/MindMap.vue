@@ -8,6 +8,14 @@
     />
     
     <div v-if="mindmap.data" class="w-full relative">
+      <!-- Loading indicator khi đang render mindmap -->
+      <div v-if="isRendering" class="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50">
+        <div class="text-center">
+          <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+          <div class="text-lg text-gray-600 mt-4">Đang tải sơ đồ tư duy...</div>
+        </div>
+      </div>
+      
       <!-- Status indicator -->
       <div class="absolute top-2 right-2 z-10 text-sm">
         <span v-if="isSaving" class="text-orange-500 flex items-center gap-1">
@@ -87,6 +95,7 @@ const editingNode = ref(null)
 const showDeleteDialog = ref(false)
 const nodeToDelete = ref(null)
 const childCount = ref(0)
+const isRendering = ref(true) // Loading state khi đang render mindmap
 let saveTimeout = null
 const SAVE_DELAY = 2000
 
@@ -231,6 +240,9 @@ const initializeMindmap = async (data) => {
 const initD3Renderer = () => {
   if (!d3Container.value) return
   
+  // Set loading state khi bắt đầu render
+  isRendering.value = true
+  
   d3Renderer = new D3MindmapRenderer(d3Container.value, {
     width: window.innerWidth,
     height: window.innerHeight - 84,
@@ -244,12 +256,12 @@ const initD3Renderer = () => {
     onNodeClick: (node) => {
       if (node) {
         selectedNode.value = node
-        d3Renderer.selectNode(node.id)
+        d3Renderer.selectNode(node.id, false) // Cho phép callback
         console.log("Selected node:", node.id)
       } else {
-        // Deselect node
+        // Deselect node - skip callback để tránh vòng lặp vô hạn
         selectedNode.value = null
-        d3Renderer.selectNode(null)
+        d3Renderer.selectNode(null, true) // Skip callback vì đã được gọi từ selectNode
         console.log("Deselected node")
       }
     },
@@ -322,6 +334,10 @@ const initD3Renderer = () => {
       console.log(`Node ${nodeId} ${isCollapsed ? 'collapsed' : 'expanded'}`)
       // Re-render sẽ được xử lý trong renderer
       updateD3Renderer()
+    },
+    onRenderComplete: () => {
+      // Dừng loading khi render xong
+      isRendering.value = false
     }
   })
   

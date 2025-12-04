@@ -51,7 +51,8 @@ export class D3MindmapRenderer {
       onNodeEditingStart: null,
       onNodeEditingEnd: null,
       onNodeHover: null,
-      onNodeCollapse: null
+      onNodeCollapse: null,
+      onRenderComplete: null // Callback khi render hoàn tất
     }
     
     this.init()
@@ -301,10 +302,10 @@ export class D3MindmapRenderer {
     const nodeGroup = d3.select(foElement.parentNode)
     const rect = nodeGroup.select('.node-rect')
     
-    // Lấy kích thước hiện tại từ cache (được lock khi focus)
-    const cachedSize = this.nodeSizeCache.get(nodeId)
-    const lockedWidth = cachedSize?.width || parseFloat(rect.attr('width')) || 130
-    const lockedHeight = cachedSize?.height || parseFloat(rect.attr('height')) || 43
+    // ⚠️ IMPORTANT: Lấy kích thước BAN ĐẦU (lúc focus) làm kích thước tối thiểu
+    const initialSize = this.nodeSizeCache.get(`${nodeId}_initial`)
+    const minNodeWidth = initialSize?.width || parseFloat(rect.attr('data-initial-width')) || 130
+    const minNodeHeight = initialSize?.height || parseFloat(rect.attr('data-initial-height')) || 43
     
     // Lấy text trước đó để xác định có phải edit lần đầu không (TRƯỚC KHI cập nhật)
     const previousText = this.getNodeLabel(nodeData)
@@ -331,19 +332,22 @@ export class D3MindmapRenderer {
       newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth))
     }
     
-    // XỬ LÝ WIDTH: Giống mindmap Lark - node chỉ mở rộng đến maxWidth, sau đó text wrap
+    // XỬ LÝ WIDTH: 
     let currentWidth
-    if (isEmpty && isFirstEdit) {
-      // Nội dung rỗng VÀ edit lần đầu: reset về kích thước mặc định
-      currentWidth = minWidth
-      if (nodeData.data) {
+    if (isEmpty) {
+      // ⚠️ TRƯỜNG HỢP 1: Khi xóa hết nội dung
+      // Nếu kích thước hiện tại < 130px thì dùng 130px (kích thước mặc định)
+      // Nếu kích thước hiện tại >= 130px thì giữ nguyên
+      if (minNodeWidth < minWidth) {
+        currentWidth = minWidth // 130px
+      } else {
+        currentWidth = minNodeWidth // Giữ nguyên
+      }
+      if (nodeData.data && isFirstEdit) {
         delete nodeData.data.fixedWidth
         delete nodeData.data.fixedHeight
         nodeData.data.keepSingleLine = true
       }
-    } else if (isEmpty && !isFirstEdit) {
-      // Nội dung rỗng NHƯNG đã có nội dung trước đó: giữ width hiện tại (không co lại khi đang edit)
-      currentWidth = lockedWidth
     } else {
       // Có nội dung: tính toán width dựa trên text
       const text = value || ''
@@ -453,16 +457,11 @@ export class D3MindmapRenderer {
         // Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
         const requiredWidth = maxTextWidth + 32 + 4
         
-        // Logic giống Lark: node chỉ mở rộng đến maxWidth, sau đó text wrap
-        // - Nếu text width < maxWidth: node width = textWidth + padding (nhưng tối thiểu minWidth)
-        // - Nếu text width >= maxWidth: node width = maxWidth, text sẽ wrap
+        // ⚠️ TRƯỜNG HỢP 2: Khi chỉnh sửa nội dung - tính toán width dựa trên nội dung thực tế
         if (requiredWidth < maxWidth) {
           // Text chưa đạt maxWidth: mở rộng node đến width cần thiết
-          currentWidth = Math.max(minWidth, Math.min(requiredWidth, maxWidth))
-          // Không nhỏ hơn lockedWidth khi đang edit (để tránh co lại)
-          if (!isFirstEdit) {
-            currentWidth = Math.max(currentWidth, lockedWidth || minWidth)
-          }
+          // Fit với nội dung, không giữ nguyên kích thước ban đầu
+          currentWidth = Math.min(requiredWidth, maxWidth)
         } else {
           // Text đã đạt hoặc vượt maxWidth: node width = maxWidth, text sẽ wrap
           currentWidth = maxWidth
@@ -554,19 +553,26 @@ export class D3MindmapRenderer {
         }
       }
       
-      // ⚠️ FIX: Không tăng height vô tội vạ khi đang edit
-      currentHeight = Math.max(measuredHeight, singleLineHeight)
-      // KHÔNG lấy max với lockedHeight để tránh node to ra khi không cần
+      // ⚠️ IMPORTANT: Height không nhỏ hơn kích thước ban đầu
+      currentHeight = Math.max(measuredHeight, minNodeHeight)
     }
     
     // Cập nhật height của node-rect và foreignObject
     rect.attr('height', currentHeight)
     fo.attr('height', Math.max(0, currentHeight - borderOffset))
     
-    // Cập nhật wrapper và editor container
+    // ⚠️ FIX: Cập nhật wrapper và editor container để tránh khoảng trắng thừa
     const wrapper = fo.select('.node-content-wrapper')
     wrapper.style('width', '100%')
     wrapper.style('height', '100%')
+    wrapper.style('overflow', 'hidden') // Hidden để không bị tràn
+    
+    const editorContainer = fo.select('.node-editor-container')
+    if (editorContainer.node()) {
+      editorContainer.style('width', '100%')
+      editorContainer.style('height', '100%')
+      editorContainer.style('overflow', 'hidden') // Hidden để không bị tràn
+    }
     
     // Cập nhật vị trí nút add-child
     nodeGroup.select('.add-child-btn').attr('cx', currentWidth + 20)
@@ -585,7 +591,6 @@ export class D3MindmapRenderer {
 
   // Handler cho editor focus event
   handleEditorFocus(nodeId, foElement, nodeData) {
-    // Tương tự textarea on('focus') handler
     this.selectNode(nodeId)
     
     const nodeGroup = d3.select(foElement.parentNode)
@@ -594,16 +599,33 @@ export class D3MindmapRenderer {
     const fo = d3.select(foElement)
     const rect = nodeGroup.select('.node-rect')
     
-    const cachedSize = this.nodeSizeCache.get(nodeId)
-    const currentRectWidth = cachedSize?.width || parseFloat(rect.attr('width')) || 130
-    const currentRectHeight = cachedSize?.height || parseFloat(rect.attr('height')) || 43
-    
     const currentText = this.getNodeLabel(nodeData)
     const isFirstEdit = !currentText || !currentText.trim()
     
-    const lockedWidth = currentRectWidth
-    const lockedHeight = currentRectHeight
+    // ⚠️ IMPORTANT: Lưu kích thước HIỆN TẠI của node khi focus
+    // Đây sẽ là kích thước TỐI THIỂU trong suốt quá trình edit
+    const currentWidth = parseFloat(rect.attr('width')) || 130
+    const currentHeight = parseFloat(rect.attr('height')) || 43
     
+    let lockedWidth, lockedHeight
+    
+    if (isFirstEdit || !currentText || currentText.trim() === 'Nhánh mới') {
+      // Lần đầu hoặc text mặc định: dùng kích thước tối thiểu
+      lockedWidth = 130
+      lockedHeight = 43
+    } else {
+      // ⚠️ CHANGED: Luôn giữ kích thước hiện tại làm tối thiểu
+      // Node sẽ không co lại nhỏ hơn kích thước này khi xóa nội dung
+      lockedWidth = currentWidth
+      lockedHeight = currentHeight
+    }
+    
+    // ⚠️ NEW: Lưu kích thước ban đầu vào data attribute để sử dụng trong handleEditorInput
+    rect.attr('data-initial-width', lockedWidth)
+    rect.attr('data-initial-height', lockedHeight)
+    
+    // Lưu vào cache với key đặc biệt để phân biệt
+    this.nodeSizeCache.set(`${nodeId}_initial`, { width: lockedWidth, height: lockedHeight })
     this.nodeSizeCache.set(nodeId, { width: lockedWidth, height: lockedHeight })
     
     rect.attr('width', lockedWidth)
@@ -614,22 +636,92 @@ export class D3MindmapRenderer {
     fo.attr('width', Math.max(0, lockedWidth - borderOffset))
     fo.attr('height', Math.max(0, lockedHeight - borderOffset))
     
-    // Enable pointer events
-    const editorContainer = fo.select('.node-editor-container')
-    editorContainer.style('pointer-events', 'auto')
+    // ⚠️ FIX: Set wrapper và editor container để tránh khoảng trắng thừa
+    const wrapper = fo.select('.node-content-wrapper')
+    if (wrapper.node()) {
+      wrapper.style('width', '100%')
+      wrapper.style('height', '100%')
+      wrapper.style('overflow', 'hidden') // Hidden để không bị tràn
+    }
     
-    // Nếu là lần đầu chỉnh sửa và text là "Nhánh mới", select all text
+    const editorContainer = fo.select('.node-editor-container')
+    if (editorContainer.node()) {
+      editorContainer.style('pointer-events', 'auto')
+      editorContainer.style('width', '100%')
+      editorContainer.style('height', '100%')
+      editorContainer.style('overflow', 'hidden') // Hidden để không bị tràn
+    }
+    
+    // ⚠️ FIX: Đo lại height từ DOM ngay sau khi focus để đảm bảo chính xác
+    // Đợi một chút để editor đã render xong
+    requestAnimationFrame(() => {
+      const editor = this.getEditorInstance(nodeId)
+      if (editor && editor.view && editor.view.dom) {
+        const editorDOM = editor.view.dom
+        const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+        
+        if (editorContent) {
+          const foWidth = lockedWidth - borderOffset
+          editorContent.style.cssText = `
+            box-sizing: border-box;
+            width: ${foWidth}px;
+            height: auto;
+            min-height: 43px;
+            max-height: none;
+            overflow: visible;
+            padding: 8px 16px;
+            white-space: ${lockedWidth >= 400 ? 'pre-wrap' : 'nowrap'};
+          `
+          
+          // Force reflow
+          void editorContent.offsetWidth
+          void editorContent.offsetHeight
+          
+          // Đo height thực tế từ DOM
+          const actualHeight = Math.max(
+            editorContent.offsetHeight || 0,
+            43 // singleLineHeight
+          )
+          
+          // Cập nhật height nếu khác
+          if (Math.abs(actualHeight - lockedHeight) > 1) {
+            rect.attr('height', actualHeight)
+            fo.attr('height', Math.max(0, actualHeight - borderOffset))
+            this.nodeSizeCache.set(nodeId, { width: lockedWidth, height: actualHeight })
+            
+            // Cập nhật vị trí nút add-child
+            nodeGroup.select('.add-child-btn').attr('cy', actualHeight / 2)
+            nodeGroup.select('.add-child-text').attr('y', actualHeight / 2)
+          }
+        }
+      }
+    })
+    
+    // Add focused class
+    const editorInstance = this.getEditorInstance(nodeId)
+    if (editorInstance && editorInstance.view && editorInstance.view.dom) {
+      const editorDOM = editorInstance.view.dom
+      editorDOM.classList.add('ProseMirror-focused')
+      
+      // ⚠️ NEW: Set editor DOM overflow visible
+      const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+      if (editorContent) {
+        editorContent.style.overflow = 'visible'
+        editorContent.style.height = 'auto'
+        editorContent.style.minHeight = '43px'
+        editorContent.style.maxHeight = 'none'
+      }
+    }
+    
+    // Select all nếu là text mặc định
     const isDefaultText = currentText === 'Nhánh mới' || (isFirstEdit && currentText)
     if (isDefaultText) {
-      // Đợi một chút để editor sẵn sàng, sau đó select all text
       setTimeout(() => {
         const editorInstance = this.getEditorInstance(nodeId)
         if (editorInstance && editorInstance.view) {
-          // Select all text trong editor bằng ProseMirror API
           const { state } = editorInstance.view
           const { doc } = state
           
-          // Select từ đầu đến cuối document
           if (doc.content.size > 0) {
             const selection = TextSelection.create(doc, 0, doc.content.size)
             const tr = state.tr.setSelection(selection)
@@ -647,6 +739,9 @@ export class D3MindmapRenderer {
 
   // Handler cho editor blur event
   handleEditorBlur(nodeId, foElement, nodeData) {
+    // ⚠️ IMPORTANT: Xóa cache kích thước ban đầu khi blur
+    this.nodeSizeCache.delete(`${nodeId}_initial`)
+    
     // Tương tự textarea on('blur') handler
     const editor = this.getEditorInstance(nodeId)
     // Lưu HTML để giữ formatting (bold, italic, etc.)
@@ -669,20 +764,117 @@ export class D3MindmapRenderer {
     const minWidth = 130
     const singleLineHeight = Math.ceil(19 * 1.4) + 16
     
+    // ⚠️ Lấy width hiện tại của node
+    const currentWidth = parseFloat(rect.attr('width')) || minWidth
+    
     let finalWidth, finalHeight
     
     if (isEmpty) {
-      finalWidth = minWidth
+      // ⚠️ TRƯỜNG HỢP 1: Khi xóa hết nội dung
+      // Nếu kích thước hiện tại < 130px thì dùng 130px (kích thước mặc định)
+      // Nếu kích thước hiện tại >= 130px thì giữ nguyên
+      if (currentWidth < minWidth) {
+        finalWidth = minWidth // 130px
+      } else {
+        finalWidth = currentWidth // Giữ nguyên
+      }
       finalHeight = singleLineHeight
     } else {
-      const tempNode = { ...nodeData, data: { ...nodeData.data, label: finalValue } }
-      if (tempNode.data) {
-        delete tempNode.data.fixedWidth
-        delete tempNode.data.fixedHeight
+      // ⚠️ TRƯỜNG HỢP 2: Khi có nội dung - tính toán width dựa trên nội dung thực tế
+      // Tính toán width trực tiếp từ nội dung mà không áp dụng minWidth
+      const tempDiv = document.createElement('div')
+      tempDiv.innerHTML = finalValue
+      const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+      
+      let calculatedWidth = minWidth
+      if (plainText) {
+        // Parse HTML để tách riêng title và description
+        const paragraphs = tempDiv.querySelectorAll('p')
+        let titleText = ''
+        let descriptionText = ''
+        
+        paragraphs.forEach(p => {
+          let inBlockquote = false
+          let parent = p.parentElement
+          while (parent && parent !== tempDiv) {
+            if (parent.tagName === 'BLOCKQUOTE') {
+              inBlockquote = true
+              break
+            }
+            parent = parent.parentElement
+          }
+          
+          if (!inBlockquote) {
+            const paraText = (p.textContent || p.innerText || '').trim()
+            if (paraText) {
+              titleText += (titleText ? '\n' : '') + paraText
+            }
+          }
+        })
+        
+        const blockquotes = tempDiv.querySelectorAll('blockquote')
+        blockquotes.forEach(blockquote => {
+          const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
+          if (blockquoteText) {
+            descriptionText += (descriptionText ? '\n' : '') + blockquoteText
+          }
+        })
+        
+        // Đo width của title (font-size 19px)
+        let titleWidth = 0
+        if (titleText) {
+          const titleLines = titleText.split('\n')
+          titleLines.forEach(line => {
+            if (line.trim()) {
+              const lineSpan = document.createElement('span')
+              lineSpan.style.cssText = `
+                position: absolute;
+                visibility: hidden;
+                font-size: 19px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                white-space: nowrap;
+              `
+              lineSpan.textContent = line.trim()
+              document.body.appendChild(lineSpan)
+              void lineSpan.offsetHeight
+              titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
+              document.body.removeChild(lineSpan)
+            }
+          })
+        }
+        
+        // Đo width của description (font-size 16px)
+        let descriptionWidth = 0
+        if (descriptionText) {
+          const descLines = descriptionText.split('\n')
+          descLines.forEach(line => {
+            if (line.trim()) {
+              const lineSpan = document.createElement('span')
+              lineSpan.style.cssText = `
+                position: absolute;
+                visibility: hidden;
+                font-size: 16px;
+                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                white-space: nowrap;
+              `
+              lineSpan.textContent = line.trim()
+              document.body.appendChild(lineSpan)
+              void lineSpan.offsetHeight
+              descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth)
+              document.body.removeChild(lineSpan)
+            }
+          })
+        }
+        
+        // Tính width: text width + padding (32px) + border (4px)
+        const maxTextWidth = Math.max(titleWidth, descriptionWidth)
+        calculatedWidth = maxTextWidth + 32 + 4
       }
       
-      const calculatedWidth = this.estimateNodeWidth(tempNode)
-      finalWidth = Math.max(calculatedWidth, minWidth)
+      // Fit với nội dung, chỉ clamp với maxWidth, không áp dụng minWidth
+      // Nhưng đảm bảo không nhỏ hơn một giá trị tối thiểu hợp lý (50px)
+      const absoluteMinWidth = 50
+      finalWidth = Math.min(Math.max(calculatedWidth, absoluteMinWidth), maxWidth)
       
       // ⚠️ FIX: Đo height từ DOM thực tế thay vì tính toán
       let measuredHeight = singleLineHeight
@@ -690,35 +882,41 @@ export class D3MindmapRenderer {
       if (editor && editor.view && editor.view.dom) {
         const editorDOM = editor.view.dom
         const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
-        
         if (editorContent) {
           const borderOffset = 4
           const foWidth = finalWidth - borderOffset
           
-          // ⚠️ CRITICAL FIX: Set styles để đo chính xác
-          editorContent.style.cssText = `
-            box-sizing: border-box;
-            width: ${foWidth}px;
-            height: auto;
-            min-height: ${singleLineHeight}px;
-            max-height: none;
-            overflow: visible;
-            padding: 8px 16px;
-            white-space: ${finalWidth >= maxWidth ? 'pre-wrap' : 'nowrap'};
-          `
+          // ⚠️ CRITICAL FIX: Reset và set styles TRƯỚC KHI đo để đảm bảo chính xác
+          // Reset tất cả styles trước
+          editorContent.style.cssText = ''
           
-          // Force reflow
+          // Set styles mới với pre-wrap để đo chính xác height
+          editorContent.style.boxSizing = 'border-box'
+          editorContent.style.width = `${foWidth}px`
+          editorContent.style.height = 'auto'
+          editorContent.style.minHeight = '0'
+          editorContent.style.maxHeight = 'none'
+          editorContent.style.overflow = 'hidden'
+          editorContent.style.padding = '8px 16px'
+          editorContent.style.margin = '0'
+          editorContent.style.paddingBottom = '8px'
+          editorContent.style.whiteSpace = 'pre-wrap'
+          editorContent.style.wordWrap = 'break-word'
+          editorContent.style.overflowWrap = 'break-word'
+          
+          // Force reflow để đảm bảo DOM đã cập nhật
           void editorContent.offsetWidth
           void editorContent.offsetHeight
           
-          // ⚠️ FIX: Dùng offsetHeight để lấy height chính xác
-          const contentHeight = Math.max(
+          // ⚠️ FIX: Đo height từ offsetHeight (chính xác, không thừa)
+          measuredHeight = Math.max(
             editorContent.offsetHeight || 0,
             singleLineHeight
           )
-          
-          measuredHeight = contentHeight
         }
+        
+        // Remove focused class
+        editorDOM.classList.remove('ProseMirror-focused')
       }
       
       // ⚠️ FIX: Fallback chỉ khi không lấy được từ DOM
@@ -728,6 +926,9 @@ export class D3MindmapRenderer {
       }
       
       finalHeight = measuredHeight
+      
+      // Update cache TRƯỚC KHI clear editingNode
+      this.nodeSizeCache.set(nodeId, { width: finalWidth, height: finalHeight })
     }
     
     // Cập nhật node data
@@ -761,6 +962,43 @@ export class D3MindmapRenderer {
     fo.attr('width', Math.max(0, finalWidth - borderOffset))
     fo.attr('height', Math.max(0, finalHeight - borderOffset))
     
+    // ⚠️ FIX: Đợi một chút và đo lại height để đảm bảo chính xác
+    const that = this
+    if (editor && editor.view && editor.view.dom) {
+      const editorDOM = editor.view.dom
+      const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+      if (editorContent) {
+        setTimeout(() => {
+          // Đo lại height sau khi DOM đã cập nhật hoàn toàn
+          const actualHeight = Math.max(
+            editorContent.offsetHeight || 0,
+            singleLineHeight
+          )
+          
+          // Chỉ cập nhật nếu khác biệt đáng kể (> 1px)
+          if (Math.abs(actualHeight - finalHeight) > 1) {
+            const updatedHeight = actualHeight
+            
+            // Cập nhật lại node size
+            rect.attr('height', updatedHeight)
+            fo.attr('height', Math.max(0, updatedHeight - borderOffset))
+            
+            // Cập nhật cache
+            that.nodeSizeCache.set(nodeId, { width: finalWidth, height: updatedHeight })
+            
+            // Cập nhật vị trí nút add-child
+            nodeGroup.select('.add-child-btn').attr('cy', updatedHeight / 2)
+            nodeGroup.select('.add-child-text').attr('y', updatedHeight / 2)
+            
+            // Cập nhật fixedHeight nếu không phải root node
+            if (nodeData.data && !isRootNode) {
+              nodeData.data.fixedHeight = updatedHeight
+            }
+          }
+        }, 50)
+      }
+    }
+    
     // Đảm bảo wrapper và editor container có height đúng để hiển thị đầy đủ nội dung
     const wrapper = fo.select('.node-content-wrapper')
     if (wrapper.node()) {
@@ -778,23 +1016,47 @@ export class D3MindmapRenderer {
         .style('overflow', 'hidden') // Hidden để không bị tràn
     }
     
-    // Đảm bảo editor có height đúng để hiển thị đầy đủ nội dung
+    // ⚠️ FIX: Set editor content styles để height vừa khít, không thừa
     if (editor && editor.view && editor.view.dom) {
       const editorDOM = editor.view.dom
       const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
       if (editorContent) {
-        editorContent.style.height = 'auto' // Auto để có thể mở rộng theo nội dung
-        editorContent.style.minHeight = '43px'
-        editorContent.style.maxHeight = 'none'
-        editorContent.style.overflow = 'visible' // Visible để hiển thị đủ nội dung
+        const borderOffset = 4
+        const foWidth = finalWidth - borderOffset
         
-        // Xác định có cần wrap không dựa trên finalWidth
-        const maxWidth = 400
-        const willWrap = finalWidth >= maxWidth
-        if (willWrap) {
-          editorContent.style.whiteSpace = 'pre-wrap' // Cho phép wrap
-        } else {
-          editorContent.style.whiteSpace = 'nowrap' // Không wrap - text trên 1 dòng
+        // Set styles để height vừa khít với nội dung
+        editorContent.style.cssText = `
+          box-sizing: border-box;
+          width: ${foWidth}px;
+          height: auto;
+          min-height: ${singleLineHeight}px;
+          max-height: none;
+          overflow: hidden;
+          padding: 8px 16px;
+          margin: 0;
+          white-space: ${finalWidth >= maxWidth ? 'pre-wrap' : 'nowrap'};
+        `
+        
+        // Force reflow để đảm bảo height được tính đúng
+        void editorContent.offsetWidth
+        void editorContent.offsetHeight
+        
+        // ⚠️ FIX: Đo lại height từ DOM và cập nhật nếu cần
+        const actualHeight = Math.max(
+          editorContent.offsetHeight || 0,
+          singleLineHeight
+        )
+        
+        // Nếu height thực tế khác với finalHeight, cập nhật lại
+        if (Math.abs(actualHeight - finalHeight) > 1) {
+          finalHeight = actualHeight
+          rect.attr('height', finalHeight)
+          fo.attr('height', Math.max(0, finalHeight - borderOffset))
+          this.nodeSizeCache.set(nodeId, { width: finalWidth, height: finalHeight })
+          
+          // Cập nhật vị trí nút add-child
+          nodeGroup.select('.add-child-btn').attr('cy', finalHeight / 2)
+          nodeGroup.select('.add-child-text').attr('y', finalHeight / 2)
         }
       }
     }
@@ -822,17 +1084,22 @@ export class D3MindmapRenderer {
     if (nodeCreationOrder) {
       this.options.nodeCreationOrder = nodeCreationOrder
     }
-    this.render()
+    this.render(true) // isInitialRender = true
   }
   
   // In render method, around line 750-800
-  async render() {
+  async render(isInitialRender = false) {
     if (this.nodes.length === 0) return
     
     void document.body.offsetHeight
     
     // ⚠️ FIX: Tính toán node sizes - XÓA cache root node để tính lại
     const nodeSizes = new Map()
+    
+    // ⚠️ NEW: Đợi TẤT CẢ Vue editors mount xong trước khi tính sizes
+    await new Promise(resolve => requestAnimationFrame(resolve))
+    await new Promise(resolve => setTimeout(resolve, 100)) // Đợi thêm 100ms
+    
     this.nodes.forEach(node => {
       const isRootNode = node.data?.isRoot || node.id === 'root'
       
@@ -844,6 +1111,13 @@ export class D3MindmapRenderer {
         // ⚠️ FIX: Tính toán lại size (bao gồm root node)
         // KHÔNG ưu tiên cache cho root node khi reload
         const size = this.estimateNodeSize(node)
+        
+        // ⚠️ DEBUG: Log chiều cao root node
+        if (isRootNode) {
+          console.log('[ROOT NODE] render() - estimated size:', size)
+          console.log('[ROOT NODE] render() - node label:', this.getNodeLabel(node))
+        }
+        
         nodeSizes.set(node.id, size)
         this.nodeSizeCache.set(node.id, size)
       }
@@ -870,6 +1144,24 @@ export class D3MindmapRenderer {
     
     // Render edges sau
     this.renderEdges(positions)
+    
+    // ⚠️ Nếu đây là lần render đầu tiên và không có root node cần setTimeout
+    // thì gọi callback ngay (vì không có transition)
+    if (isInitialRender) {
+      const rootNode = this.nodes.find(n => n.data?.isRoot || n.id === 'root')
+      const cachedSize = rootNode ? this.nodeSizeCache.get(rootNode.id) : null
+      
+      if (!rootNode || (cachedSize && cachedSize.height < 200)) {
+        // Không có root node hoặc root node đã có cache hợp lý
+        // => Không có setTimeout => gọi callback ngay
+        if (this.callbacks.onRenderComplete) {
+          requestAnimationFrame(() => {
+            this.callbacks.onRenderComplete()
+          })
+        }
+      }
+      // Nếu có setTimeout cho root node, callback sẽ được gọi trong setTimeout
+    }
   }
   
   // Helper: Check if a node is hidden due to collapsed ancestor
@@ -2029,17 +2321,23 @@ export class D3MindmapRenderer {
         let rectHeight
         if (isRootNode) {
           // Root node: ưu tiên dùng cache để tránh nháy
-          if (this.nodeSizeCache.has(nodeData.id)) {
-            const cachedSize = this.nodeSizeCache.get(nodeData.id)
+          const cachedSize = this.nodeSizeCache.get(nodeData.id)
+          if (cachedSize && cachedSize.height < 200) {
+            // ⚠️ FIX: Chỉ dùng cache nếu height hợp lý (< 200px)
             rectHeight = cachedSize.height
             // Đảm bảo width cũng được cập nhật từ cache
             if (rectWidth !== cachedSize.width) {
               rect.attr('width', cachedSize.width)
               rectWidth = cachedSize.width
             }
+            console.log('[ROOT NODE] renderNodes - using cache:', cachedSize)
           } else {
-            // Nếu chưa có cache (lần đầu render), dùng từ nodeSize và lưu vào cache
-            rectHeight = nodeSize.height
+            // ⚠️ FIX: Khi chưa có cache hoặc cache sai, dùng height tạm thời
+            // và đo lại trong setTimeout
+            const singleLineHeight = Math.ceil(19 * 1.4) + 16
+            rectHeight = singleLineHeight
+            console.log('[ROOT NODE] renderNodes - using temporary height:', rectHeight)
+            // Lưu size tạm thời vào cache
             this.nodeSizeCache.set(nodeData.id, { width: rectWidth, height: rectHeight })
           }
           rect.attr('height', rectHeight)
@@ -2102,175 +2400,288 @@ export class D3MindmapRenderer {
               },
             })
             
-            // Sau khi mount editor lần đầu, đợi một chút rồi đo lại width và height từ editor DOM cho root node
-            // Để đảm bảo root node hiển thị đủ nội dung ngay từ đầu
+            // Sau khi mount editor lần đầu, đợi một chút rồi đo lại height từ editor DOM cho root node
             if (isRootNode) {
-              // Sử dụng requestAnimationFrame để đảm bảo DOM đã render xong
               requestAnimationFrame(() => {
-                setTimeout(() => {
-                  const editor = this.getEditorInstance(nodeData.id)
-                  if (editor && editor.view && editor.view.dom) {
-                    const editorDOM = editor.view.dom
-                    const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
-                    
-                    if (editorContent && editorContent.offsetHeight > 0) {
-                      const borderOffset = 4
-                      const minWidth = 130
-                      const maxWidth = 400
-                      let currentWidth = parseFloat(rect.attr('width')) || rectWidth
+                requestAnimationFrame(() => {
+                  setTimeout(() => {
+                    const editor = that.getEditorInstance(nodeData.id)
+                    if (editor && editor.view && editor.view.dom) {
+                      const editorDOM = editor.view.dom
+                      const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
                       
-                      // Lấy HTML từ editor để parse title và description
-                      const editorHTML = editor.getHTML() || ''
-                      
-                      if (editorHTML) {
-                        // Parse HTML để tách riêng title (paragraph) và description (blockquote)
-                        let titleText = ''
-                        let descriptionText = ''
+                      if (editorContent && editorContent.offsetHeight > 0) {
+                        const borderOffset = 4
+                        const minWidth = 130
+                        const maxWidth = 400
+                        let currentWidth = parseFloat(rect.attr('width')) || rectWidth
                         
-                        const tempDiv = document.createElement('div')
-                        tempDiv.innerHTML = editorHTML
+                        const editorHTML = editor.getHTML() || ''
                         
-                        // Lấy tất cả paragraph không trong blockquote (title)
-                        const paragraphs = tempDiv.querySelectorAll('p')
-                        paragraphs.forEach(p => {
-                          let inBlockquote = false
-                          let parent = p.parentElement
-                          while (parent && parent !== tempDiv) {
-                            if (parent.tagName === 'BLOCKQUOTE') {
-                              inBlockquote = true
-                              break
+                        if (editorHTML) {
+                          let titleText = ''
+                          let descriptionText = ''
+                          
+                          const tempDiv = document.createElement('div')
+                          tempDiv.innerHTML = editorHTML
+                          
+                          const paragraphs = tempDiv.querySelectorAll('p')
+                          paragraphs.forEach(p => {
+                            let inBlockquote = false
+                            let parent = p.parentElement
+                            while (parent && parent !== tempDiv) {
+                              if (parent.tagName === 'BLOCKQUOTE') {
+                                inBlockquote = true
+                                break
+                              }
+                              parent = parent.parentElement
                             }
-                            parent = parent.parentElement
+                            
+                            if (!inBlockquote) {
+                              const paraText = (p.textContent || p.innerText || '').trim()
+                              if (paraText) {
+                                titleText += (titleText ? '\n' : '') + paraText
+                              }
+                            }
+                          })
+                          
+                          const blockquotes = tempDiv.querySelectorAll('blockquote')
+                          blockquotes.forEach(blockquote => {
+                            const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
+                            if (blockquoteText) {
+                              descriptionText += (descriptionText ? '\n' : '') + blockquoteText
+                            }
+                          })
+                          
+                          let titleWidth = 0
+                          if (titleText) {
+                            const titleLines = titleText.split('\n')
+                            titleLines.forEach(line => {
+                              if (line.trim()) {
+                                const lineSpan = document.createElement('span')
+                                lineSpan.style.cssText = `
+                                  position: absolute;
+                                  visibility: hidden;
+                                  white-space: nowrap;
+                                  font-size: 19px;
+                                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                `
+                                lineSpan.textContent = line.trim()
+                                document.body.appendChild(lineSpan)
+                                void lineSpan.offsetHeight
+                                titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
+                                document.body.removeChild(lineSpan)
+                              }
+                            })
                           }
                           
-                          if (!inBlockquote) {
-                            const paraText = (p.textContent || p.innerText || '').trim()
-                            if (paraText) {
-                              titleText += (titleText ? '\n' : '') + paraText
-                            }
+                          let descriptionWidth = 0
+                          if (descriptionText) {
+                            const descLines = descriptionText.split('\n')
+                            descLines.forEach(line => {
+                              if (line.trim()) {
+                                const lineSpan = document.createElement('span')
+                                lineSpan.style.cssText = `
+                                  position: absolute;
+                                  visibility: hidden;
+                                  white-space: nowrap;
+                                  font-size: 16px;
+                                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                `
+                                lineSpan.textContent = line.trim()
+                                document.body.appendChild(lineSpan)
+                                void lineSpan.offsetHeight
+                                descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth)
+                                document.body.removeChild(lineSpan)
+                              }
+                            })
                           }
-                        })
-                        
-                        // Lấy tất cả text trong blockquote (description)
-                        const blockquotes = tempDiv.querySelectorAll('blockquote')
-                        blockquotes.forEach(blockquote => {
-                          const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
-                          if (blockquoteText) {
-                            descriptionText += (descriptionText ? '\n' : '') + blockquoteText
+                          
+                          const maxTextWidth = Math.max(titleWidth, descriptionWidth)
+                          const requiredWidth = maxTextWidth + 32 + 4
+                          
+                          if (requiredWidth < maxWidth) {
+                            currentWidth = Math.max(minWidth, Math.min(requiredWidth, maxWidth))
+                          } else {
+                            currentWidth = maxWidth
                           }
-                        })
-                        
-                        // Đo width của title (font-size 19px)
-                        let titleWidth = 0
-                        if (titleText) {
-                          const titleLines = titleText.split('\n')
-                          titleLines.forEach(line => {
-                            if (line.trim()) {
-                              const lineSpan = document.createElement('span')
-                              lineSpan.style.cssText = `
-                                position: absolute;
-                                visibility: hidden;
-                                white-space: nowrap;
-                                font-size: 19px;
-                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                              `
-                              lineSpan.textContent = line.trim()
-                              document.body.appendChild(lineSpan)
-                              void lineSpan.offsetHeight
-                              titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
-                              document.body.removeChild(lineSpan)
-                            }
-                          })
+                          
+                          if (Math.abs(currentWidth - parseFloat(rect.attr('width'))) > 1) {
+                            rect.attr('width', currentWidth)
+                            const foWidth = currentWidth - borderOffset
+                            fo.attr('width', Math.max(0, foWidth))
+                          }
                         }
                         
-                        // Đo width của description (font-size 16px)
-                        let descriptionWidth = 0
-                        if (descriptionText) {
-                          const descLines = descriptionText.split('\n')
-                          descLines.forEach(line => {
-                            if (line.trim()) {
-                              const lineSpan = document.createElement('span')
-                              lineSpan.style.cssText = `
-                                position: absolute;
-                                visibility: hidden;
-                                white-space: nowrap;
-                                font-size: 16px;
-                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                              `
-                              lineSpan.textContent = line.trim()
-                              document.body.appendChild(lineSpan)
-                              void lineSpan.offsetHeight
-                              descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth)
-                              document.body.removeChild(lineSpan)
-                            }
-                          })
-                        }
-                        
-                        // Lấy width lớn nhất giữa title và description
-                        const maxTextWidth = Math.max(titleWidth, descriptionWidth)
-                        // Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
-                        const requiredWidth = maxTextWidth + 32 + 4
-                        
-                        // Tính toán width đúng dựa trên text thực tế
-                        if (requiredWidth < maxWidth) {
-                          currentWidth = Math.max(minWidth, Math.min(requiredWidth, maxWidth))
+                        const foWidth = currentWidth - borderOffset
+                        editorContent.style.width = `${foWidth}px`
+                        const willWrap = currentWidth >= maxWidth
+                        if (willWrap) {
+                          editorContent.style.whiteSpace = 'pre-wrap'
                         } else {
-                          currentWidth = maxWidth
+                          editorContent.style.whiteSpace = 'nowrap'
                         }
                         
-                        // Chỉ cập nhật nếu width khác với width hiện tại
-                        if (Math.abs(currentWidth - parseFloat(rect.attr('width'))) > 1) {
-                          // Cập nhật rect và foreignObject với width đúng
-                          rect.attr('width', currentWidth)
-                          const foWidth = currentWidth - borderOffset
-                          fo.attr('width', Math.max(0, foWidth))
+                        void editorContent.offsetWidth
+                        void editorContent.offsetHeight
+                        
+                        // ⚠️ FIX: Set styles trước khi đo để đảm bảo chính xác
+                        editorContent.style.height = 'auto'
+                        editorContent.style.minHeight = '0'
+                        editorContent.style.maxHeight = 'none'
+                        editorContent.style.overflow = 'visible'
+                        
+                        // Force reflow
+                        void editorContent.offsetHeight
+                        
+                        // Đo height thực tế
+                        const contentHeight = Math.max(
+                          editorContent.offsetHeight || 0,
+                          Math.ceil(19 * 1.4) + 16 // singleLineHeight
+                        )
+                        
+                        console.log('[ROOT NODE] setTimeout - editorContent.offsetHeight:', editorContent.offsetHeight, 'final:', contentHeight)
+                        
+                        const currentHeight = parseFloat(rect.attr('height')) || 0
+                        if (Math.abs(contentHeight - currentHeight) > 1) {
+                          rect.attr('height', contentHeight)
+                          fo.attr('height', Math.max(0, contentHeight - borderOffset))
                           
-                          // Cập nhật vị trí nút add-child
-                          nodeGroup.select('.add-child-btn').attr('cx', currentWidth + 20)
-                          nodeGroup.select('.add-child-text').attr('x', currentWidth + 20)
+                          // ⚠️ FIX: Cập nhật wrapper và editor container height để tránh khoảng trắng thừa
+                          wrapper.style('height', '100%')
+                          editorContainer.style('height', '100%')
                         }
-                      }
-                      
-                      // Set width và white-space đúng cho editor content
-                      const foWidth = currentWidth - borderOffset
-                      editorContent.style.width = `${foWidth}px`
-                      const willWrap = currentWidth >= maxWidth
-                      if (willWrap) {
-                        editorContent.style.whiteSpace = 'pre-wrap'
-                      } else {
-                        editorContent.style.whiteSpace = 'nowrap'
-                      }
-                      
-                      // Force reflow
-                      void editorContent.offsetWidth
-                      void editorContent.offsetHeight
-                      
-                      // Đo chiều cao thực tế từ DOM
-                      const contentHeight = Math.max(
-                        editorContent.scrollHeight || 0,
-                        editorContent.offsetHeight || 0,
-                        Math.ceil(19 * 1.4) + 16 // singleLineHeight
-                      )
-                      
-                      // Cập nhật height nếu khác
-                      const currentHeight = parseFloat(rect.attr('height')) || 0
-                      if (Math.abs(contentHeight - currentHeight) > 1) {
-                        rect.attr('height', contentHeight)
-                        fo.attr('height', Math.max(0, contentHeight - borderOffset))
-                        nodeGroup.select('.add-child-btn').attr('cy', contentHeight / 2)
-                        nodeGroup.select('.add-child-text').attr('y', contentHeight / 2)
-                      }
-                      
-                      // Cập nhật cache với width và height chính xác
-                      this.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
-                      
-                      // Re-render edges để cập nhật vị trí kết nối với size mới
-                      if (this.positions && this.positions.size > 0) {
-                        this.renderEdges(this.positions)
+                        
+                        that.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
+                        
+                        // ⚠️ PATCH 1: Cập nhật vị trí TẤT CẢ buttons ngay lập tức
+                        nodeGroup.select('.add-child-btn')
+                          .attr('cx', currentWidth + 20)
+                          .attr('cy', contentHeight / 2)
+                        
+                        nodeGroup.select('.add-child-text')
+                          .attr('x', currentWidth + 20)
+                          .attr('y', contentHeight / 2)
+                        
+                        nodeGroup.select('.collapse-btn-number')
+                          .attr('cx', currentWidth + 20)
+                          .attr('cy', contentHeight / 2)
+                        
+                        nodeGroup.select('.collapse-text-number')
+                          .attr('x', currentWidth + 20)
+                          .attr('y', contentHeight / 2)
+                        
+                        nodeGroup.select('.collapse-btn-arrow')
+                          .attr('cx', currentWidth + 20)
+                          .attr('cy', contentHeight / 2)
+                        
+                        nodeGroup.select('.collapse-arrow')
+                          .attr('transform', `translate(${currentWidth + 20}, ${contentHeight / 2}) scale(0.7) translate(-12, -12)`)
+                        
+                        nodeGroup.select('.node-hover-layer')
+                          .attr('width', currentWidth + 40)
+                          .attr('height', contentHeight)
+                        
+                        // Re-calculate layout
+                        const newNodeSizes = new Map()
+                        that.nodes.forEach(n => {
+                          if (n.id === nodeData.id) {
+                            newNodeSizes.set(n.id, { width: currentWidth, height: contentHeight })
+                          } else {
+                            const existingSize = that.nodeSizeCache.get(n.id)
+                            if (existingSize) {
+                              newNodeSizes.set(n.id, existingSize)
+                            } else {
+                              const size = that.estimateNodeSize(n)
+                              newNodeSizes.set(n.id, size)
+                              that.nodeSizeCache.set(n.id, size)
+                            }
+                          }
+                        })
+                        
+                        const newPositions = calculateD3MindmapLayout(that.nodes, that.edges, {
+                          nodeSizes: newNodeSizes,
+                          layerSpacing: that.options.layerSpacing,
+                          nodeSpacing: that.options.nodeSpacing,
+                          padding: that.options.padding,
+                          viewportHeight: that.options.height,
+                          nodeCreationOrder: that.options.nodeCreationOrder || new Map(),
+                          collapsedNodes: that.collapsedNodes
+                        })
+                        
+                        that.positions = newPositions
+                        
+                        // Re-render với positions mới
+                        const nodeGroups = that.g.selectAll('.node-group')
+                        let completedCount = 0
+                        const totalNodes = nodeGroups.size()
+                        
+                        // Nếu không có nodes, gọi callback ngay
+                        if (totalNodes === 0 && that.callbacks.onRenderComplete) {
+                          requestAnimationFrame(() => {
+                            that.callbacks.onRenderComplete()
+                          })
+                          return
+                        }
+                        
+                        nodeGroups
+                          .transition()
+                          .duration(300)
+                          .attr('transform', d => {
+                            const pos = newPositions.get(d.id)
+                            if (!pos) return 'translate(0, 0)'
+                            return `translate(${pos.x}, ${pos.y})`
+                          })
+                          // ⚠️ PATCH 2: Cập nhật lại buttons sau transition
+                          .on('end', function() {
+                            completedCount++
+                            
+                            // Gọi callback khi TẤT CẢ nodes đã transition xong
+                            if (completedCount === totalNodes && that.callbacks.onRenderComplete) {
+                              // Đợi thêm một chút để đảm bảo mọi thứ đã ổn định
+                              setTimeout(() => {
+                                that.callbacks.onRenderComplete()
+                              }, 50)
+                            }
+                            const nodeGroup = d3.select(this)
+                            const nodeId = nodeGroup.attr('data-node-id')
+                            const nodeSize = that.nodeSizeCache.get(nodeId)
+                            
+                            if (nodeSize) {
+                              nodeGroup.select('.add-child-btn')
+                                .attr('cx', nodeSize.width + 20)
+                                .attr('cy', nodeSize.height / 2)
+                              
+                              nodeGroup.select('.add-child-text')
+                                .attr('x', nodeSize.width + 20)
+                                .attr('y', nodeSize.height / 2)
+                              
+                              nodeGroup.select('.collapse-btn-number')
+                                .attr('cx', nodeSize.width + 20)
+                                .attr('cy', nodeSize.height / 2)
+                              
+                              nodeGroup.select('.collapse-text-number')
+                                .attr('x', nodeSize.width + 20)
+                                .attr('y', nodeSize.height / 2)
+                              
+                              nodeGroup.select('.collapse-btn-arrow')
+                                .attr('cx', nodeSize.width + 20)
+                                .attr('cy', nodeSize.height / 2)
+                              
+                              nodeGroup.select('.collapse-arrow')
+                                .attr('transform', `translate(${nodeSize.width + 20}, ${nodeSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                              
+                              nodeGroup.select('.node-hover-layer')
+                                .attr('width', nodeSize.width + 40)
+                                .attr('height', nodeSize.height)
+                            }
+                          })
+                        
+                        that.renderEdges(newPositions)
                       }
                     }
-                  }
-                }, 150) // Đợi 150ms để đảm bảo editor DOM đã render xong hoàn toàn
+                  }, 200)
+                })
               })
             }
             
@@ -2456,7 +2867,7 @@ export class D3MindmapRenderer {
   // In estimateNodeHeight method, around line 1520-1580                
   estimateNodeHeight(node, nodeWidth = null) {
     let text = this.getNodeLabel(node)
-    const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
+    const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px (19px * 1.4 line-height + 16px padding)
     if (!text || text.trim() === '') return singleLineHeight
     
     // Extract plain text từ HTML
@@ -2467,30 +2878,76 @@ export class D3MindmapRenderer {
       plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
     }
     
+    if (!plainText) return singleLineHeight
+    
     const width = nodeWidth || this.estimateNodeWidth(node)
     
-    // ⚠️ FIX: Tạo temp element với ĐÚNG STYLES như TipTap editor
+    // ⚠️ DEBUG: Log để kiểm tra
+    const isRootNode = node.data?.isRoot || node.id === 'root'
+    if (isRootNode) {
+      console.log('[ROOT NODE] estimateNodeHeight - width:', width, 'text:', text.substring(0, 100))
+    }
+    
+    // ⚠️ FIX: Tạo temp element với ĐÚNG STYLES và ĐÚNG STRUCTURE
     const tempDiv = document.createElement('div')
     tempDiv.style.cssText = `
       position: absolute;
       visibility: hidden;
-      white-space: ${width >= 400 ? 'pre-wrap' : 'nowrap'};
-      word-wrap: break-word;
-      overflow-wrap: break-word;
-      font-size: 19px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      line-height: 1.4;
-      padding: 8px 16px;
       width: ${width}px;
       box-sizing: border-box;
-      overflow: visible;
+      padding: 8px 16px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      overflow: hidden;
+      margin: 0;
+      height: auto;
+      min-height: 0;
     `
     
-    // ⚠️ FIX: Dùng innerHTML nếu là HTML để giữ formatting
+    // ⚠️ CRITICAL: Dùng innerHTML để giữ structure (paragraph + blockquote)
     if (text.includes('<')) {
       tempDiv.innerHTML = text
+      
+      // Apply styles cho các elements bên trong
+      const paragraphs = tempDiv.querySelectorAll('p')
+      paragraphs.forEach(p => {
+        p.style.margin = '0'
+        p.style.padding = '0'
+        p.style.fontSize = '19px'
+        p.style.lineHeight = '1.4'
+      })
+      
+      const blockquotes = tempDiv.querySelectorAll('blockquote')
+      blockquotes.forEach(bq => {
+        bq.style.margin = '4px 0 0 0' // Chỉ margin-top
+        bq.style.padding = '0 0 0 6px' // Chỉ padding-left
+        bq.style.fontSize = '16px'
+        bq.style.lineHeight = '1.6'
+        bq.style.whiteSpace = 'pre-wrap'
+        bq.style.wordWrap = 'break-word'
+        bq.style.overflowWrap = 'break-word'
+        
+        // Apply styles cho p trong blockquote
+        const bqPs = bq.querySelectorAll('p')
+        bqPs.forEach(p => {
+          p.style.margin = '0'
+          p.style.padding = '0'
+          p.style.lineHeight = '1.6'
+        })
+      })
     } else {
-      tempDiv.textContent = plainText
+      // Plain text: wrap trong paragraph
+      const p = document.createElement('p')
+      p.style.cssText = `
+        margin: 0;
+        padding: 0;
+        font-size: 19px;
+        line-height: 1.4;
+        white-space: ${width >= 400 ? 'pre-wrap' : 'nowrap'};
+        word-wrap: break-word;
+        overflow-wrap: break-word;
+      `
+      p.textContent = plainText
+      tempDiv.appendChild(p)
     }
     
     document.body.appendChild(tempDiv)
@@ -2499,33 +2956,45 @@ export class D3MindmapRenderer {
     void tempDiv.offsetWidth
     void tempDiv.offsetHeight
     
-    // ⚠️ FIX: Dùng offsetHeight thay vì scrollHeight
+    // ⚠️ FIX: Dùng offsetHeight (chính xác, không thừa)
     const actualHeight = Math.max(
-      tempDiv.offsetHeight || 0, // Dùng offsetHeight
+      tempDiv.offsetHeight || 0,
       singleLineHeight
     )
     
     document.body.removeChild(tempDiv)
     
+    // ⚠️ DEBUG: Log chiều cao tính được
+    if (isRootNode) {
+      console.log('[ROOT NODE] estimateNodeHeight - tempDiv.offsetHeight:', tempDiv.offsetHeight)
+      console.log('[ROOT NODE] estimateNodeHeight - calculated height:', actualHeight)
+      console.log('[ROOT NODE] estimateNodeHeight - HTML content:', text)
+    }
+    
+    // ⚠️ NEW: Không thêm buffer ở đây (đã có padding trong CSS)
     return actualHeight
   }
   
   // Get both width and height together to avoid circular dependency
   estimateNodeSize(node) {
-    // Nếu node có fixedWidth/fixedHeight (được set khi blur), ưu tiên dùng để
-    // đảm bảo kích thước sau render giống hệt lúc đang edit
     const isRootNode = node.data?.isRoot || node.id === 'root'
     
-    // Với root node, ưu tiên dùng cache nếu có để tránh tính toán lại gây nháy
-    if (isRootNode && this.nodeSizeCache.has(node.id)) {
-      return this.nodeSizeCache.get(node.id)
-    }
-    
-    // Với node thường, ưu tiên dùng fixedWidth/fixedHeight nếu có
-    if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
-      return {
-        width: node.data.fixedWidth,
-        height: node.data.fixedHeight,
+    // ⚠️ FIX: Root node lúc đầu KHÔNG dùng cache, luôn tính toán lại
+    // Chỉ dùng cache khi đã render xong (có trong vueApps)
+    if (isRootNode) {
+      const hasEditor = this.vueApps.has(node.id)
+      if (hasEditor && this.nodeSizeCache.has(node.id)) {
+        // Editor đã mount và có cache -> dùng cache
+        return this.nodeSizeCache.get(node.id)
+      }
+      // Chưa có editor hoặc chưa có cache -> tính toán lại
+    } else {
+      // Node thường: ưu tiên dùng fixedWidth/fixedHeight nếu có
+      if (node.data && node.data.fixedWidth && node.data.fixedHeight) {
+        return {
+          width: node.data.fixedWidth,
+          height: node.data.fixedHeight,
+        }
       }
     }
     
@@ -2542,7 +3011,7 @@ export class D3MindmapRenderer {
     return { width, height }
   }
   
-  selectNode(nodeId) {
+  selectNode(nodeId, skipCallback = false) {
     this.selectedNode = nodeId
     
     // Update node styles
@@ -2558,8 +3027,9 @@ export class D3MindmapRenderer {
       })
       .attr('stroke-width', 2) // Border luôn là 2px
     
-    // Nếu deselect (nodeId === null), gọi callback để cập nhật Vue component
-    if (nodeId === null && this.callbacks.onNodeClick) {
+    // ⚠️ FIX: Chỉ gọi callback nếu không skip (tránh vòng lặp vô hạn)
+    // Khi deselect (nodeId === null), chỉ gọi callback nếu không skip
+    if (!skipCallback && nodeId === null && this.callbacks.onNodeClick) {
       this.callbacks.onNodeClick(null)
     }
     
