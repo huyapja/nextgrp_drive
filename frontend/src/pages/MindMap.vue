@@ -2,11 +2,8 @@
   <div class="flex flex-col w-full">
     <Navbar v-if="!mindmap.error" :root-resource="mindmap" />
     <ErrorPage v-if="mindmap.error" :error="mindmap.error" />
-    <LoadingIndicator
-      v-else-if="!mindmap.data && mindmap.loading"
-      class="w-10 h-full text-neutral-100 mx-auto"
-    />
-    
+    <LoadingIndicator v-else-if="!mindmap.data && mindmap.loading" class="w-10 h-full text-neutral-100 mx-auto" />
+
     <div v-if="mindmap.data" class="w-full relative">
       <!-- Loading indicator khi đang render mindmap -->
       <div v-if="isRendering" class="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50">
@@ -15,7 +12,7 @@
           <div class="text-lg text-gray-600 mt-4">Đang tải sơ đồ tư duy...</div>
         </div>
       </div>
-      
+
       <!-- Status indicator -->
       <div class="absolute top-2 right-2 z-10 text-sm">
         <span v-if="isSaving" class="text-orange-500 flex items-center gap-1">
@@ -24,8 +21,24 @@
         <span v-else-if="lastSaved" class="text-green-500">
           ✓ Đã lưu lúc {{ lastSaved }}
         </span>
-      </div>      
-      
+      </div>
+
+      <div
+        @click="showPanel = true"
+        class="absolute cursor-pointer top-[60px] right-0 z-10 text-sm
+              border border-gray-300 border-r-0
+              rounded-tl-[20px] rounded-bl-[20px]
+              bg-white pl-3 py-3 flex
+              hover:text-[#3b82f6]
+              transition-all duration-200 ease-out"
+      >
+        <span>
+          <i class="pi pi-comment !text-[16px]"></i>
+        </span>
+      </div>
+
+
+
       <!-- Delete confirmation dialog -->
       <div v-if="showDeleteDialog" class="delete-dialog-overlay" @click.self="showDeleteDialog = false">
         <div class="delete-dialog">
@@ -41,30 +54,44 @@
           </div>
         </div>
       </div>
-      
+
       <div style="height: calc(100vh - 84px); width: 100%" class="d3-mindmap-container">
         <!-- D3.js Mindmap Renderer -->
         <div ref="d3Container" class="d3-mindmap-wrapper"></div>
-        
+
         <!-- Controls -->
         <div class="d3-controls">
           <button @click="fitView" class="control-btn" title="Fit View">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M2 2h12v12H2V2z"/>
-              <path d="M5 5h6v6H5V5z"/>
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M2 2h12v12H2V2z" />
+              <path d="M5 5h6v6H5V5z" />
             </svg>
           </button>
           <button @click="zoomIn" class="control-btn" title="Zoom In">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M8 3v10M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
           </button>
           <button @click="zoomOut" class="control-btn" title="Zoom Out">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+              <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
           </button>
         </div>
+        <MindmapContextMenu :visible="showContextMenu" :node="contextMenuNode" :position="contextMenuPos"
+          @action="handleContextMenuAction" @close="showContextMenu = false" />
+        
+        <MindmapCommentPanel
+          :visible="showPanel"
+          @close="showPanel = false"
+        >
+          <!-- nội dung hoặc danh sách comment -->
+          <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+            transform">
+            <p class="text-gray-600 text-sm">Chưa có bình luận nào…</p>
+          </div>
+        </MindmapCommentPanel>
       </div>
     </div>
   </div>
@@ -73,10 +100,21 @@
 <script setup>
 import { rename } from "@/resources/files"
 import { D3MindmapRenderer } from '@/utils/d3MindmapRenderer'
+import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
+
 import { setBreadCrumbs } from "@/utils/files"
 import { createResource } from "frappe-ui"
 import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
+
+import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
+import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
+
+
+const showContextMenu = ref(false)
+const contextMenuPos = ref({ x: 0, y: 0 })
+const contextMenuNode = ref(null)
+
 
 const store = useStore()
 const emitter = inject("emitter")
@@ -98,6 +136,18 @@ const childCount = ref(0)
 const isRendering = ref(true) // Loading state khi đang render mindmap
 let saveTimeout = null
 const SAVE_DELAY = 2000
+const showPanel = ref(false);
+const closing = ref(false)
+
+
+function closePanel() {
+  closing.value = true;
+
+  setTimeout(() => {
+    showPanel.value = false;
+    closing.value = false;
+  }, 250); // khớp với duration animation
+}
 
 // Elements ref
 const elements = ref([])
@@ -117,27 +167,27 @@ let creationOrderCounter = 0
 watch(elements, (newElements) => {
   const nodes = newElements.filter(el => el.id && !el.source && !el.target)
   const hasRoot = nodes.some(el => el.id === 'root')
-  
+
   if (!hasRoot && nodes.length > 0) {
     console.log('🚨 ROOT NODE WAS DELETED! RESTORING...')
-    
+
     const rootNode = {
       id: 'root',
-      data: { 
+      data: {
         label: mindmap.data?.title || 'Root',
         isRoot: true
       }
     }
-    
+
     elements.value = [rootNode, ...newElements]
   }
 }, { deep: true })
 
 // Format time
 const formatTime = (date) => {
-  return new Date(date).toLocaleTimeString('vi-VN', { 
-    hour: '2-digit', 
-    minute: '2-digit' 
+  return new Date(date).toLocaleTimeString('vi-VN', {
+    hour: '2-digit',
+    minute: '2-digit'
   })
 }
 
@@ -151,10 +201,10 @@ const mindmap = createResource({
   },
   onSuccess(data) {
     console.log("✅ Mindmap loaded:", data)
-    
+
     window.document.title = data.title
     store.commit("setActiveEntity", data)
-    
+
     initializeMindmap(data)
   },
   onError(error) {
@@ -188,49 +238,49 @@ const initializeMindmap = async (data) => {
       id: node.id,
       data: node.data || { label: node.label || '' }
     }))
-    
+
     const loadedEdges = data.mindmap_data.edges.map(edge => ({
       id: edge.id,
       source: edge.source,
       target: edge.target
     }))
-    
+
     elements.value = [...loadedNodes, ...loadedEdges]
-    
+
     const maxId = Math.max(...loadedNodes.map(n => {
       const match = n.id.match(/node-(\d+)/)
       return match ? parseInt(match[1]) : 0
     }))
     nodeCounter = maxId + 1
-    
+
     // Store existing creation order
     loadedNodes.forEach((node, index) => {
       nodeCreationOrder.value.set(node.id, index)
     })
     creationOrderCounter = loadedNodes.length
-    
+
     console.log("✅ Loaded existing layout")
   } else {
     const rootNode = {
       id: 'root',
-      data: { 
+      data: {
         label: data.title,
         isRoot: true
       }
     }
-    
+
     elements.value = [rootNode]
     nodeCounter = 1
-    
+
     // Store root
     nodeCreationOrder.value.set('root', 0)
     creationOrderCounter = 1
-    
+
     console.log("✅ Created root node")
-    
+
     setTimeout(() => scheduleSave(), 500)
   }
-  
+
   // Initialize D3 renderer
   await nextTick()
   initD3Renderer()
@@ -239,10 +289,10 @@ const initializeMindmap = async (data) => {
 // Initialize D3 Renderer
 const initD3Renderer = () => {
   if (!d3Container.value) return
-  
+
   // Set loading state khi bắt đầu render
   isRendering.value = true
-  
+
   d3Renderer = new D3MindmapRenderer(d3Container.value, {
     width: window.innerWidth,
     height: window.innerHeight - 84,
@@ -251,7 +301,9 @@ const initD3Renderer = () => {
     padding: 20,
     nodeCreationOrder: nodeCreationOrder
   })
-  
+
+  installMindmapContextMenu(d3Renderer)
+
   d3Renderer.setCallbacks({
     onNodeClick: (node) => {
       if (node) {
@@ -290,38 +342,38 @@ const initD3Renderer = () => {
         const node = nodes.value.find(n => n.id === finishedNodeId)
         if (node) {
           // node.data.label đã được cập nhật trong renderer on('blur')
-          
+
           // Nếu là root node, đổi tên file
           if (node.id === 'root' || node.data?.isRoot) {
-          let originalLabel = (node.data?.label || '').trim()
-          let newTitle = originalLabel
-          
-          // Nếu label là HTML (từ TipTap editor), extract plain text
-          if (newTitle.includes('<')) {
-            const tempDiv = document.createElement('div')
-            tempDiv.innerHTML = newTitle
-            newTitle = (tempDiv.textContent || tempDiv.innerText || '').trim()
+            let originalLabel = (node.data?.label || '').trim()
+            let newTitle = originalLabel
+
+            // Nếu label là HTML (từ TipTap editor), extract plain text
+            if (newTitle.includes('<')) {
+              const tempDiv = document.createElement('div')
+              tempDiv.innerHTML = newTitle
+              newTitle = (tempDiv.textContent || tempDiv.innerText || '').trim()
+            }
+
+            // Nếu xóa hết text, dùng tên mặc định
+            if (!newTitle) {
+              newTitle = "Sơ đồ"
+              // Cập nhật label với tên mặc định
+              node.data.label = newTitle
+            }
+
+            // Title giờ là Text, không cần cắt nữa - dùng trực tiếp newTitle để rename
+            renameMindmapTitle(newTitle)
           }
-          
-          // Nếu xóa hết text, dùng tên mặc định
-          if (!newTitle) {
-            newTitle = "Sơ đồ"
-            // Cập nhật label với tên mặc định
-            node.data.label = newTitle
-          }
-          
-          // Title giờ là Text, không cần cắt nữa - dùng trực tiếp newTitle để rename
-          renameMindmapTitle(newTitle)
-        }
-          
+
           // Lưu layout/nội dung node
           scheduleSave()
+        }
       }
-      }
-      
+
       // Clear editingNode trước khi update để watch không bị trigger
       editingNode.value = null
-      
+
       // Update layout sau khi edit xong để đảm bảo node size chính xác
       // Tăng delay lên 300ms để đảm bảo DOM đã update và node size đã được tính toán lại
       // Đặc biệt quan trọng khi edit node giữa có nhiều node con
@@ -338,16 +390,21 @@ const initD3Renderer = () => {
     onRenderComplete: () => {
       // Dừng loading khi render xong
       isRendering.value = false
+    },
+    onNodeContextMenu: (node, pos) => {
+      contextMenuNode.value = node
+      contextMenuPos.value = pos
+      showContextMenu.value = true
     }
   })
-  
+
   updateD3Renderer()
 }
 
 // Đổi tên file mindmap khi sửa node root
 const renameMindmapTitle = (newTitle) => {
   if (!newTitle || !newTitle.trim()) return
-  
+
   // Cập nhật ngay trên client
   if (mindmap.data) {
     mindmap.data.title = newTitle
@@ -356,7 +413,7 @@ const renameMindmapTitle = (newTitle) => {
     store.state.activeEntity.title = newTitle
   }
   window.document.title = newTitle
-  
+
   // Cập nhật breadcrumbs trong store (cache) với tên mới
   const currentBreadcrumbs = store.state.breadcrumbs || []
   if (Array.isArray(currentBreadcrumbs) && currentBreadcrumbs.length > 0) {
@@ -372,7 +429,7 @@ const renameMindmapTitle = (newTitle) => {
     })
     store.commit("setBreadcrumbs", updated)
   }
-  
+
   // Gửi request đổi tên entity
   rename.submit({
     entity_name: props.entityName,
@@ -383,12 +440,12 @@ const renameMindmapTitle = (newTitle) => {
 // Update D3 renderer
 const updateD3Renderer = async () => {
   if (!d3Renderer) return
-  
+
   await nextTick()
-  
+
   // ✅ FIX: Đảm bảo nodeCreationOrder được update
   d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
-  
+
   requestAnimationFrame(() => {
     setTimeout(() => {
       d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
@@ -399,14 +456,14 @@ const updateD3Renderer = async () => {
 // Update D3 renderer with custom delay (for editing)
 const updateD3RendererWithDelay = async (delay = 150) => {
   if (!d3Renderer) return
-  
+
   await nextTick()
-  
+
   void document.body.offsetHeight
-  
+
   // ✅ FIX: Đảm bảo nodeCreationOrder được update
   d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
-  
+
   requestAnimationFrame(() => {
     setTimeout(() => {
       void document.body.offsetHeight
@@ -454,26 +511,26 @@ const zoomOut = () => {
 const addChildToNode = async (parentId) => {
   const parent = nodes.value.find(n => n.id === parentId)
   if (!parent) return
-  
+
   const newNodeId = `node-${nodeCounter++}`
-  
+
   const newNode = {
     id: newNodeId,
-    data: { 
+    data: {
       label: 'Nhánh mới',
       parentId: parentId
     }
   }
-  
+
   const newEdge = {
     id: `edge-${parentId}-${newNodeId}`,
     source: parentId,
     target: newNodeId
   }
-  
+
   // ✅ FIX: Store creation order BEFORE adding to elements
   nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
-  
+
   // Add node and edge
   elements.value = [
     ...nodes.value,
@@ -481,30 +538,30 @@ const addChildToNode = async (parentId) => {
     ...edges.value,
     newEdge
   ]
-  
+
   selectedNode.value = newNode
-  
+
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
   }
-  
+
   console.log("✅ Added child node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
-  
+
   // Wait for DOM to render
   await nextTick()
-  
+
   // Force reflow
   void document.body.offsetHeight
-  
+
   // ✅ FIX: Update với delay nhỏ hơn để responsive hơn
   requestAnimationFrame(() => {
     void document.body.offsetHeight
-    
+
     setTimeout(() => {
       // Update với nodeCreationOrder mới
       updateD3RendererWithDelay(100)
-      
+
       // Đảm bảo selectedNode vẫn được set sau khi render
       if (d3Renderer) {
         setTimeout(() => {
@@ -513,42 +570,42 @@ const addChildToNode = async (parentId) => {
       }
     }, 30)
   })
-  
+
   scheduleSave()
 }
 
 // Add sibling node
 const addSiblingToNode = async (nodeId) => {
   if (nodeId === 'root') return
-  
+
   const parentEdge = edges.value.find(e => e.target === nodeId)
-  
+
   if (!parentEdge) {
     console.error("Cannot find parent node")
     return
   }
-  
+
   const parentId = parentEdge.source
-  
+
   const newNodeId = `node-${nodeCounter++}`
-  
+
   const newNode = {
     id: newNodeId,
-    data: { 
+    data: {
       label: 'Nhánh mới',
       parentId: parentId
     }
   }
-  
+
   const newEdge = {
     id: `edge-${parentId}-${newNodeId}`,
     source: parentId,
     target: newNodeId
   }
-  
+
   // ✅ FIX: Store creation order
   nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
-  
+
   // Add node and edge
   elements.value = [
     ...nodes.value,
@@ -556,30 +613,30 @@ const addSiblingToNode = async (nodeId) => {
     ...edges.value,
     newEdge
   ]
-  
+
   selectedNode.value = newNode
-  
+
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
   }
-  
+
   console.log("✅ Added sibling node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
-  
+
   // Wait for DOM to render
   await nextTick()
-  
+
   // Force reflow
   void document.body.offsetHeight
-  
+
   // ✅ FIX: Update với delay nhỏ hơn để responsive hơn
   requestAnimationFrame(() => {
     void document.body.offsetHeight
-    
+
     setTimeout(() => {
       // Update với nodeCreationOrder mới
       updateD3RendererWithDelay(100)
-      
+
       // Đảm bảo selectedNode vẫn được set sau khi render
       if (d3Renderer) {
         setTimeout(() => {
@@ -588,7 +645,7 @@ const addSiblingToNode = async (nodeId) => {
       }
     }, 30)
   })
-  
+
   scheduleSave()
 }
 
@@ -596,19 +653,19 @@ const addSiblingToNode = async (nodeId) => {
 const countChildren = (nodeId) => {
   const visited = new Set()
   let count = 0
-  
+
   const countDescendants = (id) => {
     if (visited.has(id)) return
     visited.add(id)
-    
+
     const children = edges.value.filter(e => e.source === id)
     count += children.length
-    
+
     children.forEach(edge => {
       countDescendants(edge.target)
     })
   }
-  
+
   countDescendants(nodeId)
   return count
 }
@@ -616,18 +673,18 @@ const countChildren = (nodeId) => {
 // Delete node with cascade
 const deleteSelectedNode = () => {
   if (!selectedNode.value) return
-  
+
   if (selectedNode.value.id === 'root') {
     console.log('❌ Cannot delete root node')
     return
   }
-  
+
   const nodeId = selectedNode.value.id
-  
+
   // Kiểm tra xem node có node con không
   const children = edges.value.filter(e => e.source === nodeId)
   const totalChildren = countChildren(nodeId)
-  
+
   if (children.length > 0) {
     // Có node con: hiển thị popup cảnh báo
     nodeToDelete.value = nodeId
@@ -635,7 +692,7 @@ const deleteSelectedNode = () => {
     showDeleteDialog.value = true
     return
   }
-  
+
   // Không có node con: xóa trực tiếp
   performDelete(nodeId)
 }
@@ -643,23 +700,23 @@ const deleteSelectedNode = () => {
 // Thực hiện xóa node
 const performDelete = (nodeId) => {
   console.log(`🗑️ Starting cascade delete for node: ${nodeId}`)
-  
+
   const nodesToDelete = new Set([nodeId])
-  
+
   const collectDescendants = (id) => {
     const childEdges = edges.value.filter(e => e.source === id)
-    
+
     childEdges.forEach(edge => {
       const childId = edge.target
       nodesToDelete.add(childId)
       collectDescendants(childId)
     })
   }
-  
+
   collectDescendants(nodeId)
-  
+
   console.log(`📋 Total nodes to delete: ${nodesToDelete.size}`, Array.from(nodesToDelete))
-  
+
   // Remove nodes and edges
   const newNodes = nodes.value.filter(n => {
     if (n.id === 'root') return true
@@ -669,19 +726,19 @@ const performDelete = (nodeId) => {
     }
     return true
   })
-  
+
   const newEdges = edges.value.filter(e => {
     if (nodesToDelete.has(e.source) || nodesToDelete.has(e.target)) {
       return false
     }
     return true
   })
-  
+
   elements.value = [...newNodes, ...newEdges]
   selectedNode.value = null
-  
+
   console.log(`✅ Cascade delete completed: ${nodesToDelete.size} nodes removed`)
-  
+
   // Update D3 renderer after deletion
   updateD3Renderer()
   scheduleSave()
@@ -701,11 +758,11 @@ const handleKeyDown = (event) => {
   const target = event.target
   const tagName = target?.tagName?.toLowerCase()
   const isInEditor = target?.closest('.mindmap-node-editor') ||
-                    target?.closest('.mindmap-editor-content') ||
-                    target?.closest('.mindmap-editor-prose') ||
-                    target?.classList?.contains('ProseMirror') ||
-                    target?.closest('[contenteditable="true"]')
-  
+    target?.closest('.mindmap-editor-content') ||
+    target?.closest('.mindmap-editor-prose') ||
+    target?.classList?.contains('ProseMirror') ||
+    target?.closest('[contenteditable="true"]')
+
   // Nếu đang trong editor, cho phép editor xử lý keyboard shortcuts (Ctrl+B, Ctrl+I, etc.)
   if (isInEditor || editingNode.value) {
     // Cho phép editor xử lý các phím tắt của riêng nó (Ctrl+B, Ctrl+I, etc.)
@@ -717,18 +774,18 @@ const handleKeyDown = (event) => {
     // Chặn các phím tắt khác khi đang trong editor
     return
   }
-  
+
   // Nếu đang trong input/textarea khác, không xử lý
   if (tagName === 'textarea' || tagName === 'input' || target?.isContentEditable) {
     return
   }
-  
+
   if (!selectedNode.value) return
-  
+
   const key = event.key
-  
+
   console.log('🎹 Key pressed:', key, 'Selected node:', selectedNode.value.id)
-  
+
   if (key === 'Tab') {
     event.preventDefault()
     event.stopPropagation()
@@ -740,11 +797,11 @@ const handleKeyDown = (event) => {
       d3Renderer.collapsedNodes.delete(parentId)
       console.log('✅ Expanding collapsed node via Tab:', parentId)
       console.log('Collapsed nodes after Tab expand:', Array.from(d3Renderer.collapsedNodes))
-      
+
       if (d3Renderer.callbacks && d3Renderer.callbacks.onNodeCollapse) {
         d3Renderer.callbacks.onNodeCollapse(parentId, false)
       }
-      
+
       // Render lại ngay để layout không còn thu gọn subtree
       d3Renderer.render()
     }
@@ -763,12 +820,12 @@ const handleKeyDown = (event) => {
   else if (key === 'Delete' || key === 'Backspace') {
     event.preventDefault()
     event.stopPropagation()
-    
+
     if (selectedNode.value.id === 'root') {
       console.log('❌ BLOCKED: Cannot delete root node')
       return false
     }
-    
+
     deleteSelectedNode()
   }
 }
@@ -803,14 +860,14 @@ const saveLayoutResource = createResource({
 // Schedule save
 const scheduleSave = () => {
   if (!mindmap.data) return
-  
+
   if (saveTimeout) {
     clearTimeout(saveTimeout)
   }
-  
+
   saveTimeout = setTimeout(() => {
     isSaving.value = true
-    
+
     // Get positions from D3 renderer if available
     const nodesWithPositions = nodes.value.map(node => {
       const nodeWithPos = { ...node }
@@ -822,7 +879,7 @@ const scheduleSave = () => {
       }
       return nodeWithPos
     })
-    
+
     saveLayoutResource.submit({
       entity_name: props.entityName,
       nodes: JSON.stringify(nodesWithPositions),
@@ -840,9 +897,9 @@ onMounted(() => {
       entityType: "mindmap"
     }))
   }
-  
+
   window.addEventListener('keydown', handleKeyDown, true)
-  
+
   // Handle window resize
   window.addEventListener('resize', () => {
     if (d3Renderer) {
@@ -855,22 +912,22 @@ onMounted(() => {
       updateD3Renderer()
     }
   })
-  
+
   console.log('✅ D3 Mindmap renderer ready')
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown, true)
-  window.removeEventListener('resize', () => {})
-  
+  window.removeEventListener('resize', () => { })
+
   if (d3Renderer) {
     d3Renderer.destroy()
     d3Renderer = null
   }
-  
+
   if (saveTimeout) {
     clearTimeout(saveTimeout)
-    
+
     if (mindmap.data && elements.value.length > 0) {
       saveLayoutResource.submit({
         entity_name: props.entityName,
@@ -881,6 +938,31 @@ onBeforeUnmount(() => {
     }
   }
 })
+
+
+function handleContextMenuAction({ type, node }) {
+  if (!node) return
+
+  switch (type) {
+    case "add-child":
+      addChildToNode(node.id)
+      break
+
+    case "add-sibling":
+      addSiblingToNode(node.id)
+      break
+
+    // case "toggle-collapse":
+    //   d3Renderer.toggleCollapse(node.id)
+    //   break
+
+    case "delete":
+      selectedNode.value = node
+      deleteSelectedNode()
+      break
+  }
+}
+
 </script>
 
 <style scoped>
@@ -1037,5 +1119,23 @@ kbd {
 
 .btn-delete:hover {
   background: #b91c1c;
+}
+
+@keyframes slideIn {
+  from { transform: translateX(100%); }
+  to   { transform: translateX(0); }
+}
+
+@keyframes slideOut {
+  from { transform: translateX(0); }
+  to   { transform: translateX(100%); }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.25s ease-out forwards;
+}
+
+.animate-slide-out {
+  animation: slideOut 0.25s ease-in forwards;
 }
 </style>
