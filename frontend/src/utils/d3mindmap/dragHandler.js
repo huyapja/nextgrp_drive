@@ -889,8 +889,48 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
   // Reset drag offset
   renderer.dragOffset = { x: 0, y: 0 }
   
-  // ⚠️ NEW: Xử lý sắp xếp lại thứ tự sibling nodes
-  if (actuallyMoved && renderer.dragSiblingDropPosition !== null && renderer.dragSiblingParentId) {
+  // ⚠️ FIX: Ưu tiên drop vào target node nếu có và khác với parent hiện tại
+  // Chỉ reorder sibling khi không có target node hoặc target node chính là parent hiện tại
+  const draggedNodeParentId = getParentNodeId(d.id, renderer.edges)
+  const shouldDropToTarget = actuallyMoved && targetNodeId && targetNodeId !== d.id && targetNodeId !== draggedNodeParentId
+  
+  // Xử lý drop vào target node (ưu tiên cao nhất)
+  if (shouldDropToTarget) {
+    const targetNode = renderer.nodes.find(n => n.id === targetNodeId)
+    const isDescendantNode = isDescendant(d.id, targetNodeId, renderer.edges)
+    
+    // Cho phép drop vào bất kỳ node nào (bao gồm root) trừ khi là descendant
+    if (targetNode && !isDescendantNode) {
+      // Cập nhật parent của node
+      const oldEdge = renderer.edges.find(e => e.target === d.id)
+      const newSource = targetNodeId
+      
+      if (oldEdge) {
+        // Cập nhật edge hiện có
+        oldEdge.source = newSource
+        oldEdge.id = `edge-${newSource}-${d.id}`
+      } else {
+        // Tạo edge mới nếu chưa có
+        renderer.edges.push({
+          id: `edge-${newSource}-${d.id}`,
+          source: newSource,
+          target: d.id
+        })
+      }
+      
+      // Re-render mindmap với layout mới
+      renderer.render()
+      
+      // Gọi callback để cập nhật data
+      if (renderer.callbacks.onNodeUpdate) {
+        renderer.callbacks.onNodeUpdate(d.id, { parentId: newSource })
+      }
+      
+      console.log('[DRAG END] Dropped node:', d.id, 'to parent:', targetNodeId)
+    }
+  }
+  // ⚠️ Xử lý sắp xếp lại thứ tự sibling nodes (chỉ khi không có target node hoặc target node chính là parent hiện tại)
+  else if (actuallyMoved && renderer.dragSiblingDropPosition !== null && renderer.dragSiblingParentId) {
     const siblings = getSiblingNodes(d.id, renderer.edges)
     const dropPosition = renderer.dragSiblingDropPosition
     
@@ -931,39 +971,6 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
     renderer.render()
     
     console.log('[DRAG END] Reordered sibling:', d.id, 'to position:', dropPosition, 'new order:', newOrder)
-  }
-  // Xử lý drop - CHỈ thực hiện nếu đã di chuyển đủ và không phải reorder sibling
-  else if (actuallyMoved && targetNodeId && targetNodeId !== d.id) {
-    const targetNode = renderer.nodes.find(n => n.id === targetNodeId)
-    const isDescendantNode = isDescendant(d.id, targetNodeId, renderer.edges)
-    
-    // Cho phép drop vào bất kỳ node nào (bao gồm root) trừ khi là descendant
-    if (targetNode && !isDescendantNode) {
-      // Cập nhật parent của node
-      const oldEdge = renderer.edges.find(e => e.target === d.id)
-      const newSource = targetNodeId
-      
-      if (oldEdge) {
-        // Cập nhật edge hiện có
-        oldEdge.source = newSource
-        oldEdge.id = `edge-${newSource}-${d.id}`
-      } else {
-        // Tạo edge mới nếu chưa có
-        renderer.edges.push({
-          id: `edge-${newSource}-${d.id}`,
-          source: newSource,
-          target: d.id
-        })
-      }
-      
-      // Re-render mindmap với layout mới
-      renderer.render()
-      
-      // Gọi callback để cập nhật data
-      if (renderer.callbacks.onNodeUpdate) {
-        renderer.callbacks.onNodeUpdate(d.id, { parentId: newSource })
-      }
-    }
   }
   
   // Reset drag state
