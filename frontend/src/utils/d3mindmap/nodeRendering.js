@@ -1300,7 +1300,7 @@ export function renderNodes(renderer, positions) {
                                 visibility: hidden;
                                 white-space: nowrap;
                                 font-size: 19px;
-                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
                               `
                               lineSpan.textContent = line.trim()
                               document.body.appendChild(lineSpan)
@@ -1322,7 +1322,7 @@ export function renderNodes(renderer, positions) {
                                 visibility: hidden;
                                 white-space: nowrap;
                                 font-size: 16px;
-                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
                               `
                               lineSpan.textContent = line.trim()
                               document.body.appendChild(lineSpan)

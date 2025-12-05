@@ -351,6 +351,19 @@ const initD3Renderer = () => {
         scheduleSave()
       }
     },
+    onNodeReorder: (nodeId, newOrder) => {
+      // ⚠️ NEW: Cập nhật nodeCreationOrder khi reorder sibling
+      nodeCreationOrder.value.set(nodeId, newOrder)
+      console.log('✅ Reordered node:', nodeId, 'new order:', newOrder)
+      
+      // Cập nhật renderer với nodeCreationOrder mới
+      if (d3Renderer) {
+        d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
+        d3Renderer.render()
+      }
+      
+      scheduleSave()
+    },
     onNodeEditingStart: (nodeId) => {
       editingNode.value = nodeId
     },
@@ -585,6 +598,41 @@ const addChildToNode = async (parentId) => {
       if (d3Renderer) {
         setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
+          
+          // ⚠️ NEW: Tự động focus vào editor của node mới để có thể nhập ngay
+          setTimeout(() => {
+            const nodeGroup = d3Renderer.g.select(`[data-node-id="${newNodeId}"]`)
+            if (!nodeGroup.empty()) {
+              const fo = nodeGroup.select('.node-text')
+              const foNode = fo.node()
+              
+              if (foNode) {
+                // Enable pointer events cho editor container
+                const editorContainer = nodeGroup.select('.node-editor-container')
+                if (!editorContainer.empty()) {
+                  editorContainer.style('pointer-events', 'auto')
+                }
+                
+                // Lấy editor instance và focus
+                const editorInstance = d3Renderer.getEditorInstance(newNodeId)
+                if (editorInstance) {
+                  // Focus vào editor và đặt cursor ở cuối
+                  editorInstance.commands.focus('end')
+                  // Gọi handleEditorFocus để setup đúng cách
+                  d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                } else {
+                  // Nếu editor chưa sẵn sàng, thử lại sau
+                  setTimeout(() => {
+                    const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
+                    if (editorInstance2) {
+                      editorInstance2.commands.focus('end')
+                      d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                    }
+                  }, 100)
+                }
+              }
+            }
+          }, 200) // Đợi render xong
         }, 150)
       }
     }, 30)
@@ -660,6 +708,41 @@ const addSiblingToNode = async (nodeId) => {
       if (d3Renderer) {
         setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
+          
+          // ⚠️ NEW: Tự động focus vào editor của node mới để có thể nhập ngay
+          setTimeout(() => {
+            const nodeGroup = d3Renderer.g.select(`[data-node-id="${newNodeId}"]`)
+            if (!nodeGroup.empty()) {
+              const fo = nodeGroup.select('.node-text')
+              const foNode = fo.node()
+              
+              if (foNode) {
+                // Enable pointer events cho editor container
+                const editorContainer = nodeGroup.select('.node-editor-container')
+                if (!editorContainer.empty()) {
+                  editorContainer.style('pointer-events', 'auto')
+                }
+                
+                // Lấy editor instance và focus
+                const editorInstance = d3Renderer.getEditorInstance(newNodeId)
+                if (editorInstance) {
+                  // Focus vào editor và đặt cursor ở cuối
+                  editorInstance.commands.focus('end')
+                  // Gọi handleEditorFocus để setup đúng cách
+                  d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                } else {
+                  // Nếu editor chưa sẵn sàng, thử lại sau
+                  setTimeout(() => {
+                    const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
+                    if (editorInstance2) {
+                      editorInstance2.commands.focus('end')
+                      d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                    }
+                  }, 100)
+                }
+              }
+            }
+          }, 200) // Đợi render xong
         }, 150)
       }
     }, 30)
@@ -830,11 +913,11 @@ const handleKeyDown = (event) => {
   else if (key === 'Enter') {
     event.preventDefault()
     event.stopPropagation()
+    // ⚠️ FIX: Bỏ chức năng nhấn Enter tạo node con cho node root
     if (selectedNode.value.id !== 'root') {
       addSiblingToNode(selectedNode.value.id)
-    } else {
-      addChildToNode(selectedNode.value.id)
     }
+    // Không làm gì nếu node là root
   }
   else if (key === 'Delete' || key === 'Backspace') {
     event.preventDefault()

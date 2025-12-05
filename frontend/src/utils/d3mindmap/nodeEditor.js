@@ -200,7 +200,7 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 							visibility: hidden;
 							white-space: nowrap;
 							font-size: 19px;
-							font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+							font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 						`
 						lineSpan.textContent = line.trim()
 						document.body.appendChild(lineSpan)
@@ -223,7 +223,7 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 							visibility: hidden;
 							white-space: nowrap;
 							font-size: 16px;
-							font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+							font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 						`
 						lineSpan.textContent = line.trim()
 						document.body.appendChild(lineSpan)
@@ -589,7 +589,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				visibility: hidden;
 				white-space: nowrap;
 				font-size: 19px;
-				font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+				font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 			`
 			textSpan.textContent = defaultText
 			document.body.appendChild(textSpan)
@@ -700,7 +700,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 								visibility: hidden;
 								white-space: nowrap;
 								font-size: 19px;
-								font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+								font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 							`
 							lineSpan.textContent = line.trim()
 							document.body.appendChild(lineSpan)
@@ -723,7 +723,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 								visibility: hidden;
 								white-space: nowrap;
 								font-size: 16px;
-								font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+								font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 							`
 							lineSpan.textContent = line.trim()
 							document.body.appendChild(lineSpan)

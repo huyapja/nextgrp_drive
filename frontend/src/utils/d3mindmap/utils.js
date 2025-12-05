@@ -86,6 +86,30 @@ export function countChildren(nodeId, edges) {
 }
 
 /**
+ * Get sibling nodes (nodes that share the same parent)
+ */
+export function getSiblingNodes(nodeId, edges) {
+	const parentEdge = edges.find(e => e.target === nodeId)
+	if (!parentEdge) return [] // Root node has no siblings
+	
+	const parentId = parentEdge.source
+	const siblings = edges
+		.filter(e => e.source === parentId)
+		.map(e => e.target)
+		.filter(id => id !== nodeId) // Exclude self
+	
+	return siblings
+}
+
+/**
+ * Get parent node ID
+ */
+export function getParentNodeId(nodeId, edges) {
+	const parentEdge = edges.find(e => e.target === nodeId)
+	return parentEdge ? parentEdge.source : null
+}
+
+/**
  * Cleanup drag branch effects (restore opacity, remove border, etc.)
  */
 export function cleanupDragBranchEffects(renderer) {

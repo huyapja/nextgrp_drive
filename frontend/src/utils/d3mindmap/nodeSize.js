@@ -59,24 +59,37 @@ export function estimateNodeWidth(node, maxWidth = 400, getNodeLabelFn = getNode
 	// Đo width của title (font-size 19px)
 	let titleWidth = minWidth
 	if (titleText) {
-		const titleLines = titleText.split('\n')
-		titleLines.forEach(line => {
-			if (line.trim()) {
-				const lineSpan = document.createElement('span')
-				lineSpan.style.cssText = `
-					position: absolute;
-					visibility: hidden;
-					font-size: 19px;
-					font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-					white-space: nowrap;
-				`
-				lineSpan.textContent = line.trim()
-				document.body.appendChild(lineSpan)
-				void lineSpan.offsetHeight
-				titleWidth = Math.max(titleWidth, lineSpan.offsetWidth + 56) // padding + margin + buffer để tránh text xuống dòng khi render lần đầu
-				document.body.removeChild(lineSpan)
-			}
-		})
+		// ⚠️ FIX: Nếu text là "Nhánh mới" (text mặc định), trả về minWidth ngay
+		if (titleText.trim() === 'Nhánh mới') {
+			titleWidth = minWidth
+		} else {
+			const titleLines = titleText.split('\n')
+			titleLines.forEach(line => {
+				if (line.trim()) {
+					const lineSpan = document.createElement('span')
+					lineSpan.style.cssText = `
+						position: absolute;
+						visibility: hidden;
+						font-size: 19px;
+						font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+						white-space: nowrap;
+					`
+					lineSpan.textContent = line.trim()
+					document.body.appendChild(lineSpan)
+					void lineSpan.offsetHeight
+					const textWidth = lineSpan.offsetWidth
+					const widthWithBuffer = textWidth + 56 // padding + margin + buffer để tránh text xuống dòng khi render lần đầu
+					// ⚠️ FIX: Nếu width với buffer chỉ lớn hơn minWidth một chút (< 20px), dùng minWidth
+					// Điều này đảm bảo node mới với text ngắn sẽ có width = 130px
+					if (widthWithBuffer <= minWidth + 20) {
+						titleWidth = Math.max(titleWidth, minWidth)
+					} else {
+						titleWidth = Math.max(titleWidth, widthWithBuffer)
+					}
+					document.body.removeChild(lineSpan)
+				}
+			})
+		}
 	}
 	
 	// Đo width của description (font-size 16px)
@@ -90,13 +103,21 @@ export function estimateNodeWidth(node, maxWidth = 400, getNodeLabelFn = getNode
 					position: absolute;
 					visibility: hidden;
 					font-size: 16px;
-					font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+					font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 					white-space: nowrap;
 				`
 				lineSpan.textContent = line.trim()
 				document.body.appendChild(lineSpan)
 				void lineSpan.offsetHeight
-				descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth + 56) // padding + margin + buffer để tránh text xuống dòng khi render lần đầu
+				const textWidth = lineSpan.offsetWidth
+				const widthWithBuffer = textWidth + 56 // padding + margin + buffer để tránh text xuống dòng khi render lần đầu
+				// ⚠️ FIX: Nếu width với buffer chỉ lớn hơn minWidth một chút (< 20px), dùng minWidth
+				// Điều này đảm bảo node mới với text ngắn sẽ có width = 130px
+				if (widthWithBuffer <= minWidth + 20) {
+					descriptionWidth = Math.max(descriptionWidth, minWidth)
+				} else {
+					descriptionWidth = Math.max(descriptionWidth, widthWithBuffer)
+				}
 				document.body.removeChild(lineSpan)
 			}
 		})
@@ -143,7 +164,7 @@ export function estimateNodeHeight(node, nodeWidth = null, getNodeLabelFn = getN
 		width: ${width}px;
 		box-sizing: border-box;
 		padding: 8px 16px;
-		font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+		font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 		overflow: hidden;
 		margin: 0;
 		height: auto;
