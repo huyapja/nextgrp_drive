@@ -99,7 +99,7 @@
 
 <script setup>
 import { rename } from "@/resources/files"
-import { D3MindmapRenderer } from '@/utils/d3MindmapRenderer'
+import { D3MindmapRenderer } from '@/utils/d3mindmap'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
 import { setBreadCrumbs } from "@/utils/files"
