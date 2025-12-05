@@ -498,6 +498,17 @@ def create_folder(team, title, personal=False, parent=None):
     response = drive_file.as_dict()
     response["file_type"] = "Folder"  # Đảm bảo file_type được set
 
+
+    frappe.publish_realtime(
+        event="upload_file_realtime",
+        message={
+            "status": "success",
+            "name": "hello ?????"
+        },
+        user=frappe.session.user,
+        after_commit=True,
+    )
+
     return response
 
 

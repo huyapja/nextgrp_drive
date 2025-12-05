@@ -1,20 +1,28 @@
 import { io, Socket } from "socket.io-client"
 import { socketio_port } from "../../../../sites/common_site_config.json"
 
-export function initSocket(options = {}) {
-  let host = window.location.hostname
-  let siteName = "/socket.io/"
-  let port = window.location.port ? `:${socketio_port}` : ""
-  let protocol = port ? "http" : "https"
-  let url = `${protocol}://${host}${port}/`
+function getCookie(name: string) {
+  const value = `; ${document.cookie}`
+  const parts = value.split(`; ${name}=`)
+  if (parts.length === 2) return parts.pop()!.split(";").shift()
+  return undefined
+}
 
-  console.log("url", url, "sitename", siteName, "port", port, "protocol", protocol)
-  // add exponential backoff
-  let socket = io(url, {
-    path: `${siteName}`,
-    reconnectionAttempts: 5,
+export function initSocket(): Socket {
+  const host = window.location.hostname
+  const protocol = window.location.protocol === "https:" ? "https" : "http"
+  const port = socketio_port || 9000
+
+  const site = 
+    window?.frappe?.boot?.site_name ||
+    window?.frappe?.boot?.sitename
+
+  const url = `${protocol}://${host}:${port}/${site}`
+
+  const socket = io(url, {
+    path: "/socket.io",
     transports: ["websocket", "polling"],
-    timeout: 1000
+    withCredentials: true
   })
 
   socket.on("connect", () => {
@@ -23,11 +31,10 @@ export function initSocket(options = {}) {
 
   socket.on("connect_error", (error) => {
     console.error("❌ Lỗi:", error.message)
-  })
+  })  
+
   return socket
 }
-
-// global socket conn state
 export class RealTimeHandler {
   open_docs: Set<string>
   socket: Socket
