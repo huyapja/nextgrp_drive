@@ -99,7 +99,7 @@
 
 <script setup>
 import { rename } from "@/resources/files"
-import { D3MindmapRenderer } from '@/utils/d3MindmapRenderer'
+import { D3MindmapRenderer } from '@/utils/d3mindmap'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
 import { setBreadCrumbs } from "@/utils/files"
@@ -107,8 +107,8 @@ import { createResource } from "frappe-ui"
 import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 
-import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
+import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
 
 
 const showContextMenu = ref(false)
