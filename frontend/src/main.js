@@ -13,6 +13,27 @@ import PrimeVue from 'primevue/config'
 import { createApp } from "vue"
 import VueTippy from "vue-tippy"
 
+
+async function loadBoot() {
+  if (!import.meta.env.DEV) return
+
+  try {
+    const res = await fetch("/api/method/drive.www.drive.get_context_for_dev", {
+      method: "POST"
+    }).then(r => r.json())
+
+    const boot = typeof res.message === "string" ? JSON.parse(res.message) : res.message
+
+    if (!window.frappe) window.frappe = {}
+    window.frappe.boot = boot
+
+    console.log("🔥 Loaded boot:", window.frappe.boot)
+  } catch (err) {
+    console.error("❌ Failed to load frappe boot:", err)
+  }
+}
+
+
 // Custom theme preset
 const customPreset = definePreset(Aura, {
   semantic: {
@@ -40,6 +61,8 @@ import store from "./store"
 import translationPlugin from "./translation"
 import { handleResourceError } from "./utils/errorHandler"
 import { toast } from "./utils/toasts"
+
+await loadBoot()
 
 const app = createApp(App)
 
@@ -80,6 +103,11 @@ app.use(
 )
 app.directive("focus", {
   mounted: (el) => el.focus(),
+})
+
+// Đăng ký riêng event upload_file_realtime
+socket.on("upload_file_realtime", (data) => {
+  console.log("📥 REALTIME RECEIVED:", data)
 })
 
 setConfig("resourceFetcher", (options) => {
