@@ -4677,4 +4677,3 @@ export class D3MindmapRenderer {
     }
   }
 }
-
