@@ -18,7 +18,7 @@ import { renderNodes } from './nodeRendering.js'
 import { selectNode } from './nodeSelection.js'
 import { estimateNodeHeight, estimateNodeSize, estimateNodeWidth } from './nodeSize.js'
 import { cleanupDragBranchEffects, countChildren, getDescendantIds, getNodeLabel, isDescendant, isNodeHidden } from './utils.js'
-import { fitView } from './viewUtils.js'
+import { fitView, scrollToNode } from './viewUtils.js'
 
 export class D3MindmapRenderer {
   constructor(container, options = {}) {
@@ -459,6 +459,10 @@ export class D3MindmapRenderer {
   
   fitView() {
     fitView(this)
+  }
+  
+  scrollToNode(nodeId) {
+    scrollToNode(this, nodeId)
   }
   
   destroy() {

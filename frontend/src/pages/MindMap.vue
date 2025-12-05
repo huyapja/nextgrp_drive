@@ -424,6 +424,8 @@ const initD3Renderer = () => {
       updateD3Renderer()
     },
     onRenderComplete: () => {
+      // ⚠️ NEW: Scroll to node from hash sau khi render hoàn tất
+      scrollToNodeFromHash()
       // Dừng loading khi render xong
       isRendering.value = false
     },
@@ -960,6 +962,14 @@ const handleKeyDown = (event) => {
       copyNode(selectedNode.value.id)
     }
   }
+  else if ((key === 'x' || key === 'X') && (event.ctrlKey || event.metaKey)) {
+    // ⚠️ NEW: Ctrl+X để cut node (nếu không đang trong editor)
+    if (!isInEditor && selectedNode.value && selectedNode.value.id !== 'root') {
+      event.preventDefault()
+      event.stopPropagation()
+      cutNode(selectedNode.value.id)
+    }
+  }
 }
 
 // Computed
@@ -1049,11 +1059,18 @@ onMounted(() => {
   })
 
   console.log('✅ D3 Mindmap renderer ready')
+  
+  // ⚠️ NEW: Xử lý hash khi component mount để scroll đến node
+  scrollToNodeFromHash()
+  
+  // ⚠️ NEW: Lắng nghe sự kiện hashchange để scroll đến node khi hash thay đổi
+  window.addEventListener('hashchange', scrollToNodeFromHash)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown, true)
   window.removeEventListener('copy', handleCopy, true)
+  window.removeEventListener('hashchange', scrollToNodeFromHash)
   window.removeEventListener('resize', () => { })
 
   if (d3Renderer) {
@@ -1097,12 +1114,8 @@ function handleCopy(event) {
   }
 }
 
-// ⚠️ NEW: Copy node function
-function copyNode(nodeId) {
-  const node = nodes.value.find(n => n.id === nodeId)
-  if (!node || nodeId === 'root') return
-  
-  // ⚠️ FIX: Lấy kích thước thực tế từ DOM hoặc cache để paste chính xác
+// ⚠️ NEW: Helper function để lấy kích thước node
+function getNodeSize(nodeId, node) {
   let actualWidth = null
   let actualHeight = null
   
@@ -1133,16 +1146,181 @@ function copyNode(nodeId) {
     }
   }
   
+  return { width: actualWidth, height: actualHeight }
+}
+
+// ⚠️ NEW: Copy node function (bao gồm toàn bộ subtree)
+function copyNode(nodeId) {
+  const node = nodes.value.find(n => n.id === nodeId)
+  if (!node || nodeId === 'root') return
+  
+  // Thu thập tất cả node IDs trong subtree (bao gồm node gốc)
+  const subtreeNodeIds = new Set([nodeId])
+  const collectDescendants = (id) => {
+    const childEdges = edges.value.filter(e => e.source === id)
+    childEdges.forEach(edge => {
+      const childId = edge.target
+      subtreeNodeIds.add(childId)
+      collectDescendants(childId)
+    })
+  }
+  collectDescendants(nodeId)
+  
+  // Thu thập tất cả nodes và edges trong subtree
+  const subtreeNodes = nodes.value.filter(n => subtreeNodeIds.has(n.id))
+  const subtreeEdges = edges.value.filter(e => 
+    subtreeNodeIds.has(e.source) && subtreeNodeIds.has(e.target)
+  )
+  
+  // Lưu thông tin kích thước cho từng node
+  const nodeSizes = {}
+  subtreeNodes.forEach(n => {
+    const size = getNodeSize(n.id, n)
+    nodeSizes[n.id] = size
+  })
+  
   clipboard.value = {
-    type: 'node',
-    data: {
-      label: node.data?.label || '',
-      width: actualWidth, // ⚠️ NEW: Copy kích thước thực tế
-      height: actualHeight, // ⚠️ NEW: Copy kích thước thực tế
+    type: 'subtree', // ⚠️ NEW: Đánh dấu là subtree
+    operation: 'copy', // ⚠️ NEW: Đánh dấu là copy
+    rootNodeId: nodeId, // ⚠️ NEW: Lưu nodeId gốc
+    nodes: subtreeNodes.map(n => ({
+      id: n.id,
+      data: {
+        label: n.data?.label || '',
+        fixedWidth: n.data?.fixedWidth,
+        fixedHeight: n.data?.fixedHeight,
+        width: nodeSizes[n.id]?.width,
+        height: nodeSizes[n.id]?.height,
+      }
+    })),
+    edges: subtreeEdges.map(e => ({
+      source: e.source,
+      target: e.target
+    }))
+  }
+  
+  console.log('✅ Copied subtree:', nodeId, 'nodes:', subtreeNodes.length, 'edges:', subtreeEdges.length, clipboard.value)
+}
+
+// ⚠️ NEW: Cut node function (bao gồm toàn bộ subtree)
+function cutNode(nodeId) {
+  const node = nodes.value.find(n => n.id === nodeId)
+  if (!node || nodeId === 'root') return
+  
+  // Thu thập tất cả node IDs trong subtree (bao gồm node gốc)
+  const subtreeNodeIds = new Set([nodeId])
+  const collectDescendants = (id) => {
+    const childEdges = edges.value.filter(e => e.source === id)
+    childEdges.forEach(edge => {
+      const childId = edge.target
+      subtreeNodeIds.add(childId)
+      collectDescendants(childId)
+    })
+  }
+  collectDescendants(nodeId)
+  
+  // Thu thập tất cả nodes và edges trong subtree
+  const subtreeNodes = nodes.value.filter(n => subtreeNodeIds.has(n.id))
+  const subtreeEdges = edges.value.filter(e => 
+    subtreeNodeIds.has(e.source) && subtreeNodeIds.has(e.target)
+  )
+  
+  // Lưu thông tin kích thước cho từng node
+  const nodeSizes = {}
+  subtreeNodes.forEach(n => {
+    const size = getNodeSize(n.id, n)
+    nodeSizes[n.id] = size
+  })
+  
+  clipboard.value = {
+    type: 'subtree', // ⚠️ NEW: Đánh dấu là subtree
+    operation: 'cut', // ⚠️ NEW: Đánh dấu là cut
+    rootNodeId: nodeId, // ⚠️ NEW: Lưu nodeId gốc (đã bị xóa)
+    nodes: subtreeNodes.map(n => ({
+      id: n.id,
+      data: {
+        label: n.data?.label || '',
+        fixedWidth: n.data?.fixedWidth,
+        fixedHeight: n.data?.fixedHeight,
+        width: nodeSizes[n.id]?.width,
+        height: nodeSizes[n.id]?.height,
+      }
+    })),
+    edges: subtreeEdges.map(e => ({
+      source: e.source,
+      target: e.target
+    }))
+  }
+  
+  console.log('✂️ Cut subtree:', nodeId, 'nodes:', subtreeNodes.length, 'edges:', subtreeEdges.length, clipboard.value)
+  
+  // ⚠️ NEW: Xóa node ngay lập tức sau khi lưu vào clipboard
+  performDelete(nodeId)
+  
+  console.log('✅ Deleted cut subtree immediately:', nodeId)
+}
+
+// ⚠️ NEW: Copy link to node function
+function copyNodeLink(nodeId) {
+  if (!nodeId || nodeId === 'root') return
+  
+  // Tạo link với hash (#nodeId)
+  const currentUrl = window.location.href.split('#')[0] // Lấy URL hiện tại không có hash
+  const link = `${currentUrl}#node-${nodeId}`
+  
+  // Copy vào clipboard
+  navigator.clipboard.writeText(link).then(() => {
+    console.log('✅ Copied link to node:', link)
+    
+    // Hiển thị thông báo (optional - có thể thêm toast notification)
+    // Có thể dùng một toast library hoặc tạo notification đơn giản
+  }).catch(err => {
+    console.error('❌ Failed to copy link:', err)
+    
+    // Fallback: dùng cách cũ
+    const textArea = document.createElement('textarea')
+    textArea.value = link
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-999999px'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    try {
+      document.execCommand('copy')
+      console.log('✅ Copied link using fallback method')
+    } catch (err) {
+      console.error('❌ Failed to copy link using fallback:', err)
+    }
+    document.body.removeChild(textArea)
+  })
+}
+
+// ⚠️ NEW: Scroll to node from hash
+function scrollToNodeFromHash() {
+  const hash = window.location.hash
+  if (!hash || !hash.startsWith('#node-')) return
+  
+  const nodeId = hash.replace('#node-', '')
+  if (!nodeId) return
+  
+  // Đợi renderer sẵn sàng và có positions
+  const checkAndScroll = () => {
+    if (d3Renderer && d3Renderer.positions && d3Renderer.positions.size > 0) {
+      // Kiểm tra node có tồn tại không
+      const node = nodes.value.find(n => n.id === nodeId)
+      if (node) {
+        d3Renderer.scrollToNode(nodeId)
+        console.log('✅ Scrolled to node from hash:', nodeId)
+      } else {
+        console.warn('Node not found:', nodeId)
+      }
+    } else {
+      // Retry sau 100ms nếu renderer chưa sẵn sàng
+      setTimeout(checkAndScroll, 100)
     }
   }
   
-  console.log('✅ Copied node:', nodeId, 'width:', actualWidth, 'height:', actualHeight, clipboard.value)
+  checkAndScroll()
 }
 
 // ⚠️ NEW: Copy text function (được gọi khi copy text trong editor)
@@ -1174,7 +1352,132 @@ function pasteToNode(targetNodeId) {
     return
   }
   
-  // Trường hợp 1 và 2: Paste node hoặc text để tạo node con mới
+  // ⚠️ NEW: Paste subtree (bao gồm node cha và tất cả node con)
+  if (clipboard.value.type === 'subtree' && clipboard.value.nodes && clipboard.value.edges) {
+    const rootNodeId = clipboard.value.rootNodeId
+    
+    // ⚠️ NEW: Kiểm tra nếu là cut operation (node đã bị xóa khi cut, nên không cần kiểm tra phức tạp)
+    // Chỉ kiểm tra cơ bản để tránh lỗi
+    if (clipboard.value.operation === 'cut' && targetNodeId === rootNodeId) {
+      console.log('❌ Cannot paste cut subtree into itself (node already deleted)')
+      return
+    }
+    
+    // Tạo mapping từ nodeId cũ sang nodeId mới
+    const nodeIdMap = new Map()
+    clipboard.value.nodes.forEach((node, index) => {
+      const newId = index === 0 ? `node-${nodeCounter++}` : `node-${nodeCounter++}`
+      nodeIdMap.set(node.id, newId)
+    })
+    
+    // Tạo nodes mới với nodeId mới
+    const newNodes = clipboard.value.nodes.map(node => {
+      const newNodeId = nodeIdMap.get(node.id)
+      
+      // Xác định parentId dựa trên edges
+      let parentId = null
+      if (node.id === rootNodeId) {
+        // Root node của subtree sẽ có parent là targetNode
+        parentId = targetNodeId
+      } else {
+        // Tìm parent của node này trong edges cũ
+        const parentEdge = clipboard.value.edges.find(e => e.target === node.id)
+        if (parentEdge) {
+          const newParentId = nodeIdMap.get(parentEdge.source)
+          parentId = newParentId
+        }
+      }
+      
+      return {
+        id: newNodeId,
+        data: {
+          label: node.data?.label || '',
+          parentId: parentId,
+          // ⚠️ FIX: Set fixedWidth/fixedHeight nếu có để node paste có kích thước chính xác
+          ...(node.data?.fixedWidth && node.data?.fixedHeight ? {
+            fixedWidth: node.data.fixedWidth,
+            fixedHeight: node.data.fixedHeight
+          } : node.data?.width && node.data?.height ? {
+            fixedWidth: node.data.width,
+            fixedHeight: node.data.height
+          } : {})
+        }
+      }
+    })
+    
+    // Tạo edges mới với nodeId mới (chỉ tạo lại edges trong subtree, không bao gồm edge từ parent đến root)
+    const newEdges = clipboard.value.edges.map(edge => {
+      const newSourceId = nodeIdMap.get(edge.source)
+      const newTargetId = nodeIdMap.get(edge.target)
+      
+      return {
+        id: `edge-${newSourceId}-${newTargetId}`,
+        source: newSourceId,
+        target: newTargetId
+      }
+    })
+    
+    // Tạo edge từ targetNode đến root node mới của subtree
+    const newRootNodeId = nodeIdMap.get(rootNodeId)
+    const rootEdge = {
+      id: `edge-${targetNodeId}-${newRootNodeId}`,
+      source: targetNodeId,
+      target: newRootNodeId
+    }
+    
+    // Store creation order cho tất cả nodes mới
+    newNodes.forEach(node => {
+      nodeCreationOrder.value.set(node.id, creationOrderCounter++)
+    })
+    
+    // Add nodes and edges
+    elements.value = [
+      ...nodes.value,
+      ...newNodes,
+      ...edges.value,
+      ...newEdges,
+      rootEdge
+    ]
+    
+    // Select root node của subtree mới
+    const newRootNode = newNodes.find(n => n.id === newRootNodeId)
+    selectedNode.value = newRootNode
+    
+    if (d3Renderer) {
+      d3Renderer.selectedNode = newRootNodeId
+    }
+    
+    console.log("✅ Pasted subtree:", newRootNodeId, "to parent:", targetNodeId, "nodes:", newNodes.length, "edges:", newEdges.length + 1)
+    
+    // ⚠️ NEW: Nếu là cut operation, clear clipboard sau khi paste thành công
+    // (Node đã bị xóa ngay khi cut, không cần xóa lại)
+    if (clipboard.value.operation === 'cut') {
+      // Clear clipboard sau khi cut đã được paste
+      clipboard.value = null
+      console.log('✅ Cleared cut clipboard after paste')
+    }
+    
+    // Auto-focus root node's editor
+    nextTick(() => {
+      void document.body.offsetHeight
+      setTimeout(() => {
+        const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newRootNodeId}"]`)
+        if (nodeGroup && !nodeGroup.empty()) {
+          setTimeout(() => {
+            const editorInstance = d3Renderer?.getEditorInstance?.(newRootNodeId)
+            if (editorInstance) {
+              editorInstance.commands.focus('end')
+            }
+          }, 200)
+        }
+      }, 30)
+    })
+    
+    scheduleSave()
+    return
+  }
+  
+  // Trường hợp cũ: Paste node đơn lẻ hoặc text (backward compatibility)
   const newNodeId = `node-${nodeCounter++}`
   let newNodeLabel = 'Nhánh mới'
   
@@ -1266,9 +1569,19 @@ function handleContextMenuAction({ type, node }) {
       copyNode(node.id)
       break
 
+    case "cut":
+      // ⚠️ NEW: Cut node
+      cutNode(node.id)
+      break
+
     case "paste":
       // ⚠️ NEW: Paste to node
       pasteToNode(node.id)
+      break
+
+    case "copy-link":
+      // ⚠️ NEW: Copy link to node
+      copyNodeLink(node.id)
       break
 
     // case "toggle-collapse":

@@ -34,6 +34,17 @@
             <span>Sao chép</span>
         </div>
 
+        <!-- Cut -->
+        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default" @click="emitAction('cut')">
+            <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="6" cy="6" r="3"/>
+                <circle cx="6" cy="18" r="3"/>
+                <line x1="8.12" y1="8.12" x2="19.26" y2="19.26"/>
+                <line x1="19.26" y1="8.12" x2="8.12" y2="19.26"/>
+            </svg>
+            <span>Cắt</span>
+        </div>
+
         <!-- Paste -->
         <div v-if="hasClipboard" class="menu-item menu-item-default" @click="emitAction('paste')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -41,6 +52,18 @@
                 <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
             </svg>
             <span>Dán</span>
+        </div>
+
+        <!-- Separator -->
+        <div v-if="node?.id !== 'root'" class="menu-separator"></div>
+
+        <!-- Copy Link -->
+        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default" @click="emitAction('copy-link')">
+            <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+            </svg>
+            <span>Sao chép liên kết</span>
         </div>
 
         <!-- Separator -->
