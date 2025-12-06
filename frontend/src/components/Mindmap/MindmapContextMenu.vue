@@ -89,14 +89,6 @@
             </svg>
             <span>Xóa nhánh</span>
         </div>
-
-        <div v-if="node?.id !== 'root'" class="menu-item hover:bg-gray-100 cursor-pointer text-sm" @click="emitAction('add-comment')">
-                        <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M12 5v14M5 12h14"/>
-            </svg>
-            <span>Thêm nhận
-            xét</span></div>
-
     </div>
 </template>
 
