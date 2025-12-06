@@ -86,10 +86,12 @@
         <MindmapCommentPanel
         :visible="showPanel"
         :node="activeCommentNode"
+        :mindmap="mindmap?.data?.mindmap_data?.nodes"  
         @close="showPanel = false"
         ref="commentPanelRef"
         @update:input="commentInputValue = $event"
         @cancel="onCancelComment"
+        @update:node="handleSelectCommentNode"
       >
         <!-- nội dung hoặc danh sách comment -->
         <div v-if="!activeCommentNode" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
@@ -1597,6 +1599,7 @@ function handleContextMenuAction({ type, node }) {
     case 'add-comment':            
       activeCommentNode.value = node 
       showPanel.value = true
+      d3Renderer?.selectCommentNode(node.id, false)
       break
   }
 }
@@ -1627,6 +1630,18 @@ function handleClickOutside(e) {
 function onCancelComment() {
   activeCommentNode.value = null
 }
+
+
+function handleSelectCommentNode(node) {
+  if (!node) return
+
+  activeCommentNode.value = node
+
+  // nếu muốn sync luôn highlight bên D3:
+  selectedNode.value = node
+  d3Renderer?.selectCommentNode(node.id, false)
+}
+
 
 </script>
 
