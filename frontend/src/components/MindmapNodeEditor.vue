@@ -8,6 +8,7 @@
 </template>
 
 <script>
+import { Highlight as BackgroundColor } from "@/components/DocEditor/extensions/backgroundColor"
 import { Document } from "@/components/DocEditor/extensions/document"
 import { Paragraph } from "@/components/DocEditor/extensions/paragraph"
 import { Placeholder } from "@/components/DocEditor/extensions/placeholder"
@@ -16,8 +17,11 @@ import { Underline } from "@/components/DocEditor/extensions/underline"
 import { Extension } from "@tiptap/core"
 import Bold from "@tiptap/extension-bold"
 import Code from "@tiptap/extension-code"
+import Color from "@tiptap/extension-color"
 import Italic from "@tiptap/extension-italic"
 import Link from "@tiptap/extension-link"
+import Strike from "@tiptap/extension-strike"
+import TextStyle from "@tiptap/extension-text-style"
 import Typography from "@tiptap/extension-typography"
 import StarterKit from "@tiptap/starter-kit"
 import { Editor, EditorContent } from "@tiptap/vue-3"
@@ -191,11 +195,13 @@ export default {
         Bold,
         Italic,
         Underline,
+        Strike,
         StarterKit.configure({
           // Disable các extension không cần thiết từ StarterKit
           bold: false, // Dùng extension riêng
           italic: false, // Dùng extension riêng
           code: false, // Dùng extension riêng
+          strike: false, // Dùng extension riêng
           history: false, // Không cần undo/redo trong mindmap node
           heading: false,
           blockquote: true, // Bật blockquote để dùng cho description
@@ -211,6 +217,9 @@ export default {
           autolink: true,
         }),
         Typography,
+        TextStyle,
+        Color,
+        BackgroundColor,
         Placeholder.configure({
           placeholder: this.placeholder,
         }),
@@ -219,6 +228,254 @@ export default {
         attributes: {
           class: `mindmap-editor-prose ${this.isRoot ? 'is-root' : ''}`,
           style: this.isRoot ? 'color: #ffffff;' : '',
+        },
+        handlePaste: (view, event, slice) => {
+          // Intercept paste để normalize style
+          const clipboardData = event.clipboardData
+          if (!clipboardData) return false
+          
+          const editor = this.editor
+          if (!editor) return false
+          
+          // Lấy highlight color hiện tại từ editor selection hoặc từ document
+          const { state } = editor
+          const { selection, doc } = state
+          
+          // Thử lấy từ selection trước
+          let marks = selection.$from.marks()
+          let textStyleMark = marks.find(mark => mark.type.name === 'textStyle')
+          let currentHighlightColor = textStyleMark?.attrs?.backgroundColor || null
+          
+          // Nếu không có từ selection, thử tìm trong document xung quanh cursor
+          if (!currentHighlightColor && selection.$from.pos > 0) {
+            const pos = Math.max(0, selection.$from.pos - 1)
+            const $pos = doc.resolve(pos)
+            marks = $pos.marks()
+            textStyleMark = marks.find(mark => mark.type.name === 'textStyle')
+            currentHighlightColor = textStyleMark?.attrs?.backgroundColor || null
+          }
+          
+          // Nếu vẫn không có, thử tìm trong paragraph hiện tại
+          if (!currentHighlightColor) {
+            const $from = selection.$from
+            const paragraph = $from.node($from.depth)
+            if (paragraph) {
+              paragraph.descendants((node) => {
+                if (node.marks) {
+                  const textStyle = node.marks.find(m => m.type.name === 'textStyle')
+                  if (textStyle?.attrs?.backgroundColor && !currentHighlightColor) {
+                    currentHighlightColor = textStyle.attrs.backgroundColor
+                  }
+                }
+              })
+            }
+          }
+          
+          console.log('[Paste] Current highlight color:', currentHighlightColor)
+          
+          // Lấy HTML từ clipboard
+          const html = clipboardData.getData('text/html')
+          if (html) {
+            // Tạo một div tạm để parse HTML
+            const tempDiv = document.createElement('div')
+            tempDiv.innerHTML = html
+            
+            // Normalize: loại bỏ các style không mong muốn và chỉ giữ lại format được phép
+            const normalizeElement = (element) => {
+              if (element.nodeType === Node.ELEMENT_NODE) {
+                const tagName = element.tagName?.toLowerCase()
+                const newElement = document.createElement(tagName)
+                
+                // Chỉ giữ lại các attribute và style cần thiết
+                if (tagName === 'strong' || tagName === 'b') {
+                  // Convert <b> về <strong>
+                  const strong = document.createElement('strong')
+                  Array.from(element.childNodes).forEach(child => {
+                    strong.appendChild(normalizeElement(child.cloneNode(true)))
+                  })
+                  return strong
+                } else if (tagName === 'em' || tagName === 'i') {
+                  // Convert <i> về <em>
+                  const em = document.createElement('em')
+                  Array.from(element.childNodes).forEach(child => {
+                    em.appendChild(normalizeElement(child.cloneNode(true)))
+                  })
+                  return em
+                } else if (tagName === 'u') {
+                  // Giữ <u> cho underline
+                  const u = document.createElement('u')
+                  Array.from(element.childNodes).forEach(child => {
+                    u.appendChild(normalizeElement(child.cloneNode(true)))
+                  })
+                  return u
+                } else if (tagName === 's' || tagName === 'strike' || tagName === 'del') {
+                  // Convert về <s> cho strikethrough
+                  const s = document.createElement('s')
+                  Array.from(element.childNodes).forEach(child => {
+                    s.appendChild(normalizeElement(child.cloneNode(true)))
+                  })
+                  return s
+                } else if (tagName === 'mark' || (tagName === 'span' && element.style.backgroundColor)) {
+                  // Giữ <mark> hoặc <span> với background-color cho highlight
+                  const mark = document.createElement('mark')
+                  const bgColor = element.style.backgroundColor
+                  if (bgColor && bgColor !== 'transparent' && bgColor !== 'rgba(0, 0, 0, 0)') {
+                    mark.style.backgroundColor = bgColor
+                  }
+                  Array.from(element.childNodes).forEach(child => {
+                    mark.appendChild(normalizeElement(child.cloneNode(true)))
+                  })
+                  return mark
+                } else if (tagName === 'p' || tagName === 'br' || tagName === 'blockquote') {
+                  // Giữ các tag structure, loại bỏ style
+                  const newNode = document.createElement(tagName)
+                  Array.from(element.childNodes).forEach(child => {
+                    newNode.appendChild(normalizeElement(child.cloneNode(true)))
+                  })
+                  return newNode
+                } else if (tagName === 'span') {
+                  // <span>: chỉ giữ nếu có backgroundColor, nếu không thì unwrap
+                  const bgColor = element.style.backgroundColor
+                  if (bgColor && bgColor !== 'transparent' && bgColor !== 'rgba(0, 0, 0, 0)') {
+                    const mark = document.createElement('mark')
+                    mark.style.backgroundColor = bgColor
+                    Array.from(element.childNodes).forEach(child => {
+                      mark.appendChild(normalizeElement(child.cloneNode(true)))
+                    })
+                    return mark
+                  } else {
+                    // Unwrap span: chỉ giữ lại children
+                    const fragment = document.createDocumentFragment()
+                    Array.from(element.childNodes).forEach(child => {
+                      fragment.appendChild(normalizeElement(child.cloneNode(true)))
+                    })
+                    return fragment
+                  }
+                } else if (['div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'].includes(tagName)) {
+                  // Convert các block element về <p>
+                  const p = document.createElement('p')
+                  Array.from(element.childNodes).forEach(child => {
+                    p.appendChild(normalizeElement(child.cloneNode(true)))
+                  })
+                  return p
+                } else {
+                  // Các tag khác: chỉ giữ text content
+                  const textNode = document.createTextNode(element.textContent || '')
+                  return textNode
+                }
+              } else if (element.nodeType === Node.TEXT_NODE) {
+                // Text node: giữ nguyên
+                return document.createTextNode(element.textContent || '')
+              }
+              
+              return element
+            }
+            
+            // Normalize tất cả children của tempDiv (loại bỏ highlight từ clipboard)
+            const normalized = document.createElement('div')
+            Array.from(tempDiv.childNodes).forEach(child => {
+              const normalizedChild = normalizeElement(child.cloneNode(true))
+              if (normalizedChild.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+                Array.from(normalizedChild.childNodes).forEach(c => normalized.appendChild(c))
+              } else {
+                normalized.appendChild(normalizedChild)
+              }
+            })
+            
+            // Nếu có highlight color hiện tại, wrap toàn bộ nội dung với highlight đó
+            if (currentHighlightColor) {
+              console.log('[Paste] Applying highlight color:', currentHighlightColor)
+              console.log('[Paste] Normalized HTML before wrap:', normalized.innerHTML)
+              
+              // Loại bỏ tất cả highlight hiện có từ clipboard (để thay bằng highlight hiện tại)
+              const existingMarks = normalized.querySelectorAll('mark[style*="background-color"], span[style*="background-color"]')
+              console.log('[Paste] Found existing marks to remove:', existingMarks.length)
+              
+              existingMarks.forEach(mark => {
+                // Unwrap mark: thay bằng nội dung bên trong
+                const parent = mark.parentNode
+                while (mark.firstChild) {
+                  parent.insertBefore(mark.firstChild, mark)
+                }
+                parent.removeChild(mark)
+              })
+              
+              // Wrap toàn bộ nội dung trong mỗi block element (p, blockquote) với mark
+              const blockElements = normalized.querySelectorAll('p, blockquote')
+              console.log('[Paste] Found block elements:', blockElements.length)
+              
+              if (blockElements.length > 0) {
+                // Nếu có block elements, wrap nội dung bên trong mỗi block
+                blockElements.forEach((block, index) => {
+                  // Kiểm tra xem block đã có mark wrap toàn bộ chưa
+                  const directChildren = Array.from(block.childNodes)
+                  const hasMarkWrapper = directChildren.length === 1 && 
+                                         directChildren[0].nodeType === Node.ELEMENT_NODE &&
+                                         directChildren[0].tagName === 'MARK'
+                  
+                  console.log(`[Paste] Block ${index}, hasMarkWrapper:`, hasMarkWrapper, 'children:', directChildren.length)
+                  
+                  if (!hasMarkWrapper) {
+                    // Wrap tất cả children với mark
+                    const mark = document.createElement('mark')
+                    mark.style.backgroundColor = currentHighlightColor
+                    
+                    // Di chuyển tất cả children vào mark
+                    while (block.firstChild) {
+                      mark.appendChild(block.firstChild)
+                    }
+                    
+                    block.appendChild(mark)
+                    console.log(`[Paste] Wrapped block ${index} with mark`)
+                  }
+                })
+              } else {
+                // Nếu không có block elements, wrap toàn bộ nội dung với mark
+                console.log('[Paste] No block elements, wrapping all content')
+                const mark = document.createElement('mark')
+                mark.style.backgroundColor = currentHighlightColor
+                
+                // Di chuyển tất cả children vào mark
+                while (normalized.firstChild) {
+                  mark.appendChild(normalized.firstChild)
+                }
+                
+                normalized.appendChild(mark)
+              }
+              
+              console.log('[Paste] Final normalized HTML:', normalized.innerHTML)
+            } else {
+              console.log('[Paste] No current highlight color, skipping wrap')
+            }
+            
+            // Lấy HTML đã normalize
+            const normalizedHTML = normalized.innerHTML
+            
+            // Insert content đã normalize vào editor
+            editor.commands.insertContent(normalizedHTML)
+            
+            // Prevent default paste behavior
+            event.preventDefault()
+            return true
+          }
+          
+          // Nếu không có HTML, fallback về text
+          const text = clipboardData.getData('text/plain')
+          if (text) {
+            // Nếu có highlight color hiện tại, apply nó cho text
+            if (currentHighlightColor) {
+              const mark = document.createElement('mark')
+              mark.style.backgroundColor = currentHighlightColor
+              mark.textContent = text
+              editor.commands.insertContent(mark.outerHTML)
+            } else {
+              editor.commands.insertContent(text)
+            }
+            event.preventDefault()
+            return true
+          }
+          
+          return false
         },
         handleTextInput: (view, from, to, text) => {
           // Xử lý đặc biệt cho space ở cuối text
@@ -644,17 +901,32 @@ export default {
   display: block !important;
 }
 
+/* Selection màu xanh dương cho tất cả các node */
+:deep(.mindmap-editor-prose::selection),
+:deep(.mindmap-editor-prose *::selection) {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+:deep(.mindmap-editor-prose::-moz-selection),
+:deep(.mindmap-editor-prose *::-moz-selection) {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
 :deep(.mindmap-editor-prose.is-root *::selection) {
-  background: rgba(255, 255, 255, 0.3);
+  background: #60a5fa;
   color: #ffffff;
 }
 
 :deep(.mindmap-editor-prose.is-root::selection) {
-  background: rgba(255, 255, 255, 0.3);
+  background: #60a5fa;
+  color: #ffffff;
 }
 
 :deep(.mindmap-editor-prose.is-root::-moz-selection) {
-  background: rgba(255, 255, 255, 0.3);
+  background: #60a5fa;
+  color: #ffffff;
 }
 
 :deep(.mindmap-editor-prose p) {
@@ -763,6 +1035,16 @@ export default {
   overflow-wrap: break-word;
   display: block;
   min-width: 0;
+}
+
+/* Disable highlight trong blockquote (description) */
+:deep(.mindmap-editor-prose blockquote *),
+:deep(.mindmap-editor-prose blockquote) {
+  background-color: transparent !important;
+}
+
+:deep(.mindmap-editor-prose blockquote [style*="background-color"]) {
+  background-color: transparent !important;
 }
 
 :deep(.mindmap-editor-prose blockquote p) {

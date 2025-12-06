@@ -282,7 +282,7 @@ export function renderNodes(renderer, positions) {
   // Update all nodes
   const nodesUpdate = nodesEnter.merge(nodes)
   
-  // Update node rect style dựa trên selectedNode
+  // Update node rect style dựa trên selectedNode và completed
   nodesUpdate.select('.node-rect')
     .attr('fill', d => {
       if (renderer.selectedNode === d.id) return '#e0e7ff' // Selected: đậm
@@ -294,15 +294,20 @@ export function renderNodes(renderer, positions) {
     })
     .attr('stroke-width', 2)
   
+  // Apply opacity cho toàn bộ node khi completed
   nodesUpdate
     .attr('transform', d => {
       const pos = positions.get(d.id)
       if (!pos) return 'translate(0, 0)'
       return `translate(${pos.x}, ${pos.y})`
     })
-    // Hide collapsed nodes instead of removing them
+    // Hide collapsed nodes và apply opacity cho completed nodes
     .style('opacity', d => {
-      return renderer.isNodeHidden(d.id) ? 0 : 1
+      // Nếu node bị hidden, opacity = 0
+      if (renderer.isNodeHidden(d.id)) return 0
+      // Nếu node completed, opacity = 0.5 (làm mờ)
+      if (d.data?.completed === true) return 0.5
+      return 1
     })
     .style('pointer-events', d => {
       return renderer.isNodeHidden(d.id) ? 'none' : 'auto'
@@ -408,21 +413,31 @@ export function renderNodes(renderer, positions) {
         editorContainer.style('pointer-events', 'auto')
       }
       
-      // Lấy editor instance và focus vào nó
+      // Lưu tọa độ click để đặt cursor vào đúng vị trí
+      const clickCoords = {
+        clientX: event.clientX,
+        clientY: event.clientY
+      }
+      
+      // Gọi callback onNodeDoubleClick với tọa độ click
+      // Callback này sẽ xử lý việc focus và đặt cursor vào đúng vị trí click
+      if (renderer.callbacks.onNodeDoubleClick) {
+        renderer.callbacks.onNodeDoubleClick(d, clickCoords)
+      }
+      
+      // Lấy editor instance và gọi handleEditorFocus để setup đúng cách
+      // KHÔNG gọi focus('end') ở đây vì việc đặt cursor đã được xử lý trong callback
       // Delay để đảm bảo DOM đã được cập nhật
       setTimeout(() => {
         const editorInstance = renderer.getEditorInstance(d.id)
         if (editorInstance) {
-          // Focus vào editor và đặt cursor ở cuối - tất cả node (bao gồm root) dùng logic giống nhau
-          editorInstance.commands.focus('end')
-          // Gọi handleEditorFocus để setup đúng cách
+          // Chỉ gọi handleEditorFocus để setup, không focus ở đây
           renderer.handleEditorFocus(d.id, fo.node(), d)
         } else {
           // Nếu editor chưa sẵn sàng, thử lại sau
           setTimeout(() => {
             const editorInstance2 = renderer.getEditorInstance(d.id)
             if (editorInstance2) {
-              editorInstance2.commands.focus('end')
               renderer.handleEditorFocus(d.id, fo.node(), d)
             }
           }, 50)
@@ -470,6 +485,15 @@ export function renderNodes(renderer, positions) {
           }
         })
         .attr('stroke-width', 2)
+      
+      // Preserve opacity cho completed nodes khi hover
+      nodeGroup.style('opacity', d => {
+        // Nếu node bị hidden, opacity = 0
+        if (renderer.isNodeHidden(d.id)) return 0
+        // Nếu node completed, opacity = 0.5 (làm mờ) - giữ nguyên
+        if (d.data?.completed === true) return 0.5
+        return 1
+      })
       
       // Check if node has children
       const hasChildren = renderer.edges.some(e => e.source === d.id)
@@ -682,6 +706,15 @@ export function renderNodes(renderer, positions) {
           return d.data?.isRoot ? 'none' : '#cbd5e1'
         })
         .attr('stroke-width', 2)
+      
+      // Preserve opacity cho completed nodes
+      nodeGroup.style('opacity', d => {
+        // Nếu node bị hidden, opacity = 0
+        if (renderer.isNodeHidden(d.id)) return 0
+        // Nếu node completed, opacity = 0.5 (làm mờ) - giữ nguyên
+        if (d.data?.completed === true) return 0.5
+        return 1
+      })
       
       // ✅ LOGIC KHI KHÔNG HOVER - 3 NÚT TÁCH BIỆT:
       // 1. Nút số: giữ nếu collapsed

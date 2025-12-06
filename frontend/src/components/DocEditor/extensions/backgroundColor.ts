@@ -38,8 +38,13 @@ export const Highlight = Extension.create<HighlightOptions>({
         attributes: {
           backgroundColor: {
             default: null,
-            parseHTML: (element) =>
-              element.style.backgroundColor.replace(/['"]+/g, ""),
+            parseHTML: (element) => {
+              const bgColor = (element as HTMLElement).style?.backgroundColor
+              if (!bgColor) {
+                return null
+              }
+              return bgColor.replace(/['"]+/g, "")
+            },
             renderHTML: (attributes) => {
               if (!attributes.backgroundColor) {
                 return {}

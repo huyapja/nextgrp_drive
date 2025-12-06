@@ -111,19 +111,17 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 		newWidth = Math.max(minWidth, Math.min(newWidth, maxWidth))
 	}
 	
-	// XỬ LÝ WIDTH: Node không co lại nhỏ hơn kích thước ban đầu
+	// XỬ LÝ WIDTH: Node không co lại nhỏ hơn kích thước ban đầu (khi có nội dung)
 	let currentWidth
 	if (isEmpty) {
-		// ⚠️ FIX: Khi xóa hết nội dung:
-		// - Nếu node có kích thước lớn hơn mặc định (minNodeWidth >= minWidth): giữ lại kích thước đã khóa
-		// - Nếu node có kích thước nhỏ hơn mặc định (minNodeWidth < minWidth): dùng kích thước mặc định
+		// ⚠️ FIX: Khi xóa hết nội dung, node nên co lại về kích thước tối thiểu (minWidth)
+		// Không giữ lại kích thước cũ (minNodeWidth) vì người dùng đã xóa hết nội dung
 		const currentRectWidth = parseFloat(rect.attr('width')) || minWidth
 		console.log('[DEBUG handleEditorInput] Xóa hết nội dung - currentRectWidth:', currentRectWidth, 'minNodeWidth:', minNodeWidth, 'minWidth:', minWidth)
 		
-		// Nếu kích thước đã khóa >= kích thước mặc định: giữ lại kích thước đã khóa
-		// Nếu kích thước đã khóa < kích thước mặc định: dùng kích thước mặc định
-		currentWidth = Math.max(minNodeWidth, minWidth)
-		console.log('[DEBUG handleEditorInput] Xóa hết nội dung, giãn ra kích thước:', currentWidth, '(minNodeWidth:', minNodeWidth, 'minWidth:', minWidth, ')')
+		// Khi xóa hết nội dung: co lại về kích thước tối thiểu
+		currentWidth = minWidth
+		console.log('[DEBUG handleEditorInput] Xóa hết nội dung, co lại về kích thước tối thiểu:', currentWidth)
 		
 		if (nodeData.data && isFirstEdit) {
 			delete nodeData.data.fixedWidth
@@ -292,12 +290,10 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	// Tính toán height mới dựa trên width và nội dung - tự động mở rộng để hiển thị đủ nội dung
 	let currentHeight
 	if (isEmpty) {
-		// ⚠️ FIX: Khi xóa hết nội dung:
-		// - Nếu node có kích thước lớn hơn mặc định (minNodeHeight >= singleLineHeight): giữ lại kích thước đã khóa
-		// - Nếu node có kích thước nhỏ hơn mặc định (minNodeHeight < singleLineHeight): dùng kích thước mặc định
-		// Điều này đảm bảo node giữ lại kích thước đã khóa nếu lớn hơn mặc định, hoặc dùng mặc định nếu nhỏ hơn
-		currentHeight = Math.max(minNodeHeight, singleLineHeight)
-		console.log('[DEBUG handleEditorInput] Xóa hết nội dung, height giãn ra kích thước:', currentHeight, '(minNodeHeight:', minNodeHeight, 'singleLineHeight:', singleLineHeight, ')')
+		// ⚠️ FIX: Khi xóa hết nội dung, node nên co lại về chiều cao tối thiểu (singleLineHeight)
+		// Không giữ lại kích thước cũ (minNodeHeight) vì người dùng đã xóa hết nội dung
+		currentHeight = singleLineHeight
+		console.log('[DEBUG handleEditorInput] Xóa hết nội dung, height co lại về tối thiểu:', currentHeight, '(singleLineHeight:', singleLineHeight, ')')
 	} else {
 		// ⚠️ FIX: Đo chiều cao trực tiếp từ TipTap editor DOM
 		const editorInstance = getEditorInstance(renderer, nodeId)
@@ -389,10 +385,27 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
 	const currentText = renderer.getNodeLabel(nodeData)
 	const isFirstEdit = !currentText || !currentText.trim()
 	
-	// ⚠️ IMPORTANT: Lưu kích thước HIỆN TẠI của node khi focus
-	// Đây sẽ là kích thước TỐI THIỂU trong suốt quá trình edit
-	const currentWidth = parseFloat(rect.attr('width')) || 130
-	const currentHeight = parseFloat(rect.attr('height')) || 43
+	// ⚠️ FIX: Lấy kích thước từ node.data.fixedWidth/fixedHeight hoặc cache thay vì DOM
+	// Vì DOM có thể còn kích thước cũ từ lần render trước
+	const isRootNode = nodeData.data?.isRoot || nodeId === 'root'
+	let currentWidth, currentHeight
+	
+	// Ưu tiên lấy từ fixedWidth/fixedHeight (đã được cập nhật khi blur)
+	if (!isRootNode && nodeData.data?.fixedWidth && nodeData.data?.fixedHeight) {
+		currentWidth = nodeData.data.fixedWidth
+		currentHeight = nodeData.data.fixedHeight
+	} else {
+		// Nếu không có, lấy từ cache
+		const cachedSize = renderer.nodeSizeCache.get(nodeId)
+		if (cachedSize) {
+			currentWidth = cachedSize.width
+			currentHeight = cachedSize.height
+		} else {
+			// Fallback: lấy từ DOM
+			currentWidth = parseFloat(rect.attr('width')) || 130
+			currentHeight = parseFloat(rect.attr('height')) || 43
+		}
+	}
 	
 	let lockedWidth, lockedHeight
 	
@@ -401,8 +414,8 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
 		lockedWidth = 130
 		lockedHeight = 43
 	} else {
-		// ⚠️ CHANGED: Luôn giữ kích thước hiện tại làm tối thiểu
-		// Node sẽ không co lại nhỏ hơn kích thước này khi xóa nội dung
+		// ⚠️ FIX: Dùng kích thước từ fixedWidth/fixedHeight hoặc cache (đã được cập nhật đúng)
+		// Không dùng kích thước từ DOM vì có thể còn giá trị cũ
 		lockedWidth = currentWidth
 		lockedHeight = currentHeight
 	}

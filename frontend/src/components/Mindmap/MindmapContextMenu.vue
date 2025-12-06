@@ -1,8 +1,10 @@
 <template>
     <div v-if="visible" ref="menuRef" class="mindmap-context-menu"
+        @mouseenter="handleMenuEnter"
+        @mouseleave="handleMenuLeave"
         :style="{
-            top: position.y + 'px',
-            left: position.x + 'px'
+            top: adjustedPosition.y - 65 + 'px',
+            left: adjustedPosition.x + 'px'
         }">
         <!-- Add Child -->
         <div class="menu-item menu-item-primary" @click="emitAction('add-child')">
@@ -93,18 +95,21 @@
 </template>
 
 <script setup>
-import { onUnmounted, ref, watch } from "vue";
+import { nextTick, onUnmounted, ref, watch } from "vue";
 
 const props = defineProps({
     visible: Boolean,
     node: Object,
     position: Object,
-    hasClipboard: Boolean
+    hasClipboard: Boolean,
+    buttonTop: Number,
+    spacing: Number
 });
 
 const emit = defineEmits(["action", "close"]);
 
 const menuRef = ref(null);
+const adjustedPosition = ref({ x: 0, y: 0 });
 
 function emitAction(action) {
     emit("action", {
@@ -126,18 +131,121 @@ function handleClickOutside(e) {
     }
 }
 
+let menuLeaveTimeout = null
+
 /**
- * Theo dõi visible để add/remove event listener
+ * Xử lý khi chuột vào menu - giữ menu mở
+ */
+function handleMenuEnter() {
+    if (menuLeaveTimeout) {
+        clearTimeout(menuLeaveTimeout)
+        menuLeaveTimeout = null
+    }
+}
+
+/**
+ * Xử lý khi chuột rời khỏi menu - đóng menu sau delay
+ */
+function handleMenuLeave(event) {
+    // Delay một chút để có thể di chuyển chuột vào button
+    menuLeaveTimeout = setTimeout(() => {
+        // Kiểm tra xem chuột có đang ở trong button không
+        const moreOptionsButton = document.querySelector('[title="Thêm tùy chọn"]')
+        const moreOptionsWrapper = moreOptionsButton?.closest('.toolbar-group')
+        
+        // Lấy vị trí chuột hiện tại
+        const mouseX = event?.clientX || 0
+        const mouseY = event?.clientY || 0
+        const elementUnderMouse = document.elementFromPoint(mouseX, mouseY)
+        
+        const isHoveringButton = moreOptionsWrapper && (
+            moreOptionsWrapper.matches(':hover') ||
+            moreOptionsWrapper.contains(elementUnderMouse)
+        )
+        
+        // Nếu không hover vào button, đóng menu
+        if (!isHoveringButton) {
+            emit("close");
+        }
+    }, 150)
+}
+
+/**
+ * Tính toán lại vị trí menu sau khi render
+ */
+const adjustMenuPosition = () => {
+	if (!props.position) {
+		adjustedPosition.value = { x: 0, y: 0 };
+		return;
+	}
+	
+	if (props.buttonTop !== undefined && props.spacing !== undefined && menuRef.value) {
+		const menuHeight = menuRef.value.offsetHeight || 0;
+		// Tính toán vị trí: top của menu = top của button - chiều cao menu - khoảng cách
+		adjustedPosition.value = {
+			x: props.position.x || 0,
+			y: props.buttonTop - menuHeight - props.spacing
+		};
+	} else {
+		adjustedPosition.value = {
+			x: props.position.x || 0,
+			y: props.position.y || 0
+		};
+	}
+};
+
+/**
+ * Theo dõi visible để add/remove event listener và tính toán vị trí
  */
 watch(
     () => props.visible,
     (v) => {
         if (v) {
             document.addEventListener("mousedown", handleClickOutside);
+            
+            // Đặt vị trí ban đầu từ props.position
+            if (props.position) {
+                adjustedPosition.value = { ...props.position };
+            }
+            
+            // Nếu có buttonTop và spacing, tính toán lại vị trí sau khi menu render
+            if (props.buttonTop !== undefined && props.spacing !== undefined) {
+                // Đợi menu được render xong
+                nextTick(() => {
+                    // Đợi thêm một chút để đảm bảo menu đã có kích thước
+                    setTimeout(() => {
+                        adjustMenuPosition();
+                    }, 50);
+                });
+            } else {
+                // Nếu không có buttonTop, dùng vị trí trực tiếp
+                if (props.position) {
+                    adjustedPosition.value = { ...props.position };
+                }
+            }
         } else {
             document.removeEventListener("mousedown", handleClickOutside);
         }
     }
+);
+
+// Theo dõi thay đổi position
+watch(
+    () => props.position,
+    (newPos) => {
+        if (newPos) {
+            adjustedPosition.value = newPos;
+            // Nếu menu đang hiển thị và có buttonTop, tính toán lại
+            if (props.visible && props.buttonTop !== undefined && props.spacing !== undefined) {
+                nextTick(() => {
+                    setTimeout(() => {
+                        adjustMenuPosition();
+                    }, 10);
+                });
+            }
+        }
+    },
+    { immediate: true }
 );
 
 // Cleanup khi component bị unmount (an toàn bộ nhớ)

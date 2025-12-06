@@ -81,7 +81,8 @@
         </div>
 
         <MindmapContextMenu @mousedown.stop @click.stop :visible="showContextMenu" :node="contextMenuNode" :position="contextMenuPos"
-          :has-clipboard="hasClipboard" @action="handleContextMenuAction" @close="showContextMenu = false" />
+          :has-clipboard="hasClipboard" :button-top="contextMenuButtonTop" :spacing="contextMenuSpacing"
+          @action="handleContextMenuAction" @close="showContextMenu = false" />
 
         <MindmapCommentPanel
         :visible="showPanel"
@@ -97,6 +98,20 @@
           <p class="text-gray-600 text-sm">Chưa có bình luận nào…</p>
         </div>
       </MindmapCommentPanel>
+
+      <!-- Toolbar -->
+      <MindmapToolbar
+        ref="toolbarRef"
+        :visible="showToolbar"
+        :node-id="selectedNode?.id"
+        :editor="currentEditor"
+        :renderer="d3Renderer"
+        @comment-click="handleToolbarCommentClick"
+        @note-click="handleToolbarNoteClick"
+        @show-context-menu="handleShowContextMenu"
+        @hide-context-menu="handleHideContextMenu"
+        v-if="showToolbar"
+      />
       </div>
     </div>
   </div>
@@ -114,11 +129,14 @@ import { useStore } from "vuex"
 
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
 import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
+import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 
 
 const showContextMenu = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
 const contextMenuNode = ref(null)
+const contextMenuButtonTop = ref(null)
+const contextMenuSpacing = ref(null)
 
 
 const store = useStore()
@@ -135,6 +153,9 @@ const lastSaved = ref(null)
 const selectedNode = ref(null)
 const hoveredNode = ref(null)
 const editingNode = ref(null)
+const isEditingNode = ref(false) // Track khi nào node đang ở chế độ edit (double click)
+const doubleClickCoords = ref(null) // Lưu tọa độ click khi double click để đặt cursor
+const isFocusingOnDescription = ref(false) // Flag để bỏ qua focusOnFirstTitle khi đang focus vào description
 const showDeleteDialog = ref(false)
 const nodeToDelete = ref(null)
 const childCount = ref(0)
@@ -145,6 +166,8 @@ const showPanel = ref(false);
 const activeCommentNode = ref(null)
 const commentPanelRef = ref(null)
 const commentInputValue = ref("")
+const showToolbar = ref(false)
+const toolbarRef = ref(null)
 
 
 // Elements ref
@@ -314,16 +337,26 @@ const initD3Renderer = () => {
       if (node) {        
         selectedNode.value = node
         d3Renderer.selectNode(node.id, false) // Cho phép callback
+        // Click một lần chỉ select node, KHÔNG focus editor, KHÔNG hiển thị toolbar
+        isEditingNode.value = false
         console.log("Selected node:", node.id)
       } else {
         // Deselect node - skip callback để tránh vòng lặp vô hạn
         selectedNode.value = null
+        isEditingNode.value = false
         d3Renderer.selectNode(null, true) // Skip callback vì đã được gọi từ selectNode
         console.log("Deselected node")
       }
     },
-    onNodeDoubleClick: () => {
-      /* Editing happens inline inside each node */
+    onNodeDoubleClick: (node, clickCoords) => {
+      // Double click: focus editor và hiển thị toolbar
+      if (node) {
+        selectedNode.value = node
+        // Lưu tọa độ click để đặt cursor vào đúng vị trí
+        doubleClickCoords.value = clickCoords || null
+        isEditingNode.value = true
+        console.log("Double clicked node, entering edit mode:", node.id, "coords:", clickCoords)
+      }
     },
     onNodeAdd: (parentId) => {
       addChildToNode(parentId)
@@ -334,6 +367,14 @@ const initD3Renderer = () => {
         // Cập nhật label nếu có
         if (updates.label !== undefined) {
           node.data.label = updates.label
+        }
+        // Cập nhật completed nếu có
+        if (updates.completed !== undefined) {
+          node.data.completed = updates.completed
+          // Render lại để apply opacity cho node
+          if (d3Renderer) {
+            d3Renderer.render()
+          }
         }
         // Cập nhật parentId nếu có (drag-and-drop)
         if (updates.parentId !== undefined) {
@@ -1609,23 +1650,370 @@ onBeforeUnmount(() => {
   window.removeEventListener("click", handleClickOutside, true)
 })
 
+// Ref để lấy editor instance từ selectedNode (dùng ref để có thể retry)
+const currentEditor = ref(null)
+
+// Hàm lấy editor instance với retry
+const getEditorWithRetry = (nodeId, editable = false, retries = 10, delay = 50) => {
+	if (!nodeId || !d3Renderer) {
+		currentEditor.value = null
+		return
+	}
+
+	const tryGetEditor = (attempt = 0) => {
+		const editor = d3Renderer.getEditorInstance(nodeId)
+		if (editor && editor.view && editor.view.dom) {
+			console.log('✅ Editor instance found for node:', nodeId, 'attempt:', attempt, 'editable:', editable)
+			currentEditor.value = editor
+			
+			// Set editable mode
+			if (editor.setEditable) {
+				editor.setEditable(editable)
+			} else if (editor.setOptions) {
+				editor.setOptions({ editable })
+			}
+			
+			// Focus vào title đầu tiên (paragraph đầu tiên, không phải blockquote)
+			// Click một lần: focus vào title (setSelection = false để không đặt cursor, chỉ scroll)
+			// Double click: focus vào title với selection (setSelection = true)
+			setTimeout(() => {
+				focusOnFirstTitle(editor, editable)
+			}, 50)
+			return
+		}
+
+		if (attempt < retries) {
+			setTimeout(() => tryGetEditor(attempt + 1), delay)
+		} else {
+			currentEditor.value = null
+			console.warn('❌ Editor instance not found for node after retries:', nodeId)
+		}
+	}
+
+	// Bắt đầu thử ngay lập tức
+	tryGetEditor()
+}
+
+// Focus vào title đầu tiên hoặc vị trí click (paragraph đầu tiên, không phải blockquote)
+// setSelection: true = đặt cursor (khi editable), false = chỉ scroll (khi read-only)
+const focusOnFirstTitle = (editor, setSelection = true) => {
+	if (!editor || !editor.state) return
+	
+	// Nếu có tọa độ click và ở editable mode, đặt cursor vào vị trí click
+	if (setSelection && doubleClickCoords.value && editor.view) {
+		// Đảm bảo view đã được update và render xong
+		// Đợi một chút để DOM được render đầy đủ
+		requestAnimationFrame(() => {
+			setTimeout(() => {
+				try {
+					const view = editor.view
+					if (!view || !doubleClickCoords.value) {
+						// Fallback nếu không có view hoặc coords
+						focusOnFirstTitleFallback(editor, setSelection)
+						return
+					}
+					
+					// Lấy vị trí từ tọa độ click
+					const posAtClick = view.posAtCoords({
+						left: doubleClickCoords.value.clientX,
+						top: doubleClickCoords.value.clientY
+					})
+					
+					if (posAtClick && posAtClick.pos !== null && posAtClick.pos >= 0) {
+						// Đặt cursor vào vị trí click, bất kể là title hay blockquote
+						editor.commands.setTextSelection(posAtClick.pos)
+						editor.commands.focus()
+						
+						// Reset tọa độ sau khi sử dụng
+						const coords = doubleClickCoords.value
+						const { doc } = editor.state
+						const isInBlockquote = (() => {
+							try {
+								const resolvedPos = doc.resolve(posAtClick.pos)
+								for (let depth = resolvedPos.depth; depth > 0; depth--) {
+									const parent = resolvedPos.node(depth)
+									if (parent && parent.type.name === 'blockquote') {
+										return true
+									}
+								}
+							} catch (e) {
+								return false
+							}
+							return false
+						})()
+						
+						doubleClickCoords.value = null
+						console.log('[MindMap] Focused at click position:', posAtClick.pos, 'isInBlockquote:', isInBlockquote, 'coords:', coords)
+						return
+					} else {
+						console.warn('[MindMap] Could not get position from coordinates:', posAtClick)
+					}
+				} catch (error) {
+					console.warn('[MindMap] Error placing cursor at click position:', error)
+				}
+				
+				// Fallback về logic cũ nếu không thể đặt cursor ở vị trí click
+				if (doubleClickCoords.value) {
+					doubleClickCoords.value = null
+				}
+				// Gọi lại hàm với logic fallback
+				focusOnFirstTitleFallback(editor, setSelection)
+			}, 20)
+		})
+		return // Return ngay để không chạy logic fallback
+	}
+	
+	// Nếu không có tọa độ click, chạy logic fallback
+	focusOnFirstTitleFallback(editor, setSelection)
+}
+
+// Logic fallback: focus vào title đầu tiên
+const focusOnFirstTitleFallback = (editor, setSelection = true) => {
+	if (!editor || !editor.state) return
+	
+	try {
+		const { doc } = editor.state
+		
+		// Tìm paragraph đầu tiên không nằm trong blockquote (fallback hoặc read-only mode)
+		let firstTitlePos = null
+		doc.descendants((node, pos) => {
+			if (firstTitlePos !== null) return false // Đã tìm thấy, dừng
+			
+			// Kiểm tra xem node có phải là paragraph và không nằm trong blockquote không
+			if (node.type.name === 'paragraph') {
+				// Kiểm tra parent chain
+				let resolvedPos = doc.resolve(pos)
+				let isInBlockquote = false
+				
+				// Kiểm tra tất cả các node trong chain
+				for (let depth = resolvedPos.depth; depth > 0; depth--) {
+					const parent = resolvedPos.node(depth)
+					if (parent && parent.type.name === 'blockquote') {
+						isInBlockquote = true
+						break
+					}
+				}
+				
+				if (!isInBlockquote) {
+					firstTitlePos = pos
+					return false // Dừng tìm kiếm
+				}
+			}
+		})
+		
+		if (firstTitlePos !== null) {
+			// Luôn reset selection về title đầu tiên, bất kể mode nào
+			const resolvedPos = doc.resolve(firstTitlePos + 1)
+			
+			if (setSelection) {
+				// Editable mode: đặt cursor vào title
+				editor.commands.setTextSelection(resolvedPos.pos)
+				editor.commands.focus()
+			} else {
+				// Read-only mode: set selection nhưng không focus (chỉ scroll)
+				// Điều này đảm bảo khi format, nó sẽ format đúng section (title)
+				editor.commands.setTextSelection(resolvedPos.pos)
+				
+				// Scroll để hiển thị title
+				if (editor.view && editor.view.domAtPos) {
+					const domPos = editor.view.domAtPos(resolvedPos.pos)
+					if (domPos && domPos.node) {
+						const element = domPos.node.nodeType === Node.TEXT_NODE 
+							? domPos.node.parentElement 
+							: domPos.node
+						if (element && element.scrollIntoView) {
+							element.scrollIntoView({ behavior: 'smooth', block: 'center' })
+						}
+					}
+				}
+				// Blur để tránh hiển thị cursor trong read-only mode
+				if (editor.commands.blur) {
+					setTimeout(() => {
+						editor.commands.blur()
+					}, 100)
+				}
+			}
+		} else {
+			// Nếu không tìm thấy paragraph, focus vào đầu document (chỉ khi editable)
+			if (setSelection) {
+				editor.commands.focus('start')
+			}
+		}
+		
+		// Reset tọa độ sau khi sử dụng
+		if (doubleClickCoords.value) {
+			doubleClickCoords.value = null
+		}
+	} catch (error) {
+		console.error('Error focusing on first title:', error)
+		// Fallback: focus vào đầu document (chỉ khi editable)
+		if (setSelection) {
+			try {
+				editor.commands.focus('start')
+			} catch (e) {
+				console.error('Error focusing editor:', e)
+			}
+		}
+		// Reset tọa độ nếu có lỗi
+		if (doubleClickCoords.value) {
+			doubleClickCoords.value = null
+		}
+	}
+}
+
+// Watch selectedNode để hiển thị/ẩn toolbar và lấy editor instance
+watch(selectedNode, (node) => {
+	if (node) {
+		// Click một lần: hiển thị toolbar, focus vào title nhưng editor chưa editable
+		showToolbar.value = true
+		currentEditor.value = null
+		nextTick(() => {
+			getEditorWithRetry(node.id, false) // false = không editable
+		})
+	} else {
+		showToolbar.value = false
+		currentEditor.value = null
+		isEditingNode.value = false
+	}
+}, { immediate: true })
+
+// Watch isEditingNode để set editor editable khi double click
+watch(isEditingNode, (isEditing) => {
+	if (isEditing && selectedNode.value) {
+		// Double click: set editor editable = true
+		if (currentEditor.value) {
+			// Editor đã sẵn sàng, set editable ngay
+			if (currentEditor.value.setEditable) {
+				currentEditor.value.setEditable(true)
+			} else if (currentEditor.value.setOptions) {
+				currentEditor.value.setOptions({ editable: true })
+			}
+			
+			// Chỉ focus vào title nếu không đang focus vào description
+			if (!isFocusingOnDescription.value) {
+				// Focus vào title đầu tiên với cursor (editable mode)
+				setTimeout(() => {
+					focusOnFirstTitle(currentEditor.value, true)
+				}, 50)
+			}
+		} else {
+			// Editor chưa sẵn sàng, lấy lại với editable = true
+			currentEditor.value = null
+			nextTick(() => {
+				getEditorWithRetry(selectedNode.value.id, true) // true = editable
+			})
+		}
+	} else if (!isEditing && currentEditor.value) {
+		// Thoát chế độ edit: set editor editable = false
+		if (currentEditor.value.setEditable) {
+			currentEditor.value.setEditable(false)
+		} else if (currentEditor.value.setOptions) {
+			currentEditor.value.setOptions({ editable: false })
+		}
+		
+		// Scroll lại title (read-only mode)
+		setTimeout(() => {
+			focusOnFirstTitle(currentEditor.value, false)
+		}, 50)
+		
+		// Blur editor nếu đang focus
+		if (currentEditor.value.isFocused) {
+			currentEditor.value.commands.blur()
+		}
+	}
+})
+
 function handleClickOutside(e) {
-  if (!showPanel.value) return
+	// Xử lý click outside cho comment panel
+	if (showPanel.value) {
+		const panel = commentPanelRef.value?.$el
+		const clickedInsidePanel = panel?.contains(e.target)
 
-  const panel = commentPanelRef.value?.$el
-  const clickedInsidePanel = panel?.contains(e.target)
+		if (clickedInsidePanel) return
+		if (e.target.closest(".node-group")) return
+		if (e.target.closest(".pi-comment")) return 
 
-  if (clickedInsidePanel) return
-  if (e.target.closest(".node-group")) return
-  if (e.target.closest(".pi-comment")) return 
+		if (commentInputValue.value.trim().length > 0) return
 
-  if (commentInputValue.value.trim().length > 0) return
+		activeCommentNode.value = null
+	}
 
-  activeCommentNode.value = null
+	// Xử lý click outside cho toolbar và editor
+	if (showToolbar.value || isEditingNode.value) {
+		const toolbar = toolbarRef.value?.$el || document.querySelector('.mindmap-toolbar')
+		const clickedInsideToolbar = toolbar?.contains(e.target)
+		
+		// Không ẩn toolbar nếu click vào node hoặc editor
+		// Và không blur editor nếu click vào toolbar (để có thể click Notes để focus blockquote)
+		if (clickedInsideToolbar) {
+			// Không blur editor khi click vào toolbar buttons
+			return
+		}
+		if (e.target.closest(".node-group")) {
+			// Nếu click vào node khác (không phải node đang edit), thoát chế độ edit
+			const clickedNodeGroup = e.target.closest(".node-group")
+			if (clickedNodeGroup) {
+				const clickedNodeId = clickedNodeGroup.getAttribute('data-node-id')
+				// Nếu click vào node khác, chỉ select node đó, không edit
+				if (clickedNodeId && selectedNode.value && clickedNodeId !== selectedNode.value.id) {
+					isEditingNode.value = false
+				}
+			}
+			return
+		}
+		if (e.target.closest(".mindmap-node-editor")) return
+		if (e.target.closest(".mindmap-editor-content")) return
+		if (e.target.closest(".mindmap-editor-prose")) return
+		
+		// Ẩn toolbar và thoát chế độ edit khi click ra ngoài
+		isEditingNode.value = false
+		selectedNode.value = null
+		showToolbar.value = false
+	}
 }
 
 function onCancelComment() {
-  activeCommentNode.value = null
+	activeCommentNode.value = null
+}
+
+function handleToolbarCommentClick() {
+	if (selectedNode.value) {
+		activeCommentNode.value = selectedNode.value
+		showPanel.value = true
+	}
+}
+
+function handleShowContextMenu({ nodeId, position, buttonTop, spacing }) {
+	// Tìm node từ nodeId
+	const node = nodes.value.find(n => n.id === nodeId)
+	if (node) {
+		contextMenuNode.value = node
+		contextMenuPos.value = position
+		contextMenuButtonTop.value = buttonTop
+		contextMenuSpacing.value = spacing
+		showContextMenu.value = true
+	}
+}
+
+function handleHideContextMenu() {
+	// Đóng menu ngay lập tức khi nhận được signal từ toolbar
+	showContextMenu.value = false
+}
+
+function handleToolbarNoteClick() {
+	// Khi click vào nút Notes, đảm bảo node ở chế độ editing
+	// Set flag để bỏ qua focusOnFirstTitle
+	isFocusingOnDescription.value = true
+	
+	if (selectedNode.value && !isEditingNode.value) {
+		isEditingNode.value = true
+		console.log('Note click for node:', selectedNode.value?.id, 'set isEditingNode to true')
+	}
+	
+	// Reset flag sau khi đã xử lý xong (sau delay để đảm bảo logic focus blockquote đã chạy)
+	setTimeout(() => {
+		isFocusingOnDescription.value = false
+	}, 300)
 }
 
 </script>

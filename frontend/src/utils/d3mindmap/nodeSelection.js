@@ -21,6 +21,16 @@ export function selectNode(renderer, nodeId, skipCallback = false) {
     })
     .attr('stroke-width', 2) // Border luôn là 2px
   
+  // Preserve opacity cho completed nodes khi selected
+  renderer.g.selectAll('.node-group')
+    .style('opacity', d => {
+      // Nếu node bị hidden, opacity = 0
+      if (renderer.isNodeHidden && renderer.isNodeHidden(d.id)) return 0
+      // Nếu node completed, opacity = 0.5 (làm mờ) - giữ nguyên kể cả khi selected
+      if (d.data?.completed === true) return 0.5
+      return 1
+    })
+  
   // ⚠️ FIX: Chỉ gọi callback nếu không skip (tránh vòng lặp vô hạn)
   // Khi deselect (nodeId === null), chỉ gọi callback nếu không skip
   if (!skipCallback && nodeId === null && renderer.callbacks.onNodeClick) {
