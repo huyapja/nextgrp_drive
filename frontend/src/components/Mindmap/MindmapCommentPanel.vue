@@ -249,6 +249,9 @@ async function handleSubmit() {
     comment: JSON.stringify(payload)
   })
 
+  console.log(">>>> send message");
+  
+
   inputValue.value = ""
   commentCache.value[props.node.id] = ""
   saveCache()
