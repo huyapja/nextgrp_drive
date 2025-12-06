@@ -5,7 +5,7 @@
 
 import * as d3 from 'd3'
 import { estimateNodeSize } from './nodeSize.js'
-import { cleanupDragBranchEffects, getDescendantIds, isDescendant, getSiblingNodes, getParentNodeId } from './utils.js'
+import { cleanupDragBranchEffects, getDescendantIds, getParentNodeId, getSiblingNodes, isDescendant } from './utils.js'
 
 /**
  * Handle mousedown event to setup drag delay
@@ -569,21 +569,68 @@ export function handleDrag(nodeElement, renderer, event, d) {
   // ⚠️ NEW: Phát hiện sibling nodes để sắp xếp lại thứ tự
   const draggedNodeParentId = getParentNodeId(d.id, renderer.edges)
   if (draggedNodeParentId) {
-    const siblings = getSiblingNodes(d.id, renderer.edges)
+    let siblings = getSiblingNodes(d.id, renderer.edges)
+    
+    // QUAN TRỌNG: Sắp xếp siblings theo vị trí Y (từ trên xuống dưới) để tính toán drop position chính xác
+    siblings = siblings
+      .map(siblingId => {
+        const pos = renderer.positions.get(siblingId)
+        return { id: siblingId, y: pos ? pos.y : Infinity }
+      })
+      .sort((a, b) => a.y - b.y) // Sắp xếp theo Y từ trên xuống
+      .map(item => item.id)
+    
     let dropPosition = null // null = không drop, hoặc index trong danh sách siblings
     
-    // Tìm vị trí drop dựa trên vị trí Y của pointer
+    // Khoảng cách drop zone rộng hơn (tính bằng pixels)
+    // Tăng giá trị này để drop zone rộng hơn - giá trị này là khoảng cách mở rộng ở trên và dưới mỗi node
+    const dropZonePadding = 80 // Khoảng drop zone rộng hơn (có thể điều chỉnh để làm rộng hơn hoặc hẹp hơn)
+    
+    // Tìm vị trí drop dựa trên vị trí Y của pointer với drop zone rộng hơn
     for (let i = 0; i < siblings.length; i++) {
       const siblingId = siblings[i]
       const siblingPos = renderer.positions.get(siblingId)
       if (siblingPos) {
         const siblingSize = renderer.nodeSizeCache.get(siblingId) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === siblingId))
+        const siblingTop = siblingPos.y
+        const siblingBottom = siblingPos.y + siblingSize.height
         const siblingCenterY = siblingPos.y + siblingSize.height / 2
         
-        // Nếu pointer ở trên sibling center, drop trước sibling này
-        if (y < siblingCenterY) {
+        // Tạo drop zone rộng hơn: vùng trên sibling mở rộng thêm dropZonePadding
+        const dropZoneTop = siblingTop - dropZonePadding
+        
+        // Nếu pointer ở trong vùng drop zone trên của sibling này, drop trước sibling này
+        if (y >= dropZoneTop && y < siblingCenterY) {
           dropPosition = i
           break
+        }
+        
+        // Tạo drop zone rộng hơn: vùng dưới sibling mở rộng thêm dropZonePadding
+        const dropZoneBottom = siblingBottom + dropZonePadding
+        
+        // Nếu pointer ở trong vùng drop zone dưới của sibling này
+        if (y >= siblingCenterY && y <= dropZoneBottom) {
+          // Kiểm tra xem có sibling tiếp theo không
+          if (i < siblings.length - 1) {
+            const nextSiblingId = siblings[i + 1]
+            const nextSiblingPos = renderer.positions.get(nextSiblingId)
+            if (nextSiblingPos) {
+              const nextSiblingSize = renderer.nodeSizeCache.get(nextSiblingId) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === nextSiblingId))
+              const nextSiblingTop = nextSiblingPos.y
+              const nextDropZoneTop = nextSiblingTop - dropZonePadding
+              
+              // Nếu pointer chưa đến drop zone của sibling tiếp theo, drop sau sibling hiện tại
+              if (y < nextDropZoneTop) {
+                dropPosition = i + 1
+                break
+              }
+              // Nếu pointer đã đến drop zone của sibling tiếp theo, sẽ được xử lý trong lần lặp tiếp theo
+            }
+          } else {
+            // Đây là sibling cuối cùng, drop sau sibling này
+            dropPosition = siblings.length
+            break
+          }
         }
       }
     }
@@ -593,7 +640,7 @@ export function handleDrag(nodeElement, renderer, event, d) {
       dropPosition = siblings.length
     }
     
-    // Lưu thông tin drop position để dùng trong handleDragEnd (không hiển thị visual indicator)
+    // Lưu thông tin drop position để dùng trong handleDragEnd
     if (dropPosition !== null && siblings.length > 0) {
       renderer.dragSiblingDropPosition = dropPosition
       renderer.dragSiblingParentId = draggedNodeParentId
@@ -931,32 +978,57 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
   }
   // ⚠️ Xử lý sắp xếp lại thứ tự sibling nodes (chỉ khi không có target node hoặc target node chính là parent hiện tại)
   else if (actuallyMoved && renderer.dragSiblingDropPosition !== null && renderer.dragSiblingParentId) {
-    const siblings = getSiblingNodes(d.id, renderer.edges)
+    let siblings = getSiblingNodes(d.id, renderer.edges)
     const dropPosition = renderer.dragSiblingDropPosition
+    
+    // QUAN TRỌNG: Sắp xếp siblings theo vị trí Y (giống như trong handleDrag) để đảm bảo nhất quán
+    const siblingsSortedByY = siblings
+      .map(siblingId => {
+        const pos = renderer.positions.get(siblingId)
+        return { id: siblingId, y: pos ? pos.y : Infinity }
+      })
+      .sort((a, b) => a.y - b.y) // Sắp xếp theo Y từ trên xuống
+      .map(item => item.id)
     
     // Lấy nodeCreationOrder từ renderer options
     const nodeCreationOrder = renderer.options?.nodeCreationOrder || new Map()
     
-    // Tính toán lại thứ tự
-    const currentOrder = nodeCreationOrder.get(d.id) ?? Infinity
+    // Sắp xếp siblings theo nodeCreationOrder để tính toán order mới
     const siblingOrders = siblings.map(siblingId => ({
       id: siblingId,
       order: nodeCreationOrder.get(siblingId) ?? Infinity
     })).sort((a, b) => a.order - b.order)
     
-    // Tính order mới cho node được drag
+    // Xác định vị trí drop trong danh sách đã sắp xếp theo nodeCreationOrder
+    // Dựa trên dropPosition (trong danh sách sắp xếp theo Y) để tìm vị trí tương ứng trong danh sách nodeCreationOrder
     let newOrder
+    
     if (dropPosition === 0) {
-      // Drop ở đầu: order nhỏ hơn sibling đầu tiên
+      // Drop ở đầu danh sách Y -> order nhỏ hơn sibling có order nhỏ nhất
       newOrder = siblingOrders[0]?.order - 1 ?? 0
-    } else if (dropPosition >= siblingOrders.length) {
-      // Drop ở cuối: order lớn hơn sibling cuối cùng
+    } else if (dropPosition >= siblingsSortedByY.length) {
+      // Drop ở cuối danh sách Y -> order lớn hơn sibling có order lớn nhất
       newOrder = (siblingOrders[siblingOrders.length - 1]?.order ?? 0) + 1
     } else {
-      // Drop giữa: order giữa 2 siblings
-      const prevOrder = siblingOrders[dropPosition - 1]?.order ?? 0
-      const nextOrder = siblingOrders[dropPosition]?.order ?? Infinity
-      newOrder = prevOrder + (nextOrder - prevOrder) / 2
+      // Drop giữa 2 siblings trong danh sách Y
+      // Tìm 2 siblings ở vị trí dropPosition-1 và dropPosition trong danh sách Y
+      const prevSiblingInY = siblingsSortedByY[dropPosition - 1]
+      const nextSiblingInY = siblingsSortedByY[dropPosition]
+      
+      // Tìm order của 2 siblings này trong danh sách nodeCreationOrder
+      const prevOrder = siblingOrders.find(s => s.id === prevSiblingInY)?.order ?? Infinity
+      const nextOrder = siblingOrders.find(s => s.id === nextSiblingInY)?.order ?? Infinity
+      
+      // Tính order mới ở giữa 2 orders này
+      if (prevOrder !== Infinity && nextOrder !== Infinity) {
+        newOrder = prevOrder + (nextOrder - prevOrder) / 2
+      } else if (prevOrder !== Infinity) {
+        newOrder = prevOrder + 1
+      } else if (nextOrder !== Infinity) {
+        newOrder = nextOrder - 1
+      } else {
+        newOrder = 0
+      }
     }
     
     // Cập nhật nodeCreationOrder
@@ -970,7 +1042,7 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
     // Re-render mindmap với layout mới
     renderer.render()
     
-    console.log('[DRAG END] Reordered sibling:', d.id, 'to position:', dropPosition, 'new order:', newOrder)
+    console.log('[DRAG END] Reordered sibling:', d.id, 'dropPosition (Y):', dropPosition, 'new order:', newOrder)
   }
   
   // Reset drag state
