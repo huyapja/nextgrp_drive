@@ -20,7 +20,7 @@
             @click="emitAction('delete')">
             Xóa nhánh
         </div>
-        <div v-if="node?.id !== 'root'" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm">Thêm nhận
+        <div v-if="node?.id !== 'root'" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm" @click="emitAction('add-comment')">Thêm nhận
             xét</div>
     </div>
 </template>
