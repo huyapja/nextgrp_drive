@@ -104,6 +104,7 @@ declare module 'vue' {
     Mention: typeof import('./src/components/DocEditor/icons/Mention.vue')['default']
     MentionList: typeof import('./src/components/DocEditor/components/MentionList.vue')['default']
     Menu: typeof import('./src/components/DocEditor/components/Menu.vue')['default']
+    Mindmap: typeof import('./src/components/MimeIcons/Mindmap.vue')['default']
     MindmapCommentPanel: typeof import('./src/components/Mindmap/MindmapCommentPanel.vue')['default']
     MindmapContextMenu: typeof import('./src/components/Mindmap/MindmapContextMenu.vue')['default']
     MindmapNode: typeof import('./src/components/MindmapNode.vue')['default']

@@ -64,3 +64,60 @@ export function fitView(renderer) {
     )
 }
 
+/**
+ * Scroll/zoom to a specific node
+ */
+export function scrollToNode(renderer, nodeId) {
+  if (!renderer.positions || !renderer.positions.has(nodeId)) {
+    console.warn('Node position not found:', nodeId)
+    return
+  }
+  
+  const pos = renderer.positions.get(nodeId)
+  if (!pos) {
+    console.warn('Node position is null:', nodeId)
+    return
+  }
+  
+  // Lấy node size
+  const node = renderer.nodes.find(n => n.id === nodeId)
+  if (!node) {
+    console.warn('Node not found:', nodeId)
+    return
+  }
+  
+  const size = renderer.nodeSizeCache.get(nodeId) || renderer.estimateNodeSize(node)
+  
+  // Tính center của node
+  const nodeCenterX = pos.x + size.width / 2
+  const nodeCenterY = pos.y + size.height / 2
+  
+  const fullWidth = renderer.options.width
+  const fullHeight = renderer.options.height
+  
+  // Scale để node vừa khít với viewport (zoom in một chút)
+  const targetScale = 1.5 // Zoom in 1.5x để node rõ ràng hơn
+  const padding = 60
+  
+  // Tính translate để center node vào giữa viewport
+  const translate = [
+    fullWidth / 2 - targetScale * nodeCenterX,
+    fullHeight / 2 - targetScale * nodeCenterY
+  ]
+  
+  // Apply transform với animation
+  renderer.svg.transition()
+    .duration(750)
+    .call(
+      renderer.zoom.transform,
+      d3.zoomIdentity.translate(translate[0], translate[1]).scale(targetScale)
+    )
+  
+  // Select node để highlight
+  if (renderer.selectNode) {
+    renderer.selectNode(nodeId)
+  }
+  
+  console.log('✅ Scrolled to node:', nodeId, 'position:', pos)
+}
+

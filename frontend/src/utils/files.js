@@ -13,6 +13,7 @@ import Audio from "@/components/MimeIcons/Audio.vue"
 import Document from "@/components/MimeIcons/Document.vue"
 import Folder from "@/components/MimeIcons/Folder.vue"
 import Image from "@/components/MimeIcons/Image.vue"
+import Mindmap from "@/components/MimeIcons/Mindmap.vue"
 import PDF from "@/components/MimeIcons/PDF.vue"
 import Presentation from "@/components/MimeIcons/Presentation.vue"
 import Spreadsheet from "@/components/MimeIcons/Spreadsheet.vue"
@@ -238,6 +239,7 @@ export const MIME_LIST_MAP = {
     "application/gzip",
     "application/x-bzip2",
   ],
+  MindMap: ["mindmap"],
 }
 
 export const ICON_TYPES = {
@@ -250,6 +252,7 @@ export const ICON_TYPES = {
   Spreadsheet: Spreadsheet,
   Archive: Archive,
   Presentation: Presentation,
+  MindMap: Mindmap,
   // Unknown: Unknown,
 }
 

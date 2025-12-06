@@ -239,6 +239,16 @@ export default {
           return false
         },
         handleKeyDown: (view, event) => {
+          // ⚠️ NEW: Xử lý Enter (không có Shift) để blur editor và thoát khỏi chế độ edit
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault()
+            event.stopPropagation()
+            
+            // Blur editor để thoát khỏi chế độ edit
+            this.editor.commands.blur()
+            return true
+          }
+          
           // Xử lý Shift + Enter để chuyển focus giữa title và description
           if (event.key === 'Enter' && event.shiftKey) {
             event.preventDefault()
@@ -585,7 +595,7 @@ export default {
   padding: 8px 16px;
   font-size: 19px;
   line-height: 1.4;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   background: transparent;
   border: none;
   outline: none;
@@ -782,7 +792,7 @@ export default {
   padding: 8px 16px;
   font-size: 19px;
   line-height: 1.4;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   background: transparent;
   border: none;
   outline: none;

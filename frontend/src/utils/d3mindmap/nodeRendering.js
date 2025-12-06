@@ -28,15 +28,9 @@ export function renderNodes(renderer, positions) {
       // Luôn tính toán lại khi render lần đầu để đảm bảo có buffer đủ
       const size = renderer.estimateNodeSize(node)
       renderer.nodeSizeCache.set(node.id, size)
-    } else {
-      // Nếu đã có cache, đảm bảo width >= 130px để tránh node quá nhỏ
-      const cachedSize = renderer.nodeSizeCache.get(node.id)
-      if (cachedSize && cachedSize.width < 130) {
-        // Cache có width nhỏ hơn minWidth, tính toán lại
-        const size = renderer.estimateNodeSize(node)
-        renderer.nodeSizeCache.set(node.id, size)
-      }
     }
+    // ⚠️ FIX: Bỏ logic force width >= 130px để cho phép node có width nhỏ hơn minWidth
+    // Node paste sẽ có kích thước chính xác như node gốc
   })
   
   const getNodeSize = (node) => {
@@ -48,8 +42,16 @@ export function renderNodes(renderer, positions) {
         height: node.data.fixedHeight,
       }
     }
-    // Fallback: dùng cache hoặc mặc định
-    return renderer.nodeSizeCache.get(node.id) || { width: 130, height: 43 } // Node mặc định 130px (textarea width)
+    // ⚠️ FIX: Nếu không có cache, tính toán lại thay vì dùng mặc định 130px
+    // Điều này đảm bảo node mới paste có kích thước chính xác
+    const cached = renderer.nodeSizeCache.get(node.id)
+    if (cached) {
+      return cached
+    }
+    // Tính toán lại nếu chưa có cache
+    const size = renderer.estimateNodeSize(node)
+    renderer.nodeSizeCache.set(node.id, size)
+    return size
   }
   
   const that = renderer // Store reference for use in callbacks
@@ -1100,17 +1102,21 @@ export function renderNodes(renderer, positions) {
           }
         }
       } else {
-        // Nếu không edit, tính toán width dựa trên nội dung (130px - 400px)
+        // Nếu không edit, tính toán width dựa trên nội dung
+        // ⚠️ FIX: Cho phép width nhỏ hơn minWidth (130px) cho text ngắn
         // Ưu tiên dùng kích thước từ cache hoặc getNodeSize để đảm bảo nhất quán
         if (text) {
           // Dùng kích thước từ getNodeSize (đã được tính với buffer đủ) thay vì tính lại
           const nodeSizeFromCache = getNodeSize(nodeData)
-          if (nodeSizeFromCache && nodeSizeFromCache.width >= minWidth) {
-            currentTextareaWidth = nodeSizeFromCache.width
+          if (nodeSizeFromCache) {
+            // ⚠️ FIX: Cho phép width nhỏ hơn minWidth để node có kích thước chính xác như node gốc
+            // Dùng trực tiếp width từ cache, không force tối thiểu
+            currentTextareaWidth = Math.min(nodeSizeFromCache.width, maxWidth)
           } else {
             // Fallback: tính toán lại nếu cache không có hoặc không hợp lý
             const estimatedWidth = renderer.estimateNodeWidth(nodeData, maxWidth)
-            currentTextareaWidth = Math.max(minWidth, Math.min(estimatedWidth, maxWidth))
+            // ⚠️ FIX: Cho phép width nhỏ hơn minWidth để node có kích thước chính xác
+            currentTextareaWidth = Math.min(estimatedWidth, maxWidth)
           }
         } else {
           currentTextareaWidth = minWidth
@@ -1300,7 +1306,7 @@ export function renderNodes(renderer, positions) {
                                 visibility: hidden;
                                 white-space: nowrap;
                                 font-size: 19px;
-                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
                               `
                               lineSpan.textContent = line.trim()
                               document.body.appendChild(lineSpan)
@@ -1322,7 +1328,7 @@ export function renderNodes(renderer, positions) {
                                 visibility: hidden;
                                 white-space: nowrap;
                                 font-size: 16px;
-                                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
                               `
                               lineSpan.textContent = line.trim()
                               document.body.appendChild(lineSpan)
