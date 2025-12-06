@@ -79,19 +79,24 @@
             </svg>
           </button>
         </div>
-        <MindmapContextMenu :visible="showContextMenu" :node="contextMenuNode" :position="contextMenuPos"
+
+        <MindmapContextMenu @mousedown.stop @click.stop :visible="showContextMenu" :node="contextMenuNode" :position="contextMenuPos"
           :has-clipboard="hasClipboard" @action="handleContextMenuAction" @close="showContextMenu = false" />
-        
+
         <MindmapCommentPanel
-          :visible="showPanel"
-          @close="showPanel = false"
-        >
-          <!-- nội dung hoặc danh sách comment -->
-          <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
-            transform">
-            <p class="text-gray-600 text-sm">Chưa có bình luận nào…</p>
-          </div>
-        </MindmapCommentPanel>
+        :visible="showPanel"
+        :node="activeCommentNode"
+        @close="showPanel = false"
+        ref="commentPanelRef"
+        @update:input="commentInputValue = $event"
+        @cancel="onCancelComment"
+      >
+        <!-- nội dung hoặc danh sách comment -->
+        <div v-if="!activeCommentNode" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
+          transform">
+          <p class="text-gray-600 text-sm">Chưa có bình luận nào…</p>
+        </div>
+      </MindmapCommentPanel>
       </div>
     </div>
   </div>
@@ -137,17 +142,10 @@ const isRendering = ref(true) // Loading state khi đang render mindmap
 let saveTimeout = null
 const SAVE_DELAY = 2000
 const showPanel = ref(false);
-const closing = ref(false)
+const activeCommentNode = ref(null)
+const commentPanelRef = ref(null)
+const commentInputValue = ref("")
 
-
-function closePanel() {
-  closing.value = true;
-
-  setTimeout(() => {
-    showPanel.value = false;
-    closing.value = false;
-  }, 250); // khớp với duration animation
-}
 
 // Elements ref
 const elements = ref([])
@@ -238,9 +236,12 @@ const mindmapEntity = createResource({
 const initializeMindmap = async (data) => {
   if (data.mindmap_data && data.mindmap_data.nodes && data.mindmap_data.nodes.length > 0) {
     // Convert VueFlow format to D3 format
-    const loadedNodes = data.mindmap_data.nodes.map(node => ({
+    const loadedNodes = data.mindmap_data.nodes.map(node => 
+    
+    ({
       id: node.id,
-      data: node.data || { label: node.label || '' }
+      data: node.data || { label: node.label || '' },
+      position: node.position
     }))
 
     const loadedEdges = data.mindmap_data.edges.map(edge => ({
@@ -310,7 +311,7 @@ const initD3Renderer = () => {
 
   d3Renderer.setCallbacks({
     onNodeClick: (node) => {
-      if (node) {
+      if (node) {        
         selectedNode.value = node
         d3Renderer.selectNode(node.id, false) // Cho phép callback
         console.log("Selected node:", node.id)
@@ -1592,7 +1593,39 @@ function handleContextMenuAction({ type, node }) {
       selectedNode.value = node
       deleteSelectedNode()
       break
+    
+    case 'add-comment':            
+      activeCommentNode.value = node 
+      showPanel.value = true
+      break
   }
+}
+
+onMounted(() => {
+  window.addEventListener("click", handleClickOutside, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener("click", handleClickOutside, true)
+})
+
+function handleClickOutside(e) {
+  if (!showPanel.value) return
+
+  const panel = commentPanelRef.value?.$el
+  const clickedInsidePanel = panel?.contains(e.target)
+
+  if (clickedInsidePanel) return
+  if (e.target.closest(".node-group")) return
+  if (e.target.closest(".pi-comment")) return 
+
+  if (commentInputValue.value.trim().length > 0) return
+
+  activeCommentNode.value = null
+}
+
+function onCancelComment() {
+  activeCommentNode.value = null
 }
 
 </script>
