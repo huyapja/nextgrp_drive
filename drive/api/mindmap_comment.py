@@ -1,8 +1,6 @@
 import frappe
 import json
 from frappe import _
-from frappe.model.document import Document
-from frappe.utils import now
 
 
 @frappe.whitelist()
@@ -13,7 +11,7 @@ def get_comments(mindmap_id: str):
     comments = frappe.get_all(
         "Drive Mindmap Comment",
         filters={"mindmap_id": mindmap_id},
-        fields=["name", "comment", "owner", "creation"],
+        fields=["name", "comment", "owner", "creation", "node_id"],
         order_by="creation asc"
     )
 
@@ -39,6 +37,16 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
     })
 
     doc.insert(ignore_permissions=True)
+
+    frappe.publish_realtime(
+        event="drive_mindmap:new_comment",
+        message={
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "comment": doc.as_dict()
+        }
+    )
+
 
     return {
         "status": "ok",

@@ -16,6 +16,7 @@ import { renderEdges } from './edgeRendering.js'
 import { getEditorInstance, handleEditorBlur, handleEditorFocus, handleEditorInput, mountNodeEditor, unmountNodeEditor } from './nodeEditor.js'
 import { renderNodes } from './nodeRendering.js'
 import { selectNode } from './nodeSelection.js'
+import { selectCommentNode } from './nodeCommentSelection.js'
 import { estimateNodeHeight, estimateNodeSize, estimateNodeWidth } from './nodeSize.js'
 import { cleanupDragBranchEffects, countChildren, getDescendantIds, getNodeLabel, isDescendant, isNodeHidden } from './utils.js'
 import { fitView } from './viewUtils.js'
@@ -437,6 +438,10 @@ export class D3MindmapRenderer {
   
   selectNode(nodeId, skipCallback = false) {
     selectNode(this, nodeId, skipCallback)
+  }
+
+  selectCommentNode(nodeId, skipCallback = false) {
+    selectCommentNode(this, nodeId, skipCallback)
   }
   
   estimateNodeWidth(node, maxWidth = 400) {
