@@ -99,6 +99,15 @@
           <p class="text-gray-600 text-sm">Chưa có bình luận nào…</p>
         </div>
       </MindmapCommentPanel>
+
+      <!-- Mindmap Toolbar -->
+      <MindmapToolbar
+        :visible="!!selectedNode"
+        :selected-node="selectedNode"
+        :editor-instance="currentEditorInstance"
+        :is-editing="editingNode === selectedNode?.id"
+        @comments="handleToolbarComments"
+      />
       </div>
     </div>
   </div>
@@ -116,6 +125,7 @@ import { useStore } from "vuex"
 
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
 import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
+import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 
 
 const showContextMenu = ref(false)
@@ -147,6 +157,12 @@ const showPanel = ref(false);
 const activeCommentNode = ref(null)
 const commentPanelRef = ref(null)
 const commentInputValue = ref("")
+
+// Computed: Lấy editor instance từ selectedNode
+const currentEditorInstance = computed(() => {
+	if (!selectedNode.value || !d3Renderer) return null
+	return d3Renderer.getEditorInstance(selectedNode.value.id)
+})
 
 
 // Elements ref
@@ -1633,13 +1649,25 @@ function onCancelComment() {
 
 
 function handleSelectCommentNode(node) {
-  if (!node) return
+	if (!node) return
 
-  activeCommentNode.value = node
+	activeCommentNode.value = node
 
-  // nếu muốn sync luôn highlight bên D3:
-  selectedNode.value = node
-  d3Renderer?.selectCommentNode(node.id, false)
+	// nếu muốn sync luôn highlight bên D3:
+	selectedNode.value = node
+	d3Renderer?.selectCommentNode(node.id, false)
+}
+
+// Handle toolbar comments
+function handleToolbarComments({ node, show }) {
+	if (show) {
+		activeCommentNode.value = node
+		showPanel.value = true
+		d3Renderer?.selectCommentNode(node.id, false)
+	} else {
+		activeCommentNode.value = null
+		showPanel.value = false
+	}
 }
 
 

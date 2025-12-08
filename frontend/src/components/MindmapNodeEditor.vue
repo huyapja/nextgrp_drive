@@ -13,11 +13,13 @@ import { Paragraph } from "@/components/DocEditor/extensions/paragraph"
 import { Placeholder } from "@/components/DocEditor/extensions/placeholder"
 import { Text } from "@/components/DocEditor/extensions/text"
 import { Underline } from "@/components/DocEditor/extensions/underline"
+import { Highlight as BackgroundColor } from "@/components/DocEditor/extensions/backgroundColor"
 import { Extension } from "@tiptap/core"
 import Bold from "@tiptap/extension-bold"
 import Code from "@tiptap/extension-code"
 import Italic from "@tiptap/extension-italic"
 import Link from "@tiptap/extension-link"
+import TextStyle from "@tiptap/extension-text-style"
 import Typography from "@tiptap/extension-typography"
 import StarterKit from "@tiptap/starter-kit"
 import { Editor, EditorContent } from "@tiptap/vue-3"
@@ -188,9 +190,11 @@ export default {
         Document,
         Paragraph,
         Text,
+        TextStyle, // Cần cho backgroundColor extension
         Bold,
         Italic,
         Underline,
+        BackgroundColor, // Extension để highlight text
         StarterKit.configure({
           // Disable các extension không cần thiết từ StarterKit
           bold: false, // Dùng extension riêng
