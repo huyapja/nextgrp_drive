@@ -12,13 +12,17 @@
         @click="handleClose" />
     </div>
 
+
+    <div v-if="props?.node && mergedComments.length === 0">
+    </div>
+
+    <div v-else-if="mergedComments.length === 0" class="text-gray-400 text-sm p-3">
+      Chưa có bình luận nào.
+    </div>
+
     <!-- Danh sách comment -->
     <div class="p-3 overflow-y-auto h-[calc(100%-100px)] comment-scroll-container">
       <div v-if="mindmap_comment_list.loading" class="text-gray-500 text-sm">Đang tải bình luận...</div>
-
-      <div v-else-if="mergedComments.length === 0" class="text-gray-400 text-sm">
-        Chưa có bình luận nào.
-      </div>
 
       <div v-else>
         <div v-for="group in mergedGroupsFinal" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
@@ -79,8 +83,8 @@
 
           <!-- Nếu node đang chọn → hiển thị input ngay trong nhóm -->
           <div v-if="group.node.id === activeNodeId" class="mt-3">
-            <Textarea v-model="inputValue" class="search-input h-8 w-full" rows="1" autoResize="false"
-              :placeholder="group.comments?.length ? 'Trả lời' : 'Thêm nhận xét'"
+            <Textarea v-model="inputValue" class="search-input h-8 w-full add-comments-textarea" rows="1"
+              autoResize="false" :placeholder="group.comments?.length ? 'Trả lời' : 'Thêm nhận xét'"
               @keydown.enter.exact.prevent="handleSubmit" @keydown.shift.enter.stop />
 
             <div v-if="inputValue.trim()" class="flex justify-end gap-2 mt-2">
@@ -249,9 +253,6 @@ async function handleSubmit() {
     comment: JSON.stringify(payload)
   })
 
-  console.log(">>>> send message");
-  
-
   inputValue.value = ""
   commentCache.value[props.node.id] = ""
   saveCache()
@@ -325,12 +326,20 @@ function sortMindmapNodes(nodes) {
     n => n.data?.parentId === "root"
   )
 
-  // ✅ SORT CHUẨN: Y TRƯỚC → X SAU
+  // SORT CHUẨN: Y TRƯỚC → X SAU
   function sortByPos(a, b) {
-    if (a.position.y !== b.position.y) {
-      return a.position.y - b.position.y
+
+    const ay = a?.position?.y ?? 0
+    const by = b?.position?.y ?? 0
+
+    if (ay !== by) {
+      return ay - by
     }
-    return a.position.x - b.position.x
+
+    const ax = a?.position?.x ?? 0
+    const bx = b?.position?.x ?? 0
+
+    return ax - bx
   }
 
   roots.sort(sortByPos)
@@ -440,7 +449,7 @@ function handleClickGroup(nodeId) {
 
   if (props.node?.id === nodeId) {
     // Trường hợp đã active rồi → focus ngay
-    const el = groupRefs.value[nodeId]?.querySelector("textarea")
+    const el = groupRefs.value[nodeId]?.querySelector(".add-comments-textarea")
     el?.focus?.()
     return
   }
@@ -450,7 +459,7 @@ function handleClickGroup(nodeId) {
   emit("update:node", node)
 
   nextTick(() => {
-    const el = groupRefs.value[nodeId]?.querySelector("textarea")
+    const el = groupRefs.value[nodeId]?.querySelector(".add-comments-textarea")
     el?.focus?.()
   })
 }
@@ -471,6 +480,21 @@ function handleRealtimeNewComment(payload) {
 
   comments.value.push(newComment)
 }
+
+function handleRealtimeDeleteComments(payload) {
+  if (!payload) return
+
+  // Chỉ xử lý đúng mindmap hiện tại
+  if (payload.mindmap_id !== entityName) return
+
+  const nodeIds = payload.node_ids
+  if (!Array.isArray(nodeIds) || nodeIds.length === 0) return
+
+  comments.value = comments.value.filter(
+    c => !nodeIds.includes(c.node_id)
+  )
+}
+
 
 function handleKeyNavigation(e) {
   if (!activeNodeId.value) return
@@ -493,6 +517,7 @@ function handleKeyNavigation(e) {
 onMounted(() => {
   if (socket?.on) {
     socket.on("drive_mindmap:new_comment", handleRealtimeNewComment)
+    socket.on("drive_mindmap:comments_deleted", handleRealtimeDeleteComments)
   }
   window.addEventListener("keydown", handleKeyNavigation)
 })
@@ -500,6 +525,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (socket?.off) {
     socket.off("drive_mindmap:new_comment", handleRealtimeNewComment)
+    socket.off("drive_mindmap:comments_deleted", handleRealtimeDeleteComments)
   }
   window.removeEventListener("keydown", handleKeyNavigation)
 })
@@ -554,6 +580,11 @@ function selectPrevGroup(currentNodeId) {
 }
 
 
+// watch((val) => {
+//   if(!val) return
+//   console.log(">>>>>>>>> node:", props?.node);
+//   console.log(">>>>>>>>> mindmap:", props.mindmap);
+// })
 </script>
 
 
@@ -581,6 +612,10 @@ function selectPrevGroup(currentNodeId) {
   width: 2px;
 }
 
+.search-input {
+  font-size: 12px;
+  line-height: 1.4;
+}
 .search-input::placeholder {
   color: #9ca3af;
   font-size: 12px;

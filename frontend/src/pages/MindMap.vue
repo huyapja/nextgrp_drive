@@ -23,15 +23,12 @@
         </span>
       </div>
 
-      <div
-        @click="showPanel = true"
-        class="absolute cursor-pointer top-[60px] right-0 z-10 text-sm
+      <div @click="showPanel = true" class="absolute cursor-pointer top-[60px] right-0 z-10 text-sm
               border border-gray-300 border-r-0
               rounded-tl-[20px] rounded-bl-[20px]
               bg-white pl-3 py-3 flex
               hover:text-[#3b82f6]
-              transition-all duration-200 ease-out"
-      >
+              transition-all duration-200 ease-out">
         <span>
           <i class="pi pi-comment !text-[16px]"></i>
         </span>
@@ -80,25 +77,14 @@
           </button>
         </div>
 
-        <MindmapContextMenu @mousedown.stop @click.stop :visible="showContextMenu" :node="contextMenuNode" :position="contextMenuPos"
-          :has-clipboard="hasClipboard" @action="handleContextMenuAction" @close="showContextMenu = false" />
+        <MindmapContextMenu @mousedown.stop @click.stop :visible="showContextMenu" :node="contextMenuNode"
+          :position="contextMenuPos" :has-clipboard="hasClipboard" @action="handleContextMenuAction"
+          @close="showContextMenu = false" />
 
-        <MindmapCommentPanel
-        :visible="showPanel"
-        :node="activeCommentNode"
-        :mindmap="mindmap?.data?.mindmap_data?.nodes"  
-        @close="showPanel = false"
-        ref="commentPanelRef"
-        @update:input="commentInputValue = $event"
-        @cancel="onCancelComment"
-        @update:node="handleSelectCommentNode"
-      >
-        <!-- nội dung hoặc danh sách comment -->
-        <div v-if="!activeCommentNode" class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 
-          transform">
-          <p class="text-gray-600 text-sm">Chưa có bình luận nào…</p>
-        </div>
-      </MindmapCommentPanel>
+        <MindmapCommentPanel :visible="showPanel" :node="activeCommentNode"
+          :mindmap="realtimeMindmapNodes" @close="showPanel = false" ref="commentPanelRef"
+          @update:input="commentInputValue = $event" @cancel="onCancelComment" @update:node="handleSelectCommentNode">
+        </MindmapCommentPanel>
       </div>
     </div>
   </div>
@@ -110,7 +96,7 @@ import { D3MindmapRenderer } from '@/utils/d3mindmap'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
 import { setBreadCrumbs } from "@/utils/files"
-import { createResource } from "frappe-ui"
+import { createResource, call } from "frappe-ui"
 import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 
@@ -238,12 +224,13 @@ const mindmapEntity = createResource({
 const initializeMindmap = async (data) => {
   if (data.mindmap_data && data.mindmap_data.nodes && data.mindmap_data.nodes.length > 0) {
     // Convert VueFlow format to D3 format
-    const loadedNodes = data.mindmap_data.nodes.map(node => 
-    
+    const loadedNodes = data.mindmap_data.nodes.map(node =>
+
     ({
       id: node.id,
       data: node.data || { label: node.label || '' },
-      position: node.position
+      position: node.position,
+      count: node.count || 0
     }))
 
     const loadedEdges = data.mindmap_data.edges.map(edge => ({
@@ -313,7 +300,7 @@ const initD3Renderer = () => {
 
   d3Renderer.setCallbacks({
     onNodeClick: (node) => {
-      if (node) {        
+      if (node) {
         selectedNode.value = node
         d3Renderer.selectNode(node.id, false) // Cho phép callback
         console.log("Selected node:", node.id)
@@ -362,13 +349,13 @@ const initD3Renderer = () => {
       // ⚠️ NEW: Cập nhật nodeCreationOrder khi reorder sibling
       nodeCreationOrder.value.set(nodeId, newOrder)
       console.log('✅ Reordered node:', nodeId, 'new order:', newOrder)
-      
+
       // Cập nhật renderer với nodeCreationOrder mới
       if (d3Renderer) {
         d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
         d3Renderer.render()
       }
-      
+
       scheduleSave()
     },
     onNodeEditingStart: (nodeId) => {
@@ -611,21 +598,21 @@ const addChildToNode = async (parentId) => {
       if (d3Renderer) {
         setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
-          
+
           // ⚠️ NEW: Tự động focus vào editor của node mới để có thể nhập ngay
           setTimeout(() => {
             const nodeGroup = d3Renderer.g.select(`[data-node-id="${newNodeId}"]`)
             if (!nodeGroup.empty()) {
               const fo = nodeGroup.select('.node-text')
               const foNode = fo.node()
-              
+
               if (foNode) {
                 // Enable pointer events cho editor container
                 const editorContainer = nodeGroup.select('.node-editor-container')
                 if (!editorContainer.empty()) {
                   editorContainer.style('pointer-events', 'auto')
                 }
-                
+
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
@@ -721,21 +708,21 @@ const addSiblingToNode = async (nodeId) => {
       if (d3Renderer) {
         setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
-          
+
           // ⚠️ NEW: Tự động focus vào editor của node mới để có thể nhập ngay
           setTimeout(() => {
             const nodeGroup = d3Renderer.g.select(`[data-node-id="${newNodeId}"]`)
             if (!nodeGroup.empty()) {
               const fo = nodeGroup.select('.node-text')
               const foNode = fo.node()
-              
+
               if (foNode) {
                 // Enable pointer events cho editor container
                 const editorContainer = nodeGroup.select('.node-editor-container')
                 if (!editorContainer.empty()) {
                   editorContainer.style('pointer-events', 'auto')
                 }
-                
+
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
@@ -813,7 +800,7 @@ const deleteSelectedNode = () => {
 }
 
 // Thực hiện xóa node
-const performDelete = (nodeId) => {
+const performDelete = async (nodeId) => {
   console.log(`🗑️ Starting cascade delete for node: ${nodeId}`)
 
   const nodesToDelete = new Set([nodeId])
@@ -853,6 +840,14 @@ const performDelete = (nodeId) => {
   selectedNode.value = null
 
   console.log(`✅ Cascade delete completed: ${nodesToDelete.size} nodes removed`)
+
+  const res = await call("drive.api.mindmap_comment.delete_comments_by_nodes", {
+    mindmap_id: props?.entityName,
+    node_ids: Array.from(nodesToDelete)
+  })
+
+  console.log(">>>>>> res:", res);
+
 
   // Update D3 renderer after deletion
   updateD3Renderer()
@@ -947,12 +942,12 @@ const handleKeyDown = (event) => {
     // ⚠️ NEW: Ctrl+V để paste
     event.preventDefault()
     event.stopPropagation()
-    
+
     if (isInEditor) {
       // Nếu đang trong editor, cho phép paste text bình thường (TipTap sẽ xử lý)
       return
     }
-    
+
     if (selectedNode.value && hasClipboard.value) {
       pasteToNode(selectedNode.value.id)
     }
@@ -1014,7 +1009,7 @@ const scheduleSave = () => {
     isSaving.value = true
 
     // Get positions from D3 renderer if available
-    const nodesWithPositions = nodes.value.map(node => {
+    const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
       const nodeWithPos = { ...node }
       if (d3Renderer && d3Renderer.positions) {
         const pos = d3Renderer.positions.get(node.id)
@@ -1044,7 +1039,7 @@ onMounted(() => {
   }
 
   window.addEventListener('keydown', handleKeyDown, true)
-  
+
   // ⚠️ NEW: Handle copy event để lưu text vào clipboard
   window.addEventListener('copy', handleCopy, true)
 
@@ -1062,10 +1057,10 @@ onMounted(() => {
   })
 
   console.log('✅ D3 Mindmap renderer ready')
-  
+
   // ⚠️ NEW: Xử lý hash khi component mount để scroll đến node
   scrollToNodeFromHash()
-  
+
   // ⚠️ NEW: Lắng nghe sự kiện hashchange để scroll đến node khi hash thay đổi
   window.addEventListener('hashchange', scrollToNodeFromHash)
 })
@@ -1104,12 +1099,12 @@ function handleCopy(event) {
     target?.closest('.mindmap-editor-prose') ||
     target?.classList?.contains('ProseMirror') ||
     target?.closest('[contenteditable="true"]')
-  
+
   if (isInEditor) {
     // Lấy text đã được select
     const selection = window.getSelection()
     const selectedText = selection?.toString() || ''
-    
+
     if (selectedText && selectedText.trim() !== '') {
       // Lưu text vào clipboard
       copyText(selectedText)
@@ -1121,7 +1116,7 @@ function handleCopy(event) {
 function getNodeSize(nodeId, node) {
   let actualWidth = null
   let actualHeight = null
-  
+
   if (d3Renderer) {
     // Ưu tiên dùng fixedWidth/fixedHeight nếu có (đã được set khi blur)
     if (node.data?.fixedWidth && node.data?.fixedHeight) {
@@ -1148,7 +1143,7 @@ function getNodeSize(nodeId, node) {
       }
     }
   }
-  
+
   return { width: actualWidth, height: actualHeight }
 }
 
@@ -1156,7 +1151,7 @@ function getNodeSize(nodeId, node) {
 function copyNode(nodeId) {
   const node = nodes.value.find(n => n.id === nodeId)
   if (!node || nodeId === 'root') return
-  
+
   // Thu thập tất cả node IDs trong subtree (bao gồm node gốc)
   const subtreeNodeIds = new Set([nodeId])
   const collectDescendants = (id) => {
@@ -1168,20 +1163,20 @@ function copyNode(nodeId) {
     })
   }
   collectDescendants(nodeId)
-  
+
   // Thu thập tất cả nodes và edges trong subtree
   const subtreeNodes = nodes.value.filter(n => subtreeNodeIds.has(n.id))
-  const subtreeEdges = edges.value.filter(e => 
+  const subtreeEdges = edges.value.filter(e =>
     subtreeNodeIds.has(e.source) && subtreeNodeIds.has(e.target)
   )
-  
+
   // Lưu thông tin kích thước cho từng node
   const nodeSizes = {}
   subtreeNodes.forEach(n => {
     const size = getNodeSize(n.id, n)
     nodeSizes[n.id] = size
   })
-  
+
   clipboard.value = {
     type: 'subtree', // ⚠️ NEW: Đánh dấu là subtree
     operation: 'copy', // ⚠️ NEW: Đánh dấu là copy
@@ -1201,7 +1196,7 @@ function copyNode(nodeId) {
       target: e.target
     }))
   }
-  
+
   console.log('✅ Copied subtree:', nodeId, 'nodes:', subtreeNodes.length, 'edges:', subtreeEdges.length, clipboard.value)
 }
 
@@ -1209,7 +1204,7 @@ function copyNode(nodeId) {
 function cutNode(nodeId) {
   const node = nodes.value.find(n => n.id === nodeId)
   if (!node || nodeId === 'root') return
-  
+
   // Thu thập tất cả node IDs trong subtree (bao gồm node gốc)
   const subtreeNodeIds = new Set([nodeId])
   const collectDescendants = (id) => {
@@ -1221,20 +1216,20 @@ function cutNode(nodeId) {
     })
   }
   collectDescendants(nodeId)
-  
+
   // Thu thập tất cả nodes và edges trong subtree
   const subtreeNodes = nodes.value.filter(n => subtreeNodeIds.has(n.id))
-  const subtreeEdges = edges.value.filter(e => 
+  const subtreeEdges = edges.value.filter(e =>
     subtreeNodeIds.has(e.source) && subtreeNodeIds.has(e.target)
   )
-  
+
   // Lưu thông tin kích thước cho từng node
   const nodeSizes = {}
   subtreeNodes.forEach(n => {
     const size = getNodeSize(n.id, n)
     nodeSizes[n.id] = size
   })
-  
+
   clipboard.value = {
     type: 'subtree', // ⚠️ NEW: Đánh dấu là subtree
     operation: 'cut', // ⚠️ NEW: Đánh dấu là cut
@@ -1254,32 +1249,32 @@ function cutNode(nodeId) {
       target: e.target
     }))
   }
-  
+
   console.log('✂️ Cut subtree:', nodeId, 'nodes:', subtreeNodes.length, 'edges:', subtreeEdges.length, clipboard.value)
-  
+
   // ⚠️ NEW: Xóa node ngay lập tức sau khi lưu vào clipboard
   performDelete(nodeId)
-  
+
   console.log('✅ Deleted cut subtree immediately:', nodeId)
 }
 
 // ⚠️ NEW: Copy link to node function
 function copyNodeLink(nodeId) {
   if (!nodeId || nodeId === 'root') return
-  
+
   // Tạo link với hash (#nodeId)
   const currentUrl = window.location.href.split('#')[0] // Lấy URL hiện tại không có hash
   const link = `${currentUrl}#node-${nodeId}`
-  
+
   // Copy vào clipboard
   navigator.clipboard.writeText(link).then(() => {
     console.log('✅ Copied link to node:', link)
-    
+
     // Hiển thị thông báo (optional - có thể thêm toast notification)
     // Có thể dùng một toast library hoặc tạo notification đơn giản
   }).catch(err => {
     console.error('❌ Failed to copy link:', err)
-    
+
     // Fallback: dùng cách cũ
     const textArea = document.createElement('textarea')
     textArea.value = link
@@ -1302,10 +1297,10 @@ function copyNodeLink(nodeId) {
 function scrollToNodeFromHash() {
   const hash = window.location.hash
   if (!hash || !hash.startsWith('#node-')) return
-  
+
   const nodeId = hash.replace('#node-', '')
   if (!nodeId) return
-  
+
   // Đợi renderer sẵn sàng và có positions
   const checkAndScroll = () => {
     if (d3Renderer && d3Renderer.positions && d3Renderer.positions.size > 0) {
@@ -1322,61 +1317,61 @@ function scrollToNodeFromHash() {
       setTimeout(checkAndScroll, 100)
     }
   }
-  
+
   checkAndScroll()
 }
 
 // ⚠️ NEW: Copy text function (được gọi khi copy text trong editor)
 function copyText(text) {
   if (!text || text.trim() === '') return
-  
+
   clipboard.value = {
     type: 'text',
     data: text
   }
-  
+
   console.log('✅ Copied text:', text)
 }
 
 // ⚠️ NEW: Paste function
 function pasteToNode(targetNodeId) {
   if (!hasClipboard.value || !targetNodeId) return
-  
+
   const targetNode = nodes.value.find(n => n.id === targetNodeId)
   if (!targetNode) return
-  
+
   // Kiểm tra xem có đang edit node không
   const isEditing = editingNode.value === targetNodeId
   const editorInstance = d3Renderer?.getEditorInstance?.(targetNodeId)
-  
+
   if (isEditing && editorInstance && clipboard.value.type === 'text') {
     // Trường hợp 3: Paste text vào editor đang chỉnh sửa
     // TipTap sẽ tự xử lý paste text, không cần làm gì thêm
     return
   }
-  
+
   // ⚠️ NEW: Paste subtree (bao gồm node cha và tất cả node con)
   if (clipboard.value.type === 'subtree' && clipboard.value.nodes && clipboard.value.edges) {
     const rootNodeId = clipboard.value.rootNodeId
-    
+
     // ⚠️ NEW: Kiểm tra nếu là cut operation (node đã bị xóa khi cut, nên không cần kiểm tra phức tạp)
     // Chỉ kiểm tra cơ bản để tránh lỗi
     if (clipboard.value.operation === 'cut' && targetNodeId === rootNodeId) {
       console.log('❌ Cannot paste cut subtree into itself (node already deleted)')
       return
     }
-    
+
     // Tạo mapping từ nodeId cũ sang nodeId mới
     const nodeIdMap = new Map()
     clipboard.value.nodes.forEach((node, index) => {
       const newId = index === 0 ? `node-${nodeCounter++}` : `node-${nodeCounter++}`
       nodeIdMap.set(node.id, newId)
     })
-    
+
     // Tạo nodes mới với nodeId mới
     const newNodes = clipboard.value.nodes.map(node => {
       const newNodeId = nodeIdMap.get(node.id)
-      
+
       // Xác định parentId dựa trên edges
       let parentId = null
       if (node.id === rootNodeId) {
@@ -1390,7 +1385,7 @@ function pasteToNode(targetNodeId) {
           parentId = newParentId
         }
       }
-      
+
       return {
         id: newNodeId,
         data: {
@@ -1407,19 +1402,19 @@ function pasteToNode(targetNodeId) {
         }
       }
     })
-    
+
     // Tạo edges mới với nodeId mới (chỉ tạo lại edges trong subtree, không bao gồm edge từ parent đến root)
     const newEdges = clipboard.value.edges.map(edge => {
       const newSourceId = nodeIdMap.get(edge.source)
       const newTargetId = nodeIdMap.get(edge.target)
-      
+
       return {
         id: `edge-${newSourceId}-${newTargetId}`,
         source: newSourceId,
         target: newTargetId
       }
     })
-    
+
     // Tạo edge từ targetNode đến root node mới của subtree
     const newRootNodeId = nodeIdMap.get(rootNodeId)
     const rootEdge = {
@@ -1427,12 +1422,12 @@ function pasteToNode(targetNodeId) {
       source: targetNodeId,
       target: newRootNodeId
     }
-    
+
     // Store creation order cho tất cả nodes mới
     newNodes.forEach(node => {
       nodeCreationOrder.value.set(node.id, creationOrderCounter++)
     })
-    
+
     // Add nodes and edges
     elements.value = [
       ...nodes.value,
@@ -1441,17 +1436,17 @@ function pasteToNode(targetNodeId) {
       ...newEdges,
       rootEdge
     ]
-    
+
     // Select root node của subtree mới
     const newRootNode = newNodes.find(n => n.id === newRootNodeId)
     selectedNode.value = newRootNode
-    
+
     if (d3Renderer) {
       d3Renderer.selectedNode = newRootNodeId
     }
-    
+
     console.log("✅ Pasted subtree:", newRootNodeId, "to parent:", targetNodeId, "nodes:", newNodes.length, "edges:", newEdges.length + 1)
-    
+
     // ⚠️ NEW: Nếu là cut operation, clear clipboard sau khi paste thành công
     // (Node đã bị xóa ngay khi cut, không cần xóa lại)
     if (clipboard.value.operation === 'cut') {
@@ -1459,7 +1454,7 @@ function pasteToNode(targetNodeId) {
       clipboard.value = null
       console.log('✅ Cleared cut clipboard after paste')
     }
-    
+
     // Auto-focus root node's editor
     nextTick(() => {
       void document.body.offsetHeight
@@ -1475,18 +1470,18 @@ function pasteToNode(targetNodeId) {
         }
       }, 30)
     })
-    
+
     scheduleSave()
     return
   }
-  
+
   // Trường hợp cũ: Paste node đơn lẻ hoặc text (backward compatibility)
   const newNodeId = `node-${nodeCounter++}`
   let newNodeLabel = 'Nhánh mới'
-  
+
   let newNodeFixedWidth = null
   let newNodeFixedHeight = null
-  
+
   if (clipboard.value.type === 'node') {
     newNodeLabel = clipboard.value.data.label || 'Nhánh mới'
     // ⚠️ FIX: Nếu có kích thước thực tế từ node gốc, dùng để paste chính xác
@@ -1497,7 +1492,7 @@ function pasteToNode(targetNodeId) {
   } else if (clipboard.value.type === 'text') {
     newNodeLabel = clipboard.value.data || 'Nhánh mới'
   }
-  
+
   const newNode = {
     id: newNodeId,
     data: {
@@ -1510,16 +1505,16 @@ function pasteToNode(targetNodeId) {
       } : {})
     }
   }
-  
+
   const newEdge = {
     id: `edge-${targetNodeId}-${newNodeId}`,
     source: targetNodeId,
     target: newNodeId
   }
-  
+
   // Store creation order
   nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
-  
+
   // Add node and edge
   elements.value = [
     ...nodes.value,
@@ -1527,15 +1522,15 @@ function pasteToNode(targetNodeId) {
     ...edges.value,
     newEdge
   ]
-  
+
   selectedNode.value = newNode
-  
+
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
   }
-  
+
   console.log("✅ Pasted node:", newNodeId, "to parent:", targetNodeId)
-  
+
   // Auto-focus new node's editor
   nextTick(() => {
     void document.body.offsetHeight
@@ -1551,7 +1546,7 @@ function pasteToNode(targetNodeId) {
       }
     }, 30)
   })
-  
+
   scheduleSave()
 }
 
@@ -1595,12 +1590,33 @@ function handleContextMenuAction({ type, node }) {
       selectedNode.value = node
       deleteSelectedNode()
       break
-    
-    case 'add-comment':            
-      activeCommentNode.value = node 
+
+    case 'add-comment': {
+      if (d3Renderer?.positions?.size) {
+        const newNodes = nodes.value.map(n => {
+          const pos = d3Renderer.positions.get(n.id)
+          if (!pos) return n
+          return {
+            ...n,
+            position: { x: pos.x, y: pos.y }
+          }
+        })
+
+        elements.value = [
+          ...newNodes,
+          ...edges.value
+        ]
+      }
+
+      const syncedNode = nodes.value.find(n => n.id === node.id)
+
+      activeCommentNode.value = syncedNode || node
       showPanel.value = true
+
       d3Renderer?.selectCommentNode(node.id, false)
       break
+    }
+
   }
 }
 
@@ -1620,7 +1636,7 @@ function handleClickOutside(e) {
 
   if (clickedInsidePanel) return
   if (e.target.closest(".node-group")) return
-  if (e.target.closest(".pi-comment")) return 
+  if (e.target.closest(".pi-comment")) return
 
   if (commentInputValue.value.trim().length > 0) return
 
@@ -1642,6 +1658,13 @@ function handleSelectCommentNode(node) {
   d3Renderer?.selectCommentNode(node.id, false)
 }
 
+const realtimeMindmapNodes = computed(() => {
+  return nodes.value.map(n => ({
+    id: n.id,
+    data: n.data,
+    position: n.position
+  }))
+})
 
 </script>
 
@@ -1802,13 +1825,23 @@ kbd {
 }
 
 @keyframes slideIn {
-  from { transform: translateX(100%); }
-  to   { transform: translateX(0); }
+  from {
+    transform: translateX(100%);
+  }
+
+  to {
+    transform: translateX(0);
+  }
 }
 
 @keyframes slideOut {
-  from { transform: translateX(0); }
-  to   { transform: translateX(100%); }
+  from {
+    transform: translateX(0);
+  }
+
+  to {
+    transform: translateX(100%);
+  }
 }
 
 .animate-slide-in {
@@ -1818,4 +1851,44 @@ kbd {
 .animate-slide-out {
   animation: slideOut 0.25s ease-in forwards;
 }
+
+:deep(.comment-count-badge) {
+  min-width: 22px;
+  height: 18px;
+  padding: 0 6px;
+  margin-top:5px;
+  margin-right:5px;
+
+  background: #facc15;
+  color: #000;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 18px;
+
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position:relative;
+
+  pointer-events: none;
+  z-index: 50;
+}
+
+:deep(.comment-count-badge::after) {
+  content: "";
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  transform: translateX(-50%);
+
+  width: 0;
+  height: 0;
+
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid #facc15;  /* cùng màu badge */
+}
+
+
 </style>

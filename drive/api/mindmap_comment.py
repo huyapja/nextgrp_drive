@@ -52,3 +52,54 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
         "status": "ok",
         "comment": doc.as_dict()
     }
+
+@frappe.whitelist()
+def delete_comments_by_nodes(mindmap_id: str, node_ids):
+    if not mindmap_id or not node_ids:
+        frappe.throw(_("Missing mindmap_id or node_ids"))
+
+    # node_ids có thể truyền từ frontend lên dạng JSON string
+    if isinstance(node_ids, str):
+        try:
+            node_ids = json.loads(node_ids)
+        except Exception:
+            frappe.throw(_("node_ids must be valid JSON array"))
+
+    if not isinstance(node_ids, list):
+        frappe.throw(_("node_ids must be a list"))
+
+    # Lấy danh sách comment cần xóa
+    comments = frappe.get_all(
+        "Drive Mindmap Comment",
+        filters={
+            "mindmap_id": mindmap_id,
+            "node_id": ["in", node_ids]
+        },
+        pluck="name"
+    )
+
+    deleted = 0
+
+    for name in comments:
+        frappe.delete_doc(
+            "Drive Mindmap Comment",
+            name,
+            ignore_permissions=True,
+            force=True
+        )
+        deleted += 1
+
+    # Realtime sync cho các client khác
+    frappe.publish_realtime(
+        event="drive_mindmap:comments_deleted",
+        message={
+            "mindmap_id": mindmap_id,
+            "node_ids": node_ids,
+            "deleted_count": deleted
+        }
+    )
+
+    return {
+        "status": "ok",
+        "deleted": deleted
+    }

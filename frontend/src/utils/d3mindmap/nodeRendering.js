@@ -98,7 +98,7 @@ export function renderNodes(renderer, positions) {
     .attr('height', d => Math.max(0, getNodeSize(d).height - borderOffset))
   
   nodeTextEnter.append('xhtml:div')
-    .attr('class', 'node-content-wrapper')
+    .attr('class', 'node-content-wrapper flex')
     .append('xhtml:div')
     .attr('class', 'node-editor-container')
     .attr('data-node-id', d => d.id)
@@ -281,6 +281,35 @@ export function renderNodes(renderer, positions) {
   
   // Update all nodes
   const nodesUpdate = nodesEnter.merge(nodes)
+
+  const wrapper = nodesUpdate
+  .select('.node-text')
+  .select('.node-content-wrapper')
+
+  const badge = wrapper
+    .selectAll('.comment-count-badge')
+    .data(d => {
+      const c = Number(d?.count || 0)
+      return c > 0 ? [c] : []
+    })
+
+  badge.enter()
+    .append('div')
+    .attr('class', 'comment-count-badge')
+    .style('background', '#ffc60a')
+    .style('color', '#fff')
+    .style('font-size', '10px')
+    .style('line-height', '1')
+    .style('padding', '2px 6px')
+    .style('font-weight', '600')
+    .style('z-index', '50')
+    .style('pointer-events', 'none')
+    .merge(badge)
+    .text(d => d)
+
+  // nếu count = 0 thì tự remove
+  badge.exit().remove()
+
   
   // Update node rect style dựa trên selectedNode
   nodesUpdate.select('.node-rect')
