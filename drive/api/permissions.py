@@ -47,16 +47,19 @@ def get_user_access(entity, user=frappe.session.user):
 
     # Quyền theo team
     if entity.team in teams and entity.is_private == 0:
-        access_level = get_access(entity.team)
-        access.update(
-            {
-                "read": 1,
-                "comment": 1,
-                "share": 1,
-                "write": 1 if ((entity.is_group and access_level) or access_level == 2) else 0,
-                "type": {2: "team-admin", 1: "team", 0: "guest"}[access_level],
-            }
-        )
+        access_level = get_access(entity.team, user)
+        
+        # Nếu user có trong team, cập nhật quyền
+        if access_level is not None:
+            access.update(
+                {
+                    "read": 1,
+                    "comment": 1,
+                    "share": 1,
+                    "write": 1 if ((entity.is_group and access_level) or access_level == 2) else 0,
+                    "type": {2: "team-admin", 1: "team", 0: "guest"}[access_level],
+                }
+            )
 
     # Quyền theo chia sẻ trực tiếp
     path = generate_upward_path(entity.name, user)
@@ -85,14 +88,44 @@ def get_user_access(entity, user=frappe.session.user):
 
 
 @frappe.whitelist()
-def is_admin(team):
+def is_admin(team, user=None):
+    """
+    Kiểm tra xem user có phải là admin của team không
+    
+    :param team: Tên của Drive Team
+    :param user: User cần kiểm tra (mặc định là user hiện tại)
+    :return: True nếu user là admin, False nếu không
+    """
+    if not user:
+        user = frappe.session.user
+    
     drive_team = {k.user: k for k in frappe.get_doc("Drive Team", team).users}
-    return drive_team[frappe.session.user].access_level == 2
+    
+    # Kiểm tra user có trong team không
+    if user not in drive_team:
+        return False
+    
+    return drive_team[user].access_level == 2
 
 
-def get_access(team):
+def get_access(team, user=None):
+    """
+    Lấy access level của user trong team
+    
+    :param team: Tên của Drive Team
+    :param user: User cần kiểm tra (mặc định là user hiện tại)
+    :return: Access level (0, 1, 2) hoặc None nếu user không trong team
+    """
+    if not user:
+        user = frappe.session.user
+    
     drive_team = {k.user: k for k in frappe.get_doc("Drive Team", team).users}
-    return drive_team[frappe.session.user].access_level
+    
+    # Trả về None nếu user không có trong team
+    if user not in drive_team:
+        return None
+    
+    return drive_team[user].access_level
 
 
 @frappe.whitelist()
