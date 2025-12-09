@@ -99,7 +99,7 @@ export function renderNodes(renderer, positions) {
     .attr('height', d => Math.max(0, getNodeSize(d).height - borderOffset))
   
   nodeTextEnter.append('xhtml:div')
-    .attr('class', 'node-content-wrapper')
+    .attr('class', 'node-content-wrapper flex')
     .append('xhtml:div')
     .attr('class', 'node-editor-container')
     .attr('data-node-id', d => d.id)
@@ -282,6 +282,40 @@ export function renderNodes(renderer, positions) {
   
   // Update all nodes
   const nodesUpdate = nodesEnter.merge(nodes)
+
+  const wrapper = nodesUpdate
+  .select('.node-text')
+  .select('.node-content-wrapper')
+
+  const badge = wrapper
+    .selectAll('.comment-count-badge')
+    .data(d => {
+      const c = Number(d?.count || 0)
+      return c > 0 ? [c] : []
+    })
+
+  badge.enter()
+    .append('div')
+    .attr('class', 'comment-count-badge')
+    .merge(badge)
+    .on('click', function (event, count) {
+      
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      event.preventDefault()
+      
+    const nodeData = d3.select(this.closest('.node-group')).datum()
+      
+    renderer.callbacks?.onOpenCommentList?.({
+      type: 'add-comment',
+      node: nodeData
+    })
+  })
+    .text(d => d)
+
+  // nếu count = 0 thì tự remove
+  badge.exit().remove()
+
   
   // Update node rect style dựa trên selectedNode
   nodesUpdate.select('.node-rect')
@@ -383,7 +417,8 @@ export function renderNodes(renderer, positions) {
       // CHỈ select node, KHÔNG BAO GIỜ gọi onNodeAdd ở đây
       renderer.selectNode(d.id)
       if (renderer.callbacks.onNodeClick) {
-        renderer.callbacks.onNodeClick(d)
+        // thêm event để chặn sự kiện onNodeClick khi click vào count badge
+        renderer.callbacks.onNodeClick(d, event)
       }
     })
     .on('dblclick', function(event, d) {
