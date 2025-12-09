@@ -65,6 +65,7 @@ declare module 'vue' {
     GroupedContextMenu: typeof import('./src/components/GroupedContextMenu.vue')['default']
     Image: typeof import('./src/components/DocEditor/icons/Image.vue')['default']
     ImagePreview: typeof import('./src/components/FileTypePreview/ImagePreview.vue')['default']
+    ImageZoomModal: typeof import('./src/components/ImageZoomModal.vue')['default']
     Indent: typeof import('./src/components/DocEditor/icons/Indent.vue')['default']
     InfoPanel: typeof import('./src/components/InfoSidebar/InfoPanel.vue')['default']
     InfoPopup: typeof import('./src/components/InfoPopup.vue')['default']

@@ -1,5 +1,6 @@
 <template>
     <div v-if="visible" ref="menuRef" class="mindmap-context-menu"
+        :class="{ 'context-menu-centered': center }"
         :style="{
             top: position.y + 'px',
             left: position.x + 'px'
@@ -99,7 +100,11 @@ const props = defineProps({
     visible: Boolean,
     node: Object,
     position: Object,
-    hasClipboard: Boolean
+    hasClipboard: Boolean,
+    center: {
+        type: Boolean,
+        default: false
+    }
 });
 
 const emit = defineEmits(["action", "close"]);
@@ -148,15 +153,19 @@ onUnmounted(() => {
 
 <style scoped>
 .mindmap-context-menu {
-    position: absolute;
+    position: fixed;
     background: white;
     border: 1px solid #e5e7eb;
     border-radius: 8px;
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
     min-width: 200px;
     padding: 6px;
-    z-index: 99;
+    z-index: 1000;
     animation: fadeIn 0.15s ease-out;
+}
+
+.mindmap-context-menu.context-menu-centered {
+    transform: translate(-50%, -50%);
 }
 
 @keyframes fadeIn {
@@ -167,6 +176,21 @@ onUnmounted(() => {
     to {
         opacity: 1;
         transform: translateY(0) scale(1);
+    }
+}
+
+.mindmap-context-menu.context-menu-centered {
+    animation: fadeInCentered 0.15s ease-out;
+}
+
+@keyframes fadeInCentered {
+    from {
+        opacity: 0;
+        transform: translate(-50%, calc(-50% - 4px)) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translate(-50%, -50%) scale(1);
     }
 }
 

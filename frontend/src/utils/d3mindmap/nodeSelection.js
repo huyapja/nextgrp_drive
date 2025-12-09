@@ -20,6 +20,14 @@ export function selectNode(renderer, nodeId, skipCallback = false) {
       return d.data?.isRoot ? 'none' : '#cbd5e1'
     })
     .attr('stroke-width', 2) // Border luôn là 2px
+    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Giữ opacity dựa trên completed status
+  
+  // Cũng update node-group opacity để đảm bảo toàn bộ node bị làm mờ
+  renderer.g.selectAll('.node-group')
+    .style('opacity', d => {
+      if (renderer.isNodeHidden && renderer.isNodeHidden(d.id)) return 0
+      return d.data?.completed ? 0.5 : 1
+    })
   
   // ⚠️ FIX: Chỉ gọi callback nếu không skip (tránh vòng lặp vô hạn)
   // Khi deselect (nodeId === null), chỉ gọi callback nếu không skip
