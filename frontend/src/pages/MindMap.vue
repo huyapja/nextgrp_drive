@@ -1708,13 +1708,24 @@ function handleRealtimeNewComment(newComment) {
   }
 }
 
+function handleRealtimeDeleteOneComment(payload) {
+  if (!payload?.node_id) return
+
+  const node = nodes.value.find(n => n.id === payload.node_id)
+  if (node && node.count > 0) {
+    node.count = node.count - 1
+  }
+}
+
 // cập nhật realtime count badge ở mindmap
 onMounted(() => {
   socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
+  socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
 })
 
 onBeforeUnmount(() => {
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
+  socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
 })
 
 

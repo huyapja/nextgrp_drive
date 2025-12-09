@@ -11,7 +11,7 @@ def get_comments(mindmap_id: str):
     comments = frappe.get_all(
         "Drive Mindmap Comment",
         filters={"mindmap_id": mindmap_id},
-        fields=["name", "comment", "owner", "creation", "node_id"],
+        fields=["name", "comment", "owner", "creation","modified", "node_id"],
         order_by="creation asc"
     )
 
@@ -91,7 +91,7 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
 
     # Realtime sync cho các client khác
     frappe.publish_realtime(
-        event="drive_mindmap:comments_deleted",
+        event="drive_mindmap:multiple_comments_deleted",
         message={
             "mindmap_id": mindmap_id,
             "node_ids": node_ids,
@@ -102,4 +102,92 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
     return {
         "status": "ok",
         "deleted": deleted
+    }
+
+@frappe.whitelist()
+def delete_comment_by_id(mindmap_id: str, comment_id: str):
+    if not mindmap_id or not comment_id:
+        frappe.throw(_("Missing mindmap_id or comment_id"))
+
+    current_user = frappe.session.user
+
+    # Lấy comment cần xóa
+    doc = frappe.get_doc("Drive Mindmap Comment", comment_id)
+
+    # Check đúng mindmap
+    if doc.mindmap_id != mindmap_id:
+        frappe.throw(_("Comment does not belong to this mindmap"))
+
+    # Check quyền XOÁ: chỉ owner mới được xoá
+    # Nếu bạn dùng field khác owner thì đổi lại tại đây
+    if doc.owner != current_user:
+        frappe.throw(_("You do not have permission to delete this comment"), frappe.PermissionError)
+
+    node_id = doc.node_id
+
+    # Xóa cứng
+    frappe.delete_doc(
+        "Drive Mindmap Comment",
+        comment_id,
+        ignore_permissions=True,
+        force=True
+    )
+
+    # Realtime sync cho các client khác
+    frappe.publish_realtime(
+        event="drive_mindmap:comment_deleted",
+        message={
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "comment_id": comment_id
+        }
+    )
+
+    return {
+        "status": "ok",
+        "deleted": 1,
+        "comment_id": comment_id
+    }
+
+@frappe.whitelist()
+def edit_comment(mindmap_id: str, comment_id: str, comment: str):
+    if not mindmap_id or not comment_id or not comment:
+        frappe.throw(_("Missing mindmap_id, comment_id or comment"))
+
+    current_user = frappe.session.user
+
+    # Parse JSON comment
+    try:
+        comment_data = json.loads(comment)
+    except Exception:
+        frappe.throw(_("Comment must be valid JSON"))
+
+    # Lấy comment cần sửa
+    doc = frappe.get_doc("Drive Mindmap Comment", comment_id)
+
+    # Check đúng mindmap
+    if doc.mindmap_id != mindmap_id:
+        frappe.throw(_("Comment does not belong to this mindmap"))
+
+    # Check quyền SỬA: chỉ owner
+    if doc.owner != current_user:
+        frappe.throw(_("You do not have permission to edit this comment"), frappe.PermissionError)
+
+    # Cập nhật nội dung
+    doc.comment = comment_data
+    doc.save(ignore_permissions=True)
+
+    # Realtime sync cho client khác
+    frappe.publish_realtime(
+        event="drive_mindmap:comment_updated",
+        message={
+            "mindmap_id": mindmap_id,
+            "node_id": doc.node_id,
+            "comment": doc.as_dict()
+        }
+    )
+
+    return {
+        "status": "ok",
+        "comment": doc.as_dict()
     }
