@@ -296,15 +296,20 @@ export function renderNodes(renderer, positions) {
   badge.enter()
     .append('div')
     .attr('class', 'comment-count-badge')
-    .style('background', '#ffc60a')
-    .style('color', '#fff')
-    .style('font-size', '10px')
-    .style('line-height', '1')
-    .style('padding', '2px 6px')
-    .style('font-weight', '600')
-    .style('z-index', '50')
-    .style('pointer-events', 'none')
     .merge(badge)
+    .on('click', function (event, count) {
+      
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      event.preventDefault()
+      
+    const nodeData = d3.select(this.closest('.node-group')).datum()
+      
+    renderer.callbacks?.onOpenCommentList?.({
+      type: 'add-comment',
+      node: nodeData
+    })
+  })
     .text(d => d)
 
   // nếu count = 0 thì tự remove
@@ -400,7 +405,8 @@ export function renderNodes(renderer, positions) {
       // CHỈ select node, KHÔNG BAO GIỜ gọi onNodeAdd ở đây
       renderer.selectNode(d.id)
       if (renderer.callbacks.onNodeClick) {
-        renderer.callbacks.onNodeClick(d)
+        // thêm event để chặn sự kiện onNodeClick khi click vào count badge
+        renderer.callbacks.onNodeClick(d, event)
       }
     })
     .on('dblclick', function(event, d) {

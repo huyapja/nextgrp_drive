@@ -26,10 +26,12 @@
 
       <div v-else>
         <div v-for="group in mergedGroupsFinal" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
-          @click="handleClickGroup(group.node.id)" :class="[
-            'comment-panel cursor-pointer relative mb-5 p-3 rounded bg-white border shadow-sm text-xs text-gray-500 group',
-            group.node.id === activeNodeId ? 'active' : ''
-          ]">
+          @click="handleClickGroup(group.node.id)"
+          class="comment-panel cursor-pointer relative mb-5 p-3 rounded bg-white border shadow-sm text-xs text-gray-500 group"
+          :class="group.node.id === activeNodeId ? 'active' : ''" style="
+    content-visibility: auto;
+    contain-intrinsic-size: 180px;
+  ">
 
           <!-- Header node -->
           <div class="comment-panel-header flex items-center mb-2">
@@ -39,14 +41,33 @@
 
             <div v-if="group.comments?.length > 0"
               class="ml-auto border rounded-[12px] px-[5px] py-[4px] flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-              <i class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(group.node.id)
-                ? 'cursor-pointer hover:text-blue-500'
-                : 'cursor-not-allowed opacity-40'"
+              <i v-tooltip.top="hasNextGroup(group.node.id)
+                ? {
+                  value: 'Tiếp (↓)',
+                  pt: {
+                    text: { class: ['text-[12px]'] }
+                  }
+                }
+                : null
+                " class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(group.node.id)
+                  ? 'cursor-pointer hover:text-blue-500'
+                  : 'cursor-not-allowed opacity-40'"
                 @click.stop="hasNextGroup(group.node.id) && selectNextGroup(group.node.id)"></i>
-              <i class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(group.node.id)
-                ? 'cursor-pointer hover:text-blue-500'
-                : 'cursor-not-allowed opacity-40'"
-                @click.stop="hasPrevGroup(group.node.id) && selectPrevGroup(group.node.id)"></i>
+
+              <i v-tooltip.top="hasPrevGroup(group.node.id)
+                ? {
+                  value: 'Trước (↑)',
+                  pt: {
+                    text: {
+                      class: ['text-[12px]']
+                    }
+                  }
+                }
+                : null
+                " class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(group.node.id)
+                  ? 'cursor-pointer hover:text-blue-500'
+                  : 'cursor-not-allowed opacity-40'" @click.stop="hasPrevGroup(group.node.id) && selectPrevGroup(group.node.id)"></i>
+
 
               <div class="panel-separate border-l w-[1px] h-[16px]"></div>
               <i class="pi pi-link !text-[12px] mr-2 cursor-pointer"></i>
@@ -107,6 +128,7 @@ import { call, createResource } from "frappe-ui"
 import { getTeamMembers } from "../../resources/team"
 import { useStore } from "vuex"
 import CustomAvatar from "../CustomAvatar.vue"
+import { Tooltip } from "primevue"
 
 
 // -----------------------------
@@ -146,15 +168,29 @@ function scrollToActiveNode(nodeId) {
 
     if (!el || !container) return
 
+    // ✅ 1. TẠM THỜI TẮT content-visibility
+    const oldVisibility = el.style.contentVisibility
+    el.style.contentVisibility = 'visible'
+
+    // ✅ 2. FORCE layout thật
+    void el.offsetHeight
+
+    // ✅ 3. TÍNH TOẠ ĐỘ CHUẨN
     const elRect = el.getBoundingClientRect()
     const containerRect = container.getBoundingClientRect()
 
     const target =
       elRect.top - containerRect.top + container.scrollTop
 
+    // ✅ 4. SCROLL
     container.scrollTo({
       top: target,
       // behavior: "smooth"
+    })
+
+    // ✅ 5. TRẢ LẠI content-visibility sau 1 frame
+    requestAnimationFrame(() => {
+      el.style.contentVisibility = oldVisibility || 'auto'
     })
   })
 }
@@ -220,7 +256,19 @@ const mergedComments = computed(() => {
   })
 })
 
-const totalComments = computed(() => mergedComments.value.length)
+
+const totalComments = computed(() => {
+  const seen = new Set()
+
+  mergedComments.value.forEach(c => {
+    if (c.node_id) {
+      seen.add(c.node_id)
+    }
+  })
+
+  return seen.size
+})
+
 
 // -----------------------------
 const inputValue = ref("")
@@ -514,6 +562,8 @@ function handleKeyNavigation(e) {
   }
 }
 
+// cập nhật realtime danh sách comment ở comment panel
+
 onMounted(() => {
   if (socket?.on) {
     socket.on("drive_mindmap:new_comment", handleRealtimeNewComment)
@@ -580,11 +630,16 @@ function selectPrevGroup(currentNodeId) {
 }
 
 
-// watch((val) => {
-//   if(!val) return
-//   console.log(">>>>>>>>> node:", props?.node);
-//   console.log(">>>>>>>>> mindmap:", props.mindmap);
-// })
+
+watch((val) => {
+  if(!val) return
+  // console.log(">>>>>>>>> node:", props?.node);
+  // console.log(">>>>>>>>> mindmap:", props.mindmap);
+  // console.log(">>>>>>>>> mergedGroupsFinal:", mergedGroupsFinal.value);
+})
+
+const vTooltip = Tooltip;
+
 </script>
 
 
@@ -616,6 +671,7 @@ function selectPrevGroup(currentNodeId) {
   font-size: 12px;
   line-height: 1.4;
 }
+
 .search-input::placeholder {
   color: #9ca3af;
   font-size: 12px;

@@ -83,7 +83,8 @@
 
         <MindmapCommentPanel :visible="showPanel" :node="activeCommentNode"
           :mindmap="realtimeMindmapNodes" @close="showPanel = false" ref="commentPanelRef"
-          @update:input="commentInputValue = $event" @cancel="onCancelComment" @update:node="handleSelectCommentNode">
+          @update:input="commentInputValue = $event" @cancel="onCancelComment" @update:node="handleSelectCommentNode"
+          >
         </MindmapCommentPanel>
       </div>
     </div>
@@ -100,6 +101,9 @@ import { createResource, call } from "frappe-ui"
 import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 
+import { useRoute } from "vue-router"
+
+
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
 import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
 
@@ -111,6 +115,7 @@ const contextMenuNode = ref(null)
 
 const store = useStore()
 const emitter = inject("emitter")
+const socket = inject("socket")
 
 const props = defineProps({
   entityName: String,
@@ -133,6 +138,10 @@ const showPanel = ref(false);
 const activeCommentNode = ref(null)
 const commentPanelRef = ref(null)
 const commentInputValue = ref("")
+const isFromUI = ref(false)
+
+const route = useRoute()
+const isMindmapReady = ref(false)
 
 
 // Elements ref
@@ -299,7 +308,12 @@ const initD3Renderer = () => {
   installMindmapContextMenu(d3Renderer)
 
   d3Renderer.setCallbacks({
-    onNodeClick: (node) => {
+    onNodeClick: (node, event) => {      
+      if (event?.target?.closest?.('.comment-count-badge')) {
+        // chặn click select node để click badge count -> mở comment list section
+        console.log('✅ BỊ CHẶN Ở onNodeClick')
+        return
+      }      
       if (node) {
         selectedNode.value = node
         d3Renderer.selectNode(node.id, false) // Cho phép callback
@@ -418,12 +432,14 @@ const initD3Renderer = () => {
       scrollToNodeFromHash()
       // Dừng loading khi render xong
       isRendering.value = false
+      isMindmapReady.value = true
     },
     onNodeContextMenu: (node, pos) => {
       contextMenuNode.value = node
       contextMenuPos.value = pos
       showContextMenu.value = true
-    }
+    },
+    onOpenCommentList: handleContextMenuAction,
   })
 
   updateD3Renderer()
@@ -1550,6 +1566,26 @@ function pasteToNode(targetNodeId) {
   scheduleSave()
 }
 
+
+function syncElementsWithRendererPosition() {
+  if (!d3Renderer?.positions?.size) return
+
+  const newNodes = nodes.value.map(n => {
+    const pos = d3Renderer.positions.get(n.id)
+    if (!pos) return n
+    return {
+      ...n,
+      position: { x: pos.x, y: pos.y }
+    }
+  })
+
+  elements.value = [
+    ...newNodes,
+    ...edges.value
+  ]
+}
+
+
 function handleContextMenuAction({ type, node }) {
   if (!node) return
 
@@ -1592,28 +1628,20 @@ function handleContextMenuAction({ type, node }) {
       break
 
     case 'add-comment': {
-      if (d3Renderer?.positions?.size) {
-        const newNodes = nodes.value.map(n => {
-          const pos = d3Renderer.positions.get(n.id)
-          if (!pos) return n
-          return {
-            ...n,
-            position: { x: pos.x, y: pos.y }
-          }
-        })
-
-        elements.value = [
-          ...newNodes,
-          ...edges.value
-        ]
-      }
+      isFromUI.value = true
+      syncElementsWithRendererPosition()
 
       const syncedNode = nodes.value.find(n => n.id === node.id)
 
       activeCommentNode.value = syncedNode || node
+
       showPanel.value = true
 
-      d3Renderer?.selectCommentNode(node.id, false)
+      nextTick(() => {
+        d3Renderer?.selectCommentNode(node.id, false)
+        isFromUI.value = false
+      })      
+
       break
     }
 
@@ -1665,6 +1693,49 @@ const realtimeMindmapNodes = computed(() => {
     position: n.position
   }))
 })
+
+
+const nodeFromQuery = computed(() => route.query.node)
+
+
+
+function handleRealtimeNewComment(newComment) {
+  if (!newComment?.node_id) return
+
+  const node = nodes.value.find(n => n.id === newComment.node_id)
+  if (node) {
+    node.count = (node.count || 0) + 1
+  }
+}
+
+// cập nhật realtime count badge ở mindmap
+onMounted(() => {
+  socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
+})
+
+onBeforeUnmount(() => {
+  socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
+})
+
+
+watch(
+  [nodeFromQuery, isMindmapReady],
+  ([nodeId, ready]) => {
+    if (isFromUI.value) return
+    if (!nodeId) return
+    if (nodeId === 'root') return
+    if (!ready) return
+
+    const targetNode = nodes.value.find(n => n.id === nodeId)
+    if (!targetNode) return
+
+    showPanel.value = true
+    activeCommentNode.value = targetNode
+
+    d3Renderer?.selectCommentNode(nodeId, false)
+  },
+  { immediate: true }
+)
 
 </script>
 
@@ -1860,7 +1931,7 @@ kbd {
   margin-right:5px;
 
   background: #facc15;
-  color: #000;
+  color: #fff;
   font-size: 10px;
   font-weight: 600;
   line-height: 18px;
@@ -1871,14 +1942,14 @@ kbd {
   justify-content: center;
   position:relative;
 
-  pointer-events: none;
-  z-index: 50;
+  pointer-events: auto;
+  z-index: 9999999;
 }
 
 :deep(.comment-count-badge::after) {
   content: "";
   position: absolute;
-  bottom: -4px;
+  bottom: -3px;
   left: 50%;
   transform: translateX(-50%);
 
