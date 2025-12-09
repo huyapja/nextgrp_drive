@@ -66,7 +66,8 @@
                 : null
                 " class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(group.node.id)
                   ? 'cursor-pointer hover:text-blue-500'
-                  : 'cursor-not-allowed opacity-40'" @click.stop="hasPrevGroup(group.node.id) && selectPrevGroup(group.node.id)"></i>
+                  : 'cursor-not-allowed opacity-40'"
+                @click.stop="hasPrevGroup(group.node.id) && selectPrevGroup(group.node.id)"></i>
 
 
               <div class="panel-separate border-l w-[1px] h-[16px]"></div>
@@ -121,15 +122,20 @@
 
 
 <script setup>
-import { ref, watch, computed, nextTick, inject, onMounted, onUnmounted } from "vue"
+import { ref, watch, computed, nextTick, inject } from "vue"
 import Textarea from "primevue/textarea"
 import { useRoute } from "vue-router"
-import { call, createResource } from "frappe-ui"
-import { getTeamMembers } from "../../resources/team"
+import {  createResource } from "frappe-ui"
 import { useStore } from "vuex"
 import CustomAvatar from "../CustomAvatar.vue"
 import { Tooltip } from "primevue"
+import { useMindmapCommentRealtime } from "./composables/useMindmapCommentRealtime"
+import { useMindmapCommentNavigation } from "./composables/useMindmapCommentNavigation"
+import { useMindmapCommentData } from "./composables/useMindmapCommentData"
+import { useMindmapCommentInput } from "./composables/useMindmapCommentInput"
+import { useScrollToActiveNode } from "./composables/useScrollToActiveNode"
 
+import { timeAgo } from "./utils/timeAgo"
 
 // -----------------------------
 const props = defineProps({
@@ -156,46 +162,10 @@ const currentUser = computed(() => store.state.user)
 function setGroupRef(nodeId, el) {
   if (el) {
     groupRefs.value[nodeId] = el
+  } else {
+    delete groupRefs.value[nodeId]
   }
 }
-
-function scrollToActiveNode(nodeId) {
-  if (!nodeId) return
-
-  nextTick(() => {
-    const el = groupRefs.value[nodeId]
-    const container = document.querySelector(".comment-scroll-container")
-
-    if (!el || !container) return
-
-    // ✅ 1. TẠM THỜI TẮT content-visibility
-    const oldVisibility = el.style.contentVisibility
-    el.style.contentVisibility = 'visible'
-
-    // ✅ 2. FORCE layout thật
-    void el.offsetHeight
-
-    // ✅ 3. TÍNH TOẠ ĐỘ CHUẨN
-    const elRect = el.getBoundingClientRect()
-    const containerRect = container.getBoundingClientRect()
-
-    const target =
-      elRect.top - containerRect.top + container.scrollTop
-
-    // ✅ 4. SCROLL
-    container.scrollTo({
-      top: target,
-      // behavior: "smooth"
-    })
-
-    // ✅ 5. TRẢ LẠI content-visibility sau 1 frame
-    requestAnimationFrame(() => {
-      el.style.contentVisibility = oldVisibility || 'auto'
-    })
-  })
-}
-
-
 
 const mindmap_comment_list = createResource({
   url: "drive.api.mindmap_comment.get_comments",
@@ -207,137 +177,6 @@ const mindmap_comment_list = createResource({
   }
 })
 
-const members = computed(() => getTeamMembers.data || [])
-
-const memberMap = computed(() => {
-  const map = {}
-  for (const m of members.value) {
-    map[m.email] = m
-  }
-  return map
-})
-
-const nodeMap = computed(() => {
-  const map = {}
-  for (const n of props.mindmap || []) {
-    map[n.id] = n
-  }
-  return map
-})
-
-// -----------------------------
-const parseComment = raw => {
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return { text: raw }
-  }
-}
-
-// -----------------------------
-const stripLabel = raw => {
-  if (!raw) return ""
-  return String(raw).replace(/^<p>/, "").replace(/<\/p>$/, "")
-}
-
-// -----------------------------
-// MERGE COMMENTS ↔ NODES
-const mergedComments = computed(() => {
-  if (!comments.value.length) return []
-  if (!sortedNodes.value.length) return []
-
-  return comments.value.map(c => {
-    return {
-      ...c,
-      node: nodeMap.value[c.node_id] || null,
-      user: memberMap.value[c.owner] || null,
-      parsed: parseComment(c.comment)
-    }
-  })
-})
-
-
-const totalComments = computed(() => {
-  const seen = new Set()
-
-  mergedComments.value.forEach(c => {
-    if (c.node_id) {
-      seen.add(c.node_id)
-    }
-  })
-
-  return seen.size
-})
-
-
-// -----------------------------
-const inputValue = ref("")
-const commentCache = ref(JSON.parse(localStorage.getItem("mindmap_comment_cache") || "{}"))
-
-function saveCache() {
-  localStorage.setItem("mindmap_comment_cache", JSON.stringify(commentCache.value))
-}
-
-watch(inputValue, val => {
-  if (props.node?.id) {
-    commentCache.value[props.node.id] = val
-    saveCache()
-  }
-  emit("update:input", val)
-})
-
-// -----------------------------
-async function handleSubmit() {
-  if (!props.node?.id || !inputValue.value.trim()) return
-
-  const payload = {
-    text: inputValue.value.trim(),
-    created_at: new Date().toISOString()
-  }
-
-  const res = await call("drive.api.mindmap_comment.add_comment", {
-    mindmap_id: entityName,
-    node_id: props.node.id,
-    comment: JSON.stringify(payload)
-  })
-
-  inputValue.value = ""
-  commentCache.value[props.node.id] = ""
-  saveCache()
-  emit("submit", res.comment)
-}
-
-function handleCancel() {
-  if (props.node?.id) commentCache.value[props.node.id] = ""
-  inputValue.value = ""
-  saveCache()
-  emit("cancel")
-}
-
-
-function timeAgo(dateStr) {
-  if (!dateStr) return ""
-
-  const now = new Date()
-  const past = new Date(dateStr)
-  const diff = (now - past) / 1000
-
-  if (diff < 60) return "vừa xong"
-  if (diff < 3600) return Math.floor(diff / 60) + " phút trước"
-  if (diff < 86400) return Math.floor(diff / 3600) + " giờ trước"
-
-  const days = Math.floor(diff / 86400)
-  if (days === 1) return "Hôm qua"
-  if (days < 30) return `${days} ngày trước`
-
-  const months = Math.floor(days / 30)
-  if (months < 12) return `${months} tháng trước`
-
-  const years = Math.floor(months / 12)
-  return `${years} năm trước`
-}
-
-
 // -----------------------------
 const closing = ref(false)
 function handleClose() {
@@ -348,297 +187,122 @@ function handleClose() {
   }, 250)
 }
 
+// =============================
+// 1. INPUT STATE + API ACTIONS
+// =============================
+const {
+  inputValue,
+  handleSubmit,
+  handleCancel,
+  loadDraft
+} = useMindmapCommentInput({
+  activeNodeId,
+  entityName,
+  emit
+})
 
-function sortMindmapNodes(nodes) {
-  if (!Array.isArray(nodes)) return []
 
-  // clone để tránh reactive loop
-  const cloned = JSON.parse(JSON.stringify(nodes))
-
-  // map id → node
-  const map = {}
-  cloned.forEach(n => {
-    map[n.id] = { ...n, children: [] }
-  })
-
-  // gắn children
-  cloned.forEach(n => {
-    const parentId = n.data?.parentId
-    if (parentId && parentId !== "root" && map[parentId]) {
-      map[parentId].children.push(map[n.id])
-    }
-  })
-
-  // lấy roots
-  const roots = Object.values(map).filter(
-    n => n.data?.parentId === "root"
-  )
-
-  // SORT CHUẨN: Y TRƯỚC → X SAU
-  function sortByPos(a, b) {
-
-    const ay = a?.position?.y ?? 0
-    const by = b?.position?.y ?? 0
-
-    if (ay !== by) {
-      return ay - by
-    }
-
-    const ax = a?.position?.x ?? 0
-    const bx = b?.position?.x ?? 0
-
-    return ax - bx
-  }
-
-  roots.sort(sortByPos)
-
-  const result = []
-
-  function dfs(node) {
-    result.push(node)
-    node.children.sort(sortByPos)
-    node.children.forEach(child => dfs(child))
-  }
-
-  roots.forEach(root => dfs(root))
-
-  return result
+// =============================
+// 2. ACTIVE NODE STATE CONTROL
+// =============================
+function resetActiveNode() {
+  inputValue.value = ""
+  activeNodeId.value = null
 }
-
-
-const sortedNodes = computed(() => {
-  return sortMindmapNodes(props.mindmap || [])
-})
-
-const mergedGroups = computed(() => {
-  if (!sortedNodes.value.length || !comments.value.length) return []
-
-  const groupMap = {}
-
-  for (const c of comments.value) {
-    if (!groupMap[c.node_id]) {
-      const node = nodeMap.value[c.node_id]
-      if (!node) continue
-
-      groupMap[c.node_id] = {
-        node,
-        comments: []
-      }
-    }
-
-    groupMap[c.node_id].comments.push({
-      ...c,
-      user: memberMap.value[c.owner] || null,
-      parsed: parseComment(c.comment)
-    })
-  }
-
-  return sortedNodes.value
-    .filter(n => groupMap[n.id])
-    .map(n => groupMap[n.id])
-})
-
-
-const mergedGroupsFinal = computed(() => {
-  if (!sortedNodes.value.length) return []
-
-  const map = {}
-
-  // đưa group đã có comment vào map
-  for (const g of mergedGroups.value) {
-    map[g.node.id] = g
-  }
-
-  // nếu đang chọn node mà chưa có comment → tạo group rỗng
-  if (props.node?.id && !map[props.node.id]) {
-    map[props.node.id] = {
-      node: nodeMap.value[props.node.id] || props.node,
-      comments: []
-    }
-  }
-
-  // TRẢ VỀ THEO THỨ TỰ CÂY GỐC – KHÔNG BỊ ĐẨY LÊN ĐẦU
-  return sortedNodes.value
-    .filter(n => map[n.id])
-    .map(n => map[n.id])
-})
 
 watch(
   () => props.node?.id,
-  (newId, oldId) => {
+  (newId) => {
     if (!newId) {
-      inputValue.value = ""
-      activeNodeId.value = null
+      resetActiveNode()
       return
     }
 
-    // lưu draft node cũ
-    if (oldId) {
-      commentCache.value[oldId] = inputValue.value
-      saveCache()
-    }
-
-    // mirror state local
     activeNodeId.value = newId
-
-    // load draft node mới
-    inputValue.value = commentCache.value[newId] || ""
-
-    // DOM đã patch xong vì flush: 'post'
+    loadDraft(newId)
     scrollToActiveNode(newId)
   },
-  {
-    flush: "post"
-  }
+  { flush: "post" }
 )
+
+
+// =============================
+// 3. FOCUS + CLICK INTERACTION
+// =============================
+function focusInput(nodeId) {
+  const el = groupRefs.value[nodeId]?.querySelector(".add-comments-textarea")
+  el?.focus?.()
+}
 
 function handleClickGroup(nodeId) {
   if (!nodeId) return
 
+  // Click lại chính node đang active → chỉ focus input
   if (props.node?.id === nodeId) {
-    // Trường hợp đã active rồi → focus ngay
-    const el = groupRefs.value[nodeId]?.querySelector(".add-comments-textarea")
-    el?.focus?.()
+    focusInput(nodeId)
     return
   }
 
   const node = nodeMap.value[nodeId] || { id: nodeId }
-
   emit("update:node", node)
 
-  nextTick(() => {
-    const el = groupRefs.value[nodeId]?.querySelector(".add-comments-textarea")
-    el?.focus?.()
-  })
+  nextTick(() => focusInput(nodeId))
 }
 
 
-function handleRealtimeNewComment(payload) {
-  if (!payload) return
-
-  // Chỉ xử lý đúng mindmap hiện tại
-  if (payload.mindmap_id !== entityName) return
-
-  const newComment = payload.comment
-  if (!newComment || !newComment.node_id) return
-
-  // Tránh push trùng khi chính mình vừa gửi xong
-  const existed = comments.value.find(c => c.name === newComment.name)
-  if (existed) return
-
-  comments.value.push(newComment)
-}
-
-function handleRealtimeDeleteComments(payload) {
-  if (!payload) return
-
-  // Chỉ xử lý đúng mindmap hiện tại
-  if (payload.mindmap_id !== entityName) return
-
-  const nodeIds = payload.node_ids
-  if (!Array.isArray(nodeIds) || nodeIds.length === 0) return
-
-  comments.value = comments.value.filter(
-    c => !nodeIds.includes(c.node_id)
-  )
-}
+// =============================
+// 4. SCROLL HANDLER
+// =============================
+const { scrollToActiveNode } = useScrollToActiveNode(groupRefs)
 
 
-function handleKeyNavigation(e) {
-  if (!activeNodeId.value) return
-
-  if (e.key === "ArrowDown") {
-    e.preventDefault()
-    if (hasNextGroup(activeNodeId.value)) {
-      selectNextGroup(activeNodeId.value)
-    }
-  }
-
-  if (e.key === "ArrowUp") {
-    e.preventDefault()
-    if (hasPrevGroup(activeNodeId.value)) {
-      selectPrevGroup(activeNodeId.value)
-    }
-  }
-}
-
-// cập nhật realtime danh sách comment ở comment panel
-
-onMounted(() => {
-  if (socket?.on) {
-    socket.on("drive_mindmap:new_comment", handleRealtimeNewComment)
-    socket.on("drive_mindmap:comments_deleted", handleRealtimeDeleteComments)
-  }
-  window.addEventListener("keydown", handleKeyNavigation)
+// =============================
+// 5. DATA MERGE & COMPUTED
+// =============================
+const {
+  stripLabel,
+  mergedComments,
+  mergedGroupsFinal,
+  totalComments,
+  nodeMap  
+} = useMindmapCommentData({
+  comments,
+  mindmap: computed(() => props.mindmap),
+  activeNodeId
 })
 
-onUnmounted(() => {
-  if (socket?.off) {
-    socket.off("drive_mindmap:new_comment", handleRealtimeNewComment)
-    socket.off("drive_mindmap:comments_deleted", handleRealtimeDeleteComments)
-  }
-  window.removeEventListener("keydown", handleKeyNavigation)
+
+// =============================
+// 6. REALTIME
+// =============================
+useMindmapCommentRealtime({
+  socket,
+  entityName,
+  comments
 })
 
-function selectNextGroup(currentNodeId) {
-  if (!currentNodeId) return
 
-  const list = mergedGroupsFinal.value
-  if (!list.length) return
-
-  const index = list.findIndex(g => g.node.id === currentNodeId)
-  if (index === -1) return
-
-  const next = list[index + 1]
-  if (!next) return
-
-  const nextNodeId = next.node.id
-  const node = nodeMap.value[nextNodeId] || { id: nextNodeId }
-
-  emit("update:node", node)
-}
-
-
-function hasNextGroup(nodeId) {
-  const list = mergedGroupsFinal.value
-  const index = list.findIndex(g => g.node.id === nodeId)
-  return index !== -1 && index < list.length - 1
-}
-
-function hasPrevGroup(nodeId) {
-  const list = mergedGroupsFinal.value
-  const index = list.findIndex(g => g.node.id === nodeId)
-  return index > 0
-}
-
-function selectPrevGroup(currentNodeId) {
-  if (!currentNodeId) return
-
-  const list = mergedGroupsFinal.value
-  if (!list.length) return
-
-  const index = list.findIndex(g => g.node.id === currentNodeId)
-  if (index === -1) return
-
-  const prev = list[index - 1]
-  if (!prev) return
-
-  const prevNodeId = prev.node.id
-  const node = nodeMap.value[prevNodeId] || { id: prevNodeId }
-
-  emit("update:node", node)
-}
-
-
-
-watch((val) => {
-  if(!val) return
-  // console.log(">>>>>>>>> node:", props?.node);
-  // console.log(">>>>>>>>> mindmap:", props.mindmap);
-  // console.log(">>>>>>>>> mergedGroupsFinal:", mergedGroupsFinal.value);
+// =============================
+// 7. KEYBOARD / GROUP NAVIGATION
+// =============================
+const {
+  hasNextGroup,
+  hasPrevGroup,
+  selectNextGroup,
+  selectPrevGroup
+} = useMindmapCommentNavigation({
+  activeNodeId,
+  mergedGroupsFinal,
+  nodeMap,
+  emit
 })
 
-const vTooltip = Tooltip;
+
+// =============================
+// 8. UI DIRECTIVES
+// =============================
+const vTooltip = Tooltip
+
 
 </script>
 
