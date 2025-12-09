@@ -2,8 +2,8 @@
     <div v-if="visible" ref="menuRef" class="mindmap-context-menu"
         :class="{ 'context-menu-centered': center }"
         :style="{
-            top: position.y + 'px',
-            left: position.x + 'px'
+            top: adjustedPosition.y + 'px',
+            left: adjustedPosition.x + 'px'
         }">
         <!-- Add Child -->
         <div class="menu-item menu-item-primary" @click="emitAction('add-child')">
@@ -24,10 +24,10 @@
         </div>
 
         <!-- Separator -->
-        <div v-if="node?.id !== 'root'" class="menu-separator"></div>
+        <div class="menu-separator"></div>
 
         <!-- Copy -->
-        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default" @click="emitAction('copy')">
+        <div class="menu-item menu-item-default" @click="emitAction('copy')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -46,8 +46,8 @@
             <span>Cắt</span>
         </div>
 
-        <!-- Paste -->
-        <div v-if="hasClipboard" class="menu-item menu-item-default" @click="emitAction('paste')">
+        <!-- Paste - Luôn hiển thị để có thể dán từ clipboard hệ thống -->
+        <div class="menu-item menu-item-default" @click="emitAction('paste')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
                 <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
@@ -94,7 +94,7 @@
 </template>
 
 <script setup>
-import { onUnmounted, ref, watch } from "vue";
+import { nextTick, onUnmounted, ref, watch } from "vue";
 
 const props = defineProps({
     visible: Boolean,
@@ -110,8 +110,44 @@ const props = defineProps({
 const emit = defineEmits(["action", "close"]);
 
 const menuRef = ref(null);
+const adjustedPosition = ref({ x: 0, y: 0 });
 
-function emitAction(action) {
+// ⚠️ NEW: Tính toán vị trí menu để đảm bảo luôn hiển thị đầy đủ trong viewport
+function adjustMenuPosition() {
+    if (!menuRef.value || !props.visible) return
+    
+    const menu = menuRef.value
+    const menuRect = menu.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    
+    let x = props.position.x || 0
+    let y = props.position.y || 0
+    
+    // Kiểm tra và điều chỉnh vị trí X nếu menu bị cắt bên phải
+    if (x + menuRect.width > viewportWidth) {
+        // Menu bị cắt bên phải: hiển thị bên trái chuột
+        x = props.position.x - menuRect.width - 8 // 8px offset
+        // Đảm bảo không bị cắt bên trái
+        if (x < 8) {
+            x = 8
+        }
+    }
+    
+    // Kiểm tra và điều chỉnh vị trí Y nếu menu bị cắt ở dưới
+    if (y + menuRect.height > viewportHeight) {
+        // Menu bị cắt ở dưới: hiển thị phía trên chuột
+        y = props.position.y - menuRect.height
+        // Đảm bảo không bị cắt ở trên
+        if (y < 8) {
+            y = 8
+        }
+    }
+    
+    adjustedPosition.value = { x, y }
+}
+
+const emitAction = (action) => {
     emit("action", {
         type: action,
         node: props.node
@@ -132,17 +168,39 @@ function handleClickOutside(e) {
 }
 
 /**
- * Theo dõi visible để add/remove event listener
+ * Theo dõi visible để add/remove event listener và điều chỉnh vị trí menu
  */
 watch(
     () => props.visible,
     (v) => {
         if (v) {
             document.addEventListener("mousedown", handleClickOutside);
+            // ⚠️ CRITICAL: Điều chỉnh vị trí menu sau khi render để đảm bảo hiển thị đầy đủ
+            nextTick(() => {
+                adjustMenuPosition()
+            })
         } else {
             document.removeEventListener("mousedown", handleClickOutside);
         }
     }
+);
+
+// ⚠️ NEW: Theo dõi position để điều chỉnh lại khi position thay đổi
+watch(
+    () => props.position,
+    (newPos) => {
+        if (newPos) {
+            // Khởi tạo adjustedPosition với position ban đầu
+            adjustedPosition.value = { x: newPos.x || 0, y: newPos.y || 0 }
+            // Điều chỉnh vị trí sau khi render
+            if (props.visible) {
+                nextTick(() => {
+                    adjustMenuPosition()
+                })
+            }
+        }
+    },
+    { deep: true, immediate: true }
 );
 
 // Cleanup khi component bị unmount (an toàn bộ nhớ)
@@ -236,8 +294,12 @@ onUnmounted(() => {
 }
 
 .menu-item-default:hover {
-    background-color: #f9fafb;
-    color: #111827;
+    background-color: #eff6ff;
+    color: #2563eb;
+}
+
+.menu-item-default:hover .menu-icon {
+    color: #2563eb;
 }
 
 .menu-item-danger {
