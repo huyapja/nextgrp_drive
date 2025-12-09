@@ -86,6 +86,7 @@ export function renderNodes(renderer, positions) {
     .attr('stroke-width', 2)
     .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff')
     .attr('filter', 'url(#shadow)')
+    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Làm mờ node khi completed
   
   // Add node text container with textarea for inline editing
   // Thêm offset để không đè lên border 2px của node-rect
@@ -293,6 +294,7 @@ export function renderNodes(renderer, positions) {
       return d.data?.isRoot ? 'none' : '#cbd5e1' // Default
     })
     .attr('stroke-width', 2)
+    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Làm mờ rect khi completed
   
   nodesUpdate
     .attr('transform', d => {
@@ -301,8 +303,11 @@ export function renderNodes(renderer, positions) {
       return `translate(${pos.x}, ${pos.y})`
     })
     // Hide collapsed nodes instead of removing them
+    // Also apply opacity for completed nodes
     .style('opacity', d => {
-      return renderer.isNodeHidden(d.id) ? 0 : 1
+      if (renderer.isNodeHidden(d.id)) return 0
+      // Làm mờ node và tất cả node con khi completed
+      return d.data?.completed ? 0.5 : 1
     })
     .style('pointer-events', d => {
       return renderer.isNodeHidden(d.id) ? 'none' : 'auto'
@@ -337,12 +342,19 @@ export function renderNodes(renderer, positions) {
         target.closest('.collapse-btn-arrow') ||
         target.closest('.collapse-arrow')
       )
+      // ⚠️ NEW: Kiểm tra xem click có phải từ toolbar không
+      const isToolbarClick = target && (
+        target.closest('.mindmap-toolbar') ||
+        target.closest('.toolbar-btn') ||
+        target.closest('.toolbar-top-popup') ||
+        target.closest('.toolbar-bottom')
+      )
       
-      // QUAN TRỌNG: Nếu click vào collapse button, KHÔNG BAO GIỜ xử lý ở đây
-      // Collapse button sẽ tự xử lý và stop propagation
-      if (isEditorClick || isAddChildClick || isCollapseClick) {
-        // Click vào editor hoặc các nút -> không xử lý ở đây (để các nút tự xử lý)
-        console.log('🚫 Node group click ignored - clicked on button/editor')
+      // QUAN TRỌNG: Nếu click vào collapse button hoặc toolbar, KHÔNG BAO GIỜ xử lý ở đây
+      // Collapse button và toolbar sẽ tự xử lý và stop propagation
+      if (isEditorClick || isAddChildClick || isCollapseClick || isToolbarClick) {
+        // Click vào editor, toolbar hoặc các nút -> không xử lý ở đây (để các nút tự xử lý)
+        console.log('🚫 Node group click ignored - clicked on button/editor/toolbar')
         return
       }
 
@@ -356,7 +368,7 @@ export function renderNodes(renderer, positions) {
       nodeGroup.raise()
       
       // Click đơn giản để select node
-      // Blur editor nếu đang focus
+      // Blur editor nếu đang focus (CHỈ khi không click vào toolbar)
       const editorInstance = renderer.getEditorInstance(d.id)
       if (editorInstance && editorInstance.isFocused) {
         editorInstance.commands.blur()
@@ -413,8 +425,44 @@ export function renderNodes(renderer, positions) {
       setTimeout(() => {
         const editorInstance = renderer.getEditorInstance(d.id)
         if (editorInstance) {
-          // Focus vào editor và đặt cursor ở cuối - tất cả node (bao gồm root) dùng logic giống nhau
-          editorInstance.commands.focus('end')
+          // Focus vào editor và đặt cursor ở cuối title (không phải blockquote)
+          const { state } = editorInstance.view
+          const { doc } = state
+          
+          // Tìm paragraph cuối cùng của title (không trong blockquote)
+          let lastTitleEndPos = null
+          
+          // Duyệt qua tất cả nodes để tìm paragraph cuối cùng không trong blockquote
+          doc.forEach((node, offset) => {
+            if (node.type.name === 'paragraph') {
+              // Kiểm tra xem paragraph có trong blockquote không
+              const resolvedPos = state.doc.resolve(offset + 1)
+              let inBlockquote = false
+              
+              for (let i = resolvedPos.depth; i > 0; i--) {
+                const nodeAtDepth = resolvedPos.node(i)
+                if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                  inBlockquote = true
+                  break
+                }
+              }
+              
+              if (!inBlockquote) {
+                // Đây là title paragraph, lưu vị trí cuối của nó
+                // offset + 1 là vị trí bắt đầu của node, offset + node.nodeSize là vị trí cuối
+                lastTitleEndPos = offset + node.nodeSize - 1
+              }
+            }
+          })
+          
+          if (lastTitleEndPos !== null && lastTitleEndPos > 0) {
+            // Set selection ở cuối title paragraph
+            editorInstance.chain().setTextSelection(lastTitleEndPos).focus().run()
+          } else {
+            // Fallback: focus vào đầu nếu không tìm thấy title paragraph
+            editorInstance.commands.focus('start')
+          }
+          
           // Gọi handleEditorFocus để setup đúng cách
           renderer.handleEditorFocus(d.id, fo.node(), d)
         } else {
@@ -422,7 +470,37 @@ export function renderNodes(renderer, positions) {
           setTimeout(() => {
             const editorInstance2 = renderer.getEditorInstance(d.id)
             if (editorInstance2) {
-              editorInstance2.commands.focus('end')
+              const { state } = editorInstance2.view
+              const { doc } = state
+              
+              // Tìm paragraph cuối cùng của title (không trong blockquote)
+              let lastTitleEndPos = null
+              
+              doc.forEach((node, offset) => {
+                if (node.type.name === 'paragraph') {
+                  const resolvedPos = state.doc.resolve(offset + 1)
+                  let inBlockquote = false
+                  
+                  for (let i = resolvedPos.depth; i > 0; i--) {
+                    const nodeAtDepth = resolvedPos.node(i)
+                    if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                      inBlockquote = true
+                      break
+                    }
+                  }
+                  
+                  if (!inBlockquote) {
+                    lastTitleEndPos = offset + node.nodeSize - 1
+                  }
+                }
+              })
+              
+              if (lastTitleEndPos !== null && lastTitleEndPos > 0) {
+                editorInstance2.chain().setTextSelection(lastTitleEndPos).focus().run()
+              } else {
+                editorInstance2.commands.focus('start')
+              }
+              
               renderer.handleEditorFocus(d.id, fo.node(), d)
             }
           }, 50)
@@ -470,6 +548,7 @@ export function renderNodes(renderer, positions) {
           }
         })
         .attr('stroke-width', 2)
+        .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Giữ opacity dựa trên completed status
       
       // Check if node has children
       const hasChildren = renderer.edges.some(e => e.source === d.id)
@@ -682,6 +761,7 @@ export function renderNodes(renderer, positions) {
           return d.data?.isRoot ? 'none' : '#cbd5e1'
         })
         .attr('stroke-width', 2)
+        .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Giữ opacity dựa trên completed status
       
       // ✅ LOGIC KHI KHÔNG HOVER - 3 NÚT TÁCH BIỆT:
       // 1. Nút số: giữ nếu collapsed
@@ -1078,6 +1158,7 @@ export function renderNodes(renderer, positions) {
       return d.data?.isRoot ? 'none' : '#cbd5e1'
     })
     .attr('stroke-width', 2) // Border luôn là 2px
+    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Làm mờ rect khi completed
   
   // Update textarea content and behaviors
   nodesUpdate.select('.node-text')
@@ -1169,15 +1250,15 @@ export function renderNodes(renderer, positions) {
       fo.attr('width', Math.max(0, rectWidth - borderOffset))
       fo.attr('height', Math.max(0, rectHeight - borderOffset))
       
-      // ⚠️ CRITICAL: Với root node, dùng auto để hiển thị đầy đủ nội dung
+      // ⚠️ CRITICAL: Tất cả các node đều dùng auto để hiển thị đầy đủ nội dung (bao gồm ảnh)
       const wrapper = fo.select('.node-content-wrapper')
         .style('width', '100%') // Wrapper chiếm 100% foreignObject
-        .style('height', isRootNode ? 'auto' : '100%') // Root node dùng auto, các node khác dùng 100%
-        .style('min-height', isRootNode ? '0' : '100%')
-        .style('max-height', isRootNode ? 'none' : '100%')
+        .style('height', 'auto') // Tất cả node dùng auto để hiển thị đủ nội dung
+        .style('min-height', '0')
+        .style('max-height', 'none')
         .style('background', bgColor)
         .style('border-radius', '8px')
-        .style('overflow', isRootNode ? 'visible' : 'hidden') // Root node dùng visible, các node khác dùng hidden
+        .style('overflow', 'visible') // Tất cả node dùng visible để hiển thị đủ nội dung
         .style('border', 'none') // Không có border để không đè lên border của node-rect
         .style('outline', 'none') // Không có outline
         .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
@@ -1185,11 +1266,11 @@ export function renderNodes(renderer, positions) {
       // Mount Vue TipTap editor component
       const editorContainer = wrapper.select('.node-editor-container')
         .style('width', '100%')
-        .style('height', isRootNode ? 'auto' : '100%') // Root node dùng auto, các node khác dùng 100%
-        .style('min-height', isRootNode ? '0' : '100%')
-        .style('max-height', isRootNode ? 'none' : '100%')
+        .style('height', 'auto') // Tất cả node dùng auto để hiển thị đủ nội dung
+        .style('min-height', '0')
+        .style('max-height', 'none')
         .style('pointer-events', 'none') // Disable pointer events để ngăn click khi chưa edit
-        .style('overflow', isRootNode ? 'visible' : 'hidden') // Root node dùng visible, các node khác dùng hidden
+        .style('overflow', 'visible') // Tất cả node dùng visible để hiển thị đủ nội dung
         .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
       
       // Mount hoặc update Vue component
@@ -1206,6 +1287,7 @@ export function renderNodes(renderer, positions) {
             width: '100%',
             height: 'auto',
             isRoot: isRootNode,
+            uploadImage: renderer.uploadImage || null, // Pass uploadImage function
             onInput: (value) => {
               // Handle input event - sẽ được cập nhật sau
               handleEditorInput(renderer, nodeData.id, value, nodeArray[idx], nodeData)
@@ -1251,7 +1333,70 @@ export function renderNodes(renderer, positions) {
                   const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
                   
                   if (editorContent && editorContent.offsetHeight > 0) {
-                    // Chỉ đo lại cho root node hoặc khi cần thiết
+                    // ⚠️ CRITICAL: Đo lại height cho TẤT CẢ các node (không chỉ root node)
+                    // Đảm bảo chiều cao node = chiều cao editor ngay cả khi chưa mở editor
+                    const borderOffset = 4
+                    const minWidth = 130
+                    const maxWidth = 400
+                    let currentWidth = parseFloat(rect.attr('width')) || rectWidth
+                    
+                    // Set width và white-space trước khi đo height
+                    const foWidth = currentWidth - borderOffset
+                    editorContent.style.width = `${foWidth}px`
+                    editorContent.style.height = 'auto'
+                    editorContent.style.minHeight = '0'
+                    editorContent.style.maxHeight = 'none'
+                    editorContent.style.overflow = 'visible'
+                    editorContent.style.boxSizing = 'border-box'
+                    editorContent.style.padding = '8px 16px'
+                    
+                    const willWrap = currentWidth >= maxWidth
+                    if (willWrap) {
+                      editorContent.style.whiteSpace = 'pre-wrap'
+                    } else {
+                      editorContent.style.whiteSpace = 'nowrap'
+                    }
+                    
+                    // Force reflow để đảm bảo styles đã được áp dụng
+                    void editorContent.offsetWidth
+                    void editorContent.offsetHeight
+                    void editorContent.scrollHeight
+                    
+                    // Đo height thực tế - dùng scrollHeight để lấy chiều cao đầy đủ
+                    const contentHeight = Math.max(
+                      editorContent.scrollHeight || editorContent.offsetHeight || 0,
+                      Math.ceil(19 * 1.4) + 16 // singleLineHeight
+                    )
+                    
+                    const currentHeight = parseFloat(rect.attr('height')) || 0
+                    if (Math.abs(contentHeight - currentHeight) > 1) {
+                      rect.attr('height', contentHeight)
+                      fo.attr('height', Math.max(0, contentHeight - borderOffset))
+                      
+                      // Cập nhật wrapper và container
+                      wrapper.style('height', 'auto')
+                      wrapper.style('min-height', '0')
+                      wrapper.style('max-height', 'none')
+                      wrapper.style('overflow', 'visible')
+                      editorContainer.style('height', 'auto')
+                      editorContainer.style('min-height', '0')
+                      editorContainer.style('max-height', 'none')
+                      editorContainer.style('overflow', 'visible')
+                      
+                      // Cập nhật cache
+                      renderer.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
+                      
+                      // Cập nhật vị trí các buttons
+                      nodeGroup.select('.add-child-btn').attr('cy', contentHeight / 2)
+                      nodeGroup.select('.add-child-text').attr('y', contentHeight / 2)
+                      nodeGroup.select('.collapse-btn-number').attr('cy', contentHeight / 2)
+                      nodeGroup.select('.collapse-text-number').attr('y', contentHeight / 2)
+                      nodeGroup.select('.collapse-btn-arrow').attr('cy', contentHeight / 2)
+                      nodeGroup.select('.collapse-text-arrow').attr('y', contentHeight / 2)
+                      nodeGroup.select('.collapse-btn-arrow').attr('transform', `translate(${currentWidth + 20}, ${contentHeight / 2}) scale(0.7) translate(-12, -12)`)
+                    }
+                    
+                    // Chỉ đo lại width cho root node
                     if (isRootNode) {
                       const borderOffset = 4
                       const minWidth = 130
@@ -1377,9 +1522,9 @@ export function renderNodes(renderer, positions) {
                       // Force reflow
                       void editorContent.offsetHeight
                       
-                      // Đo height thực tế
+                      // Đo height thực tế - dùng scrollHeight để lấy chiều cao đầy đủ
                       const contentHeight = Math.max(
-                        editorContent.offsetHeight || 0,
+                        editorContent.scrollHeight || editorContent.offsetHeight || 0,
                         Math.ceil(19 * 1.4) + 16 // singleLineHeight
                       )
                       

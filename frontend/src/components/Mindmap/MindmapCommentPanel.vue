@@ -96,12 +96,12 @@
 
 
 <script setup>
-import { ref, watch, computed, nextTick, inject, onMounted, onUnmounted } from "vue"
-import Textarea from "primevue/textarea"
-import { useRoute } from "vue-router"
 import { call, createResource } from "frappe-ui"
-import { getTeamMembers } from "../../resources/team"
+import Textarea from "primevue/textarea"
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
+import { useRoute } from "vue-router"
 import { useStore } from "vuex"
+import { getTeamMembers } from "../../resources/team"
 import CustomAvatar from "../CustomAvatar.vue"
 
 
@@ -160,12 +160,26 @@ function scrollToActiveNode(nodeId) {
 const mindmap_comment_list = createResource({
   url: "drive.api.mindmap_comment.get_comments",
   method: "GET",
-  auto: true,
+  auto: false, // Không tự động gọi, chỉ gọi khi panel visible
   params: { mindmap_id: entityName },
   onSuccess(data) {
-    comments.value = data
+    comments.value = data || []
+  },
+  onError(error) {
+    // Xử lý lỗi khi DocType chưa tồn tại hoặc lỗi khác
+    console.warn('⚠️ Failed to load comments:', error)
+    // Không set comments để tránh crash, chỉ log warning
+    comments.value = []
   }
 })
+
+// Chỉ gọi API khi panel visible
+watch(() => props.visible, (isVisible) => {
+  if (isVisible && entityName) {
+    // Chỉ gọi API khi panel được mở và có entityName
+    mindmap_comment_list.fetch()
+  }
+}, { immediate: true })
 
 const members = computed(() => getTeamMembers.data || [])
 
