@@ -12,59 +12,121 @@
         @click="handleClose" />
     </div>
 
+    <div v-if="props?.node && mergedComments.length === 0"></div>
+
+    <div v-else-if="mergedComments.length === 0" class="text-gray-400 text-sm p-3">
+      Chưa có bình luận nào.
+    </div>
+
     <!-- Danh sách comment -->
     <div class="p-3 overflow-y-auto h-[calc(100%-100px)] comment-scroll-container">
-      <div v-if="mindmap_comment_list.loading" class="text-gray-500 text-sm">Đang tải bình luận...</div>
-
-      <div v-else-if="mergedComments.length === 0" class="text-gray-400 text-sm">
-        Chưa có bình luận nào.
+      <div v-if="mindmap_comment_list.loading" class="text-gray-500 text-sm">
+        Đang tải bình luận...
       </div>
 
       <div v-else>
         <div v-for="group in mergedGroupsFinal" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
-          @click="handleClickGroup(group.node.id)" :class="[
-            'comment-panel cursor-pointer relative mb-5 p-3 rounded bg-white border shadow-sm text-xs text-gray-500 group',
-            group.node.id === activeNodeId ? 'active' : ''
-          ]">
+          @click="handleClickGroup(group.node.id)" class="
+            comment-panel
+            group/comment-panel
+            cursor-pointer
+            relative
+            mb-5 p-3 rounded bg-white border shadow-sm
+            text-xs text-gray-500
+          " :class="group.node.id === activeNodeId ? 'active' : ''"
+          style="content-visibility: auto; contain-intrinsic-size: 180px;">
 
           <!-- Header node -->
           <div class="comment-panel-header flex items-center mb-2">
             <div class="comment-panel-quote relative truncate max-w-[120px] !text-[12px] text-[#646a73] pl-2"
-              :title="stripLabel(group.node.data.label)" v-html="stripLabel(group.node.data.label)">
-            </div>
+              :title="stripLabel(group.node.data.label)" v-html="stripLabel(group.node.data.label)" />
 
-            <div v-if="group.comments?.length > 0"
-              class="ml-auto border rounded-[12px] px-[5px] py-[4px] flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-              <i class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(group.node.id)
-                ? 'cursor-pointer hover:text-blue-500'
-                : 'cursor-not-allowed opacity-40'"
-                @click.stop="hasNextGroup(group.node.id) && selectNextGroup(group.node.id)"></i>
-              <i class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(group.node.id)
-                ? 'cursor-pointer hover:text-blue-500'
-                : 'cursor-not-allowed opacity-40'"
-                @click.stop="hasPrevGroup(group.node.id) && selectPrevGroup(group.node.id)"></i>
+            <div v-if="group.comments?.length > 0" class="
+                ml-auto border rounded-[12px] px-[5px] py-[4px]
+                flex items-center gap-2
+                opacity-0
+                group-hover/comment-panel:opacity-100
+                transition-opacity duration-150
+              ">
+              <i v-tooltip.top="hasNextGroup(group.node.id)
+                ? { value: 'Tiếp (↓)', pt: { text: { class: ['text-[12px]'] } } }
+                : null" class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(group.node.id)
+                  ? 'cursor-pointer hover:text-blue-500'
+                  : 'cursor-not-allowed opacity-40'"
+                @click.stop="hasNextGroup(group.node.id) && selectNextGroup(group.node.id)" />
 
-              <div class="panel-separate border-l w-[1px] h-[16px]"></div>
-              <i class="pi pi-link !text-[12px] mr-2 cursor-pointer"></i>
-              <i class="pi pi-check-circle !text-[12px] cursor-pointer"></i>
+              <i v-tooltip.top="hasPrevGroup(group.node.id)
+                ? { value: 'Trước (↑)', pt: { text: { class: ['text-[12px]'] } } }
+                : null" class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(group.node.id)
+                  ? 'cursor-pointer hover:text-blue-500'
+                  : 'cursor-not-allowed opacity-40'"
+                @click.stop="hasPrevGroup(group.node.id) && selectPrevGroup(group.node.id)" />
+
+              <div class="panel-separate border-l w-[1px] h-[16px]" />
+
+              <i v-tooltip.top="{ value: 'Sao chép liên kết', pt: { text: { class: ['text-[12px]'] } } }"
+                class="pi pi-link !text-[12px] mr-2 cursor-pointer" />
+              <i class="pi pi-check-circle !text-[12px] cursor-pointer" />
             </div>
           </div>
 
-          <!-- Danh sách comment (theo node) -->
-          <div v-for="c in group.comments" :key="c.name" class="flex items-start py-2 px-3 gap-2 mb-3">
+          <div v-for="c in group.comments" :key="c.name"
+            class="group/comment-item relative flex items-start py-2 px-3 gap-2 mb-3">
+            <!-- Action nổi bên phải (reaction + comment + more) -->
+            <div @click.stop :class="[
+              'absolute top-1 right-0 flex items-center gap-2 bg-white px-2 py-1 transition-all duration-150',
+              openMenuCommentId === c.name
+                ? 'opacity-100'
+                : 'opacity-0 group-hover/comment-item:opacity-100'
+            ]">
+
+
+              <!-- Reaction -->
+              <i class="pi pi-thumbs-up !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"></i>
+
+              <!-- Reply -->
+              <i v-tooltip.top="{ value: 'Trả lời', pt: { text: { class: ['text-[12px]'] } } }"
+                class="pi pi-comment !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"></i>
+
+              <!-- More -->
+              <div v-if="currentUser?.id === c.user?.email" class="relative">
+                <!-- Icon 3 chấm -->
+                <i class="pi pi-ellipsis-h !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
+                  @click.stop="openCommentMenu(c, $event)"></i>
+
+              </div>
+
+            </div>
+
+            <!-- Avatar -->
             <CustomAvatar :image="c.user?.user_image" :label="c.user?.full_name?.slice(0, 1)" shape="circle"
               size="small" />
 
-            <div>
+            <!-- Nội dung -->
+            <div class="w-full pr-10">
               <div class="flex items-center gap-2">
-                <div class="font-medium text-gray-700">{{ c.user?.full_name }}</div>
-                <span class="text-[10px] text-gray-400">{{ timeAgo(c.creation) }}</span>
+                <div class="font-medium text-gray-700">
+                  {{ c.user?.full_name }}
+                </div>
+
+                <span class="
+          text-[10px] text-gray-400 inline-block
+          transition-all duration-150
+          group-hover/comment-item:truncate
+          group-hover/comment-item:max-w-[50px]
+        ">
+                  {{ timeAgo(c.creation) }}
+                </span>
               </div>
 
-              <div class="text-black mt-1">{{ c.parsed.text }}</div>
+              <div class="text-black mt-2">
+                {{ c.parsed.text }}
+              </div>
             </div>
           </div>
 
+
+          <!-- Empty state -->
           <div v-if="group.comments?.length === 0 && group.node.id === activeNodeId"
             class="flex items-start gap-2 my-5">
             <CustomAvatar :image="currentUser?.imageURL" :label="currentUser?.fullName?.slice(0, 1)" shape="circle"
@@ -77,33 +139,82 @@
             </div>
           </div>
 
-          <!-- Nếu node đang chọn → hiển thị input ngay trong nhóm -->
-          <div v-if="group.node.id === activeNodeId" class="mt-3">
-            <Textarea v-model="inputValue" class="search-input h-8 w-full" rows="1" autoResize="false"
-              :placeholder="group.comments?.length ? 'Trả lời' : 'Thêm nhận xét'"
+          <!-- Input -->
+          <div v-if="group.node.id === activeNodeId && !isEditing" class="mt-3">
+            <Textarea v-model="inputValue" class="search-input h-8 w-full add-comments-textarea" rows="1"
+              autoResize="false" :placeholder="group.comments?.length ? 'Trả lời' : 'Thêm nhận xét'"
               @keydown.enter.exact.prevent="handleSubmit" @keydown.shift.enter.stop />
 
             <div v-if="inputValue.trim()" class="flex justify-end gap-2 mt-2">
-              <button class="px-3 py-1 text-xs rounded bg-gray-200" @click="handleCancel">Huỷ</button>
-              <button class="px-3 py-1 text-xs rounded bg-[#3B82F6] text-white" @click="handleSubmit">Đăng</button>
+              <button class="px-3 py-1 text-xs rounded bg-gray-200" @click="handleCancel">
+                Huỷ
+              </button>
+              <button class="px-3 py-1 text-xs rounded bg-[#3B82F6] text-white" @click="handleSubmit">
+                Đăng
+              </button>
             </div>
           </div>
+
+          <!-- INPUT EDIT COMMENT -->
+          <div v-if="isEditing && activeEditingComment?.node_id === group.node.id" class="mt-3 rounded p-2">
+            <Textarea v-model="editingValue" class="search-input h-8 w-full" rows="1" autoResize="false"
+              placeholder="Chỉnh sửa bình luận..." @keydown.enter.exact.prevent="submitEdit(activeEditingComment)"
+              @keydown.shift.enter.stop />
+
+            <div class="flex justify-end gap-2 mt-2">
+              <button class="px-3 py-1 text-xs rounded bg-gray-200" @click="cancelEdit">
+                Huỷ
+              </button>
+
+              <button class="px-3 py-1 text-xs rounded bg-[#3B82F6] text-white"
+                @click="submitEdit(activeEditingComment)">
+                Lưu
+              </button>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
   </div>
+  <Teleport to="body">
+    <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
+      class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
+      <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2" 
+      @click="handleEditComment(startEdit)">
+        <span>Chỉnh sửa</span>
+      </div>
+
+      <div class="px-3 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-2"
+        @click="handleDeleteComment(deleteComment)">
+        <span>Xoá</span>
+      </div>
+    </div>
+  </Teleport>
+
 </template>
 
 
 <script setup>
-import { call, createResource } from "frappe-ui"
+
+import { ref, watch, computed, nextTick, inject } from "vue"
+import { createResource } from "frappe-ui"
 import Textarea from "primevue/textarea"
-import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
-import { getTeamMembers } from "../../resources/team"
 import CustomAvatar from "../CustomAvatar.vue"
+import { Tooltip } from "primevue"
+import { useMindmapCommentRealtime } from "./composables/useMindmapCommentRealtime"
+import { useMindmapCommentNavigation } from "./composables/useMindmapCommentNavigation"
+import { useMindmapCommentData } from "./composables/useMindmapCommentData"
+import { useMindmapCommentInput } from "./composables/useMindmapCommentInput"
+import { useMindmapCommentEditInput } from "./composables/useMindmapCommentEditInput"
+import { useScrollToActiveNode } from "./composables/useScrollToActiveNode"
+import { useMindmapCommentMenu } from "./composables/useMindmapCommentMenu"
+import { useMindmapAPI } from "./composables/useMindmapAPI"
 
+
+import { timeAgo } from "./utils/timeAgo"
 
 // -----------------------------
 const props = defineProps({
@@ -127,35 +238,28 @@ const groupRefs = ref({})
 
 const currentUser = computed(() => store.state.user)
 
+const {
+  activeComment,
+  dropdownStyle,
+  openCommentMenu,
+  handleEditComment,
+  handleDeleteComment
+} = useMindmapCommentMenu()
+
+
+const { deleteComment } = useMindmapAPI({
+  entityName
+})
+
+
+
 function setGroupRef(nodeId, el) {
   if (el) {
     groupRefs.value[nodeId] = el
+  } else {
+    delete groupRefs.value[nodeId]
   }
 }
-
-function scrollToActiveNode(nodeId) {
-  if (!nodeId) return
-
-  nextTick(() => {
-    const el = groupRefs.value[nodeId]
-    const container = document.querySelector(".comment-scroll-container")
-
-    if (!el || !container) return
-
-    const elRect = el.getBoundingClientRect()
-    const containerRect = container.getBoundingClientRect()
-
-    const target =
-      elRect.top - containerRect.top + container.scrollTop
-
-    container.scrollTo({
-      top: target,
-      // behavior: "smooth"
-    })
-  })
-}
-
-
 
 const mindmap_comment_list = createResource({
   url: "drive.api.mindmap_comment.get_comments",
@@ -181,130 +285,10 @@ watch(() => props.visible, (isVisible) => {
   }
 }, { immediate: true })
 
-const members = computed(() => getTeamMembers.data || [])
-
-const memberMap = computed(() => {
-  const map = {}
-  for (const m of members.value) {
-    map[m.email] = m
-  }
-  return map
-})
-
-const nodeMap = computed(() => {
-  const map = {}
-  for (const n of props.mindmap || []) {
-    map[n.id] = n
-  }
-  return map
-})
-
-// -----------------------------
-const parseComment = raw => {
-  try {
-    return JSON.parse(raw)
-  } catch {
-    return { text: raw }
-  }
-}
-
-// -----------------------------
-const stripLabel = raw => {
-  if (!raw) return ""
-  return String(raw).replace(/^<p>/, "").replace(/<\/p>$/, "")
-}
-
-// -----------------------------
-// MERGE COMMENTS ↔ NODES
-const mergedComments = computed(() => {
-  if (!comments.value.length) return []
-  if (!sortedNodes.value.length) return []
-
-  return comments.value.map(c => {
-    return {
-      ...c,
-      node: nodeMap.value[c.node_id] || null,
-      user: memberMap.value[c.owner] || null,
-      parsed: parseComment(c.comment)
-    }
-  })
-})
-
-const totalComments = computed(() => mergedComments.value.length)
-
-// -----------------------------
-const inputValue = ref("")
-const commentCache = ref(JSON.parse(localStorage.getItem("mindmap_comment_cache") || "{}"))
-
-function saveCache() {
-  localStorage.setItem("mindmap_comment_cache", JSON.stringify(commentCache.value))
-}
-
-watch(inputValue, val => {
-  if (props.node?.id) {
-    commentCache.value[props.node.id] = val
-    saveCache()
-  }
-  emit("update:input", val)
-})
-
-// -----------------------------
-async function handleSubmit() {
-  if (!props.node?.id || !inputValue.value.trim()) return
-
-  const payload = {
-    text: inputValue.value.trim(),
-    created_at: new Date().toISOString()
-  }
-
-  const res = await call("drive.api.mindmap_comment.add_comment", {
-    mindmap_id: entityName,
-    node_id: props.node.id,
-    comment: JSON.stringify(payload)
-  })
-
-  console.log(">>>> send message");
-  
-
-  inputValue.value = ""
-  commentCache.value[props.node.id] = ""
-  saveCache()
-  emit("submit", res.comment)
-}
-
-function handleCancel() {
-  if (props.node?.id) commentCache.value[props.node.id] = ""
-  inputValue.value = ""
-  saveCache()
-  emit("cancel")
-}
-
-
-function timeAgo(dateStr) {
-  if (!dateStr) return ""
-
-  const now = new Date()
-  const past = new Date(dateStr)
-  const diff = (now - past) / 1000
-
-  if (diff < 60) return "vừa xong"
-  if (diff < 3600) return Math.floor(diff / 60) + " phút trước"
-  if (diff < 86400) return Math.floor(diff / 3600) + " giờ trước"
-
-  const days = Math.floor(diff / 86400)
-  if (days === 1) return "Hôm qua"
-  if (days < 30) return `${days} ngày trước`
-
-  const months = Math.floor(days / 30)
-  if (months < 12) return `${months} tháng trước`
-
-  const years = Math.floor(months / 12)
-  return `${years} năm trước`
-}
-
 
 // -----------------------------
 const closing = ref(false)
+
 function handleClose() {
   closing.value = true
   setTimeout(() => {
@@ -313,259 +297,137 @@ function handleClose() {
   }, 250)
 }
 
+// =============================
+// 1. INPUT STATE + API ACTIONS
+// =============================
+const {
+  inputValue,
+  handleSubmit,
+  handleCancel,
+  loadDraft
+} = useMindmapCommentInput({
+  activeNodeId,
+  entityName,
+  emit
+})
 
-function sortMindmapNodes(nodes) {
-  if (!Array.isArray(nodes)) return []
+const {
+  editingCommentId,
+  editingValue,
+  startEdit,
+  submitEdit,
+  cancelEdit
+} = useMindmapCommentEditInput({
+  entityName,
+  comments
+})
 
-  // clone để tránh reactive loop
-  const cloned = JSON.parse(JSON.stringify(nodes))
 
-  // map id → node
-  const map = {}
-  cloned.forEach(n => {
-    map[n.id] = { ...n, children: [] }
-  })
+const isEditing = computed(() => !!editingCommentId.value)
 
-  // gắn children
-  cloned.forEach(n => {
-    const parentId = n.data?.parentId
-    if (parentId && parentId !== "root" && map[parentId]) {
-      map[parentId].children.push(map[n.id])
-    }
-  })
+const activeEditingComment = computed(() => {
+  return comments.value.find(c => c.name === editingCommentId.value)
+})
 
-  // lấy roots
-  const roots = Object.values(map).filter(
-    n => n.data?.parentId === "root"
-  )
-
-  // ✅ SORT CHUẨN: Y TRƯỚC → X SAU
-  function sortByPos(a, b) {
-    if (a.position.y !== b.position.y) {
-      return a.position.y - b.position.y
-    }
-    return a.position.x - b.position.x
-  }
-
-  roots.sort(sortByPos)
-
-  const result = []
-
-  function dfs(node) {
-    result.push(node)
-    node.children.sort(sortByPos)
-    node.children.forEach(child => dfs(child))
-  }
-
-  roots.forEach(root => dfs(root))
-
-  return result
+// =============================
+// 2. ACTIVE NODE STATE CONTROL
+// =============================
+function resetActiveNode() {
+  inputValue.value = ""
+  activeNodeId.value = null
 }
-
-
-const sortedNodes = computed(() => {
-  return sortMindmapNodes(props.mindmap || [])
-})
-
-const mergedGroups = computed(() => {
-  if (!sortedNodes.value.length || !comments.value.length) return []
-
-  const groupMap = {}
-
-  for (const c of comments.value) {
-    if (!groupMap[c.node_id]) {
-      const node = nodeMap.value[c.node_id]
-      if (!node) continue
-
-      groupMap[c.node_id] = {
-        node,
-        comments: []
-      }
-    }
-
-    groupMap[c.node_id].comments.push({
-      ...c,
-      user: memberMap.value[c.owner] || null,
-      parsed: parseComment(c.comment)
-    })
-  }
-
-  return sortedNodes.value
-    .filter(n => groupMap[n.id])
-    .map(n => groupMap[n.id])
-})
-
-
-const mergedGroupsFinal = computed(() => {
-  if (!sortedNodes.value.length) return []
-
-  const map = {}
-
-  // đưa group đã có comment vào map
-  for (const g of mergedGroups.value) {
-    map[g.node.id] = g
-  }
-
-  // nếu đang chọn node mà chưa có comment → tạo group rỗng
-  if (props.node?.id && !map[props.node.id]) {
-    map[props.node.id] = {
-      node: nodeMap.value[props.node.id] || props.node,
-      comments: []
-    }
-  }
-
-  // TRẢ VỀ THEO THỨ TỰ CÂY GỐC – KHÔNG BỊ ĐẨY LÊN ĐẦU
-  return sortedNodes.value
-    .filter(n => map[n.id])
-    .map(n => map[n.id])
-})
 
 watch(
   () => props.node?.id,
-  (newId, oldId) => {
+  (newId) => {
     if (!newId) {
-      inputValue.value = ""
-      activeNodeId.value = null
+      resetActiveNode()
       return
     }
 
-    // lưu draft node cũ
-    if (oldId) {
-      commentCache.value[oldId] = inputValue.value
-      saveCache()
-    }
-
-    // mirror state local
     activeNodeId.value = newId
-
-    // load draft node mới
-    inputValue.value = commentCache.value[newId] || ""
-
-    // DOM đã patch xong vì flush: 'post'
+    loadDraft(newId)
     scrollToActiveNode(newId)
   },
-  {
-    flush: "post"
-  }
+  { flush: "post" }
 )
+
+
+// =============================
+// 3. FOCUS + CLICK INTERACTION
+// =============================
+function focusInput(nodeId) {
+  const el = groupRefs.value[nodeId]?.querySelector(".add-comments-textarea")
+  el?.focus?.()
+}
 
 function handleClickGroup(nodeId) {
   if (!nodeId) return
 
+  // Click lại chính node đang active → chỉ focus input
   if (props.node?.id === nodeId) {
-    // Trường hợp đã active rồi → focus ngay
-    const el = groupRefs.value[nodeId]?.querySelector("textarea")
-    el?.focus?.()
+    focusInput(nodeId)
     return
   }
 
   const node = nodeMap.value[nodeId] || { id: nodeId }
-
   emit("update:node", node)
 
-  nextTick(() => {
-    const el = groupRefs.value[nodeId]?.querySelector("textarea")
-    el?.focus?.()
-  })
+  nextTick(() => focusInput(nodeId))
 }
 
 
-function handleRealtimeNewComment(payload) {
-  if (!payload) return
+// =============================
+// 4. SCROLL HANDLER
+// =============================
+const { scrollToActiveNode } = useScrollToActiveNode(groupRefs)
 
-  // Chỉ xử lý đúng mindmap hiện tại
-  if (payload.mindmap_id !== entityName) return
 
-  const newComment = payload.comment
-  if (!newComment || !newComment.node_id) return
-
-  // Tránh push trùng khi chính mình vừa gửi xong
-  const existed = comments.value.find(c => c.name === newComment.name)
-  if (existed) return
-
-  comments.value.push(newComment)
-}
-
-function handleKeyNavigation(e) {
-  if (!activeNodeId.value) return
-
-  if (e.key === "ArrowDown") {
-    e.preventDefault()
-    if (hasNextGroup(activeNodeId.value)) {
-      selectNextGroup(activeNodeId.value)
-    }
-  }
-
-  if (e.key === "ArrowUp") {
-    e.preventDefault()
-    if (hasPrevGroup(activeNodeId.value)) {
-      selectPrevGroup(activeNodeId.value)
-    }
-  }
-}
-
-onMounted(() => {
-  if (socket?.on) {
-    socket.on("drive_mindmap:new_comment", handleRealtimeNewComment)
-  }
-  window.addEventListener("keydown", handleKeyNavigation)
+// =============================
+// 5. DATA MERGE & COMPUTED
+// =============================
+const {
+  stripLabel,
+  mergedComments,
+  mergedGroupsFinal,
+  totalComments,
+  nodeMap
+} = useMindmapCommentData({
+  comments,
+  mindmap: computed(() => props.mindmap),
+  activeNodeId
 })
 
-onUnmounted(() => {
-  if (socket?.off) {
-    socket.off("drive_mindmap:new_comment", handleRealtimeNewComment)
-  }
-  window.removeEventListener("keydown", handleKeyNavigation)
+
+// =============================
+// 6. REALTIME
+// =============================
+useMindmapCommentRealtime({
+  socket,
+  entityName,
+  comments
 })
 
-function selectNextGroup(currentNodeId) {
-  if (!currentNodeId) return
 
-  const list = mergedGroupsFinal.value
-  if (!list.length) return
+// =============================
+// 7. KEYBOARD / GROUP NAVIGATION
+// =============================
+const {
+  hasNextGroup,
+  hasPrevGroup,
+  selectNextGroup,
+  selectPrevGroup
+} = useMindmapCommentNavigation({
+  activeNodeId,
+  mergedGroupsFinal,
+  nodeMap,
+  emit
+})
 
-  const index = list.findIndex(g => g.node.id === currentNodeId)
-  if (index === -1) return
-
-  const next = list[index + 1]
-  if (!next) return
-
-  const nextNodeId = next.node.id
-  const node = nodeMap.value[nextNodeId] || { id: nextNodeId }
-
-  emit("update:node", node)
-}
-
-
-function hasNextGroup(nodeId) {
-  const list = mergedGroupsFinal.value
-  const index = list.findIndex(g => g.node.id === nodeId)
-  return index !== -1 && index < list.length - 1
-}
-
-function hasPrevGroup(nodeId) {
-  const list = mergedGroupsFinal.value
-  const index = list.findIndex(g => g.node.id === nodeId)
-  return index > 0
-}
-
-function selectPrevGroup(currentNodeId) {
-  if (!currentNodeId) return
-
-  const list = mergedGroupsFinal.value
-  if (!list.length) return
-
-  const index = list.findIndex(g => g.node.id === currentNodeId)
-  if (index === -1) return
-
-  const prev = list[index - 1]
-  if (!prev) return
-
-  const prevNodeId = prev.node.id
-  const node = nodeMap.value[prevNodeId] || { id: prevNodeId }
-
-  emit("update:node", node)
-}
+// =============================
+// 8. UI DIRECTIVES
+// =============================
+const vTooltip = Tooltip
 
 
 </script>
@@ -593,6 +455,11 @@ function selectPrevGroup(currentNodeId) {
   position: absolute;
   top: 2px;
   width: 2px;
+}
+
+.search-input {
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .search-input::placeholder {
