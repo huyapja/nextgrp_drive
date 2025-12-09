@@ -106,17 +106,17 @@ import { getDescendantIds } from '@/utils/d3mindmap/utils'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
 import { setBreadCrumbs } from "@/utils/files"
-import { createResource, call } from "frappe-ui"
+import { call, createResource } from "frappe-ui"
 import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 
 import { useRoute } from "vue-router"
 
 
+import ImageZoomModal from "@/components/ImageZoomModal.vue"
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
 import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
-import ImageZoomModal from "@/components/ImageZoomModal.vue"
 
 
 const showContextMenu = ref(false)
@@ -1193,9 +1193,15 @@ const handleKeyDown = (event) => {
       // Nếu đang trong editor, cho phép paste text bình thường (TipTap sẽ xử lý)
       return
     }
-
-    if (selectedNode.value && hasClipboard.value) {
-      pasteToNode(selectedNode.value.id)
+    
+    if (selectedNode.value) {
+      if (hasClipboard.value) {
+        // Paste từ clipboard của mindmap
+        pasteToNode(selectedNode.value.id)
+      } else {
+        // ⚠️ NEW: Paste từ clipboard hệ thống (nội dung từ bên ngoài)
+        pasteFromSystemClipboard(selectedNode.value.id)
+      }
     }
   }
   else if ((key === 'c' || key === 'C') && (event.ctrlKey || event.metaKey)) {
@@ -1427,8 +1433,9 @@ function getNodeSize(nodeId, node) {
 // ⚠️ NEW: Copy node function (bao gồm toàn bộ subtree)
 function copyNode(nodeId) {
   const node = nodes.value.find(n => n.id === nodeId)
-  if (!node || nodeId === 'root') return
-
+  if (!node) return
+  // ⚠️ CHANGED: Cho phép copy root node để có thể copy toàn bộ mindmap
+  
   // Thu thập tất cả node IDs trong subtree (bao gồm node gốc)
   const subtreeNodeIds = new Set([nodeId])
   const collectDescendants = (id) => {
@@ -1827,25 +1834,77 @@ function pasteToNode(targetNodeId) {
   scheduleSave()
 }
 
-
-function syncElementsWithRendererPosition() {
-  if (!d3Renderer?.positions?.size) return
-
-  const newNodes = nodes.value.map(n => {
-    const pos = d3Renderer.positions.get(n.id)
-    if (!pos) return n
-    return {
-      ...n,
-      position: { x: pos.x, y: pos.y }
+// ⚠️ NEW: Paste từ clipboard hệ thống (nội dung từ bên ngoài)
+async function pasteFromSystemClipboard(targetNodeId) {
+  if (!targetNodeId) return
+  
+  try {
+    // Đọc text từ clipboard hệ thống
+    const text = await navigator.clipboard.readText()
+    
+    if (!text || text.trim() === '') {
+      console.log('⚠️ Clipboard is empty')
+      return
     }
-  })
-
-  elements.value = [
-    ...newNodes,
-    ...edges.value
-  ]
+    
+    // Tạo node mới với nội dung từ clipboard
+    const newNodeId = `node-${nodeCounter++}`
+    const newNode = {
+      id: newNodeId,
+      data: {
+        label: text.trim(),
+        parentId: targetNodeId
+      }
+    }
+    
+    const newEdge = {
+      id: `edge-${targetNodeId}-${newNodeId}`,
+      source: targetNodeId,
+      target: newNodeId
+    }
+    
+    // Store creation order
+    nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+    
+    // Add node and edge
+    elements.value = [
+      ...nodes.value,
+      newNode,
+      ...edges.value,
+      newEdge
+    ]
+    
+    selectedNode.value = newNode
+    
+    if (d3Renderer) {
+      d3Renderer.selectedNode = newNodeId
+    }
+    
+    console.log("✅ Pasted from system clipboard:", newNodeId, "to parent:", targetNodeId, "content:", text.substring(0, 50))
+    
+    // Auto-focus new node's editor
+    nextTick(() => {
+      void document.body.offsetHeight
+      setTimeout(() => {
+        const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newNodeId}"]`)
+        if (nodeGroup && !nodeGroup.empty()) {
+          setTimeout(() => {
+            const editorInstance = d3Renderer?.getEditorInstance?.(newNodeId)
+            if (editorInstance) {
+              editorInstance.commands.focus('end')
+            }
+          }, 200)
+        }
+      }, 30)
+    })
+    
+    scheduleSave()
+  } catch (error) {
+    console.error('❌ Error reading clipboard:', error)
+    // Fallback: thử đọc từ event clipboard nếu có
+    // (không thể làm ở đây vì đây là async function, nhưng có thể thử lại với cách khác)
+  }
 }
-
 
 function handleContextMenuAction({ type, node }) {
   if (!node) return
@@ -1871,7 +1930,13 @@ function handleContextMenuAction({ type, node }) {
 
     case "paste":
       // ⚠️ NEW: Paste to node
-      pasteToNode(node.id)
+      if (hasClipboard.value) {
+        // Paste từ clipboard của mindmap
+        pasteToNode(node.id)
+      } else {
+        // Paste từ clipboard hệ thống (nội dung từ bên ngoài)
+        pasteFromSystemClipboard(node.id)
+      }
       break
 
     case "copy-link":
@@ -1909,6 +1974,16 @@ function handleContextMenuAction({ type, node }) {
   }
 }
 
+onMounted(() => {
+  window.addEventListener("click", handleClickOutside, true)
+  // ⚠️ NEW: Thêm event listener cho paste event để xử lý paste từ clipboard hệ thống
+  window.addEventListener("paste", handlePasteEvent, true)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener("click", handleClickOutside, true)
+  window.removeEventListener("paste", handlePasteEvent, true)
+})
 
 function handleClickOutside(e) {
   if (!showPanel.value) return
@@ -1923,6 +1998,95 @@ function handleClickOutside(e) {
   if (commentInputValue.value.trim().length > 0) return
 
   activeCommentNode.value = null
+}
+
+// ⚠️ NEW: Handle paste event từ clipboard hệ thống
+function handlePasteEvent(event) {
+  // Kiểm tra xem có đang trong editor không
+  const isInEditor = event.target?.closest('.mindmap-node-editor') || 
+                     event.target?.closest('.ProseMirror') ||
+                     event.target?.closest('.mindmap-editor-prose')
+  
+  if (isInEditor) {
+    // Nếu đang trong editor, cho phép paste text bình thường (TipTap sẽ xử lý)
+    return
+  }
+  
+  // Kiểm tra xem có đang focus vào input/textarea không
+  const isInInput = event.target?.tagName === 'INPUT' || 
+                    event.target?.tagName === 'TEXTAREA' ||
+                    event.target?.isContentEditable
+  
+  if (isInInput) {
+    // Nếu đang trong input/textarea, cho phép paste bình thường
+    return
+  }
+  
+  // Chỉ xử lý paste nếu có node được chọn và không có clipboard của mindmap
+  if (selectedNode.value && !hasClipboard.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    
+    // Đọc text từ clipboard event
+    const clipboardData = event.clipboardData || window.clipboardData
+    if (clipboardData) {
+      const text = clipboardData.getData('text/plain')
+      if (text && text.trim()) {
+        // Tạo node mới với nội dung từ clipboard
+        const newNodeId = `node-${nodeCounter++}`
+        const newNode = {
+          id: newNodeId,
+          data: {
+            label: text.trim(),
+            parentId: selectedNode.value.id
+          }
+        }
+        
+        const newEdge = {
+          id: `edge-${selectedNode.value.id}-${newNodeId}`,
+          source: selectedNode.value.id,
+          target: newNodeId
+        }
+        
+        // Store creation order
+        nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+        
+        // Add node and edge
+        elements.value = [
+          ...nodes.value,
+          newNode,
+          ...edges.value,
+          newEdge
+        ]
+        
+        selectedNode.value = newNode
+        
+        if (d3Renderer) {
+          d3Renderer.selectedNode = newNodeId
+        }
+        
+        console.log("✅ Pasted from system clipboard (event):", newNodeId, "to parent:", selectedNode.value.id, "content:", text.substring(0, 50))
+        
+        // Auto-focus new node's editor
+        nextTick(() => {
+          void document.body.offsetHeight
+          setTimeout(() => {
+            const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newNodeId}"]`)
+            if (nodeGroup && !nodeGroup.empty()) {
+              setTimeout(() => {
+                const editorInstance = d3Renderer?.getEditorInstance?.(newNodeId)
+                if (editorInstance) {
+                  editorInstance.commands.focus('end')
+                }
+              }, 200)
+            }
+          }, 30)
+        })
+        
+        scheduleSave()
+      }
+    }
+  }
 }
 
 function onCancelComment() {
