@@ -1919,6 +1919,9 @@ function handleClickOutside(e) {
   if (clickedInsidePanel) return
   if (e.target.closest(".node-group")) return
   if (e.target.closest(".pi-comment")) return
+  if (e.target.closest("[data-comment-dropdown]")) return
+  if (e.target.closest("[data-comment-dots]")) return
+
 
   if (commentInputValue.value.trim().length > 0) return
 
