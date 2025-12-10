@@ -33,10 +33,16 @@ export function useMindmapCommentData({
     return map
   })
   // -----------------------------
-  const stripLabel = raw => {
-    if (!raw) return ""
-    return String(raw).replace(/^<p>/, "").replace(/<\/p>$/, "")
-  }
+const stripLabel = raw => {
+  if (!raw) return ""
+
+  const str = String(raw)
+
+  // Lấy nội dung của thẻ <p> đầu tiên
+  const match = str.match(/<p[^>]*>(.*?)<\/p>/i)
+
+  return match ? match[1] : ""
+}
 
   // -----------------------------
   function sortMindmapNodes(nodes) {

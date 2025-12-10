@@ -2,7 +2,12 @@
 import { ref, watch } from "vue"
 import { call } from "frappe-ui"
 
-export function useMindmapCommentInput({ activeNodeId, entityName, emit }) {
+export function useMindmapCommentInput({
+  activeNodeId,
+  entityName,
+  emit,
+  previewImages,
+}) {
   const inputValue = ref("")
   const commentCache = ref(
     JSON.parse(localStorage.getItem("mindmap_comment_cache") || "{}")
@@ -15,30 +20,38 @@ export function useMindmapCommentInput({ activeNodeId, entityName, emit }) {
     )
   }
 
-  // ✅ FIX BUG: watch phải watch đúng ref
-  watch(inputValue, val => {
+  // FIX BUG: watch phải watch đúng ref
+  watch(inputValue, (val) => {
     if (activeNodeId.value) {
       commentCache.value[activeNodeId.value] = val
       saveCache()
     }
-    emit("update:input", val)
+    // emit("update:input", val)
   })
 
   async function handleSubmit() {
-    if (!activeNodeId.value || !inputValue.value.trim()) return
+    if (!activeNodeId.value) return
+    if (!inputValue.value.trim() && !previewImages.value.length) return
+
+    const finalHTML = `
+      ${inputValue.value.trim()}
+      ${previewImages.value.map((url) => `<img src="${url}" />`).join("")}
+    `.trim()
 
     const payload = {
-      text: inputValue.value.trim(),
-      created_at: new Date().toISOString()
+      text: finalHTML,
+      created_at: new Date().toISOString(),
     }
 
     const res = await call("drive.api.mindmap_comment.add_comment", {
       mindmap_id: entityName,
       node_id: activeNodeId.value,
-      comment: JSON.stringify(payload)
+      comment: JSON.stringify(payload),
     })
 
+    // RESET SAU KHI GỬI
     inputValue.value = ""
+    previewImages.value = []
     commentCache.value[activeNodeId.value] = ""
     saveCache()
 
@@ -49,8 +62,15 @@ export function useMindmapCommentInput({ activeNodeId, entityName, emit }) {
     if (activeNodeId.value) {
       commentCache.value[activeNodeId.value] = ""
     }
+    
     inputValue.value = ""
+    previewImages.value = []
+
     saveCache()
+
+    activeNodeId.value = null
+
+    emit("update:node", null)
     emit("cancel")
   }
 
@@ -62,6 +82,6 @@ export function useMindmapCommentInput({ activeNodeId, entityName, emit }) {
     inputValue,
     handleSubmit,
     handleCancel,
-    loadDraft
+    loadDraft,
   }
 }
