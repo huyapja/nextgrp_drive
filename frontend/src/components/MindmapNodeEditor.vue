@@ -193,7 +193,7 @@ function createUploadImageOnPasteExtension(uploadImageFn) {
                           }
                         }
                       }).catch((error) => {
-                        console.error('Error uploading pasted image:', error)
+                        
                         // Xóa placeholder nếu upload thất bại
                         const { state } = view
                         const transaction = state.tr.delete(pos, pos + placeholderNode.nodeSize)
@@ -362,7 +362,39 @@ const ImageWithMenuExtension = Extension.create({
                 height: auto;
                 border-radius: 5px;
                 cursor: zoom-in;
+                min-width: 100%;
               `
+              
+              // ⚠️ CRITICAL: Khi ảnh load xong, trigger updateNodeHeight()
+              // Dispatch custom event để component có thể lắng nghe và gọi updateNodeHeight()
+              const triggerHeightUpdate = () => {
+                // Đợi một chút để DOM đã render xong và editor đã sẵn sàng
+                setTimeout(() => {
+                  // Kiểm tra xem editor đã sẵn sàng chưa trước khi dispatch event
+                  // Tìm editor instance từ view
+                  const editorDOM = view.dom
+                  if (editorDOM && editorDOM.querySelector('.mindmap-editor-prose')) {
+                    // Editor đã sẵn sàng, dispatch event
+                    window.dispatchEvent(new CustomEvent('image-loaded-in-editor'))
+                  } else {
+                    // Editor chưa sẵn sàng, retry sau
+                    setTimeout(() => {
+                      if (view.dom && view.dom.querySelector('.mindmap-editor-prose')) {
+                        window.dispatchEvent(new CustomEvent('image-loaded-in-editor'))
+                      }
+                    }, 200)
+                  }
+                }, 100)
+              }
+              
+              if (img.complete && img.naturalHeight !== 0) {
+                // Ảnh đã load xong
+                triggerHeightUpdate()
+              } else {
+                // Ảnh chưa load, thêm listener
+                img.addEventListener('load', triggerHeightUpdate, { once: true })
+                img.addEventListener('error', triggerHeightUpdate, { once: true })
+              }
               
               // Tạo menu button - KHÔNG LÀM CONTENT EDITABLE
               const menuButton = document.createElement('button')
@@ -896,7 +928,7 @@ const ImageGroupExtension = Extension.create({
             const { dom } = editorView
             const proseElement = dom.querySelector('.mindmap-editor-prose')
             if (!proseElement) {
-              console.log('❌ Không tìm thấy prose element')
+              
               return
             }
             
@@ -905,7 +937,7 @@ const ImageGroupExtension = Extension.create({
             try {
               // Xóa wrapper cũ
               const oldWrappers = proseElement.querySelectorAll('.image-group-wrapper')
-              console.log('🗑️ Xóa', oldWrappers.length, 'wrapper cũ')
+              
               oldWrappers.forEach(wrapper => {
                 const images = Array.from(wrapper.children).filter(c => 
                   c.classList.contains('image-wrapper')
@@ -921,7 +953,7 @@ const ImageGroupExtension = Extension.create({
               
               // Tìm tất cả images
               const allImages = Array.from(proseElement.querySelectorAll('img'))
-              console.log('🖼️ Tìm thấy', allImages.length, 'ảnh')
+              
               
               if (allImages.length === 0) {
                 isUpdating = false
@@ -951,7 +983,7 @@ const ImageGroupExtension = Extension.create({
               
               // Wrap từng ảnh
               allImages.forEach((img, index) => {
-                console.log(`📦 Wrapping ảnh ${index + 1}:`, img.src.substring(0, 50))
+                
                 
                 // Tạo image wrapper
                 const imageWrapper = document.createElement('div')
@@ -1003,11 +1035,11 @@ const ImageGroupExtension = Extension.create({
                   pointer-events: auto !important;
                 `
                 
-                console.log('✅ Tạo button cho ảnh', index + 1)
+                
                 
                 // Events
                 menuButton.addEventListener('mouseenter', (e) => {
-                  console.log('🖱️ Hover vào button', index + 1)
+                  
                   menuButton.style.background = 'rgba(0, 0, 0, 0.9)'
                   menuButton.style.opacity = '1'
                 })
@@ -1027,7 +1059,7 @@ const ImageGroupExtension = Extension.create({
                 })
                 
                 menuButton.addEventListener('click', (e) => {
-                  console.log('🖱️ Click button', index + 1)
+                  
                   e.preventDefault()
                   e.stopPropagation()
                 })
@@ -1044,20 +1076,20 @@ const ImageGroupExtension = Extension.create({
                 
                 // Hover events cho wrapper
                 imageWrapper.addEventListener('mouseenter', () => {
-                  console.log('🖱️ Hover vào wrapper', index + 1)
+                  
                   menuButton.style.opacity = '1'
                 })
                 
                 imageWrapper.addEventListener('mouseleave', () => {
-                  console.log('🖱️ Leave wrapper', index + 1)
+                  
                   menuButton.style.opacity = '0'
                 })
               })
               
-              console.log('✅ Hoàn thành wrap', allImages.length, 'ảnh')
+              
               
             } catch (error) {
-              console.error('❌ Error:', error)
+              
             } finally {
               isUpdating = false
             }
@@ -1067,14 +1099,14 @@ const ImageGroupExtension = Extension.create({
             if (isUpdating) return
             if (updateTimeout) clearTimeout(updateTimeout)
             updateTimeout = setTimeout(() => {
-              console.log('🔄 Update image layout')
+              
               updateImageLayout()
             }, 100)
           }
           
           // Initial update
           setTimeout(() => {
-            console.log('🚀 Initial image layout')
+            
             updateImageLayout()
           }, 200)
           
@@ -1088,7 +1120,7 @@ const ImageGroupExtension = Extension.create({
             })
             
             if (hasImageChanges) {
-              console.log('🔄 Phát hiện thay đổi ảnh')
+              
               handleUpdate()
             }
           })
@@ -1100,7 +1132,7 @@ const ImageGroupExtension = Extension.create({
           
           return {
             update: () => {
-              console.log('📝 Editor update')
+              
               handleUpdate()
             },
             destroy: () => {
@@ -1457,7 +1489,7 @@ export default {
       
       // Log để debug
       if (wrappedCount < images.length) {
-        console.log(`✅ Wrapped ${images.length - wrappedCount} image(s)`)
+        
       }
     },
     // Đo lại height sau khi ảnh load xong
@@ -1514,16 +1546,110 @@ export default {
     },
     // Cập nhật height của node dựa trên editor content
     updateNodeHeight() {
-      if (!this.editor || !this.editor.view) return
+      if (!this.editor || !this.editor.view) {
+        
+        return
+      }
       
       const { dom } = this.editor.view
+      if (!dom) {
+        
+        return
+      }
+      
       const proseElement = dom.querySelector('.mindmap-editor-prose')
-      if (!proseElement) return
+      if (!proseElement) {
+        
+        // Retry sau một chút nếu proseElement chưa có
+        setTimeout(() => {
+          if (this.editor && this.editor.view && this.editor.view.dom) {
+            const retryProseElement = this.editor.view.dom.querySelector('.mindmap-editor-prose')
+            if (retryProseElement) {
+              
+              this.updateNodeHeight()
+            } else {
+              
+            }
+          }
+        }, 100)
+        return
+      }
+      
+      
+      
+      // ⚠️ CRITICAL: Kiểm tra xem có ảnh không, nếu có thì đợi ảnh load xong trước khi đo
+      const images = Array.from(proseElement.querySelectorAll('img'))
+      const hasImages = images.length > 0
+      
+      
+      
+      if (hasImages) {
+        // Có ảnh - đợi tất cả ảnh load xong trước khi đo height
+        let loadedCount = 0
+        const totalImages = images.length
+        
+        const checkAndMeasure = () => {
+          loadedCount++
+          
+          if (loadedCount >= totalImages) {
+            // Tất cả ảnh đã load xong, đo lại height
+            
+            // Đợi một chút để đảm bảo DOM đã cập nhật
+            setTimeout(() => {
+              this.measureHeightInternal(proseElement)
+            }, 50)
+          }
+        }
+        
+        images.forEach((img, idx) => {
+          // ⚠️ CRITICAL: Kiểm tra xem ảnh có src không (không phải placeholder)
+          const hasSrc = img.src && img.src !== 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMSIgaGVpZ2h0PSIxIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9IiNmM2Y0ZjYiLz48L3N2Zz4='
+          
+          
+          
+          if (hasSrc && img.complete && img.naturalHeight !== 0) {
+            // Ảnh đã load xong
+            
+            checkAndMeasure()
+          } else if (hasSrc) {
+            // Ảnh có src nhưng chưa load xong, thêm listener
+            // ⚠️ CRITICAL: Khi ảnh load xong trong DOM, nó sẽ trigger load event
+            
+            img.addEventListener('load', () => {
+              
+              checkAndMeasure()
+            }, { once: true })
+            img.addEventListener('error', () => {
+              
+              checkAndMeasure()
+            }, { once: true })
+          } else {
+            // Ảnh chưa có src (placeholder), không đợi
+            // Sẽ được gọi lại khi ảnh được thay thế và load xong
+            
+            checkAndMeasure()
+          }
+        })
+        
+        // Nếu tất cả ảnh đã load sẵn, đo ngay
+        if (loadedCount === totalImages) {
+          
+          this.measureHeightInternal(proseElement)
+        }
+      } else {
+        // Không có ảnh - đo ngay
+        
+        this.measureHeightInternal(proseElement)
+      }
+    },
+    // Internal method để đo height thực tế
+    measureHeightInternal(proseElement) {
       
       // Đợi một chút để DOM đã render xong
       this.$nextTick(() => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
+            
             // ⚠️ CRITICAL: Set styles trước khi đo để đảm bảo chính xác
             const borderOffset = 4
             const maxWidth = 400
@@ -1533,43 +1659,132 @@ export default {
             const currentWidth = hasImages ? maxWidth : (parseFloat(proseElement.style.width) || 368)
             const foWidth = currentWidth - borderOffset
             
-            proseElement.style.cssText = `
-              box-sizing: border-box;
-              width: ${foWidth}px;
-              height: auto;
-              min-height: 0;
-              max-height: none;
-              overflow: visible;
-              padding: 8px 16px;
-              white-space: ${currentWidth >= maxWidth ? 'pre-wrap' : 'nowrap'};
-            `
+            // ⚠️ CRITICAL: Set overflow: visible TRƯỚC để scrollHeight tính đúng ảnh
+            proseElement.style.overflow = 'visible'
+            proseElement.style.boxSizing = 'border-box'
+            proseElement.style.width = `${foWidth}px`
+            proseElement.style.height = 'auto'
+            proseElement.style.minHeight = '0'
+            proseElement.style.maxHeight = 'none'
+            proseElement.style.padding = '8px 16px'
+            proseElement.style.whiteSpace = currentWidth >= maxWidth ? 'pre-wrap' : 'nowrap'
             
             // Force reflow để đảm bảo styles đã được áp dụng
             void proseElement.offsetWidth
             void proseElement.offsetHeight
             void proseElement.scrollHeight
             
+            // ⚠️ CRITICAL: Đảm bảo overflow là visible để scrollHeight tính đúng ảnh
+            proseElement.style.overflow = 'visible'
+            
+            // Force reflow lại sau khi set overflow
+            void proseElement.offsetWidth
+            void proseElement.offsetHeight
+            void proseElement.scrollHeight
+            
             // Đo height thực tế từ DOM - dùng scrollHeight để lấy chiều cao đầy đủ
+            // ⚠️ CRITICAL: Đảm bảo đo height bao gồm cả ảnh
+            // Có thể cần đo từ image-wrapper-node nếu có
+            let scrollHeight = proseElement.scrollHeight
+            let offsetHeight = proseElement.offsetHeight
+            
+            // Kiểm tra xem có ảnh không và đo height bao gồm cả ảnh
+            const images = proseElement.querySelectorAll('img')
+            const imageWrappers = proseElement.querySelectorAll('.image-wrapper-node')
+            
+            if (images.length > 0 || imageWrappers.length > 0) {
+              // Có ảnh - đo height từ phần tử cuối cùng (có thể là ảnh)
+              // Dùng offsetTop + offsetHeight để đo vị trí cuối cùng của element
+              let maxBottom = scrollHeight
+              
+              // Đo từ tất cả image wrappers (bao gồm margin)
+              imageWrappers.forEach((wrapper) => {
+                const wrapperStyle = window.getComputedStyle(wrapper)
+                const wrapperMarginTop = parseFloat(wrapperStyle.marginTop) || 0
+                const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
+                const wrapperBottom = wrapper.offsetTop + wrapper.offsetHeight + wrapperMarginBottom
+                maxBottom = Math.max(maxBottom, wrapperBottom)
+                
+              })
+              
+              // Đo từ tất cả ảnh (nếu không có wrapper)
+              images.forEach((img) => {
+                const imgStyle = window.getComputedStyle(img)
+                const imgMarginTop = parseFloat(imgStyle.marginTop) || 0
+                const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
+                const imgBottom = img.offsetTop + img.offsetHeight + imgMarginBottom
+                maxBottom = Math.max(maxBottom, imgBottom)
+                
+              })
+              
+              // Dùng maxBottom nếu lớn hơn scrollHeight
+              if (maxBottom > scrollHeight) {
+                scrollHeight = maxBottom
+                
+              }
+              
+              
+              
+              images.forEach((img, idx) => {
+                
+              })
+            } else {
+              
+            }
+            
+            // scrollHeight đã bao gồm padding rồi, không cần thêm
             const contentHeight = Math.max(
-              proseElement.scrollHeight || proseElement.offsetHeight || 0,
+              scrollHeight || offsetHeight || 0,
               43 // min height
             )
             
-            // Trigger input event để d3MindmapRenderer tính lại height
+            
+            
+            // ⚠️ CRITICAL: Cập nhật height trực tiếp vào foreignObject và rect
+            // Đảm bảo height được cập nhật ngay cả khi editor ở chế độ readonly
+            const editorContainer = this.editor?.view?.dom?.closest('.node-editor-container')
+            if (editorContainer) {
+              const nodeId = editorContainer.getAttribute('data-node-id')
+              if (nodeId) {
+                // Tìm node-rect và foreignObject trong SVG
+                const nodeGroup = document.querySelector(`[data-node-id="${nodeId}"]`)
+                if (nodeGroup) {
+                  const rect = nodeGroup.querySelector('.node-rect')
+                  const fo = nodeGroup.querySelector('.node-text')
+                  if (rect && fo) {
+                    const borderOffset = 4
+                    const currentWidth = parseFloat(rect.getAttribute('width')) || 400
+                    const newHeight = Math.max(contentHeight, 43) // min height
+                    
+                    // Cập nhật height trực tiếp
+                    rect.setAttribute('height', newHeight)
+                    fo.setAttribute('height', Math.max(0, newHeight - borderOffset))
+                  }
+                }
+              }
+            }
+            
+            // ⚠️ CRITICAL: Trigger input event để d3MindmapRenderer tính lại height (fallback)
             // Lấy HTML hiện tại
             const html = this.editor.getHTML()
+            
+            
             
             // ⚠️ CRITICAL: Set flag để tránh vòng lặp
             this.isUpdatingFromModelValue = true
             
             // Emit input event với HTML hiện tại để trigger handleEditorInput
+            // handleEditorInput sẽ đo lại height và cập nhật foreignObject (nếu cần)
             if (this.onInput) {
+              
               this.onInput(html)
             }
             
             // Cũng emit update:modelValue để đảm bảo sync
             this.$emit('update:modelValue', html)
             this.$emit('input', html)
+            
+            
             
             // Reset flag sau một chút
             this.$nextTick(() => {
@@ -1733,8 +1948,17 @@ export default {
           const isHtml = /<[a-z][\s\S]*>/i.test(value)
 
           if (isHtml) {
+            // ⚠️ CRITICAL: Clean HTML trước khi set vào editor để xóa <p>⋮</p> và menu buttons
+            let cleanedValue = value
+            // Xóa paragraphs chỉ chứa '⋮'
+            cleanedValue = cleanedValue.replace(/<p[^>]*>\s*⋮\s*<\/p>/gi, '')
+            // Xóa tất cả menu buttons
+            cleanedValue = cleanedValue.replace(/<button[^>]*class="image-menu-button"[^>]*>.*?<\/button>/gi, '')
+            // Xóa tất cả ký tự '⋮' còn lại (không nằm trong button)
+            cleanedValue = cleanedValue.replace(/⋮/g, '')
+            
             // Set HTML content (giữ formatting)
-            this.editor.commands.setContent(value, false)
+            this.editor.commands.setContent(cleanedValue, false)
           } else {
             // Insert plain text
             this.editor.commands.insertContent(value, false)
@@ -1945,7 +2169,7 @@ export default {
                   insertPosition = doc.content.size
                 }
 
-                console.log('📍 Inserting blockquote at position:', insertPosition)
+                
 
                 // Chèn blockquote tại vị trí đã tính
                 this.editor.chain()
@@ -2078,11 +2302,57 @@ export default {
           return false
         },
       },
-      content: this.modelValue || "",
+      content: (() => {
+        // ⚠️ CRITICAL: Clean HTML trước khi set vào editor lần đầu
+        const initialContent = this.modelValue || ""
+        if (!initialContent) {
+          // ⚠️ NEW: Luôn có một paragraph trống ở đầu để nhập title
+          return "<p></p>"
+        }
+        
+        // Kiểm tra xem có phải HTML không
+        const isHtml = /<[a-z][\s\S]*>/i.test(initialContent)
+        if (isHtml) {
+          // Clean HTML: xóa <p>⋮</p>, menu buttons, và ký tự '⋮'
+          let cleaned = initialContent
+          cleaned = cleaned.replace(/<p[^>]*>\s*⋮\s*<\/p>/gi, '')
+          cleaned = cleaned.replace(/<button[^>]*class="image-menu-button"[^>]*>.*?<\/button>/gi, '')
+          cleaned = cleaned.replace(/⋮/g, '')
+          
+          // ⚠️ NEW: Đảm bảo luôn có một paragraph trống ở đầu
+          // Kiểm tra xem có bắt đầu bằng paragraph không
+          if (!cleaned.trim().startsWith('<p')) {
+            cleaned = '<p></p>' + cleaned
+          }
+          
+          return cleaned
+        }
+        // Plain text: wrap trong paragraph
+        return `<p>${initialContent}</p>`
+      })(),
       onCreate: () => {
         // ⚠️ CRITICAL: Cleanup ngay khi editor được tạo
         this.$nextTick(() => {
           this.cleanupRemoveMenuText()
+          
+          // ⚠️ NEW: Đảm bảo luôn có một paragraph trống ở đầu để nhập title
+          if (this.editor) {
+            const { state } = this.editor.view
+            const { doc } = state
+            
+            // Kiểm tra xem node đầu tiên có phải là paragraph không
+            const firstNode = doc.firstChild
+            if (!firstNode || firstNode.type.name !== 'paragraph') {
+              // Không có paragraph ở đầu, thêm một paragraph trống ở đầu
+              this.isUpdatingFromModelValue = true
+              this.editor.chain()
+                .insertContentAt(0, '<p></p>', { updateSelection: false })
+                .run()
+              this.$nextTick(() => {
+                this.isUpdatingFromModelValue = false
+              })
+            }
+          }
         })
       },
       onUpdate: () => {
@@ -2094,6 +2364,25 @@ export default {
         
         // ⚠️ CRITICAL: Clean up menu text NGAY LẬP TỨC
         this.cleanupRemoveMenuText()
+        
+        // ⚠️ NEW: Đảm bảo luôn có một paragraph trống ở đầu để nhập title
+        if (this.editor) {
+          const { state } = this.editor.view
+          const { doc } = state
+          
+          // Kiểm tra xem node đầu tiên có phải là paragraph không
+          const firstNode = doc.firstChild
+          if (!firstNode || firstNode.type.name !== 'paragraph') {
+            // Không có paragraph ở đầu, thêm một paragraph trống
+            this.isUpdatingFromModelValue = true
+            this.editor.chain()
+              .insertContentAt(0, '<p></p>', { updateSelection: false })
+              .run()
+            this.$nextTick(() => {
+              this.isUpdatingFromModelValue = false
+            })
+          }
+        }
 
         // Không override style khi đang edit - để d3MindmapRenderer kiểm soát width và white-space
         // Chỉ set style mặc định khi không edit (khi white-space chưa được set)
@@ -2114,17 +2403,16 @@ export default {
             }
           }
           
-          // Force wrap ảnh mới nếu có
-          this.forceWrapImages()
-          
-          // ⚠️ CRITICAL: Đo lại height ngay sau khi wrap ảnh (không đợi ảnh load)
-          setTimeout(() => {
-            this.updateNodeHeight()
-          }, 50)
-          
-          // ⚠️ CRITICAL: Đo lại height sau khi ảnh load xong (để đảm bảo chính xác)
-          this.measureHeightAfterImageLoad()
+        // Force wrap ảnh mới nếu có
+        this.forceWrapImages()
+        
+        // ⚠️ CRITICAL: Đo lại height sau khi ảnh load xong (để đảm bảo chính xác)
+        // updateNodeHeight() sẽ tự động đợi ảnh load xong trước khi đo
+        // Đợi một chút để DOM đã render xong (ảnh đã được chèn vào DOM)
+        this.$nextTick(() => {
+          this.updateNodeHeight()
         })
+      })
 
         // Xóa các paragraph trống ở cuối document
         const { state } = this.editor
@@ -2291,6 +2579,29 @@ export default {
         // Lưu observer để có thể disconnect khi unmount
         this._styleObserver = observer
 
+        // ⚠️ CRITICAL: Lắng nghe event khi ảnh load xong trong NodeView
+        // Khi ảnh load xong, trigger updateNodeHeight() để cập nhật height đúng
+        const handleImageLoaded = () => {
+          
+          // Đợi một chút để đảm bảo editor đã mount và DOM đã sẵn sàng
+          this.$nextTick(() => {
+            if (this.editor && this.editor.view && this.editor.view.dom) {
+              this.updateNodeHeight()
+            } else {
+              
+              // Retry sau một chút
+              setTimeout(() => {
+                if (this.editor && this.editor.view && this.editor.view.dom) {
+                  this.updateNodeHeight()
+                }
+              }, 100)
+            }
+          })
+        }
+        window.addEventListener('image-loaded-in-editor', handleImageLoaded)
+        // Lưu handler để có thể remove khi unmount
+        this._imageLoadedHandler = handleImageLoaded
+
         // Event listener để ngăn chặn các phím tắt lan truyền lên MindMap.vue
         // Chỉ stop propagation để không trigger event handler ở MindMap.vue
         // TipTap extensions sẽ tự động preventDefault khi xử lý keyboard shortcuts
@@ -2348,11 +2659,17 @@ export default {
       this._editorKeyDownHandler = null
     }
 
+    // Remove image loaded event listener nếu có
+    if (this._imageLoadedHandler) {
+      window.removeEventListener('image-loaded-in-editor', this._imageLoadedHandler)
+      this._imageLoadedHandler = null
+    }
+
     if (this.editor) {
       try {
         this.editor.destroy()
       } catch (e) {
-        console.warn('Error destroying editor:', e)
+        
       }
       this.editor = null
     }
@@ -2387,8 +2704,8 @@ export default {
 
 .mindmap-editor-content {
   width: 100%;
-  height: 100%;
-  /* 100% để fit vào editor */
+  height: auto;
+  /* auto để container tự mở rộng khi có ảnh và mô tả */
   min-height: 43px;
   min-width: 0;
   max-width: 100%;
@@ -2707,6 +3024,20 @@ export default {
   white-space: normal;
   margin-bottom: 0;
   /* ⚠️ NEW: Không có margin-bottom khi edit */
+}
+
+/* Khi có ảnh trong node: hiển thị đầy đủ mô tả */
+:deep(.mindmap-editor-prose:has(.image-group-wrapper) blockquote),
+:deep(.mindmap-editor-prose:has(.image-wrapper) blockquote),
+:deep(.mindmap-editor-prose:has(img) blockquote) {
+  display: block !important;
+  -webkit-line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  margin-bottom: 4px !important;
+  /* Đảm bảo có khoảng cách dưới mô tả */
 }
 
 :deep(.mindmap-editor-prose blockquote p) {

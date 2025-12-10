@@ -2,9 +2,9 @@
 // - https://github.com/ueberdosis/tiptap/blob/main/packages/extension-image/src/image.ts
 // - https://gist.github.com/slava-vishnyakov/16076dff1a77ddaca93c4bccd4ec4521
 
+import fileToBase64 from "@/utils/file-to-base64"
 import { mergeAttributes, Node, nodeInputRule } from "@tiptap/core"
 import { Plugin } from "prosemirror-state"
-import fileToBase64 from "@/utils/file-to-base64"
 
 export const inputRegex =
   /(?:^|\s)(!\[(.+|:?)]\((\S+)(?:(?:\s+)["'](\S+)["'])?\))$/
@@ -260,12 +260,6 @@ export default Node.create({
             
             if (!proseElement) {
               console.log('❌ Không tìm thấy prose element')
-              console.log('DOM info:', {
-                dom: dom,
-                domClassList: dom?.classList?.toString(),
-                domTagName: dom?.tagName,
-                domParent: dom?.parentElement?.tagName,
-              })
               return
             }
 

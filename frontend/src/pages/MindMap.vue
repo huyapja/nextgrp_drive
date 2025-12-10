@@ -187,7 +187,7 @@ watch(elements, (newElements) => {
   const hasRoot = nodes.some(el => el.id === 'root')
 
   if (!hasRoot && nodes.length > 0) {
-    console.log('🚨 ROOT NODE WAS DELETED! RESTORING...')
+    
 
     const rootNode = {
       id: 'root',
@@ -218,7 +218,7 @@ const mindmap = createResource({
     entity_name: props.entityName,
   },
   onSuccess(data) {
-    console.log("✅ Mindmap loaded:", data)
+    
 
     window.document.title = data.title
     store.commit("setActiveEntity", data)
@@ -226,7 +226,7 @@ const mindmap = createResource({
     initializeMindmap(data)
   },
   onError(error) {
-    console.error("Error loading mindmap:", error)
+    
   }
 })
 
@@ -281,7 +281,7 @@ const initializeMindmap = async (data) => {
     })
     creationOrderCounter = loadedNodes.length
 
-    console.log("✅ Loaded existing layout")
+    
   } else {
     const rootNode = {
       id: 'root',
@@ -298,7 +298,7 @@ const initializeMindmap = async (data) => {
     nodeCreationOrder.value.set('root', 0)
     creationOrderCounter = 1
 
-    console.log("✅ Created root node")
+    
 
     setTimeout(() => scheduleSave(), 500)
   }
@@ -335,18 +335,18 @@ const initD3Renderer = () => {
     onNodeClick: (node, event) => {
       if (event?.target?.closest?.('.comment-count-badge')) {
         // chặn click select node để click badge count -> mở comment list section
-        console.log('✅ BỊ CHẶN Ở onNodeClick')
+        
         return
       }
       if (node) {
         selectedNode.value = node
         d3Renderer.selectNode(node.id, false) // Cho phép callback
-        console.log("Selected node:", node.id)
+        
       } else {
         // Deselect node - skip callback để tránh vòng lặp vô hạn
         selectedNode.value = null
         d3Renderer.selectNode(null, true) // Skip callback vì đã được gọi từ selectNode
-        console.log("Deselected node")
+        
       }
     },
     onNodeDoubleClick: () => {
@@ -394,7 +394,7 @@ const initD3Renderer = () => {
     onNodeReorder: (nodeId, newOrder) => {
       // ⚠️ NEW: Cập nhật nodeCreationOrder khi reorder sibling
       nodeCreationOrder.value.set(nodeId, newOrder)
-      console.log('✅ Reordered node:', nodeId, 'new order:', newOrder)
+      
 
       // Cập nhật renderer với nodeCreationOrder mới
       if (d3Renderer) {
@@ -455,7 +455,7 @@ const initD3Renderer = () => {
       hoveredNode.value = isHovering ? nodeId : null
     },
     onNodeCollapse: (nodeId, isCollapsed) => {
-      console.log(`Node ${nodeId} ${isCollapsed ? 'collapsed' : 'expanded'}`)
+      
       // Re-render sẽ được xử lý trong renderer
       updateD3Renderer()
     },
@@ -633,7 +633,7 @@ const addChildToNode = async (parentId) => {
     d3Renderer.selectedNode = newNodeId
   }
 
-  console.log("✅ Added child node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
+  
 
   // Wait for DOM to render
   await nextTick()
@@ -703,7 +703,7 @@ const addSiblingToNode = async (nodeId) => {
   const parentEdge = edges.value.find(e => e.target === nodeId)
 
   if (!parentEdge) {
-    console.error("Cannot find parent node")
+    
     return
   }
 
@@ -743,7 +743,7 @@ const addSiblingToNode = async (nodeId) => {
     d3Renderer.selectedNode = newNodeId
   }
 
-  console.log("✅ Added sibling node:", newNodeId, "Order:", nodeCreationOrder.value.get(newNodeId))
+  
 
   // Wait for DOM to render
   await nextTick()
@@ -832,7 +832,7 @@ const deleteSelectedNode = () => {
   if (!selectedNode.value) return
 
   if (selectedNode.value.id === 'root') {
-    console.log('❌ Cannot delete root node')
+    
     return
   }
 
@@ -856,7 +856,7 @@ const deleteSelectedNode = () => {
 
 // Thực hiện xóa node
 const performDelete = async (nodeId) => {
-  console.log(`🗑️ Starting cascade delete for node: ${nodeId}`)
+  
 
   const nodesToDelete = new Set([nodeId])
 
@@ -872,7 +872,7 @@ const performDelete = async (nodeId) => {
 
   collectDescendants(nodeId)
 
-  console.log(`📋 Total nodes to delete: ${nodesToDelete.size}`, Array.from(nodesToDelete))
+  
 
   // Remove nodes and edges
   const newNodes = nodes.value.filter(n => {
@@ -894,14 +894,14 @@ const performDelete = async (nodeId) => {
   elements.value = [...newNodes, ...newEdges]
   selectedNode.value = null
 
-  console.log(`✅ Cascade delete completed: ${nodesToDelete.size} nodes removed`)
+  
 
   const res = await call("drive.api.mindmap_comment.delete_comments_by_nodes", {
     mindmap_id: props?.entityName,
     node_ids: Array.from(nodesToDelete)
   })
 
-  console.log(">>>>>> res:", res);
+  
 
 
   // Update D3 renderer after deletion
@@ -950,7 +950,7 @@ const handleKeyDown = (event) => {
 
   const key = event.key
 
-  console.log('🎹 Key pressed:', key, 'Selected node:', selectedNode.value.id)
+  
 
   if (key === 'Tab') {
     event.preventDefault()
@@ -961,8 +961,8 @@ const handleKeyDown = (event) => {
     if (d3Renderer && d3Renderer.collapsedNodes && d3Renderer.collapsedNodes.has(selectedNode.value.id)) {
       const parentId = selectedNode.value.id
       d3Renderer.collapsedNodes.delete(parentId)
-      console.log('✅ Expanding collapsed node via Tab:', parentId)
-      console.log('Collapsed nodes after Tab expand:', Array.from(d3Renderer.collapsedNodes))
+      
+      
 
       if (d3Renderer.callbacks && d3Renderer.callbacks.onNodeCollapse) {
         d3Renderer.callbacks.onNodeCollapse(parentId, false)
@@ -1096,7 +1096,7 @@ const handleKeyDown = (event) => {
                 editorInstance.commands.focus('end')
               }
             } catch (e) {
-              console.error('Error focusing blockquote:', e)
+              
               // Fallback: focus vào cuối document
               editorInstance.commands.focus('end')
             }
@@ -1121,7 +1121,7 @@ const handleKeyDown = (event) => {
               insertPosition = doc.content.size
             }
 
-            console.log('📍 Inserting blockquote at position:', insertPosition)
+            
 
             // Chèn blockquote tại vị trí đã tính
             editorInstance.chain()
@@ -1179,7 +1179,7 @@ const handleKeyDown = (event) => {
     event.stopPropagation()
 
     if (selectedNode.value.id === 'root') {
-      console.log('❌ BLOCKED: Cannot delete root node')
+      
       return false
     }
 
@@ -1266,11 +1266,11 @@ const saveLayoutResource = createResource({
   onSuccess(response) {
     isSaving.value = false
     lastSaved.value = formatTime(new Date())
-    console.log("✅ Layout saved!")
+    
   },
   onError(error) {
     isSaving.value = false
-    console.error("❌ Save error:", error)
+    
   }
 })
 
@@ -1333,7 +1333,7 @@ onMounted(() => {
     }
   })
 
-  console.log('✅ D3 Mindmap renderer ready')
+  
 
   // ⚠️ NEW: Xử lý hash khi component mount để scroll đến node
   scrollToNodeFromHash()
@@ -1482,7 +1482,7 @@ function copyNode(nodeId) {
     }))
   }
 
-  console.log('✅ Copied subtree:', nodeId, 'nodes:', subtreeNodes.length, 'edges:', subtreeEdges.length, clipboard.value)
+  
 }
 
 // ⚠️ NEW: Cut node function (bao gồm toàn bộ subtree)
@@ -1535,12 +1535,12 @@ function cutNode(nodeId) {
     }))
   }
 
-  console.log('✂️ Cut subtree:', nodeId, 'nodes:', subtreeNodes.length, 'edges:', subtreeEdges.length, clipboard.value)
+  
 
   // ⚠️ NEW: Xóa node ngay lập tức sau khi lưu vào clipboard
   performDelete(nodeId)
 
-  console.log('✅ Deleted cut subtree immediately:', nodeId)
+  
 }
 
 // ⚠️ NEW: Copy link to node function
@@ -1553,12 +1553,12 @@ function copyNodeLink(nodeId) {
 
   // Copy vào clipboard
   navigator.clipboard.writeText(link).then(() => {
-    console.log('✅ Copied link to node:', link)
+    
 
     // Hiển thị thông báo (optional - có thể thêm toast notification)
     // Có thể dùng một toast library hoặc tạo notification đơn giản
   }).catch(err => {
-    console.error('❌ Failed to copy link:', err)
+    
 
     // Fallback: dùng cách cũ
     const textArea = document.createElement('textarea')
@@ -1570,9 +1570,9 @@ function copyNodeLink(nodeId) {
     textArea.select()
     try {
       document.execCommand('copy')
-      console.log('✅ Copied link using fallback method')
+      
     } catch (err) {
-      console.error('❌ Failed to copy link using fallback:', err)
+      
     }
     document.body.removeChild(textArea)
   })
@@ -1593,9 +1593,9 @@ function scrollToNodeFromHash() {
       const node = nodes.value.find(n => n.id === nodeId)
       if (node) {
         d3Renderer.scrollToNode(nodeId)
-        console.log('✅ Scrolled to node from hash:', nodeId)
+        
       } else {
-        console.warn('Node not found:', nodeId)
+        
       }
     } else {
       // Retry sau 100ms nếu renderer chưa sẵn sàng
@@ -1615,7 +1615,7 @@ function copyText(text) {
     data: text
   }
 
-  console.log('✅ Copied text:', text)
+  
 }
 
 // ⚠️ NEW: Paste function
@@ -1642,7 +1642,7 @@ function pasteToNode(targetNodeId) {
     // ⚠️ NEW: Kiểm tra nếu là cut operation (node đã bị xóa khi cut, nên không cần kiểm tra phức tạp)
     // Chỉ kiểm tra cơ bản để tránh lỗi
     if (clipboard.value.operation === 'cut' && targetNodeId === rootNodeId) {
-      console.log('❌ Cannot paste cut subtree into itself (node already deleted)')
+      
       return
     }
 
@@ -1730,14 +1730,14 @@ function pasteToNode(targetNodeId) {
       d3Renderer.selectedNode = newRootNodeId
     }
 
-    console.log("✅ Pasted subtree:", newRootNodeId, "to parent:", targetNodeId, "nodes:", newNodes.length, "edges:", newEdges.length + 1)
+    
 
     // ⚠️ NEW: Nếu là cut operation, clear clipboard sau khi paste thành công
     // (Node đã bị xóa ngay khi cut, không cần xóa lại)
     if (clipboard.value.operation === 'cut') {
       // Clear clipboard sau khi cut đã được paste
       clipboard.value = null
-      console.log('✅ Cleared cut clipboard after paste')
+      
     }
 
     // Auto-focus root node's editor
@@ -1814,7 +1814,7 @@ function pasteToNode(targetNodeId) {
     d3Renderer.selectedNode = newNodeId
   }
 
-  console.log("✅ Pasted node:", newNodeId, "to parent:", targetNodeId)
+  
 
   // Auto-focus new node's editor
   nextTick(() => {
@@ -1844,7 +1844,7 @@ async function pasteFromSystemClipboard(targetNodeId) {
     const text = await navigator.clipboard.readText()
 
     if (!text || text.trim() === '') {
-      console.log('⚠️ Clipboard is empty')
+      
       return
     }
 
@@ -1880,9 +1880,6 @@ async function pasteFromSystemClipboard(targetNodeId) {
     if (d3Renderer) {
       d3Renderer.selectedNode = newNodeId
     }
-
-    console.log("✅ Pasted from system clipboard:", newNodeId, "to parent:", targetNodeId, "content:", text.substring(0, 50))
-
     // Auto-focus new node's editor
     nextTick(() => {
       void document.body.offsetHeight
@@ -1901,7 +1898,7 @@ async function pasteFromSystemClipboard(targetNodeId) {
 
     scheduleSave()
   } catch (error) {
-    console.error('❌ Error reading clipboard:', error)
+    
     // Fallback: thử đọc từ event clipboard nếu có
     // (không thể làm ở đây vì đây là async function, nhưng có thể thử lại với cách khác)
   }
@@ -2016,6 +2013,7 @@ function handleClickOutside(e) {
   if (e.target.closest("[data-comment-dropdown]")) return
   if (e.target.closest("[data-comment-more]")) return
   if (e.target.closest("[comment-editor-root]")) return
+  if (e.target.closest("[data-comment-dots]")) return
 
   if (commentInputValue.value.trim().length > 0) return
 
@@ -2086,9 +2084,6 @@ function handlePasteEvent(event) {
         if (d3Renderer) {
           d3Renderer.selectedNode = newNodeId
         }
-
-        console.log("✅ Pasted from system clipboard (event):", newNodeId, "to parent:", selectedNode.value.id, "content:", text.substring(0, 50))
-
         // Auto-focus new node's editor
         nextTick(() => {
           void document.body.offsetHeight
@@ -2166,7 +2161,7 @@ function handleToolbarDone(node) {
   }
 
   scheduleSave()
-  console.log(`✅ Node ${node.id} marked as ${isCompleted ? 'completed' : 'incomplete'}`)
+  
 }
 
 // Helper: Apply strikethrough to title paragraphs
@@ -2248,16 +2243,84 @@ function handleToolbarContextAction({ type, node }) {
 
 // Handle insert image
 async function handleInsertImage({ node }) {
-  console.log('🖼️ handleInsertImage called', { node, hasEditor: !!currentEditorInstance.value })
+  
 
   if (!node) {
-    console.warn('❌ No node selected')
+    
     return
   }
 
+  // ⚠️ FIX: Đợi editor instance sẵn sàng nếu chưa có (khi tạo node mới)
   if (!currentEditorInstance.value) {
-    console.warn('❌ No editor instance available')
-    return
+    
+    
+    // Đảm bảo node được render trước
+    if (d3Renderer && node.id) {
+      // Force update renderer để đảm bảo node được render
+      await nextTick()
+      void document.body.offsetHeight
+      
+      // Trigger render
+      requestAnimationFrame(() => {
+        if (d3Renderer) {
+          d3Renderer.render()
+        }
+      })
+      
+      // Đợi một chút để render hoàn tất
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    
+    // Đợi editor instance được mount (tối đa 3 giây)
+    let attempts = 0
+    const maxAttempts = 60 // 60 * 50ms = 3 giây
+    
+    while (attempts < maxAttempts) {
+      // Kiểm tra xem editor instance đã sẵn sàng chưa
+      const editor = d3Renderer?.getEditorInstance(node.id) || currentEditorInstance.value
+      
+      if (editor && editor.view) {
+        
+        break
+      }
+      
+      // Mỗi 10 lần thử, trigger lại render để đảm bảo node được mount
+      if (attempts % 10 === 0 && d3Renderer) {
+        requestAnimationFrame(() => {
+          if (d3Renderer) {
+            d3Renderer.render()
+          }
+        })
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 50))
+      attempts++
+    }
+    
+    // Kiểm tra lại editor instance - đảm bảo computed property đã được cập nhật
+    await nextTick() // Đợi Vue cập nhật computed property
+    
+    const finalEditor = d3Renderer?.getEditorInstance(node.id) || currentEditorInstance.value
+    
+    if (!finalEditor || !finalEditor.view) {
+      return
+    }
+    
+    // Đảm bảo currentEditorInstance computed đã được cập nhật
+    if (!currentEditorInstance.value && finalEditor) {
+      // Nếu computed chưa cập nhật, đợi thêm một chút
+      await new Promise(resolve => setTimeout(resolve, 50))
+      await nextTick()
+    }
+    
+    // Đảm bảo editor được focus để sẵn sàng nhận input
+    if (finalEditor && finalEditor.view && !finalEditor.view.focused) {
+      try {
+        finalEditor.commands.focus()
+      } catch (e) {
+        
+      }
+    }
   }
 
   // Tạo input file element
@@ -2269,7 +2332,7 @@ async function handleInsertImage({ node }) {
   // Append vào body để đảm bảo dialog hiển thị đúng
   document.body.appendChild(input)
 
-  console.log('✅ File input created and appended to body')
+  
 
   // Xử lý khi chọn file
   input.onchange = async (e) => {
@@ -2282,6 +2345,12 @@ async function handleInsertImage({ node }) {
 
     if (!file) return
 
+    // ⚠️ CRITICAL: Lưu node.id và editor instance trước khi upload
+    const nodeId = node.id
+    let editorBeforeUpload = currentEditorInstance.value || (d3Renderer?.getEditorInstance(nodeId))
+    
+    
+
     try {
       // Upload ảnh lên drive mindmap
       const imageUrl = await uploadImageToMindmap(file, props.team, props.entityName)
@@ -2289,22 +2358,65 @@ async function handleInsertImage({ node }) {
       // Đợi một chút để đảm bảo upload hoàn tất
       await nextTick()
 
-      // Lấy lại editor instance để đảm bảo nó vẫn còn hợp lệ
-      const editor = currentEditorInstance.value
+      // ⚠️ FIX: Lấy lại editor instance sau khi upload - thử nhiều cách
+      let editor = currentEditorInstance.value
+      
+      // Nếu computed property không có, thử lấy trực tiếp từ d3Renderer
       if (!editor || !editor.view) {
-        console.warn('❌ Editor instance not available after upload')
+        
+        editor = d3Renderer?.getEditorInstance(nodeId)
+      }
+      
+      // Nếu vẫn không có, đợi một chút và thử lại
+      if (!editor || !editor.view) {
+        
+        let attempts = 0
+        const maxAttempts = 20 // 20 * 50ms = 1 giây
+        while (attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 50))
+          editor = currentEditorInstance.value || d3Renderer?.getEditorInstance(nodeId)
+          if (editor && editor.view) {
+            
+            break
+          }
+          attempts++
+        }
+      }
+      
+      if (!editor || !editor.view) {
         return
       }
+      
+      
 
       // Chèn ảnh vào editor
       if (imageUrl) {
-        console.log('🖼️ Inserting image with URL:', imageUrl)
+        
+
+        // ⚠️ CRITICAL: Sử dụng editor đã lấy được (có thể từ d3Renderer trực tiếp)
+        // Đảm bảo editor vẫn còn hợp lệ
+        if (!editor || !editor.view) {
+          // Thử lấy lại một lần nữa
+          editor = currentEditorInstance.value || d3Renderer?.getEditorInstance(nodeId)
+        }
+        
+        if (!editor || !editor.view) {
+          
+          return
+        }
 
         // Sử dụng requestAnimationFrame để đảm bảo editor đã sẵn sàng
         requestAnimationFrame(() => {
-          const currentEditor = currentEditorInstance.value
+          // Lấy lại editor một lần nữa trong requestAnimationFrame để đảm bảo
+          let currentEditor = currentEditorInstance.value || d3Renderer?.getEditorInstance(nodeId)
+          
+          // Nếu vẫn không có, sử dụng editor đã lấy được trước đó
           if (!currentEditor || !currentEditor.view) {
-            console.warn('❌ Editor instance not available in requestAnimationFrame')
+            currentEditor = editor
+          }
+          
+          if (!currentEditor || !currentEditor.view) {
+            
             return
           }
 
@@ -2315,36 +2427,74 @@ async function handleInsertImage({ node }) {
 
             // Tìm blockquote đầu tiên trong document
             let blockquoteOffset = null
+            // Tìm paragraph cuối cùng không nằm trong blockquote (title cuối cùng)
+            let lastTitleParagraphOffset = null
+            let lastTitleParagraphSize = 0
+
             doc.forEach((node, offset) => {
               if (node.type.name === 'blockquote' && blockquoteOffset === null) {
                 blockquoteOffset = offset
+              }
+              
+              // Tìm paragraph cuối cùng không nằm trong blockquote
+              if (node.type.name === 'paragraph') {
+                // Kiểm tra xem paragraph có nằm trong blockquote không
+                const resolvedPos = state.doc.resolve(offset + 1)
+                let inBlockquote = false
+                
+                for (let i = resolvedPos.depth; i > 0; i--) {
+                  const nodeAtDepth = resolvedPos.node(i)
+                  if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                    inBlockquote = true
+                    break
+                  }
+                }
+                
+                // Nếu không nằm trong blockquote, đây là title paragraph
+                if (!inBlockquote) {
+                  lastTitleParagraphOffset = offset
+                  lastTitleParagraphSize = node.nodeSize
+                }
               }
             })
 
             let insertPosition = null
 
             if (blockquoteOffset !== null) {
-              // Có blockquote: chèn ảnh vào trước blockquote
-              insertPosition = blockquoteOffset
-              console.log('📍 Found blockquote at offset:', blockquoteOffset, 'Inserting image before it')
+              // Có blockquote: chèn ảnh vào giữa title và blockquote
+              if (lastTitleParagraphOffset !== null) {
+                // Chèn ảnh sau paragraph cuối cùng của title (trước blockquote)
+                insertPosition = lastTitleParagraphOffset + lastTitleParagraphSize
+                
+              } else {
+                // Không có title paragraph: chèn ảnh vào trước blockquote
+                insertPosition = blockquoteOffset
+                
+              }
             } else {
-              // Không có blockquote: chèn ảnh vào cuối document (sau tất cả paragraphs)
-              insertPosition = doc.content.size
-              console.log('📍 No blockquote found, inserting image at end:', insertPosition)
+              // Không có blockquote: chèn ảnh sau paragraph cuối cùng của title
+              if (lastTitleParagraphOffset !== null) {
+                insertPosition = lastTitleParagraphOffset + lastTitleParagraphSize
+                
+              } else {
+                // Không có title paragraph: chèn ảnh vào cuối document
+                insertPosition = doc.content.size
+                
+              }
             }
 
             // Kiểm tra xem editor có command setImage không
             if (currentEditor.commands && typeof currentEditor.commands.setImage === 'function') {
-              console.log('✅ Using setImage command')
+              
               // Set selection tại vị trí chèn
               currentEditor.chain()
                 .setTextSelection(insertPosition)
                 .focus()
                 .setImage({ src: imageUrl, alt: file.name || 'Image' })
                 .run()
-              console.log('✅ Image inserted using setImage at position:', insertPosition)
+              
             } else {
-              console.log('⚠️ setImage not available, using insertContent with HTML')
+              
               // Fallback: dùng insertContent với HTML
               // Escape URL để tránh lỗi khi có ký tự đặc biệt
               const escapedUrl = imageUrl.replace(/&/g, '&amp;')
@@ -2353,24 +2503,102 @@ async function handleInsertImage({ node }) {
                 .focus()
                 .insertContent(`<img src="${escapedUrl}" alt="${file.name || 'Image'}" />`)
                 .run()
-              console.log('✅ Image inserted using insertContent at position:', insertPosition)
+              
             }
 
-            // Kiểm tra xem ảnh có được chèn vào document không
-            setTimeout(() => {
-              const html = currentEditor.getHTML()
-              console.log('📄 Editor HTML after insert:', html)
-              if (!html.includes(imageUrl)) {
-                console.warn('⚠️ Image URL not found in editor HTML')
+            // ⚠️ CRITICAL: Đợi ảnh mới được render vào DOM, rồi đợi tất cả ảnh load xong
+            // Lưu số lượng ảnh ban đầu để phát hiện ảnh mới
+            const editorDOM = currentEditor.view.dom
+            const initialImageCount = editorDOM.querySelectorAll('img').length
+            
+            // Đợi cho đến khi ảnh mới xuất hiện trong DOM (tối đa 1 giây)
+            let checkAttempts = 0
+            const maxCheckAttempts = 20 // 20 * 50ms = 1 giây
+            const checkForNewImage = setInterval(() => {
+              checkAttempts++
+              const currentImages = editorDOM.querySelectorAll('img')
+              const currentImageCount = currentImages.length
+              
+              // Nếu số lượng ảnh tăng lên (có ảnh mới) hoặc đã đợi đủ lâu
+              if (currentImageCount > initialImageCount || checkAttempts >= maxCheckAttempts) {
+                clearInterval(checkForNewImage)
+                
+                const images = Array.from(currentImages)
+                
+                
+                // Tạo promises cho tất cả ảnh (bao gồm ảnh mới vừa chèn)
+                const imagePromises = images.map((img, index) => {
+                  if (img.complete && img.naturalHeight > 0) {
+                    return Promise.resolve()
+                  }
+                  
+                  return new Promise((resolve) => {
+                    const onLoad = () => resolve()
+                    const onError = () => resolve() // Resolve ngay cả khi lỗi để không block
+                    
+                    img.addEventListener('load', onLoad, { once: true })
+                    img.addEventListener('error', onError, { once: true })
+                    
+                    // Timeout sau 3 giây để không block quá lâu
+                    setTimeout(() => {
+                      img.removeEventListener('load', onLoad)
+                      img.removeEventListener('error', onError)
+                      resolve()
+                    }, 3000)
+                  })
+                })
+                
+                // Đợi tất cả ảnh load xong (hoặc timeout)
+                Promise.all(imagePromises).then(() => {
+                  
+                  
+                  // Đợi thêm một chút để đảm bảo DOM đã được cập nhật hoàn toàn
+                  setTimeout(() => {
+                    try {
+                      // Lấy component instance từ d3Renderer để gọi updateNodeHeight()
+                      if (d3Renderer && nodeId) {
+                        const entry = d3Renderer.vueApps?.get(nodeId)
+                        if (entry && entry.instance) {
+                          // Gọi updateNodeHeight() trực tiếp vì đã đợi tất cả ảnh load xong
+                          if (typeof entry.instance.updateNodeHeight === 'function') {
+                            
+                            entry.instance.updateNodeHeight()
+                            
+                            // Gọi lại một lần nữa sau khi DOM đã cập nhật hoàn toàn (để đảm bảo với nhiều ảnh)
+                            setTimeout(() => {
+                              if (entry.instance && typeof entry.instance.updateNodeHeight === 'function') {
+                                
+                                entry.instance.updateNodeHeight()
+                              }
+                            }, 300)
+                          } else {
+                            // Fallback: Trigger một transaction nhỏ để kích hoạt onUpdate
+                            currentEditor.chain()
+                              .setTextSelection(currentEditor.state.selection.from)
+                              .run()
+                            
+                            
+                          }
+                        } else {
+                          
+                        }
+                      }
+                    } catch (err) {
+                      
+                    }
+                  }, 150) // Đợi thêm 150ms sau khi ảnh load xong
+                }).catch(err => {
+                  
+                })
               }
-            }, 100)
+            }, 50) // Kiểm tra mỗi 50ms
           } catch (err) {
-            console.error('❌ Error inserting image:', err)
+            
           }
         })
       }
     } catch (error) {
-      console.error('Error uploading image:', error)
+      
     }
   }
 
@@ -2421,7 +2649,7 @@ async function uploadImageToMindmap(file, team, mindmapEntityName) {
       const data = await response.json()
       // Return embed URL - sử dụng absolute URL
       const imageUrl = `${window.location.origin}/api/method/drive.api.embed.get_file_content?embed_name=${data.message.name}&parent_entity_name=${mindmapEntityName}`
-      console.log('✅ Image uploaded successfully, URL:', imageUrl)
+      
       return imageUrl
     }
 

@@ -320,7 +320,7 @@ export function renderNodes(renderer, positions) {
   // Update node rect style dựa trên selectedNode
   nodesUpdate.select('.node-rect')
     .attr('fill', d => {
-      if (renderer.selectedNode === d.id) return '#e0e7ff' // Selected: đậm
+      if (renderer.selectedNode === d.id) return '#ffffff' // Selected: màu trắng
       return d.data?.isRoot ? '#3b82f6' : '#ffffff' // Default
     })
     .attr('stroke', d => {
@@ -565,8 +565,8 @@ export function renderNodes(renderer, positions) {
       nodeGroup.select('.node-rect')
         .attr('fill', d => {
           if (isSelected) {
-            // Selected: giữ màu selected (đậm)
-            return '#e0e7ff'
+            // Selected: màu trắng
+            return '#ffffff'
           } else if (d.data?.isRoot) {
             return '#2563eb' // Darker blue for root
           } else {
@@ -788,7 +788,7 @@ export function renderNodes(renderer, positions) {
       const isSelected = renderer.selectedNode === d.id
       nodeGroup.select('.node-rect')
         .attr('fill', d => {
-          if (isSelected) return '#e0e7ff' // Selected: đậm
+          if (isSelected) return '#ffffff' // Selected: màu trắng
           return d.data?.isRoot ? '#3b82f6' : '#ffffff' // Default
         })
         .attr('stroke', d => {
@@ -1178,7 +1178,7 @@ export function renderNodes(renderer, positions) {
         return d.data?.isRoot ? '#2563eb' : '#f3f4f6'
       }
       // Selected state
-      if (renderer.selectedNode === d.id) return '#e0e7ff'
+      if (renderer.selectedNode === d.id) return '#ffffff' // Selected: màu trắng
       // Default state
       return d.data?.isRoot ? '#3b82f6' : '#ffffff'
     })
@@ -1286,6 +1286,7 @@ export function renderNodes(renderer, positions) {
       fo.attr('height', Math.max(0, rectHeight - borderOffset))
       
       // ⚠️ CRITICAL: Tất cả các node đều dùng auto để hiển thị đầy đủ nội dung (bao gồm ảnh)
+      // Nhưng dùng overflow: hidden để tránh nội dung tràn ra ngoài và đè lên node khác
       const wrapper = fo.select('.node-content-wrapper')
         .style('width', '100%') // Wrapper chiếm 100% foreignObject
         .style('height', 'auto') // Tất cả node dùng auto để hiển thị đủ nội dung
@@ -1293,7 +1294,7 @@ export function renderNodes(renderer, positions) {
         .style('max-height', 'none')
         .style('background', bgColor)
         .style('border-radius', '8px')
-        .style('overflow', 'visible') // Tất cả node dùng visible để hiển thị đủ nội dung
+        .style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài và đè lên node khác
         .style('border', 'none') // Không có border để không đè lên border của node-rect
         .style('outline', 'none') // Không có outline
         .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
@@ -1305,7 +1306,7 @@ export function renderNodes(renderer, positions) {
         .style('min-height', '0')
         .style('max-height', 'none')
         .style('pointer-events', 'none') // Disable pointer events để ngăn click khi chưa edit
-        .style('overflow', 'visible') // Tất cả node dùng visible để hiển thị đủ nội dung
+        .style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài và đè lên node khác
         .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
       
       // Mount hoặc update Vue component
@@ -1381,7 +1382,7 @@ export function renderNodes(renderer, positions) {
                     editorContent.style.height = 'auto'
                     editorContent.style.minHeight = '0'
                     editorContent.style.maxHeight = 'none'
-                    editorContent.style.overflow = 'visible'
+                    editorContent.style.overflow = 'hidden' // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài (scrollHeight vẫn đo được chính xác)
                     editorContent.style.boxSizing = 'border-box'
                     editorContent.style.padding = '8px 16px'
                     
@@ -1412,11 +1413,11 @@ export function renderNodes(renderer, positions) {
                       wrapper.style('height', 'auto')
                       wrapper.style('min-height', '0')
                       wrapper.style('max-height', 'none')
-                      wrapper.style('overflow', 'visible')
+                      wrapper.style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài
                       editorContainer.style('height', 'auto')
                       editorContainer.style('min-height', '0')
                       editorContainer.style('max-height', 'none')
-                      editorContainer.style('overflow', 'visible')
+                      editorContainer.style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài
                       
                       // Cập nhật cache
                       renderer.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
@@ -1552,7 +1553,7 @@ export function renderNodes(renderer, positions) {
                       editorContent.style.height = 'auto'
                       editorContent.style.minHeight = '0'
                       editorContent.style.maxHeight = 'none'
-                      editorContent.style.overflow = 'visible'
+                      editorContent.style.overflow = 'hidden' // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài (scrollHeight vẫn đo được chính xác)
                       
                       // Force reflow
                       void editorContent.offsetHeight
@@ -1571,14 +1572,15 @@ export function renderNodes(renderer, positions) {
                         fo.attr('height', Math.max(0, contentHeight - borderOffset))
                         
                         // ⚠️ CRITICAL: Với root node, LUÔN dùng auto để hiển thị đầy đủ nội dung
+                        // Nhưng dùng overflow: hidden để tránh nội dung tràn ra ngoài
                         wrapper.style('height', 'auto')
                         wrapper.style('min-height', '0')
                         wrapper.style('max-height', 'none')
-                        wrapper.style('overflow', 'visible')
+                        wrapper.style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài
                         editorContainer.style('height', 'auto')
                         editorContainer.style('min-height', '0')
                         editorContainer.style('max-height', 'none')
-                        editorContainer.style('overflow', 'visible')
+                        editorContainer.style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài
                       }
                       
                       renderer.nodeSizeCache.set(nodeData.id, { width: currentWidth, height: contentHeight })
