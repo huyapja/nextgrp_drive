@@ -1265,7 +1265,7 @@ const saveLayoutResource = createResource({
   onSuccess(response) {
     isSaving.value = false
     lastSaved.value = formatTime(new Date())
-    console.log("✅ Layout saved")
+    console.log("✅ Layout saved!")
   },
   onError(error) {
     isSaving.value = false
