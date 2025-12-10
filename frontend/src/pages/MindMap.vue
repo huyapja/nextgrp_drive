@@ -1265,7 +1265,7 @@ const saveLayoutResource = createResource({
   onSuccess(response) {
     isSaving.value = false
     lastSaved.value = formatTime(new Date())
-    console.log("✅ Layout saved")
+    console.log("✅ Layout saved!")
   },
   onError(error) {
     isSaving.value = false
@@ -1904,6 +1904,24 @@ async function pasteFromSystemClipboard(targetNodeId) {
     // Fallback: thử đọc từ event clipboard nếu có
     // (không thể làm ở đây vì đây là async function, nhưng có thể thử lại với cách khác)
   }
+}
+
+function syncElementsWithRendererPosition() {
+  if (!d3Renderer?.positions?.size) return
+
+  const newNodes = nodes.value.map(n => {
+    const pos = d3Renderer.positions.get(n.id)
+    if (!pos) return n
+    return {
+      ...n,
+      position: { x: pos.x, y: pos.y }
+    }
+  })
+
+  elements.value = [
+    ...newNodes,
+    ...edges.value
+  ]
 }
 
 function handleContextMenuAction({ type, node }) {
