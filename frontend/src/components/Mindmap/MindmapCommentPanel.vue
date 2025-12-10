@@ -89,7 +89,7 @@
                 class="pi pi-comment !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"></i>
 
               <!-- More -->
-              <div v-if="currentUser?.id === c.user?.email" class="relative">
+              <div data-comment-dots v-if="currentUser?.id === c.user?.email" class="relative">
                 <!-- Icon 3 chấm -->
                 <i class="pi pi-ellipsis-h !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
                   @click.stop="openCommentMenu(c, $event)"></i>
@@ -103,7 +103,7 @@
               size="small" />
 
             <!-- Nội dung -->
-            <div class="w-full pr-10">
+            <div class="w-full">
               <div class="flex items-center gap-2">
                 <div class="font-medium text-gray-700">
                   {{ c.user?.full_name }}
@@ -278,12 +278,25 @@ const mindmap_comment_list = createResource({
 })
 
 // Chỉ gọi API khi panel visible
-watch(() => props.visible, (isVisible) => {
-  if (isVisible && entityName) {
-    // Chỉ gọi API khi panel được mở và có entityName
-    mindmap_comment_list.fetch()
-  }
-}, { immediate: true })
+watch(
+  () => props.visible,
+  async (isVisible) => {
+    if (!isVisible || !entityName) return
+
+    await mindmap_comment_list.fetch()
+
+    await nextTick()
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (activeNodeId.value) {
+          scrollToActiveNode(activeNodeId.value)
+        }
+      })
+    })
+  },
+  { immediate: true }
+)
 
 
 // -----------------------------
