@@ -91,6 +91,7 @@
 			<!-- List with pen -->
 			<button
 				class="toolbar-btn"
+				@mousedown.prevent="saveSelection"
 				@click.stop="handleListAction"
 				title="Mô tả (Shift+Enter)"
 			>
@@ -102,9 +103,10 @@
 			<!-- Insert image -->
 			<button
 				class="toolbar-btn"
+				@mousedown.prevent="saveSelection"
 				@click.stop.prevent="handleInsertImage"
 				title="Chèn hình ảnh"
-				:disabled="!props.selectedNode || !props.editorInstance"
+				:disabled="!props.selectedNode"
 			>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 					<path d="m10.141 17.988-4.275-.01a.3.3 0 0 1-.212-.512l4.133-4.133a.4.4 0 0 1 .566 0l1.907 1.907 5.057-5.057a.4.4 0 0 1 .683.283V17.7a.3.3 0 0 1-.3.3h-7.476a.301.301 0 0 1-.083-.012ZM4 22c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2v16c0 1.1-.9 2-2 2H4Zm0-2h16V4H4v16ZM6 6h3v3H6V6Z" fill="currentColor"></path>
@@ -116,6 +118,7 @@
 				<button
 					ref="moreOptionsBtnRef"
 					class="toolbar-btn"
+					@mousedown.prevent="saveSelection"
 					title="Tùy chọn khác"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -215,6 +218,7 @@
 			<button
 				class="toolbar-btn"
 				:class="{ active: showComments }"
+				@mousedown.prevent="saveSelection"
 				@click.stop="handleComments"
 				title="Bình luận"
 			>
@@ -337,19 +341,45 @@ const handleWrapperMouseEnter = () => {
 	showTopToolbar.value = true
 }
 
-// ⚠️ NEW: Lưu selection trước khi click vào button
-const saveSelection = () => {
-	if (!props.editorInstance || !props.isEditing) return
+// ⚠️ NEW: Lưu selection trước khi click vào button và prevent blur
+const saveSelection = (event) => {
+	if (!props.editorInstance) return
 	
+	// ⚠️ FIX: Prevent blur khi click vào toolbar button
+	// Đặc biệt quan trọng với node mới vì editor có thể bị blur trước khi action được thực hiện
+	if (event) {
+		event.preventDefault()
+		event.stopPropagation()
+	}
+	
+	// ⚠️ FIX: Luôn lưu selection (không cần check isEditing)
+	// Với node mới, isEditing có thể là false nhưng vẫn cần lưu selection
 	try {
 		const { state } = props.editorInstance.view
 		const { from, to } = state.selection
 		savedSelection = { from, to }
-		console.log('💾 [DEBUG saveSelection] Saved selection:', savedSelection)
+		
 	} catch (error) {
-		console.error('❌ [DEBUG saveSelection] Error:', error)
+		
 		savedSelection = null
 	}
+	
+	// ⚠️ FIX: Đảm bảo editor được focus lại ngay sau khi mousedown
+	// Sử dụng requestAnimationFrame để đảm bảo focus sau khi blur xảy ra
+	// Đặc biệt quan trọng với node mới để trigger onNodeEditingStart
+	requestAnimationFrame(() => {
+		// ⚠️ FIX: Check editor instance và view trước khi truy cập
+		if (props.editorInstance && !props.editorInstance.isDestroyed && props.editorInstance.view) {
+			try {
+				// Focus lại editor để tiếp tục chỉnh sửa
+				// Điều này sẽ trigger onNodeEditingStart nếu chưa được trigger
+				props.editorInstance.chain().focus().run()
+				
+			} catch (error) {
+				
+			}
+		}
+	})
 }
 
 // Watch editor instance để cập nhật trạng thái
@@ -377,7 +407,7 @@ watch(() => props.selectedNode?.id, (nodeId) => {
 		setTimeout(() => {
 			if (props.editorInstance) {
 				updateEditorState(props.editorInstance)
-				console.log('🔄 [DEBUG watch selectedNode] Updated editor state for node:', nodeId)
+				
 			}
 		}, 50)
 	} else {
@@ -398,7 +428,7 @@ watch(() => props.isEditing, (isEditing) => {
 		isInBlockquote.value = false
 		// ⚠️ IMPORTANT: Vẫn gọi updateEditorState để cập nhật trạng thái button
 		updateEditorState(props.editorInstance)
-		console.log('🔄 [DEBUG watch isEditing] isEditing = false, set isInBlockquote = false and updateEditorState')
+		
 	} else if (isEditing && props.editorInstance) {
 		// Khi editing, kiểm tra lại vị trí cursor
 		updateEditorState(props.editorInstance)
@@ -481,10 +511,10 @@ const checkMarkInTitle = (editor, markType) => {
 			}
 		})
 		
-		console.log(`🔍 [DEBUG checkMarkInTitle] markType: ${markType}, hasMark: ${hasMark}`)
+		
 		return hasMark
 	} catch (error) {
-		console.error('❌ [DEBUG checkMarkInTitle] Error:', error)
+		
 		return false
 	}
 }
@@ -548,14 +578,14 @@ const getHighlightColorFromTitle = (editor) => {
 				'rgb(243, 244, 246)': 'grey'
 			}
 			const colorName = colorMap[hexColor] || null
-			console.log(`🎨 [DEBUG getHighlightColorFromTitle] Found color: ${foundColor}, mapped to: ${colorName}`)
+			
 			return colorName
 		}
 		
-		console.log('🎨 [DEBUG getHighlightColorFromTitle] No highlight color found')
+		
 		return null
 	} catch (error) {
-		console.error('❌ [DEBUG getHighlightColorFromTitle] Error:', error)
+		
 		return null
 	}
 }
@@ -563,11 +593,11 @@ const getHighlightColorFromTitle = (editor) => {
 // Cập nhật trạng thái từ editor
 const updateEditorState = (editor) => {
 	if (!editor) {
-		console.log('⚠️ [DEBUG updateEditorState] No editor, returning')
+		
 		return
 	}
 	
-	console.log('🔄 [DEBUG updateEditorState] Called, isEditing:', props.isEditing)
+	
 	
 	// ⚠️ IMPORTANT: Cập nhật trạng thái button dựa trên editing state
 	if (props.isEditing) {
@@ -575,13 +605,13 @@ const updateEditorState = (editor) => {
 		isBold.value = editor.isActive('bold')
 		isItalic.value = editor.isActive('italic')
 		isUnderline.value = editor.isActive('underline')
-		console.log('🔄 [DEBUG updateEditorState] Editing mode - isBold:', isBold.value, 'isItalic:', isItalic.value, 'isUnderline:', isUnderline.value)
+		
 	} else {
 		// Khi không editing: kiểm tra toàn bộ title paragraphs
 		isBold.value = checkMarkInTitle(editor, 'bold')
 		isItalic.value = checkMarkInTitle(editor, 'italic')
 		isUnderline.value = checkMarkInTitle(editor, 'underline')
-		console.log('🔄 [DEBUG updateEditorState] Not editing - isBold:', isBold.value, 'isItalic:', isItalic.value, 'isUnderline:', isUnderline.value)
+		
 	}
 	
 	// ⚠️ NEW: Chỉ kiểm tra blockquote khi đang editing
@@ -692,7 +722,7 @@ const applyStyleToTitle = (editor, markType, attrs = {}) => {
 				}
 			})
 			
-			console.log(`🔧 [DEBUG applyStyleToTitle] markType: ${markType}, hasMark: ${hasMark}`)
+			
 			
 			titleRanges.forEach(({ from, to }) => {
 				if (hasMark) {
@@ -706,7 +736,7 @@ const applyStyleToTitle = (editor, markType, attrs = {}) => {
 			
 			// Dispatch transaction
 			editor.view.dispatch(tr)
-			console.log(`✅ [DEBUG applyStyleToTitle] ${hasMark ? 'Removed' : 'Added'} ${markType} mark`)
+			
 			
 			// ⚠️ NEW: Clear flag sau khi dispatch
 			if (props.renderer && nodeId) {
@@ -724,19 +754,49 @@ const applyStyleToTitle = (editor, markType, attrs = {}) => {
 
 // Toggle Bold
 const toggleBold = () => {
-	console.log('🔵 [DEBUG toggleBold] Called')
-	console.log('🔵 [DEBUG toggleBold] editorInstance:', props.editorInstance)
-	console.log('🔵 [DEBUG toggleBold] isEditing:', props.isEditing)
-	console.log('🔵 [DEBUG toggleBold] selectedNode:', props.selectedNode)
 	
-	if (!props.editorInstance) {
-		console.log('❌ [DEBUG toggleBold] No editor instance, returning')
+	
+	
+	
+	
+	// ⚠️ FIX: Retry lấy editor instance nếu chưa có (quan trọng với node mới)
+	let editorInstance = props.editorInstance
+	if (!editorInstance && props.selectedNode && props.renderer) {
+		
+		// Thử lấy trực tiếp từ renderer
+		editorInstance = props.renderer.getEditorInstance(props.selectedNode.id)
+		if (editorInstance) {
+			
+		} else {
+			// Nếu vẫn chưa có, đợi một chút rồi thử lại
+			setTimeout(() => {
+				const retryInstance = props.renderer?.getEditorInstance(props.selectedNode?.id)
+				if (retryInstance) {
+					
+					// Gọi lại hàm với editor instance mới
+					executeToggleBold(retryInstance)
+				} else {
+					
+				}
+			}, 100)
+			return
+		}
+	}
+	
+	if (!editorInstance) {
+		
 		return
 	}
 	
+	executeToggleBold(editorInstance)
+}
+
+// Helper function để thực hiện toggle bold
+const executeToggleBold = (editorInstance) => {
+	
 	// ⚠️ NEW: Set flag để skip handleEditorInput khi style update
 	const nodeId = props.selectedNode?.id
-	console.log('🔵 [DEBUG toggleBold] nodeId:', nodeId)
+	
 	if (props.renderer && nodeId) {
 		if (!props.renderer.isUpdatingStyle) {
 			props.renderer.isUpdatingStyle = new Set()
@@ -744,39 +804,52 @@ const toggleBold = () => {
 		props.renderer.isUpdatingStyle.add(nodeId)
 	}
 	
-	if (props.isEditing) {
-		console.log('🔵 [DEBUG toggleBold] isEditing = true, applying to selection')
+	// ⚠️ FIX: Check cả isFocused để hoạt động với node mới
+	const isEditorActive = props.isEditing || (editorInstance && editorInstance.isFocused)
+	if (isEditorActive) {
+		
 		// Đang edit: áp dụng cho selection hiện tại
 		// Sử dụng saved selection nếu có, nếu không thì lấy từ state
-		const { state } = props.editorInstance.view
+		const { state } = editorInstance.view
 		let from, to
 		if (savedSelection) {
 			from = savedSelection.from
 			to = savedSelection.to
-			console.log('🔵 [DEBUG toggleBold] Using saved selection:', savedSelection)
+			
 		} else {
 			from = state.selection.from
 			to = state.selection.to
-			console.log('🔵 [DEBUG toggleBold] Using current selection from:', from, 'to:', to)
+			
 		}
-		console.log('🔵 [DEBUG toggleBold] Selection from:', from, 'to:', to, 'hasSelection:', from !== to)
-		console.log('🔵 [DEBUG toggleBold] isFocused:', props.editorInstance.isFocused)
+		
+		
 		
 		// Sử dụng requestAnimationFrame để đảm bảo editor focus và selection được giữ
 		requestAnimationFrame(() => {
-			console.log('🔵 [DEBUG toggleBold] Inside requestAnimationFrame')
+			// ⚠️ FIX: Check editor instance và view trước khi truy cập
+			if (!editorInstance || editorInstance.isDestroyed || !editorInstance.view) {
+				
+				return
+			}
+			
+			
 			// Focus editor nếu chưa focus
-			if (!props.editorInstance.isFocused) {
-				console.log('🔵 [DEBUG toggleBold] Editor not focused, focusing...')
-				props.editorInstance.chain().focus().run()
+			if (!editorInstance.isFocused) {
+				
+				try {
+					editorInstance.chain().focus().run()
+				} catch (error) {
+					
+					return
+				}
 			}
 			
 			// Restore selection nếu có
 			if (from !== to) {
-				console.log('🔵 [DEBUG toggleBold] Restoring selection and toggling bold')
-				props.editorInstance.chain().setTextSelection({ from, to }).focus().toggleBold().run()
+				
+				editorInstance.chain().setTextSelection({ from, to }).focus().toggleBold().run()
 			} else {
-				console.log('🔵 [DEBUG toggleBold] No selection, selecting paragraph and toggling bold')
+				
 				// Không có selection: chọn toàn bộ paragraph và toggle bold
 				const $from = state.doc.resolve(from)
 				// Tìm paragraph chứa cursor
@@ -793,22 +866,22 @@ const toggleBold = () => {
 					}
 				}
 				
-				console.log('🔵 [DEBUG toggleBold] Paragraph range:', paragraphStart, 'to', paragraphEnd)
+				
 				if (paragraphStart !== paragraphEnd) {
-					props.editorInstance.chain().setTextSelection({ from: paragraphStart, to: paragraphEnd }).focus().toggleBold().run()
+					editorInstance.chain().setTextSelection({ from: paragraphStart, to: paragraphEnd }).focus().toggleBold().run()
 				} else {
 					// Fallback: toggle bold tại vị trí cursor
-					props.editorInstance.chain().focus().toggleBold().run()
+					editorInstance.chain().focus().toggleBold().run()
 				}
 			}
-			console.log('✅ [DEBUG toggleBold] Bold toggled, isBold now:', props.editorInstance.isActive('bold'))
+			
 			// Clear saved selection sau khi dùng
 			savedSelection = null
 		})
 	} else {
-		console.log('🔵 [DEBUG toggleBold] isEditing = false, applying to title only')
+		
 		// Chỉ chọn: chỉ áp dụng cho title (KHÔNG focus editor)
-		applyStyleToTitle(props.editorInstance, 'bold', {})
+		applyStyleToTitle(editorInstance, 'bold', {})
 	}
 	
 	// ⚠️ NEW: Clear flag sau khi dispatch
@@ -822,20 +895,57 @@ const toggleBold = () => {
 	
 	// Update style mà không tính toán lại kích thước
 	updateStyleWithoutResize()
-	updateEditorState(props.editorInstance)
+	updateEditorState(editorInstance)
 	emit('bold')
+}
+
+// Helper function để retry lấy editor instance
+const getEditorInstanceWithRetry = (callback) => {
+	let editorInstance = props.editorInstance
+	if (!editorInstance && props.selectedNode && props.renderer) {
+		
+		// Thử lấy trực tiếp từ renderer
+		editorInstance = props.renderer.getEditorInstance(props.selectedNode.id)
+		if (editorInstance) {
+			
+			callback(editorInstance)
+			return
+		} else {
+			// Nếu vẫn chưa có, đợi một chút rồi thử lại
+			setTimeout(() => {
+				const retryInstance = props.renderer?.getEditorInstance(props.selectedNode?.id)
+				if (retryInstance) {
+					
+					callback(retryInstance)
+				} else {
+					
+				}
+			}, 100)
+			return
+		}
+	}
+	
+	if (!editorInstance) {
+		
+		return
+	}
+	
+	callback(editorInstance)
 }
 
 // Toggle Italic
 const toggleItalic = () => {
-	console.log('🟢 [DEBUG toggleItalic] Called')
-	console.log('🟢 [DEBUG toggleItalic] editorInstance:', props.editorInstance)
-	console.log('🟢 [DEBUG toggleItalic] isEditing:', props.isEditing)
 	
-	if (!props.editorInstance) {
-		console.log('❌ [DEBUG toggleItalic] No editor instance, returning')
-		return
-	}
+	
+	
+	
+	getEditorInstanceWithRetry((editorInstance) => {
+		executeToggleItalic(editorInstance)
+	})
+}
+
+// Helper function để thực hiện toggle italic
+const executeToggleItalic = (editorInstance) => {
 	
 	// ⚠️ NEW: Set flag để skip handleEditorInput khi style update
 	const nodeId = props.selectedNode?.id
@@ -846,39 +956,52 @@ const toggleItalic = () => {
 		props.renderer.isUpdatingStyle.add(nodeId)
 	}
 	
-	if (props.isEditing) {
-		console.log('🟢 [DEBUG toggleItalic] isEditing = true, applying to selection')
+	// ⚠️ FIX: Check cả isFocused để hoạt động với node mới
+	const isEditorActive = props.isEditing || (editorInstance && editorInstance.isFocused)
+	if (isEditorActive) {
+		
 		// Đang edit: áp dụng cho selection hiện tại
 		// Sử dụng saved selection nếu có
-		const { state } = props.editorInstance.view
+		const { state } = editorInstance.view
 		let from, to
 		if (savedSelection) {
 			from = savedSelection.from
 			to = savedSelection.to
-			console.log('🟢 [DEBUG toggleItalic] Using saved selection:', savedSelection)
+			
 		} else {
 			from = state.selection.from
 			to = state.selection.to
-			console.log('🟢 [DEBUG toggleItalic] Using current selection from:', from, 'to:', to)
+			
 		}
-		console.log('🟢 [DEBUG toggleItalic] Selection from:', from, 'to:', to, 'hasSelection:', from !== to)
-		console.log('🟢 [DEBUG toggleItalic] isFocused:', props.editorInstance.isFocused)
+		
+		
 		
 		// Sử dụng requestAnimationFrame để đảm bảo editor focus và selection được giữ
 		requestAnimationFrame(() => {
-			console.log('🟢 [DEBUG toggleItalic] Inside requestAnimationFrame')
+			// ⚠️ FIX: Check editor instance và view trước khi truy cập
+			if (!editorInstance || editorInstance.isDestroyed || !editorInstance.view) {
+				
+				return
+			}
+			
+			
 			// Focus editor nếu chưa focus
-			if (!props.editorInstance.isFocused) {
-				console.log('🟢 [DEBUG toggleItalic] Editor not focused, focusing...')
-				props.editorInstance.chain().focus().run()
+			if (!editorInstance.isFocused) {
+				
+				try {
+					editorInstance.chain().focus().run()
+				} catch (error) {
+					
+					return
+				}
 			}
 			
 			// Restore selection nếu có
 			if (from !== to) {
-				console.log('🟢 [DEBUG toggleItalic] Restoring selection and toggling italic')
-				props.editorInstance.chain().setTextSelection({ from, to }).focus().toggleItalic().run()
+				
+				editorInstance.chain().setTextSelection({ from, to }).focus().toggleItalic().run()
 			} else {
-				console.log('🟢 [DEBUG toggleItalic] No selection, selecting paragraph and toggling italic')
+				
 				// Không có selection: chọn toàn bộ paragraph và toggle italic
 				const $from = state.doc.resolve(from)
 				let paragraphStart = from
@@ -893,20 +1016,20 @@ const toggleItalic = () => {
 					}
 				}
 				
-				console.log('🟢 [DEBUG toggleItalic] Paragraph range:', paragraphStart, 'to', paragraphEnd)
+				
 				if (paragraphStart !== paragraphEnd) {
-					props.editorInstance.chain().setTextSelection({ from: paragraphStart, to: paragraphEnd }).focus().toggleItalic().run()
+					editorInstance.chain().setTextSelection({ from: paragraphStart, to: paragraphEnd }).focus().toggleItalic().run()
 				} else {
-					props.editorInstance.chain().focus().toggleItalic().run()
+					editorInstance.chain().focus().toggleItalic().run()
 				}
 			}
-			console.log('✅ [DEBUG toggleItalic] Italic toggled, isItalic now:', props.editorInstance.isActive('italic'))
+			
 			savedSelection = null
 		})
 	} else {
-		console.log('🟢 [DEBUG toggleItalic] isEditing = false, applying to title only')
+		
 		// Chỉ chọn: chỉ áp dụng cho title (KHÔNG focus editor)
-		applyStyleToTitle(props.editorInstance, 'italic', {})
+		applyStyleToTitle(editorInstance, 'italic', {})
 	}
 	
 	// ⚠️ NEW: Clear flag sau khi dispatch
@@ -920,20 +1043,23 @@ const toggleItalic = () => {
 	
 	// Update style mà không tính toán lại kích thước
 	updateStyleWithoutResize()
-	updateEditorState(props.editorInstance)
+	updateEditorState(editorInstance)
 	emit('italic')
 }
 
 // Toggle Underline
 const toggleUnderline = () => {
-	console.log('🟡 [DEBUG toggleUnderline] Called')
-	console.log('🟡 [DEBUG toggleUnderline] editorInstance:', props.editorInstance)
-	console.log('🟡 [DEBUG toggleUnderline] isEditing:', props.isEditing)
 	
-	if (!props.editorInstance) {
-		console.log('❌ [DEBUG toggleUnderline] No editor instance, returning')
-		return
-	}
+	
+	
+	
+	getEditorInstanceWithRetry((editorInstance) => {
+		executeToggleUnderline(editorInstance)
+	})
+}
+
+// Helper function để thực hiện toggle underline
+const executeToggleUnderline = (editorInstance) => {
 	
 	// ⚠️ NEW: Set flag để skip handleEditorInput khi style update
 	const nodeId = props.selectedNode?.id
@@ -944,39 +1070,52 @@ const toggleUnderline = () => {
 		props.renderer.isUpdatingStyle.add(nodeId)
 	}
 	
-	if (props.isEditing) {
-		console.log('🟡 [DEBUG toggleUnderline] isEditing = true, applying to selection')
+	// ⚠️ FIX: Check cả isFocused để hoạt động với node mới
+	const isEditorActive = props.isEditing || (editorInstance && editorInstance.isFocused)
+	if (isEditorActive) {
+		
 		// Đang edit: áp dụng cho selection hiện tại
 		// Sử dụng saved selection nếu có
-		const { state } = props.editorInstance.view
+		const { state } = editorInstance.view
 		let from, to
 		if (savedSelection) {
 			from = savedSelection.from
 			to = savedSelection.to
-			console.log('🟡 [DEBUG toggleUnderline] Using saved selection:', savedSelection)
+			
 		} else {
 			from = state.selection.from
 			to = state.selection.to
-			console.log('🟡 [DEBUG toggleUnderline] Using current selection from:', from, 'to:', to)
+			
 		}
-		console.log('🟡 [DEBUG toggleUnderline] Selection from:', from, 'to:', to, 'hasSelection:', from !== to)
-		console.log('🟡 [DEBUG toggleUnderline] isFocused:', props.editorInstance.isFocused)
+		
+		
 		
 		// Sử dụng requestAnimationFrame để đảm bảo editor focus và selection được giữ
 		requestAnimationFrame(() => {
-			console.log('🟡 [DEBUG toggleUnderline] Inside requestAnimationFrame')
+			// ⚠️ FIX: Check editor instance và view trước khi truy cập
+			if (!editorInstance || editorInstance.isDestroyed || !editorInstance.view) {
+				
+				return
+			}
+			
+			
 			// Focus editor nếu chưa focus
-			if (!props.editorInstance.isFocused) {
-				console.log('🟡 [DEBUG toggleUnderline] Editor not focused, focusing...')
-				props.editorInstance.chain().focus().run()
+			if (!editorInstance.isFocused) {
+				
+				try {
+					editorInstance.chain().focus().run()
+				} catch (error) {
+					
+					return
+				}
 			}
 			
 			// Restore selection nếu có
 			if (from !== to) {
-				console.log('🟡 [DEBUG toggleUnderline] Restoring selection and toggling underline')
-				props.editorInstance.chain().setTextSelection({ from, to }).focus().toggleUnderline().run()
+				
+				editorInstance.chain().setTextSelection({ from, to }).focus().toggleUnderline().run()
 			} else {
-				console.log('🟡 [DEBUG toggleUnderline] No selection, selecting paragraph and toggling underline')
+				
 				// Không có selection: chọn toàn bộ paragraph và toggle underline
 				const $from = state.doc.resolve(from)
 				let paragraphStart = from
@@ -991,20 +1130,20 @@ const toggleUnderline = () => {
 					}
 				}
 				
-				console.log('🟡 [DEBUG toggleUnderline] Paragraph range:', paragraphStart, 'to', paragraphEnd)
+				
 				if (paragraphStart !== paragraphEnd) {
-					props.editorInstance.chain().setTextSelection({ from: paragraphStart, to: paragraphEnd }).focus().toggleUnderline().run()
+					editorInstance.chain().setTextSelection({ from: paragraphStart, to: paragraphEnd }).focus().toggleUnderline().run()
 				} else {
-					props.editorInstance.chain().focus().toggleUnderline().run()
+					editorInstance.chain().focus().toggleUnderline().run()
 				}
 			}
-			console.log('✅ [DEBUG toggleUnderline] Underline toggled, isUnderline now:', props.editorInstance.isActive('underline'))
+			
 			savedSelection = null
 		})
 	} else {
-		console.log('🟡 [DEBUG toggleUnderline] isEditing = false, applying to title only')
+		
 		// Chỉ chọn: chỉ áp dụng cho title (KHÔNG focus editor)
-		applyStyleToTitle(props.editorInstance, 'underline', {})
+		applyStyleToTitle(editorInstance, 'underline', {})
 	}
 	
 	// ⚠️ NEW: Clear flag sau khi dispatch
@@ -1018,25 +1157,29 @@ const toggleUnderline = () => {
 	
 	// Update style mà không tính toán lại kích thước
 	updateStyleWithoutResize()
-	updateEditorState(props.editorInstance)
+	updateEditorState(editorInstance)
 	emit('underline')
 }
 
 // Set highlight color
 const setHighlightColor = (colorName) => {
-	console.log('🟣 [DEBUG setHighlightColor] Called with color:', colorName)
-	console.log('🟣 [DEBUG setHighlightColor] editorInstance:', props.editorInstance)
-	console.log('🟣 [DEBUG setHighlightColor] isEditing:', props.isEditing)
 	
-	if (!props.editorInstance) {
-		console.log('❌ [DEBUG setHighlightColor] No editor instance, returning')
-		return
-	}
+	
+	
+	
 	
 	// Không cho phép highlight nếu đang ở trong blockquote
 	if (isInBlockquote.value) {
 		return
 	}
+	
+	getEditorInstanceWithRetry((editorInstance) => {
+		executeSetHighlightColor(editorInstance, colorName)
+	})
+}
+
+// Helper function để thực hiện set highlight color
+const executeSetHighlightColor = (editorInstance, colorName) => {
 	
 	const colorMap = {
 		pink: '#fce7f3',
@@ -1050,12 +1193,14 @@ const setHighlightColor = (colorName) => {
 	
 	const hexColor = colorMap[colorName]
 	if (hexColor) {
-		if (props.isEditing) {
-			console.log('🟣 [DEBUG setHighlightColor] isEditing = true, applying to selection')
+		// ⚠️ FIX: Check cả isFocused để hoạt động với node mới
+		const isEditorActive = props.isEditing || (editorInstance && editorInstance.isFocused)
+		if (isEditorActive) {
+			
 			// Đang edit: chỉ áp dụng cho title (không áp dụng cho blockquote)
 			// Kiểm tra xem selection có trong blockquote không
 			if (isInBlockquote.value) {
-				console.log('❌ [DEBUG setHighlightColor] In blockquote, returning')
+				
 				return
 			}
 			
@@ -1070,35 +1215,46 @@ const setHighlightColor = (colorName) => {
 			
 			// Áp dụng cho selection hiện tại (chỉ khi không ở trong blockquote)
 			// Sử dụng saved selection nếu có
-			const { state } = props.editorInstance.view
+			const { state } = editorInstance.view
 			let from, to
 			if (savedSelection) {
 				from = savedSelection.from
 				to = savedSelection.to
-				console.log('🟣 [DEBUG setHighlightColor] Using saved selection:', savedSelection)
+				
 			} else {
 				from = state.selection.from
 				to = state.selection.to
-				console.log('🟣 [DEBUG setHighlightColor] Using current selection from:', from, 'to:', to)
+				
 			}
-			console.log('🟣 [DEBUG setHighlightColor] Selection from:', from, 'to:', to, 'hasSelection:', from !== to)
-			console.log('🟣 [DEBUG setHighlightColor] isFocused:', props.editorInstance.isFocused)
-			console.log('🟣 [DEBUG setHighlightColor] hexColor:', hexColor)
+			
+			
+			
 			
 			// Sử dụng requestAnimationFrame để đảm bảo editor focus và selection được giữ
 			requestAnimationFrame(() => {
-				console.log('🟣 [DEBUG setHighlightColor] Inside requestAnimationFrame')
+				// ⚠️ FIX: Check editor instance và view trước khi truy cập
+				if (!editorInstance || editorInstance.isDestroyed || !editorInstance.view) {
+					
+					return
+				}
+				
+				
 				// Focus editor nếu chưa focus
-				if (!props.editorInstance.isFocused) {
-					console.log('🟣 [DEBUG setHighlightColor] Editor not focused, focusing...')
-					props.editorInstance.chain().focus().run()
+				if (!editorInstance.isFocused) {
+					
+					try {
+						editorInstance.chain().focus().run()
+					} catch (error) {
+						
+						return
+					}
 				}
 				
 				// Restore selection nếu có, nếu không thì chọn paragraph
 				let selectionFrom = from
 				let selectionTo = to
 				if (from === to) {
-					console.log('🟣 [DEBUG setHighlightColor] No selection, selecting paragraph')
+					
 					const $from = state.doc.resolve(from)
 					for (let depth = $from.depth; depth > 0; depth--) {
 						const node = $from.node(depth)
@@ -1108,31 +1264,31 @@ const setHighlightColor = (colorName) => {
 							break
 						}
 					}
-					console.log('🟣 [DEBUG setHighlightColor] Paragraph range:', selectionFrom, 'to', selectionTo)
+					
 				}
 				
-				const currentAttrs = props.editorInstance.getAttributes('textStyle')
-				console.log('🟣 [DEBUG setHighlightColor] Current textStyle attrs:', currentAttrs)
+				const currentAttrs = editorInstance.getAttributes('textStyle')
+				
 				if (currentAttrs && currentAttrs.backgroundColor === hexColor) {
-					console.log('🟣 [DEBUG setHighlightColor] Removing highlight')
+					
 					// Bỏ highlight
 					if (selectionFrom !== selectionTo) {
-						props.editorInstance.chain().setTextSelection({ from: selectionFrom, to: selectionTo }).focus().setMark('textStyle', { backgroundColor: null }).removeEmptyTextStyle().run()
+						editorInstance.chain().setTextSelection({ from: selectionFrom, to: selectionTo }).focus().setMark('textStyle', { backgroundColor: null }).removeEmptyTextStyle().run()
 					} else {
-						props.editorInstance.chain().focus().setMark('textStyle', { backgroundColor: null }).removeEmptyTextStyle().run()
+						editorInstance.chain().focus().setMark('textStyle', { backgroundColor: null }).removeEmptyTextStyle().run()
 					}
 					currentHighlightColor.value = null
 				} else {
-					console.log('🟣 [DEBUG setHighlightColor] Setting highlight')
+					
 					// Set highlight
 					if (selectionFrom !== selectionTo) {
-						props.editorInstance.chain().setTextSelection({ from: selectionFrom, to: selectionTo }).focus().setMark('textStyle', { backgroundColor: hexColor }).run()
+						editorInstance.chain().setTextSelection({ from: selectionFrom, to: selectionTo }).focus().setMark('textStyle', { backgroundColor: hexColor }).run()
 					} else {
-						props.editorInstance.chain().focus().setMark('textStyle', { backgroundColor: hexColor }).run()
+						editorInstance.chain().focus().setMark('textStyle', { backgroundColor: hexColor }).run()
 					}
 					currentHighlightColor.value = colorName
 				}
-				console.log('✅ [DEBUG setHighlightColor] Highlight applied, currentHighlightColor:', currentHighlightColor.value)
+				
 				savedSelection = null
 			})
 			
@@ -1147,11 +1303,11 @@ const setHighlightColor = (colorName) => {
 			
 			// Update style mà không tính toán lại kích thước
 			updateStyleWithoutResize()
-			updateEditorState(props.editorInstance)
+			updateEditorState(editorInstance)
 		} else {
 			// Chỉ chọn: chỉ áp dụng cho title
 			// Sử dụng applyStyleToTitle với textStyle mark và backgroundColor attribute
-			const { state } = props.editorInstance.view
+			const { state } = editorInstance.view
 			const { doc, schema } = state
 			
 			// Tìm tất cả text nodes trong title paragraphs (không trong blockquote)
@@ -1190,7 +1346,7 @@ const setHighlightColor = (colorName) => {
 				const textStyleMark = schema.marks.textStyle
 				
 				// Kiểm tra xem có highlight hiện tại không
-				const currentAttrs = props.editorInstance.getAttributes('textStyle')
+				const currentAttrs = editorInstance.getAttributes('textStyle')
 				const hasCurrentHighlight = currentAttrs && currentAttrs.backgroundColor === hexColor
 				
 				titleRanges.forEach(({ from, to }) => {
@@ -1204,7 +1360,7 @@ const setHighlightColor = (colorName) => {
 					}
 				})
 				
-				props.editorInstance.view.dispatch(tr)
+				editorInstance.view.dispatch(tr)
 				currentHighlightColor.value = hasCurrentHighlight ? null : colorName
 				
 				// ⚠️ NEW: Clear flag sau khi dispatch
@@ -1218,7 +1374,7 @@ const setHighlightColor = (colorName) => {
 				
 				// Update style mà không tính toán lại kích thước
 				updateStyleWithoutResize()
-				updateEditorState(props.editorInstance)
+				updateEditorState(editorInstance)
 			}
 		}
 		emit('highlight-color', colorName)
@@ -1235,16 +1391,24 @@ const handleDone = () => {
 
 // Handle List action (focus vào mô tả/blockquote)
 const handleListAction = () => {
-	if (!props.editorInstance || !props.selectedNode) return
+	if (!props.selectedNode) return
 	
+	// ⚠️ FIX: Retry lấy editor instance nếu chưa có
+	getEditorInstanceWithRetry((editorInstance) => {
+		executeListAction(editorInstance)
+	})
+}
+
+// Helper function để thực hiện list action
+const executeListAction = (editorInstance) => {
 	// Focus vào editor trước
-	props.editorInstance.commands.focus()
+	editorInstance.commands.focus()
 	
 	// Đợi editor focus xong, sau đó focus vào blockquote
 	setTimeout(() => {
-		if (!props.editorInstance) return
+		if (!editorInstance || !editorInstance.view) return
 		
-		const { state } = props.editorInstance.view
+		const { state } = editorInstance.view
 		const { doc } = state
 		
 		// Tìm blockquote đầu tiên
@@ -1288,13 +1452,13 @@ const handleListAction = () => {
 						// Sử dụng resolve để đảm bảo vị trí hợp lệ
 						try {
 							const resolvedPos = state.doc.resolve(lastTextPos)
-							props.editorInstance.chain()
+							editorInstance.chain()
 								.setTextSelection(resolvedPos.pos)
 								.focus()
 								.run()
 						} catch (e) {
 							// Fallback: sử dụng vị trí trực tiếp
-							props.editorInstance.chain()
+							editorInstance.chain()
 								.setTextSelection(lastTextPos)
 								.focus()
 								.run()
@@ -1312,7 +1476,7 @@ const handleListAction = () => {
 						
 						if (lastParagraphPos !== null) {
 							// Focus vào đầu paragraph cuối cùng
-							props.editorInstance.chain()
+							editorInstance.chain()
 								.setTextSelection(lastParagraphPos)
 								.focus()
 								.run()
@@ -1321,12 +1485,12 @@ const handleListAction = () => {
 							const blockquoteEndPos = blockquoteOffset + blockquoteNode.nodeSize - 1
 							try {
 								const resolvedPos = state.doc.resolve(blockquoteEndPos - 1)
-								props.editorInstance.chain()
+								editorInstance.chain()
 									.setTextSelection(resolvedPos.pos)
 									.focus()
 									.run()
 							} catch (e) {
-								props.editorInstance.chain()
+								editorInstance.chain()
 									.setTextSelection(blockquoteEndPos - 1)
 									.focus()
 									.run()
@@ -1335,12 +1499,12 @@ const handleListAction = () => {
 					}
 				} else {
 					// Fallback: focus vào cuối document
-					props.editorInstance.commands.focus('end')
+					editorInstance.commands.focus('end')
 				}
 			} catch (e) {
-				console.error('Error focusing blockquote:', e)
+				
 				// Fallback: focus vào cuối document
-				props.editorInstance.commands.focus('end')
+				editorInstance.commands.focus('end')
 			}
 		} else {
 			// Chưa có blockquote: tạo blockquote mới
@@ -1364,7 +1528,7 @@ const handleListAction = () => {
 			}
 			
 			// Chèn blockquote tại vị trí đã tính
-			props.editorInstance.chain()
+			editorInstance.chain()
 				.setTextSelection(insertPosition)
 				.focus()
 				.insertContent('<blockquote><p></p></blockquote>')
@@ -1372,8 +1536,8 @@ const handleListAction = () => {
 			
 			// Focus vào paragraph trong blockquote vừa tạo
 			setTimeout(() => {
-				if (props.editorInstance) {
-					const { state } = props.editorInstance.view
+				if (editorInstance && editorInstance.view) {
+					const { state } = editorInstance.view
 					const { doc: newDoc } = state
 					
 					// Tìm blockquote vừa tạo
@@ -1386,12 +1550,12 @@ const handleListAction = () => {
 					
 					if (newBlockquoteOffset !== null) {
 						const paragraphStartPos = newBlockquoteOffset + 1 + 1
-						props.editorInstance.chain()
+						editorInstance.chain()
 							.setTextSelection(paragraphStartPos)
 							.focus()
 							.run()
 					} else {
-						props.editorInstance.commands.focus('end')
+						editorInstance.commands.focus('end')
 					}
 				}
 			}, 50)
@@ -1403,22 +1567,13 @@ const handleListAction = () => {
 
 // Handle Insert Image
 const handleInsertImage = (event) => {
-	console.log('🖼️ Toolbar handleInsertImage called', { 
-		selectedNode: props.selectedNode,
-		hasEditor: !!props.editorInstance,
-		event
-	})
-	
 	if (!props.selectedNode) {
-		console.warn('❌ No selected node')
+		
 		return
 	}
 	
-	if (!props.editorInstance) {
-		console.warn('❌ No editor instance')
-		return
-	}
-	
+	// ⚠️ FIX: Không cần check editor instance vì parent component sẽ xử lý
+	// Chỉ cần emit event với selectedNode
 	emit('insert-image', { node: props.selectedNode })
 }
 

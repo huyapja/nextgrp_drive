@@ -316,17 +316,19 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	
 	// Tính toán height mới dựa trên width và nội dung - tự động mở rộng để hiển thị đủ nội dung
 	let currentHeight
+	let measuredHeight = singleLineHeight // ⚠️ FIX: Định nghĩa ở ngoài để có thể dùng trong log
 	if (isEmpty) {
 		// ⚠️ FIX: Khi xóa hết nội dung:
 		// - Nếu node có kích thước lớn hơn mặc định (minNodeHeight >= singleLineHeight): giữ lại kích thước đã khóa
 		// - Nếu node có kích thước nhỏ hơn mặc định (minNodeHeight < singleLineHeight): dùng kích thước mặc định
 		// Điều này đảm bảo node giữ lại kích thước đã khóa nếu lớn hơn mặc định, hoặc dùng mặc định nếu nhỏ hơn
 		currentHeight = Math.max(minNodeHeight, singleLineHeight)
+		measuredHeight = currentHeight
 		console.log('[DEBUG handleEditorInput] Xóa hết nội dung, height giãn ra kích thước:', currentHeight, '(minNodeHeight:', minNodeHeight, 'singleLineHeight:', singleLineHeight, ')')
 	} else {
 		// ⚠️ FIX: Đo chiều cao trực tiếp từ TipTap editor DOM
 		const editorInstance = getEditorInstance(renderer, nodeId)
-		let measuredHeight = singleLineHeight
+		measuredHeight = singleLineHeight
 		
 		if (editorInstance && editorInstance.view && editorInstance.view.dom) {
 			const editorDOM = editorInstance.view.dom
@@ -335,16 +337,15 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 			if (editorContent) {
 				// ⚠️ CRITICAL FIX: Set styles TRƯỚC KHI đo
 				const foWidth = currentWidth - borderOffset
-				editorContent.style.cssText = `
-					box-sizing: border-box;
-					width: ${foWidth}px;
-					height: auto;
-					min-height: ${singleLineHeight}px;
-					max-height: none;
-					overflow: visible;
-					padding: 8px 16px;
-					white-space: ${currentWidth >= maxWidth ? 'pre-wrap' : 'nowrap'};
-				`
+				// ⚠️ CRITICAL: Set overflow: visible TRƯỚC để scrollHeight tính đúng ảnh
+				editorContent.style.overflow = 'visible'
+				editorContent.style.boxSizing = 'border-box'
+				editorContent.style.width = `${foWidth}px`
+				editorContent.style.height = 'auto'
+				editorContent.style.minHeight = `${singleLineHeight}px`
+				editorContent.style.maxHeight = 'none'
+				editorContent.style.padding = '8px 16px'
+				editorContent.style.whiteSpace = currentWidth >= maxWidth ? 'pre-wrap' : 'nowrap'
 				
 				// Force reflow NHIỀU LẦN để đảm bảo DOM đã cập nhật
 				void editorContent.offsetWidth
@@ -355,12 +356,46 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 				// scrollHeight = total content height (bao gồm cả phần bị ẩn)
 				// offsetHeight = actual rendered height (có thể bị cắt nếu overflow)
 				// Dùng scrollHeight để đảm bảo node đủ cao để hiển thị toàn bộ content
+				let scrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
+				
+				// ⚠️ CRITICAL: Nếu có ảnh, đo height bao gồm cả ảnh
+				const images = editorContent.querySelectorAll('img')
+				const imageWrappers = editorContent.querySelectorAll('.image-wrapper-node')
+				
+				if (images.length > 0 || imageWrappers.length > 0) {
+					// Có ảnh - đo height từ phần tử cuối cùng (có thể là ảnh)
+					let maxBottom = scrollHeight
+					
+					// Đo từ tất cả image wrappers (bao gồm margin)
+					imageWrappers.forEach((wrapper) => {
+						const wrapperStyle = window.getComputedStyle(wrapper)
+						const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
+						const wrapperBottom = wrapper.offsetTop + wrapper.offsetHeight + wrapperMarginBottom
+						maxBottom = Math.max(maxBottom, wrapperBottom)
+					})
+					
+					// Đo từ tất cả ảnh (nếu không có wrapper)
+					images.forEach((img) => {
+						const imgStyle = window.getComputedStyle(img)
+						const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
+						const imgBottom = img.offsetTop + img.offsetHeight + imgMarginBottom
+						maxBottom = Math.max(maxBottom, imgBottom)
+					})
+					
+					// Dùng maxBottom nếu lớn hơn scrollHeight
+					if (maxBottom > scrollHeight) {
+						scrollHeight = maxBottom
+						console.log('[DEBUG handleEditorInput] Using maxBottom from images:', maxBottom, 'original scrollHeight:', editorContent.scrollHeight)
+					}
+				}
+				
 				const contentHeight = Math.max(
-					editorContent.scrollHeight || editorContent.offsetHeight || 0,
+					scrollHeight,
 					singleLineHeight
 				)
 				
 				measuredHeight = contentHeight
+				console.log('[DEBUG handleEditorInput] Final measuredHeight:', measuredHeight, 'scrollHeight:', scrollHeight)
 			}
 		}
 		
@@ -372,6 +407,14 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	// Cập nhật height của node-rect và foreignObject
 	rect.attr('height', currentHeight)
 	fo.attr('height', Math.max(0, currentHeight - borderOffset))
+	
+	// ⚠️ CRITICAL: Log kích thước thực tế sau khi cập nhật
+	console.log(`📐 [handleEditorInput] Node ${nodeId} size after update:`, {
+		rect: { width: currentWidth, height: currentHeight },
+		foreignObject: { width: currentWidth - borderOffset, height: Math.max(0, currentHeight - borderOffset) },
+		measuredHeight: measuredHeight,
+		minNodeHeight: minNodeHeight
+	})
 	
 	// ⚠️ FIX: Cập nhật wrapper và editor container để hiển thị đầy đủ nội dung
 	const wrapper = fo.select('.node-content-wrapper')
@@ -905,16 +948,50 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				// Force reflow để đảm bảo width và white-space đã được set
 				void editorContent.offsetWidth
 				void editorContent.offsetHeight
+				void editorContent.scrollHeight
 				
 				// ⚠️ STEP 3: Đo height chính xác từ scrollHeight để lấy chiều cao đầy đủ
 				// Dùng scrollHeight thay vì offsetHeight để đảm bảo lấy được toàn bộ content height
+				let scrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
+				
+				// ⚠️ CRITICAL: Nếu có ảnh, đo height bao gồm cả ảnh
+				const images = editorContent.querySelectorAll('img')
+				const imageWrappers = editorContent.querySelectorAll('.image-wrapper-node')
+				
+				if (images.length > 0 || imageWrappers.length > 0) {
+					// Có ảnh - đo height từ phần tử cuối cùng (có thể là ảnh)
+					let maxBottom = scrollHeight
+					
+					// Đo từ tất cả image wrappers (bao gồm margin)
+					imageWrappers.forEach((wrapper) => {
+						const wrapperStyle = window.getComputedStyle(wrapper)
+						const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
+						const wrapperBottom = wrapper.offsetTop + wrapper.offsetHeight + wrapperMarginBottom
+						maxBottom = Math.max(maxBottom, wrapperBottom)
+					})
+					
+					// Đo từ tất cả ảnh (nếu không có wrapper)
+					images.forEach((img) => {
+						const imgStyle = window.getComputedStyle(img)
+						const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
+						const imgBottom = img.offsetTop + img.offsetHeight + imgMarginBottom
+						maxBottom = Math.max(maxBottom, imgBottom)
+					})
+					
+					// Dùng maxBottom nếu lớn hơn scrollHeight
+					if (maxBottom > scrollHeight) {
+						scrollHeight = maxBottom
+						console.log('[DEBUG handleEditorBlur] Using maxBottom from images:', maxBottom, 'original scrollHeight:', editorContent.scrollHeight)
+					}
+				}
+				
 				measuredHeight = Math.max(
-					editorContent.scrollHeight || editorContent.offsetHeight || 0,
+					scrollHeight,
 					singleLineHeight
 				)
 				// Đánh dấu đã đo được height từ DOM
 				hasMeasuredHeightFromDOM = true
-				console.log('[DEBUG handleEditorBlur] Đo height - editorContent.offsetHeight:', editorContent.offsetHeight, 'measuredHeight:', measuredHeight, 'singleLineHeight:', singleLineHeight)
+				console.log('[DEBUG handleEditorBlur] Đo height - scrollHeight:', scrollHeight, 'measuredHeight:', measuredHeight, 'singleLineHeight:', singleLineHeight, 'images.length:', images.length, 'imageWrappers.length:', imageWrappers.length)
 			}
 			
 			// Remove focused class
@@ -1008,6 +1085,26 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 		renderer.nodeSizeCache.set(nodeId, { width: finalWidth, height: finalHeight })
 	}
 	
+	// ⚠️ CRITICAL: Log kích thước thực tế sau khi cập nhật
+	// Đợi một chút để DOM đã cập nhật
+	setTimeout(() => {
+		const nodeGroup = d3.select(foElement.parentNode)
+		const rect = nodeGroup.select('.node-rect')
+		const fo = nodeGroup.select('.node-text')
+		if (rect.node() && fo.node()) {
+			const rectWidth = parseFloat(rect.attr('width')) || 0
+			const rectHeight = parseFloat(rect.attr('height')) || 0
+			const foWidth = parseFloat(fo.attr('width')) || 0
+			const foHeight = parseFloat(fo.attr('height')) || 0
+			console.log(`📐 [handleEditorBlur] Node ${nodeId} actual size after update:`, {
+				rect: { width: rectWidth, height: rectHeight },
+				foreignObject: { width: foWidth, height: foHeight },
+				finalWidth: finalWidth,
+				finalHeight: finalHeight
+			})
+		}
+	}, 200)
+	
 	// Cập nhật node data
 	if (nodeData.data) {
 		nodeData.data.label = finalValue
@@ -1038,6 +1135,14 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	const borderOffset = 4
 	fo.attr('width', Math.max(0, finalWidth - borderOffset))
 	fo.attr('height', Math.max(0, finalHeight - borderOffset))
+	
+	// ⚠️ CRITICAL: Log kích thước thực tế sau khi cập nhật
+	console.log(`📐 [handleEditorBlur] Node ${nodeId} size after update:`, {
+		rect: { width: finalWidth, height: finalHeight },
+		foreignObject: { width: Math.max(0, finalWidth - borderOffset), height: Math.max(0, finalHeight - borderOffset) },
+		finalWidth: finalWidth,
+		finalHeight: finalHeight
+	})
 	
 	// ⚠️ CRITICAL: Set white-space ngay sau khi blur để đảm bảo text wrap đúng
 	// Nếu width < maxWidth: dùng nowrap để text không xuống dòng
