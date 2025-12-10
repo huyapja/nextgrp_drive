@@ -1906,6 +1906,24 @@ async function pasteFromSystemClipboard(targetNodeId) {
   }
 }
 
+function syncElementsWithRendererPosition() {
+  if (!d3Renderer?.positions?.size) return
+
+  const newNodes = nodes.value.map(n => {
+    const pos = d3Renderer.positions.get(n.id)
+    if (!pos) return n
+    return {
+      ...n,
+      position: { x: pos.x, y: pos.y }
+    }
+  })
+
+  elements.value = [
+    ...newNodes,
+    ...edges.value
+  ]
+}
+
 function handleContextMenuAction({ type, node }) {
   if (!node) return
 
