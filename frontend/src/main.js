@@ -15,8 +15,6 @@ import VueTippy from "vue-tippy"
 
 
 async function loadBoot() {
-  if (!import.meta.env.DEV) return
-
   try {
     const res = await fetch("/api/method/drive.www.drive.get_context_for_dev", {
       method: "POST"

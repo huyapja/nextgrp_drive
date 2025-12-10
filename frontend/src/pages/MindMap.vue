@@ -926,7 +926,8 @@ const handleKeyDown = (event) => {
     target?.closest('.mindmap-editor-content') ||
     target?.closest('.mindmap-editor-prose') ||
     target?.classList?.contains('ProseMirror') ||
-    target?.closest('[contenteditable="true"]')
+    target?.closest('[contenteditable="true"]') ||
+    target?.closest('.comment-editor-root')
 
   // Nếu đang trong editor, cho phép editor xử lý keyboard shortcuts (Ctrl+B, Ctrl+I, etc.)
   if (isInEditor || editingNode.value) {
@@ -1193,7 +1194,7 @@ const handleKeyDown = (event) => {
       // Nếu đang trong editor, cho phép paste text bình thường (TipTap sẽ xử lý)
       return
     }
-    
+
     if (selectedNode.value) {
       if (hasClipboard.value) {
         // Paste từ clipboard của mindmap
@@ -1435,7 +1436,7 @@ function copyNode(nodeId) {
   const node = nodes.value.find(n => n.id === nodeId)
   if (!node) return
   // ⚠️ CHANGED: Cho phép copy root node để có thể copy toàn bộ mindmap
-  
+
   // Thu thập tất cả node IDs trong subtree (bao gồm node gốc)
   const subtreeNodeIds = new Set([nodeId])
   const collectDescendants = (id) => {
@@ -1837,16 +1838,16 @@ function pasteToNode(targetNodeId) {
 // ⚠️ NEW: Paste từ clipboard hệ thống (nội dung từ bên ngoài)
 async function pasteFromSystemClipboard(targetNodeId) {
   if (!targetNodeId) return
-  
+
   try {
     // Đọc text từ clipboard hệ thống
     const text = await navigator.clipboard.readText()
-    
+
     if (!text || text.trim() === '') {
       console.log('⚠️ Clipboard is empty')
       return
     }
-    
+
     // Tạo node mới với nội dung từ clipboard
     const newNodeId = `node-${nodeCounter++}`
     const newNode = {
@@ -1856,16 +1857,16 @@ async function pasteFromSystemClipboard(targetNodeId) {
         parentId: targetNodeId
       }
     }
-    
+
     const newEdge = {
       id: `edge-${targetNodeId}-${newNodeId}`,
       source: targetNodeId,
       target: newNodeId
     }
-    
+
     // Store creation order
     nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
-    
+
     // Add node and edge
     elements.value = [
       ...nodes.value,
@@ -1873,15 +1874,15 @@ async function pasteFromSystemClipboard(targetNodeId) {
       ...edges.value,
       newEdge
     ]
-    
+
     selectedNode.value = newNode
-    
+
     if (d3Renderer) {
       d3Renderer.selectedNode = newNodeId
     }
-    
+
     console.log("✅ Pasted from system clipboard:", newNodeId, "to parent:", targetNodeId, "content:", text.substring(0, 50))
-    
+
     // Auto-focus new node's editor
     nextTick(() => {
       void document.body.offsetHeight
@@ -1897,7 +1898,7 @@ async function pasteFromSystemClipboard(targetNodeId) {
         }
       }, 30)
     })
-    
+
     scheduleSave()
   } catch (error) {
     console.error('❌ Error reading clipboard:', error)
@@ -2012,6 +2013,9 @@ function handleClickOutside(e) {
   if (clickedInsidePanel) return
   if (e.target.closest(".node-group")) return
   if (e.target.closest(".pi-comment")) return
+  if (e.target.closest("[data-comment-dropdown]")) return
+  if (e.target.closest("[data-comment-more]")) return
+  if (e.target.closest("[comment-editor-root]")) return
 
   if (commentInputValue.value.trim().length > 0) return
 
@@ -2021,30 +2025,30 @@ function handleClickOutside(e) {
 // ⚠️ NEW: Handle paste event từ clipboard hệ thống
 function handlePasteEvent(event) {
   // Kiểm tra xem có đang trong editor không
-  const isInEditor = event.target?.closest('.mindmap-node-editor') || 
-                     event.target?.closest('.ProseMirror') ||
-                     event.target?.closest('.mindmap-editor-prose')
-  
+  const isInEditor = event.target?.closest('.mindmap-node-editor') ||
+    event.target?.closest('.ProseMirror') ||
+    event.target?.closest('.mindmap-editor-prose')
+
   if (isInEditor) {
     // Nếu đang trong editor, cho phép paste text bình thường (TipTap sẽ xử lý)
     return
   }
-  
+
   // Kiểm tra xem có đang focus vào input/textarea không
-  const isInInput = event.target?.tagName === 'INPUT' || 
-                    event.target?.tagName === 'TEXTAREA' ||
-                    event.target?.isContentEditable
-  
+  const isInInput = event.target?.tagName === 'INPUT' ||
+    event.target?.tagName === 'TEXTAREA' ||
+    event.target?.isContentEditable
+
   if (isInInput) {
     // Nếu đang trong input/textarea, cho phép paste bình thường
     return
   }
-  
+
   // Chỉ xử lý paste nếu có node được chọn và không có clipboard của mindmap
   if (selectedNode.value && !hasClipboard.value) {
     event.preventDefault()
     event.stopPropagation()
-    
+
     // Đọc text từ clipboard event
     const clipboardData = event.clipboardData || window.clipboardData
     if (clipboardData) {
@@ -2059,16 +2063,16 @@ function handlePasteEvent(event) {
             parentId: selectedNode.value.id
           }
         }
-        
+
         const newEdge = {
           id: `edge-${selectedNode.value.id}-${newNodeId}`,
           source: selectedNode.value.id,
           target: newNodeId
         }
-        
+
         // Store creation order
         nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
-        
+
         // Add node and edge
         elements.value = [
           ...nodes.value,
@@ -2076,15 +2080,15 @@ function handlePasteEvent(event) {
           ...edges.value,
           newEdge
         ]
-        
+
         selectedNode.value = newNode
-        
+
         if (d3Renderer) {
           d3Renderer.selectedNode = newNodeId
         }
-        
+
         console.log("✅ Pasted from system clipboard (event):", newNodeId, "to parent:", selectedNode.value.id, "content:", text.substring(0, 50))
-        
+
         // Auto-focus new node's editor
         nextTick(() => {
           void document.body.offsetHeight
@@ -2100,7 +2104,7 @@ function handlePasteEvent(event) {
             }
           }, 30)
         })
-        
+
         scheduleSave()
       }
     }
@@ -2114,6 +2118,10 @@ function onCancelComment() {
 
 function handleSelectCommentNode(node) {
   if (!node) return
+
+  if (activeCommentNode.value?.id === node.id) {
+    return
+  }
 
   activeCommentNode.value = node
 

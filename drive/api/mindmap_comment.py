@@ -2,6 +2,15 @@ import frappe
 import json
 from frappe import _
 
+from bleach import clean
+
+
+ALLOWED_TAGS = ["p", "br", "b", "i", "strong", "em", "img", "a"]
+ALLOWED_ATTRS = {
+    "img": ["src", "alt"],
+    "a": ["href", "target"]
+}
+
 
 @frappe.whitelist()
 def get_comments(mindmap_id: str):
@@ -20,13 +29,23 @@ def get_comments(mindmap_id: str):
 @frappe.whitelist()
 def add_comment(mindmap_id: str, node_id: str, comment: str):
     if not mindmap_id or not node_id or not comment:
-        frappe.throw(_("Invalid parameters: mindmap_id, node_id, comment are required"))
+        frappe.throw(_("Invalid parameters"))
 
     try:
-        # Parse string JSON → dict
         comment_data = json.loads(comment)
     except Exception:
         frappe.throw(_("Comment must be valid JSON"))
+
+    raw_text = comment_data.get("text", "")
+
+    safe_text = clean(
+        raw_text,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRS,
+        strip=True
+    )
+
+    comment_data["text"] = safe_text
 
     doc = frappe.get_doc({
         "doctype": "Drive Mindmap Comment",
@@ -47,11 +66,11 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
         }
     )
 
-
     return {
         "status": "ok",
         "comment": doc.as_dict()
     }
+
 
 @frappe.whitelist()
 def delete_comments_by_nodes(mindmap_id: str, node_ids):
