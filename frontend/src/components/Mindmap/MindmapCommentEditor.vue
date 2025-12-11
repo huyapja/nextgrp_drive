@@ -46,7 +46,6 @@ onMounted(() => {
 
                     emit("navigate", "next")
 
-                    console.log(">>> i am herre");
                     
                     // ✅ blur editor để ngừng bắt phím
                      editor.value?.commands.blur()

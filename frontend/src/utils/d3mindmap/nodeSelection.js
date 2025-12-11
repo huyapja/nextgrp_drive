@@ -4,9 +4,17 @@
  */
 
 import * as d3 from 'd3'
+import { hasCompletedAncestor } from './utils.js'
 
 export function selectNode(renderer, nodeId, skipCallback = false) {
   renderer.selectedNode = nodeId
+  
+  // Helper: keep opacity consistent with ancestor completion fading logic
+  const getNodeOpacity = (nodeData) => {
+    if (nodeData.data?.completed) return 0.5
+    if (hasCompletedAncestor(nodeData.id, renderer.nodes, renderer.edges)) return 0.5
+    return 1
+  }
   
   // Update node styles
   renderer.g.selectAll('.node-group')
@@ -20,13 +28,13 @@ export function selectNode(renderer, nodeId, skipCallback = false) {
       return d.data?.isRoot ? 'none' : '#cbd5e1'
     })
     .attr('stroke-width', 2) // Border luôn là 2px
-    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Giữ opacity dựa trên completed status
+    .attr('opacity', d => getNodeOpacity(d)) // Giữ opacity dựa trên completed/ancestor status
   
   // Cũng update node-group opacity để đảm bảo toàn bộ node bị làm mờ
   renderer.g.selectAll('.node-group')
     .style('opacity', d => {
       if (renderer.isNodeHidden && renderer.isNodeHidden(d.id)) return 0
-      return d.data?.completed ? 0.5 : 1
+      return getNodeOpacity(d)
     })
   
   // ⚠️ FIX: Chỉ gọi callback nếu không skip (tránh vòng lặp vô hạn)

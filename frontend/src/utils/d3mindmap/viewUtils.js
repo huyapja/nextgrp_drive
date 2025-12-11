@@ -118,6 +118,5 @@ export function scrollToNode(renderer, nodeId) {
     renderer.selectNode(nodeId)
   }
   
-  console.log('✅ Scrolled to node:', nodeId, 'position:', pos)
 }
 

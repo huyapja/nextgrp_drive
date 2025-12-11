@@ -702,7 +702,6 @@ function canEditTeam(teamItem) {
       (member) =>
         member.user === currentUserId || member.user_id === currentUserId
     )
-    console.log(userMember)
     if (userMember) {
       // Check access level (2 = admin)
       if (userMember.access_level === 2) {
