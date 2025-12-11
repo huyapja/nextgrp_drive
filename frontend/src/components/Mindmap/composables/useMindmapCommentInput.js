@@ -7,6 +7,7 @@ export function useMindmapCommentInput({
   entityName,
   emit,
   previewImages,
+  resetPreviewImages    
 }) {
   const inputValue = ref("")
   const commentCache = ref(
@@ -33,10 +34,7 @@ export function useMindmapCommentInput({
     if (!activeNodeId.value) return
     if (!inputValue.value.trim() && !previewImages.value.length) return
 
-    const finalHTML = `
-      ${inputValue.value.trim()}
-      ${previewImages.value.map((url) => `<img src="${url}" />`).join("")}
-    `.trim()
+    const finalHTML = inputValue.value.trim()
 
     const payload = {
       text: finalHTML,
@@ -50,8 +48,8 @@ export function useMindmapCommentInput({
     })
 
     // RESET SAU KHI GỬI
+    resetPreviewImages()
     inputValue.value = ""
-    previewImages.value = []
     commentCache.value[activeNodeId.value] = ""
     saveCache()
 

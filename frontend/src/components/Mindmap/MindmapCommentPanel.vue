@@ -152,20 +152,23 @@
               autoResize="false" :placeholder="group.comments?.length ? 'Trả lời' : 'Thêm nhận xét'"
               @keydown.enter.exact.prevent="handleSubmit" @keydown.shift.enter.stop /> -->
 
-            <CommentEditor :ref="el => {
-              if (!commentEditorRef.value) {
-                commentEditorRef.value = {}
-              }
-              if (group.node.id === activeNodeId) {
-                commentEditorRef.value[group.node.id] = el
-              }
-            }" :visible="props?.visible" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmit"
-              @navigate="handleNavigate" />
+            <div class="flex gap-2 w-full border rounded">
+              <div class="flex-1">
+                <CommentEditor :ref="el => {
+                  if (!commentEditorRef.value) {
+                    commentEditorRef.value = {}
+                  }
+                  if (group.node.id === activeNodeId) {
+                    commentEditorRef.value[group.node.id] = el
+                  }
+                }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmit"
+                  @navigate="handleNavigate" />
+              </div>
 
-            <div class="absolute top-1/2 right-2 -translate-y-1/2">
-              <!-- Upload Image -->
-              <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-sm z-10"
-                @click="handleUploadCommentImage" title="Chèn ảnh" />
+
+              <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
+                @click="handleUploadCommentImage" />
+
             </div>
 
             <div class="flex items-center justify-between mt-2">
@@ -266,6 +269,8 @@ const commentEditorRef = ref({})
 const groupRefs = ref({})
 const previewImages = ref([])
 const hasLoadedOnce = ref(false)
+const openMenuCommentId = ref(null)
+
 
 const isNavigatingByKeyboard = ref(false)
 
@@ -413,14 +418,14 @@ watch(
     }
 
 
-    if (activeNodeId.value === newId) {      
+    if (activeNodeId.value === newId) {
       return
     }
 
     activeNodeId.value = newId
     loadDraft(newId)
 
-    // scrollToActiveNode(newId)
+    scrollToActiveNode(newId)
   },
   { flush: "post" }
 )
@@ -595,47 +600,6 @@ async function handleUploadCommentImage() {
 
   input.click()
 }
-
-
-watch(
-  () => [props.visible, activeNodeId.value],
-  async ([visible, nodeId]) => {
-    if (!visible || !nodeId) return
-    if (isNavigatingByKeyboard.value) return
-
-    await nextTick()
-
-    const tryFocus = () => {
-      const editor = commentEditorRef.value?.[nodeId]
-
-      if (editor?.focus) {
-        editor.focus()
-      } else {
-        requestAnimationFrame(tryFocus)
-      }
-    }
-
-    requestAnimationFrame(tryFocus)
-  }
-)
-
-
-
-
-function focusEditorByNodeId(nodeId) {
-  nextTick(() => {
-    requestAnimationFrame(() => {
-      commentEditorRef.value?.[nodeId]?.focus?.()
-    })
-  })
-}
-
-defineExpose({
-  focusEditorByNodeId
-})
-
-
-
 
 </script>
 

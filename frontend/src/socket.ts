@@ -22,7 +22,12 @@ export function initSocket(): Socket {
   const socket = io(url, {
     path: "/socket.io",
     transports: ["websocket", "polling"],
-    withCredentials: true
+    withCredentials: true,
+    reconnectionAttempts: 10,
+    reconnectionDelay: 1000,
+    reconnectionDelayMax: 5000,
+    timeout: 20000,
+    autoConnect: true,
   })
 
   socket.on("connect", () => {

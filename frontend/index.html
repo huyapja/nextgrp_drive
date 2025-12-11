@@ -152,6 +152,8 @@
 
     <script>
       window.csrf_token = "{{ csrf_token }}"
+      window.frappe = window.frappe || {};
+      window.frappe.boot = {{ boot | tojson }};;
     </script>
     <script
       type="module"
