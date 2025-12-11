@@ -47,9 +47,9 @@ onMounted(() => {
                     emit("navigate", "next")
 
                     console.log(">>> i am herre");
-                    
+
                     // ✅ blur editor để ngừng bắt phím
-                     editor.value?.commands.blur()
+                    editor.value?.commands.blur()
 
                     return true
                 }
@@ -61,7 +61,7 @@ onMounted(() => {
                     emit("navigate", "prev")
 
                     // ✅ blur editor để ngừng bắt phím
-                     editor.value?.commands.blur()
+                    editor.value?.commands.blur()
 
                     return true
                 }
@@ -89,19 +89,20 @@ onMounted(() => {
 })
 
 watch(
-    () => props.previewImages,
-    (list = []) => {
+    () => props.previewImages.length,
+    () => {
+        const list = props.previewImages
         if (!editor.value) return
 
         list.forEach((url) => {
-            if (localInsertedImages.has(url)) return
-
-            editor.value.chain().focus().setImage({ src: url }).run()
-            localInsertedImages.add(url)
+            if (!localInsertedImages.has(url)) {
+                editor.value.chain().focus().setImage({ src: url }).run()
+                localInsertedImages.add(url)
+            }
         })
-    },
-    { deep: true }
+    }
 )
+
 
 watch(
     () => props.modelValue,
@@ -129,24 +130,27 @@ onBeforeUnmount(() => {
 })
 
 defineExpose({
-  focus() {
-    if (!editor.value) return
+    focus() {
+        if (!editor.value) return
 
-    // ✅ Focus đúng ProseMirror view
-    editor.value?.view?.focus()
-  },
+        // ✅ Focus đúng ProseMirror view
+        editor.value?.view?.focus()
+    },
 
-  blur() {
-    editor.value?.view?.dom?.blur()
-  },
+    blur() {
+        editor.value?.view?.dom?.blur()
+    },
+    clearImages() {
+        localInsertedImages.clear()
+    }
 })
 
 </script>
 
 <template>
     <!-- ✅ TÁCH ROOT RIÊNG → MINDMAP KHÔNG CAN THIỆP -->
-    <div class="border rounded p-2 editor-wrapper comment-editor-root" comment-editor-root>
-        <EditorContent v-if="editor" :editor="editor" class="tiptap-editor overflow-y-auto" />
+    <div class="rounded p-2 editor-wrapper comment-editor-root" comment-editor-root>
+        <EditorContent :editor="editor" class="tiptap-editor overflow-y-auto" />
     </div>
 
 </template>
