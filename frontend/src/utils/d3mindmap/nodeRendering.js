@@ -7,13 +7,27 @@ import * as d3 from 'd3'
 import { calculateD3MindmapLayout } from '../d3MindmapLayout'
 import { createDragFilter, handleDrag, handleDragEnd, handleDragStart, handleMouseDown } from './dragHandler.js'
 import { getEditorInstance, handleEditorBlur, handleEditorFocus, handleEditorInput, mountNodeEditor } from './nodeEditor.js'
-import { countChildren } from './utils.js'
+import { countChildren, hasCompletedAncestor } from './utils.js'
 
 export function renderNodes(renderer, positions) {
   // Render all nodes, but hide collapsed ones (don't filter to preserve Vue components)
   // Pre-calculate node sizes to avoid repeated calculations
   // Sử dụng instance variable nodeSizeCache thay vì local variable
   // Ưu tiên sử dụng fixedWidth/fixedHeight nếu có (được set khi blur)
+  
+  // ⚠️ Helper function: Tính opacity dựa trên completed status
+  // Node completed → opacity 0.5
+  // Node có ancestor completed → opacity 0.5 (chỉ làm mờ, không có completed flag)
+  const getNodeOpacity = (node) => {
+    if (node.data?.completed) {
+      return 0.5 // Node này completed
+    }
+    if (hasCompletedAncestor(node.id, renderer.nodes, renderer.edges)) {
+      return 0.5 // Node cha completed → làm mờ node con
+    }
+    return 1 // Bình thường
+  }
+  
   renderer.nodes.forEach(node => {
     const isRootNode = node.data?.isRoot || node.id === 'root'
     
@@ -86,7 +100,7 @@ export function renderNodes(renderer, positions) {
     .attr('stroke-width', 2)
     .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff')
     .attr('filter', 'url(#shadow)')
-    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Làm mờ node khi completed
+    .attr('opacity', d => getNodeOpacity(d)) // Làm mờ node khi completed hoặc có ancestor completed
   
   // Add node text container with textarea for inline editing
   // Thêm offset để không đè lên border 2px của node-rect
@@ -328,7 +342,7 @@ export function renderNodes(renderer, positions) {
       return d.data?.isRoot ? 'none' : '#cbd5e1' // Default
     })
     .attr('stroke-width', 2)
-    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Làm mờ rect khi completed
+    .attr('opacity', d => getNodeOpacity(d)) // Làm mờ rect khi completed hoặc có ancestor completed
   
   nodesUpdate
     .attr('transform', d => {
@@ -337,11 +351,11 @@ export function renderNodes(renderer, positions) {
       return `translate(${pos.x}, ${pos.y})`
     })
     // Hide collapsed nodes instead of removing them
-    // Also apply opacity for completed nodes
+    // Also apply opacity for completed nodes or nodes with completed ancestor
     .style('opacity', d => {
       if (renderer.isNodeHidden(d.id)) return 0
-      // Làm mờ node và tất cả node con khi completed
-      return d.data?.completed ? 0.5 : 1
+      // Làm mờ node khi completed hoặc có ancestor completed
+      return getNodeOpacity(d)
     })
     .style('pointer-events', d => {
       return renderer.isNodeHidden(d.id) ? 'none' : 'auto'
@@ -388,7 +402,6 @@ export function renderNodes(renderer, positions) {
       // Collapse button và toolbar sẽ tự xử lý và stop propagation
       if (isEditorClick || isAddChildClick || isCollapseClick || isToolbarClick) {
         // Click vào editor, toolbar hoặc các nút -> không xử lý ở đây (để các nút tự xử lý)
-        console.log('🚫 Node group click ignored - clicked on button/editor/toolbar')
         return
       }
 
@@ -583,7 +596,7 @@ export function renderNodes(renderer, positions) {
           }
         })
         .attr('stroke-width', 2)
-        .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Giữ opacity dựa trên completed status
+        .attr('opacity', d => getNodeOpacity(d)) // Giữ opacity dựa trên completed status hoặc ancestor completed
       
       // Check if node has children
       const hasChildren = renderer.edges.some(e => e.source === d.id)
@@ -796,7 +809,7 @@ export function renderNodes(renderer, positions) {
           return d.data?.isRoot ? 'none' : '#cbd5e1'
         })
         .attr('stroke-width', 2)
-        .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Giữ opacity dựa trên completed status
+        .attr('opacity', d => getNodeOpacity(d)) // Giữ opacity dựa trên completed status hoặc ancestor completed
       
       // ✅ LOGIC KHI KHÔNG HOVER - 3 NÚT TÁCH BIỆT:
       // 1. Nút số: giữ nếu collapsed
@@ -915,7 +928,6 @@ export function renderNodes(renderer, positions) {
     .on('click', function(event, d) {
       event.stopPropagation()
       event.preventDefault()
-      console.log('🔵 CLICKED on add-child-btn for node:', d.id)
       
       // Đảm bảo không trigger node group click
       if (event.cancelBubble !== undefined) {
@@ -951,7 +963,6 @@ export function renderNodes(renderer, positions) {
       // Hiển thị nếu đã collapse và có children (kể cả khi đang selected)
       const shouldShow = (count > 0 && isCollapsed)
       if (shouldShow) {
-        console.log(`✅ Button visible for node ${d.id}: count=${count}, isCollapsed=${isCollapsed}`)
       }
       return shouldShow ? 1 : 0
     })
@@ -968,9 +979,6 @@ export function renderNodes(renderer, positions) {
       event.stopImmediatePropagation()
       event.preventDefault()
       
-      console.log('🔵 CLICKED on collapse-btn-number for node:', d.id)
-      console.log('Will EXPAND node:', d.id)
-      console.log('Current collapsed nodes:', Array.from(renderer.collapsedNodes))
       
       // Đảm bảo không trigger node group click
       if (event.cancelBubble !== undefined) {
@@ -982,10 +990,7 @@ export function renderNodes(renderer, positions) {
         // Expand node: xóa khỏi collapsedNodes
         renderer.collapsedNodes.delete(d.id)
         
-        console.log('✅ Expanding node:', d.id)
         const children = renderer.edges.filter(e => e.source === d.id).map(e => e.target)
-        console.log('Children to show:', children)
-        console.log('Collapsed nodes after expand:', Array.from(renderer.collapsedNodes))
         
         // CHỈ gọi onNodeCollapse, KHÔNG gọi onNodeAdd
         if (renderer.callbacks.onNodeCollapse) {
@@ -1004,7 +1009,8 @@ export function renderNodes(renderer, positions) {
               const shouldBeVisible = !isHidden
               
               nodeEl
-                .style('opacity', shouldBeVisible ? 1 : 0)
+                // Giữ opacity theo completed/ancestor completed thay vì luôn =1
+                .style('opacity', shouldBeVisible ? getNodeOpacity(nodeData) : 0)
                 .style('pointer-events', shouldBeVisible ? 'auto' : 'none')
             })
           
@@ -1017,7 +1023,6 @@ export function renderNodes(renderer, positions) {
             })
         })
       } else {
-        console.log('⚠️ Node not collapsed:', d.id)
       }
       
       // Đảm bảo return false để không trigger bất kỳ event nào khác
@@ -1111,9 +1116,6 @@ export function renderNodes(renderer, positions) {
       event.stopImmediatePropagation()
       event.preventDefault()
       
-      console.log('🔵 CLICKED on collapse-btn-arrow for node:', d.id)
-      console.log('Will COLLAPSE node:', d.id)
-      console.log('Current collapsed nodes:', Array.from(renderer.collapsedNodes))
       
       // Đảm bảo không trigger node group click
       if (event.cancelBubble !== undefined) {
@@ -1123,8 +1125,6 @@ export function renderNodes(renderer, positions) {
       // CHỈ collapse, KHÔNG BAO GIỜ gọi onNodeAdd
       if (!renderer.collapsedNodes.has(d.id)) {
         renderer.collapsedNodes.add(d.id)
-        console.log('✅ Collapsed node:', d.id)
-        console.log('Collapsed nodes after:', Array.from(renderer.collapsedNodes))
 
         // Ẩn ngay nút thu gọn sau khi click
         const nodeGroup = d3.select(this.parentNode)
@@ -1139,7 +1139,6 @@ export function renderNodes(renderer, positions) {
         // Re-render để ẩn children
         renderer.render()
       } else {
-        console.log('⚠️ Node already collapsed:', d.id)
       }
       
       // Đảm bảo return false để không trigger bất kỳ event nào khác
@@ -1193,7 +1192,7 @@ export function renderNodes(renderer, positions) {
       return d.data?.isRoot ? 'none' : '#cbd5e1'
     })
     .attr('stroke-width', 2) // Border luôn là 2px
-    .attr('opacity', d => d.data?.completed ? 0.5 : 1) // Làm mờ rect khi completed
+    .attr('opacity', d => getNodeOpacity(d)) // Làm mờ rect khi completed hoặc có ancestor completed
   
   // Update textarea content and behaviors
   nodesUpdate.select('.node-text')
@@ -1260,13 +1259,11 @@ export function renderNodes(renderer, positions) {
             rect.attr('width', cachedSize.width)
             rectWidth = cachedSize.width
           }
-          console.log('[ROOT NODE] renderNodes - using cache:', cachedSize)
         } else {
           // ⚠️ FIX: Khi chưa có cache hoặc cache không hợp lý (< 43px), dùng height tạm thời
           // và đo lại trong setTimeout
           const singleLineHeight = Math.ceil(19 * 1.4) + 16
           rectHeight = singleLineHeight
-          console.log('[ROOT NODE] renderNodes - using temporary height:', rectHeight)
           // ⚠️ CRITICAL: KHÔNG lưu temporary height vào cache để tránh override cache hợp lý
           // Cache sẽ được cập nhật trong setTimeout sau khi đo đúng height
         }
@@ -1274,10 +1271,24 @@ export function renderNodes(renderer, positions) {
         // Cập nhật vị trí nút add-child
         nodeGroup.select('.add-child-btn').attr('cy', rectHeight / 2)
         nodeGroup.select('.add-child-text').attr('y', rectHeight / 2)
+        // ⚠️ CRITICAL: Cập nhật vị trí nút collapse
+        nodeGroup.select('.collapse-btn-number').attr('cy', rectHeight / 2)
+        nodeGroup.select('.collapse-text-number').attr('y', rectHeight / 2)
+        nodeGroup.select('.collapse-btn-arrow').attr('cy', rectHeight / 2)
+        nodeGroup.select('.collapse-arrow').attr('transform', `translate(${rectWidth + 20}, ${rectHeight / 2}) scale(0.7) translate(-12, -12)`)
       } else {
-        // Node thường: dùng height từ rect (có thể là fixedHeight) hoặc từ nodeSize
-        rectHeight = parseFloat(rect.attr('height')) || nodeSize.height
+        // Node thường: ưu tiên cache, sau đó là rect hiện tại, cuối cùng là nodeSize
+        const cachedSize = renderer.nodeSizeCache.get(nodeData.id)
+        if (cachedSize && cachedSize.height > 0) {
+          rectHeight = cachedSize.height
+        } else {
+          rectHeight = parseFloat(rect.attr('height')) || nodeSize.height
+        }
       }
+      
+      // ⚠️ CRITICAL: Kiểm tra xem node có ảnh không
+      const nodeLabel = nodeData.data?.label || ''
+      const hasImages = nodeLabel.includes('<img') || nodeLabel.includes('image-wrapper')
       
       const borderOffset = 4 // 2px border mỗi bên (top/bottom và left/right)
       fo.attr('x', 2)
@@ -1285,16 +1296,22 @@ export function renderNodes(renderer, positions) {
       fo.attr('width', Math.max(0, rectWidth - borderOffset))
       fo.attr('height', Math.max(0, rectHeight - borderOffset))
       
+      // ⚠️ CRITICAL: Nếu có ảnh, đảm bảo rect cũng có height đúng
+      if (hasImages) {
+        rect.attr('height', rectHeight)
+      }
+      
       // ⚠️ CRITICAL: Tất cả các node đều dùng auto để hiển thị đầy đủ nội dung (bao gồm ảnh)
-      // Nhưng dùng overflow: hidden để tránh nội dung tràn ra ngoài và đè lên node khác
+      // Nếu có ảnh, dùng overflow: visible để hiển thị đầy đủ
+      const overflowValue = hasImages ? 'visible' : 'hidden'
       const wrapper = fo.select('.node-content-wrapper')
         .style('width', '100%') // Wrapper chiếm 100% foreignObject
-        .style('height', 'auto') // Tất cả node dùng auto để hiển thị đủ nội dung
-        .style('min-height', '0')
+        .style('height', hasImages ? `${rectHeight - borderOffset}px` : 'auto')
+        .style('min-height', hasImages ? `${rectHeight - borderOffset}px` : '0')
         .style('max-height', 'none')
         .style('background', bgColor)
         .style('border-radius', '8px')
-        .style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài và đè lên node khác
+        .style('overflow', overflowValue)
         .style('border', 'none') // Không có border để không đè lên border của node-rect
         .style('outline', 'none') // Không có outline
         .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
@@ -1302,11 +1319,11 @@ export function renderNodes(renderer, positions) {
       // Mount Vue TipTap editor component
       const editorContainer = wrapper.select('.node-editor-container')
         .style('width', '100%')
-        .style('height', 'auto') // Tất cả node dùng auto để hiển thị đủ nội dung
-        .style('min-height', '0')
+        .style('height', hasImages ? `${rectHeight - borderOffset}px` : 'auto')
+        .style('min-height', hasImages ? `${rectHeight - borderOffset}px` : '0')
         .style('max-height', 'none')
         .style('pointer-events', 'none') // Disable pointer events để ngăn click khi chưa edit
-        .style('overflow', 'hidden') // ⚠️ FIX: Dùng hidden để tránh nội dung tràn ra ngoài và đè lên node khác
+        .style('overflow', overflowValue) // Nếu có ảnh, dùng visible
         .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
       
       // Mount hoặc update Vue component
@@ -1428,8 +1445,7 @@ export function renderNodes(renderer, positions) {
                       nodeGroup.select('.collapse-btn-number').attr('cy', contentHeight / 2)
                       nodeGroup.select('.collapse-text-number').attr('y', contentHeight / 2)
                       nodeGroup.select('.collapse-btn-arrow').attr('cy', contentHeight / 2)
-                      nodeGroup.select('.collapse-text-arrow').attr('y', contentHeight / 2)
-                      nodeGroup.select('.collapse-btn-arrow').attr('transform', `translate(${currentWidth + 20}, ${contentHeight / 2}) scale(0.7) translate(-12, -12)`)
+                      nodeGroup.select('.collapse-arrow').attr('transform', `translate(${currentWidth + 20}, ${contentHeight / 2}) scale(0.7) translate(-12, -12)`)
                     }
                     
                     // Chỉ đo lại width cho root node
@@ -1564,7 +1580,6 @@ export function renderNodes(renderer, positions) {
                         Math.ceil(19 * 1.4) + 16 // singleLineHeight
                       )
                       
-                      console.log('[ROOT NODE] setTimeout - editorContent.offsetHeight:', editorContent.offsetHeight, 'final:', contentHeight)
                       
                       const currentHeight = parseFloat(rect.attr('height')) || 0
                       if (Math.abs(contentHeight - currentHeight) > 1) {

@@ -102,7 +102,6 @@
 <script setup>
 import { rename } from "@/resources/files"
 import { D3MindmapRenderer } from '@/utils/d3mindmap'
-import { getDescendantIds } from '@/utils/d3mindmap/utils'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
 import { setBreadCrumbs } from "@/utils/files"
@@ -595,17 +594,11 @@ const addChildToNode = async (parentId) => {
 
   const newNodeId = `node-${nodeCounter++}`
 
-  // Kiểm tra xem parent node có completed không
-  // Nếu parent completed, node con mới cũng sẽ bị làm mờ
-  const isParentCompleted = parent.data?.completed || false
-
   const newNode = {
     id: newNodeId,
     data: {
       label: 'Nhánh mới',
-      parentId: parentId,
-      // Nếu parent đã completed, node con mới cũng sẽ completed (bị làm mờ)
-      ...(isParentCompleted ? { completed: true } : {})
+      parentId: parentId
     }
   }
 
@@ -918,6 +911,60 @@ const confirmDelete = () => {
   showDeleteDialog.value = false
 }
 
+// ⚠️ NEW: Theo dõi các phím chữ vừa được nhấn để tránh xóa nhầm
+let recentAlphaKeys = []
+const ALPHA_KEY_TIMEOUT = 500 // 500ms
+
+const trackAlphaKey = (key) => {
+  const isAlphaKey = /^[a-zA-Z]$/.test(key)
+  if (isAlphaKey) {
+    recentAlphaKeys.push({ key, time: Date.now() })
+    // Xóa các key cũ hơn 500ms
+    setTimeout(() => {
+      recentAlphaKeys = recentAlphaKeys.filter(k => Date.now() - k.time < ALPHA_KEY_TIMEOUT)
+    }, ALPHA_KEY_TIMEOUT)
+  }
+}
+
+const hasRecentAlphaKeys = () => {
+  const now = Date.now()
+  recentAlphaKeys = recentAlphaKeys.filter(k => now - k.time < ALPHA_KEY_TIMEOUT)
+  return recentAlphaKeys.length > 0
+}
+
+// ⚠️ NEW: Debounce cho phím Delete/Backspace để tránh xóa nhiều lần khi giữ phím
+let lastDeleteTime = 0
+const DELETE_DEBOUNCE = 300 // 300ms - chỉ cho phép xóa 1 lần mỗi 300ms
+
+const canDeleteNode = () => {
+  const now = Date.now()
+  if (now - lastDeleteTime < DELETE_DEBOUNCE) {
+    return false // Quá gần lần xóa trước - bỏ qua
+  }
+  // ⚠️ FIX: KHÔNG set lastDeleteTime ở đây
+  // Sẽ set SAU KHI thực sự xóa node để tránh block lần sau nếu lần này bị chặn
+  return true
+}
+
+const markNodeDeleted = () => {
+  lastDeleteTime = Date.now()
+}
+
+// ⚠️ NEW: Theo dõi trạng thái composition (IME/Unikey)
+let isComposing = false
+
+const handleCompositionStart = () => {
+  isComposing = true
+  console.log('[DEBUG] Composition started (Unikey bắt đầu)')
+}
+
+const handleCompositionEnd = () => {
+  isComposing = false
+  console.log('[DEBUG] Composition ended (Unikey kết thúc)')
+  // Clear alpha keys khi kết thúc composition
+  recentAlphaKeys = []
+}
+
 // Keyboard shortcuts handler
 const handleKeyDown = (event) => {
   const target = event.target
@@ -931,6 +978,9 @@ const handleKeyDown = (event) => {
 
   // Nếu đang trong editor, cho phép editor xử lý keyboard shortcuts (Ctrl+B, Ctrl+I, etc.)
   if (isInEditor || editingNode.value) {
+    // ⚠️ CRITICAL: Theo dõi các phím chữ được nhấn trong editor
+    trackAlphaKey(event.key)
+    
     // Cho phép editor xử lý các phím tắt của riêng nó (Ctrl+B, Ctrl+I, etc.)
     // Không chặn các phím này
     if (event.ctrlKey || event.metaKey) {
@@ -939,6 +989,15 @@ const handleKeyDown = (event) => {
     }
     // Chặn các phím tắt khác khi đang trong editor
     return
+  } else {
+    // ⚠️ CRITICAL: Khi blur khỏi editor, clear recentAlphaKeys sau 100ms
+    // Điều này đảm bảo sau khi blur, có thể bấm Delete/Backspace bình thường
+    if (recentAlphaKeys.length > 0) {
+      setTimeout(() => {
+        console.log('[DEBUG] Clear recentAlphaKeys sau khi blur khỏi editor')
+        recentAlphaKeys = []
+      }, 100)
+    }
   }
 
   // Nếu đang trong input/textarea khác, không xử lý
@@ -949,6 +1008,64 @@ const handleKeyDown = (event) => {
   if (!selectedNode.value) return
 
   const key = event.key
+  
+  // ⚠️ CHỈ theo dõi phím chữ KHI ĐANG TRONG EDITOR
+  // Ngoài editor thì không cần track (vì có thể là phím tắt hợp lệ)
+  // trackAlphaKey(key) - BỎ QUA
+  
+  // ⚠️ CRITICAL: BẢO VỆ TUYỆT ĐỐI - Chặn TẤT CẢ các phím KHÔNG PHẢI Delete/Backspace
+  // Ngay cả khi event.key = 'Backspace', nếu event.code không phải 'Delete' hoặc 'Backspace'
+  // thì KHÔNG được phép xóa node
+  const isRealDeleteKey = event.code === 'Delete' || event.code === 'Backspace'
+  const isDeleteKeyPressed = key === 'Delete' || key === 'Backspace'
+  
+  // ⚠️ CRITICAL: Kiểm tra event.code rỗng - dấu hiệu của Unikey/IME
+  // Khi Unikey hoạt động, nó tạo ra events với code: ''
+  const isUnikeyEvent = event.code === '' || event.code === null || event.code === undefined
+  
+  // ⚠️ CRITICAL: Nếu phát hiện Unikey event (code rỗng), set isComposing
+  if (isUnikeyEvent) {
+    isComposing = true
+    console.log('[DEBUG] Phát hiện Unikey event (code rỗng), set isComposing = true')
+    // Clear sau 1 giây
+    setTimeout(() => {
+      if (isComposing) {
+        console.log('[DEBUG] Auto clear isComposing sau 1s')
+        isComposing = false
+      }
+    }, 1000)
+  }
+  
+  // ⚠️ DEBUG: Log phím được nhấn
+  console.log('[DEBUG handleKeyDown]', {
+    key: event.key,
+    code: event.code,
+    isRealDeleteKey,
+    isDeleteKeyPressed,
+    isUnikeyEvent,
+    isComposing,
+    shiftKey: event.shiftKey,
+    ctrlKey: event.ctrlKey,
+    altKey: event.altKey,
+    metaKey: event.metaKey,
+    target: target?.tagName,
+    isInEditor,
+    editingNode: editingNode.value
+  })
+  
+  // ⚠️ CRITICAL: Nếu event.key là Delete/Backspace NHƯNG event.code KHÔNG PHẢI
+  // → Đây là phím giả mạo (phím A/S bị map thành Backspace) → BỎ QUA
+  if (isDeleteKeyPressed && !isRealDeleteKey) {
+    console.log('[DEBUG] ⛔ CHẶN phím giả mạo! key:', key, 'code:', event.code)
+    return
+  }
+  
+  // ⚠️ CRITICAL: Nếu vừa có Unikey event (code rỗng) trong 1s → Chắc chắn đang gõ tiếng Việt
+  if (isComposing) {
+    console.log('[DEBUG] ⛔ CHẶN tất cả phím vì Unikey đang hoạt động')
+    // CHẶN tất cả keyboard shortcuts khi Unikey hoạt động
+    return
+  }
 
   
 
@@ -1174,7 +1291,65 @@ const handleKeyDown = (event) => {
     }
     // Không làm gì nếu node là root
   }
-  else if (key === 'Delete' || key === 'Backspace') {
+  // ⚠️ CRITICAL: CHỈ kiểm tra event.code, BỎ QUA event.key hoàn toàn
+  // Vì event.key có thể bị map sai (ví dụ: phím A/S → Backspace)
+  else if (event.code === 'Delete' || event.code === 'Backspace') {
+    console.log('[DEBUG Delete/Backspace by CODE] Phím được nhấn:', {
+      key,
+      code: event.code,
+      isInEditor,
+      editingNode: editingNode.value,
+      isComposing,
+      hasRecentAlphaKeys: hasRecentAlphaKeys(),
+      recentAlphaKeys: recentAlphaKeys.map(k => k.key),
+      canDelete: canDeleteNode(),
+      modifiers: {
+        shift: event.shiftKey,
+        ctrl: event.ctrlKey,
+        alt: event.altKey,
+        meta: event.metaKey
+      }
+    })
+    
+    // ⚠️ CRITICAL: KHÔNG xóa khi đang composition (Unikey/IME đang hoạt động)
+    if (isComposing) {
+      console.log('[DEBUG] ⛔ Bỏ qua Delete/Backspace vì đang composition (Unikey)')
+      return
+    }
+    
+    // ⚠️ CRITICAL: Debounce - chỉ cho phép xóa 1 lần mỗi 300ms
+    // Tránh xóa nhiều lần khi giữ phím
+    if (!canDeleteNode()) {
+      console.log('[DEBUG] ⛔ Bỏ qua Delete/Backspace vì quá gần lần xóa trước (debounce)')
+      return
+    }
+    
+    // ⚠️ CRITICAL: KHÔNG xóa khi vừa có phím chữ được nhấn (trong 500ms)
+    // Tránh trường hợp A+S → thả S → trigger Backspace nhầm
+    if (hasRecentAlphaKeys()) {
+      console.log('[DEBUG] ⛔ Bỏ qua Delete/Backspace vì vừa có phím chữ:', recentAlphaKeys.map(k => k.key).join('+'))
+      return
+    }
+    
+    // ⚠️ CRITICAL: KHÔNG xóa khi đang trong editor hoặc đang edit node
+    if (isInEditor || editingNode.value) {
+      console.log('[DEBUG] Bỏ qua Delete/Backspace vì đang trong editor')
+      return
+    }
+    
+    // ⚠️ CRITICAL: Chỉ xóa node khi KHÔNG có BẤT KỲ modifier key nào
+    // Tránh xóa nhầm khi bấm tổ hợp phím như Shift+Delete, etc.
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
+      console.log('[DEBUG] Bỏ qua Delete/Backspace vì có modifier key:', {
+        shift: event.shiftKey,
+        ctrl: event.ctrlKey,
+        alt: event.altKey,
+        meta: event.metaKey
+      })
+      return
+    }
+    
+    console.log('[DEBUG] ✅ AN TOÀN - Xóa node với key:', key, 'code:', event.code)
     event.preventDefault()
     event.stopPropagation()
 
@@ -1184,6 +1359,9 @@ const handleKeyDown = (event) => {
     }
 
     deleteSelectedNode()
+    
+    // ⚠️ CRITICAL: Chỉ mark deleted SAU KHI thực sự xóa
+    markNodeDeleted()
   }
   else if ((key === 'v' || key === 'V') && (event.ctrlKey || event.metaKey)) {
     // ⚠️ NEW: Ctrl+V để paste
@@ -1316,6 +1494,10 @@ onMounted(() => {
   }
 
   window.addEventListener('keydown', handleKeyDown, true)
+  
+  // ⚠️ NEW: Handle composition events (Unikey/IME)
+  window.addEventListener('compositionstart', handleCompositionStart, true)
+  window.addEventListener('compositionend', handleCompositionEnd, true)
 
   // ⚠️ NEW: Handle copy event để lưu text vào clipboard
   window.addEventListener('copy', handleCopy, true)
@@ -1348,6 +1530,8 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', handleKeyDown, true)
+  window.removeEventListener('compositionstart', handleCompositionStart, true)
+  window.removeEventListener('compositionend', handleCompositionEnd, true)
   window.removeEventListener('copy', handleCopy, true)
   window.removeEventListener('hashchange', scrollToNodeFromHash)
   window.removeEventListener('resize', () => { })
@@ -2132,31 +2316,23 @@ function handleToolbarDone(node) {
   // Toggle completed status
   const isCompleted = !node.data?.completed
 
-  // Update node
+  // Update node - CHỈ node này được đánh dấu completed
   if (!node.data) node.data = {}
   node.data.completed = isCompleted
 
-  // Get all descendant node IDs
-  const descendantIds = getDescendantIds(node.id, edges.value)
-
-  // Update all descendant nodes
-  descendantIds.forEach(descendantId => {
-    const descendantNode = nodes.value.find(n => n.id === descendantId)
-    if (descendantNode) {
-      if (!descendantNode.data) descendantNode.data = {}
-      descendantNode.data.completed = isCompleted
-    }
-  })
+  // ⚠️ CHANGED: KHÔNG set completed cho descendants
+  // Descendants sẽ được làm mờ dựa trên parent completed trong logic render
 
   // Apply strikethrough to title ONLY for the main node (not descendants)
-  // Descendants chỉ bị làm mờ, không có line-through
   const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
   if (editorInstance) {
     applyStrikethroughToTitle(editorInstance, isCompleted)
   }
 
-  // Re-render to update opacity
+  // ⚠️ CRITICAL: Sync data với renderer TRƯỚC KHI render
+  // Đảm bảo d3Renderer.nodes có completed status mới nhất
   if (d3Renderer) {
+    d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
     d3Renderer.render()
   }
 
@@ -2554,37 +2730,31 @@ async function handleInsertImage({ node }) {
                   
                   // Đợi thêm một chút để đảm bảo DOM đã được cập nhật hoàn toàn
                   setTimeout(() => {
+                    
                     try {
-                      // Lấy component instance từ d3Renderer để gọi updateNodeHeight()
+                      // ⚠️ CRITICAL: Trigger blur editor để gọi handleEditorBlur
+                      // handleEditorBlur sẽ cập nhật chính xác height của node
                       if (d3Renderer && nodeId) {
-                        const entry = d3Renderer.vueApps?.get(nodeId)
-                        if (entry && entry.instance) {
-                          // Gọi updateNodeHeight() trực tiếp vì đã đợi tất cả ảnh load xong
-                          if (typeof entry.instance.updateNodeHeight === 'function') {
-                            
-                            entry.instance.updateNodeHeight()
-                            
-                            // Gọi lại một lần nữa sau khi DOM đã cập nhật hoàn toàn (để đảm bảo với nhiều ảnh)
-                            setTimeout(() => {
-                              if (entry.instance && typeof entry.instance.updateNodeHeight === 'function') {
-                                
-                                entry.instance.updateNodeHeight()
-                              }
-                            }, 300)
-                          } else {
-                            // Fallback: Trigger một transaction nhỏ để kích hoạt onUpdate
-                            currentEditor.chain()
-                              .setTextSelection(currentEditor.state.selection.from)
-                              .run()
-                            
-                            
-                          }
-                        } else {
+                        
+                        const editor = d3Renderer.getEditorInstance(nodeId)
+                        
+                        if (editor) {
                           
+                          // Blur editor → trigger handleEditorBlur → cập nhật height
+                          editor.commands.blur()
+                          
+                          // Sau đó focus lại để người dùng có thể tiếp tục edit
+                          setTimeout(() => {
+                            editor.commands.focus('end')
+                          }, 100)
+                        } else {
+                          console.error('[ERROR handleInsertImage] editor is null for node:', nodeId)
                         }
+                      } else {
+                        console.error('[ERROR handleInsertImage] d3Renderer or nodeId is null')
                       }
                     } catch (err) {
-                      
+                      console.error('[ERROR handleInsertImage] Exception:', err)
                     }
                   }, 150) // Đợi thêm 150ms sau khi ảnh load xong
                 }).catch(err => {

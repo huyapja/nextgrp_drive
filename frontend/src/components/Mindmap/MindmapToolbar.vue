@@ -304,7 +304,7 @@ const highlightColors = [
 	{ value: 'blue', label: 'Xanh dương', bg: '#dbeafe', text: '#3b82f6' },
 	{ value: 'teal', label: 'Xanh ngọc', bg: '#ccfbf1', text: '#14b8a6' },
 	{ value: 'green', label: 'Xanh lá', bg: '#d1fae5', text: '#10b981' },
-	{ value: 'grey', label: 'Xám', bg: '#f3f4f6', text: '#6b7280' }
+	{ value: 'grey', label: 'Xám', bg: '#d1d5db', text: '#374151' }
 ]
 
 // Handle mouse leave với delay để tránh đóng sớm
@@ -568,7 +568,7 @@ const getHighlightColorFromTitle = (editor) => {
 				'#dbeafe': 'blue',
 				'#ccfbf1': 'teal',
 				'#d1fae5': 'green',
-				'#f3f4f6': 'grey',
+				'#d1d5db': 'grey',
 				'rgb(252, 231, 243)': 'pink',
 				'rgb(254, 243, 199)': 'yellow',
 				'rgb(243, 232, 255)': 'purple',
@@ -639,7 +639,7 @@ const updateEditorState = (editor) => {
 					'#dbeafe': 'blue',
 					'#ccfbf1': 'teal',
 					'#d1fae5': 'green',
-					'#f3f4f6': 'grey',
+					'#d1d5db': 'grey',
 					'rgb(252, 231, 243)': 'pink',
 					'rgb(254, 243, 199)': 'yellow',
 					'rgb(243, 232, 255)': 'purple',
@@ -1094,7 +1094,6 @@ const executeToggleUnderline = (editorInstance) => {
 		requestAnimationFrame(() => {
 			// ⚠️ FIX: Check editor instance và view trước khi truy cập
 			if (!editorInstance || editorInstance.isDestroyed || !editorInstance.view) {
-				
 				return
 			}
 			
@@ -1188,7 +1187,7 @@ const executeSetHighlightColor = (editorInstance, colorName) => {
 		blue: '#dbeafe',
 		teal: '#ccfbf1',
 		green: '#d1fae5',
-		grey: '#f3f4f6'
+		grey: '#d1d5db'
 	}
 	
 	const hexColor = colorMap[colorName]

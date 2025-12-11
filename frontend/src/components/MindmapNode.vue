@@ -139,7 +139,6 @@ const autoResize = () => {
   const finalHeight = nodeInput.value.scrollHeight
   nodeInput.value.style.height = finalHeight + 'px'
   
-  console.log('Auto resize:', { maxLineWidth, finalWidth, finalHeight, lines: lines.length, willWrap })
 }
 
 // ✅ Start edit mode

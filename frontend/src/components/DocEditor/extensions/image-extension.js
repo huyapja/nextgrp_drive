@@ -259,28 +259,27 @@ export default Node.create({
             }
             
             if (!proseElement) {
-              console.log('❌ Không tìm thấy prose element')
+              
               return
             }
 
             // Tìm tất cả button menu chưa có listeners
             const menuButtons = Array.from(proseElement.querySelectorAll('.image-menu-button'))
-            console.log(`🔍 Tìm thấy ${menuButtons.length} button menu trong prose element`)
+            
             
             menuButtons.forEach((menuButton, index) => {
               // Bỏ qua nếu đã có listeners
               if (menuButton.hasAttribute('data-listeners-attached')) {
-                console.log(`⏭️ Button ${index} đã có listeners`)
+                
                 return
               }
               
               const imageWrapper = menuButton.closest('.image-wrapper')
               if (!imageWrapper) {
-                console.log(`❌ Button ${index} không có wrapper`)
                 return
               }
               
-              console.log(`✅ Attaching listeners cho button ${index}`)
+              
               
               // Tìm hoặc tạo menu tooltip
               let menuTooltip = imageWrapper.querySelector('.image-context-menu')
@@ -457,7 +456,7 @@ export default Node.create({
           // Attach listeners ngay khi plugin được khởi tạo
           // Đợi lâu hơn để đảm bảo DOM đã render
           setTimeout(() => {
-            console.log('🚀 Attaching menu button listeners (initial)')
+            
             attachMenuButtonListeners()
           }, 300)
           

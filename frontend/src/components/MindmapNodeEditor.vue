@@ -174,22 +174,55 @@ function createUploadImageOnPasteExtension(uploadImageFn) {
                               width: displayWidth,
                               height: displayHeight,
                             })
-                            const transaction = state.tr.replaceWith(
-                              placeholderPos,
-                              placeholderPos + placeholderNode.nodeSize,
-                              realImageNode
-                            )
-                            view.dispatch(transaction)
+                            // ⚠️ CRITICAL FIX: Đợi ảnh load xong TRƯỚC KHI dispatch transaction
+                            // Điều này đảm bảo khi handleEditorInput chạy, ảnh đã có naturalHeight
+                            const checkImg = new Image()
+                            checkImg.onload = () => {
+                              
+                              // Ảnh đã load xong, BÂY GIỜ MỚI thay thế placeholder
+                              // Wrap trong setTimeout để đảm bảo không bị race condition
+                              setTimeout(() => {
+                                // Get fresh state vì có thể đã thay đổi
+                                const currentState = view.state
+                                const transaction = currentState.tr.replaceWith(
+                                  placeholderPos,
+                                  placeholderPos + placeholderNode.nodeSize,
+                                  realImageNode
+                                )
+                                view.dispatch(transaction)
+                                
+                                // Trigger update lại sau một chút để đảm bảo DOM đã update
+                                requestAnimationFrame(() => {
+                                  view.dispatch(view.state.tr)
+                                })
+                              }, 10)
+                            }
+                            checkImg.onerror = () => {
+                              
+                              // Ảnh lỗi, vẫn thay thế placeholder
+                              const transaction = state.tr.replaceWith(
+                                placeholderPos,
+                                placeholderPos + placeholderNode.nodeSize,
+                                realImageNode
+                              )
+                              view.dispatch(transaction)
+                            }
                             
-                            // ⚠️ CRITICAL: Đo lại height ngay sau khi ảnh được chèn
-                            // Đợi một chút để DOM đã render xong
+                            // Nếu ảnh đã cached, onload sẽ fire ngay lập tức
+                            checkImg.src = imageUrl
+                            
+                            // Fallback: Nếu sau 2s ảnh vẫn chưa load, thay thế anyway
                             setTimeout(() => {
-                              // Trigger update để đo lại height
-                              const html = view.state.doc.content.size > 0 ? 
-                                view.state.schema.serialize(view.state.doc) : ''
-                              // Dispatch một transaction rỗng để trigger onUpdate
-                              view.dispatch(view.state.tr)
-                            }, 100)
+                              if (!checkImg.complete) {
+                                
+                                const transaction = state.tr.replaceWith(
+                                  placeholderPos,
+                                  placeholderPos + placeholderNode.nodeSize,
+                                  realImageNode
+                                )
+                                view.dispatch(transaction)
+                              }
+                            }, 200)
                           }
                         }
                       }).catch((error) => {
@@ -330,23 +363,98 @@ function createDeleteIcon() {
 }
 
 // Extension để render image với menu button sử dụng NodeView
+// ⚠️ Helper function để update layout của tất cả ảnh
+function updateImageLayout(view) {
+  const allImages = view.dom.querySelectorAll('.image-wrapper-node')
+  const count = allImages.length
+  
+  let newWidth = '100%'
+  let newGap = '0px'
+  
+  if (count === 2) {
+    newWidth = 'calc(50% - 12px)'
+    newGap = '12px'
+  } else if (count >= 3) {
+    newWidth = 'calc(33.333% - 8px)'
+    newGap = '12px'
+  }
+  
+  allImages.forEach((wrapper, index) => {
+    wrapper.style.width = newWidth
+    // Ảnh cuối mỗi hàng (index 2, 5, 8, ...) không có margin-right
+    wrapper.style.marginRight = ((index + 1) % 3 === 0 || count === 1) ? '0' : newGap
+  })
+  
+  // ⚠️ CRITICAL FIX: Force reflow để đảm bảo width mới được áp dụng NGAY
+  // Điều này đảm bảo ảnh có đúng kích thước trước khi đo height
+  allImages.forEach((wrapper) => {
+    void wrapper.offsetWidth
+    void wrapper.offsetHeight
+    const img = wrapper.querySelector('img')
+    if (img) {
+      void img.offsetWidth
+      void img.offsetHeight
+    }
+  })
+}
+
 const ImageWithMenuExtension = Extension.create({
   name: 'imageWithMenu',
   
   addProseMirrorPlugins() {
     return [
       new Plugin({
+        view: (editorView) => {
+          // Track view để có thể update layout sau
+          return {
+            update: (view, prevState) => {
+              // ⚠️ CRITICAL FIX: Update layout TRƯỚC, sau đó đợi reflow bằng requestAnimationFrame
+              // Điều này đảm bảo ảnh có đúng width trước khi tính height
+              updateImageLayout(view)
+              
+              // Force reflow ngay lập tức
+              const allImages = view.dom.querySelectorAll('.image-wrapper-node')
+              allImages.forEach((wrapper) => {
+                void wrapper.offsetWidth
+                void wrapper.offsetHeight
+              })
+            }
+          }
+        },
         props: {
           nodeViews: {
             image: (node, view, getPos) => {
               const dom = document.createElement('div')
               dom.className = 'image-wrapper-node'
               dom.setAttribute('data-image-src', node.attrs.src)
+              
+              // ⚠️ CRITICAL: Tính width dựa trên số ảnh trong editor
+              // Đếm số ảnh hiện có để xác định layout
+              const allImages = view.dom.querySelectorAll('.image-wrapper-node')
+              const totalImages = allImages.length + 1 // +1 cho ảnh hiện tại
+              
+              // Tính width: 1 ảnh = 100%, 2 ảnh = 50%, 3+ ảnh = 33.33%
+              let imageWidth = '100%'
+              let gap = '0px'
+              
+              if (totalImages === 2) {
+                imageWidth = 'calc(50% - 6px)' // 50% - half of 12px gap
+                gap = '12px'
+              } else if (totalImages >= 3) {
+                imageWidth = 'calc(33.333% - 8px)' // 33.33% - 2/3 of 12px gap
+                gap = '12px'
+              }
+              
               dom.style.cssText = `
                 position: relative;
                 display: inline-block;
-                margin: 12px 0;
+                width: ${imageWidth};
+                margin: 12px ${gap} 12px 0;
+                box-sizing: border-box;
+                vertical-align: top;
               `
+              
+              // Layout sẽ được update tự động bởi Plugin.view.update()
               
               // Tạo img element
               const img = document.createElement('img')
@@ -358,17 +466,17 @@ const ImageWithMenuExtension = Extension.create({
               
               img.style.cssText = `
                 display: block;
-                max-width: 100%;
+                width: 100%;
                 height: auto;
+                object-fit: cover;
                 border-radius: 5px;
                 cursor: zoom-in;
-                min-width: 100%;
               `
               
               // ⚠️ CRITICAL: Khi ảnh load xong, trigger updateNodeHeight()
               // Dispatch custom event để component có thể lắng nghe và gọi updateNodeHeight()
               const triggerHeightUpdate = () => {
-                // Đợi một chút để DOM đã render xong và editor đã sẵn sàng
+                // ⚠️ FIX: Giảm delay để update layout nhanh hơn, tránh jump
                 setTimeout(() => {
                   // Kiểm tra xem editor đã sẵn sàng chưa trước khi dispatch event
                   // Tìm editor instance từ view
@@ -377,14 +485,14 @@ const ImageWithMenuExtension = Extension.create({
                     // Editor đã sẵn sàng, dispatch event
                     window.dispatchEvent(new CustomEvent('image-loaded-in-editor'))
                   } else {
-                    // Editor chưa sẵn sàng, retry sau
+                    // Editor chưa sẵn sàng, retry sau (giảm delay)
                     setTimeout(() => {
                       if (view.dom && view.dom.querySelector('.mindmap-editor-prose')) {
                         window.dispatchEvent(new CustomEvent('image-loaded-in-editor'))
                       }
-                    }, 200)
+                    }, 50) // Giảm từ 200ms xuống 50ms
                   }
-                }, 100)
+                }, 20) // Giảm từ 100ms xuống 20ms
               }
               
               if (img.complete && img.naturalHeight !== 0) {
@@ -960,6 +1068,13 @@ const ImageGroupExtension = Extension.create({
                 return
               }
               
+              // ⚠️ DISABLED: Không dùng image-group-wrapper nữa
+              // ImageWithMenuExtension đã tạo wrapper riêng cho mỗi ảnh với width dynamic
+              // Return sớm để không tạo wrapper group
+              isUpdating = false
+              return
+              
+              // OLD CODE BELOW (DISABLED)
               // Tạo wrapper mới cho TẤT CẢ ảnh
               const wrapper = document.createElement('div')
               wrapper.className = 'image-group-wrapper'
@@ -1336,6 +1451,8 @@ export default {
       editor: null,
       isUpdatingFromModelValue: false, // Flag để tránh vòng lặp khi update từ modelValue
       _isUnmounting: false, // Flag để ngăn update khi đang unmount
+      isCalculatingHeight: false, // ⚠️ NEW: Flag để tránh recalculate đồng thời
+      heightUpdateTimer: null, // ⚠️ NEW: Timer cho debounce
     }
   },
   expose: ['editor'], // Expose editor để có thể truy cập từ bên ngoài
@@ -1546,6 +1663,23 @@ export default {
     },
     // Cập nhật height của node dựa trên editor content
     updateNodeHeight() {
+      // ⚠️ CRITICAL FIX: Debounce để tránh gọi nhiều lần đồng thời
+      if (this.heightUpdateTimer) {
+        clearTimeout(this.heightUpdateTimer)
+      }
+      
+      this.heightUpdateTimer = setTimeout(() => {
+        this.updateNodeHeightImmediate()
+      }, 16) // ~1 frame (16ms)
+    },
+    // Internal method - gọi ngay lập tức không debounce
+    updateNodeHeightImmediate() {
+      // ⚠️ CRITICAL FIX: Skip nếu đang tính toán height
+      if (this.isCalculatingHeight) {
+        
+        return
+      }
+      
       if (!this.editor || !this.editor.view) {
         
         return
@@ -1566,7 +1700,7 @@ export default {
             const retryProseElement = this.editor.view.dom.querySelector('.mindmap-editor-prose')
             if (retryProseElement) {
               
-              this.updateNodeHeight()
+              this.updateNodeHeightImmediate()
             } else {
               
             }
@@ -1574,6 +1708,9 @@ export default {
         }, 100)
         return
       }
+      
+      // ⚠️ CRITICAL FIX: Set flag để tránh recalculate đồng thời
+      this.isCalculatingHeight = true
       
       
       
@@ -1594,10 +1731,10 @@ export default {
           if (loadedCount >= totalImages) {
             // Tất cả ảnh đã load xong, đo lại height
             
-            // Đợi một chút để đảm bảo DOM đã cập nhật
+            // ⚠️ FIX: Giảm delay để update nhanh hơn, tránh layout jump
             setTimeout(() => {
               this.measureHeightInternal(proseElement)
-            }, 50)
+            }, 20) // Giảm từ 50ms xuống 20ms
           }
         }
         
@@ -1789,6 +1926,8 @@ export default {
             // Reset flag sau một chút
             this.$nextTick(() => {
               this.isUpdatingFromModelValue = false
+              // ⚠️ CRITICAL FIX: Reset flag để cho phép update tiếp theo
+              this.isCalculatingHeight = false
             })
           })
         })
@@ -2362,6 +2501,9 @@ export default {
         // Skip nếu đang update từ modelValue để tránh vòng lặp
         if (this.isUpdatingFromModelValue) return
         
+        // ⚠️ CRITICAL FIX: Skip nếu đang tính toán height để tránh vòng lặp
+        if (this.isCalculatingHeight) return
+        
         // ⚠️ CRITICAL: Clean up menu text NGAY LẬP TỨC
         this.cleanupRemoveMenuText()
         
@@ -2583,18 +2725,24 @@ export default {
         // Khi ảnh load xong, trigger updateNodeHeight() để cập nhật height đúng
         const handleImageLoaded = () => {
           
-          // Đợi một chút để đảm bảo editor đã mount và DOM đã sẵn sàng
+          // ⚠️ FIX: Giảm delay, sử dụng requestAnimationFrame thay vì setTimeout
+          // để đồng bộ với browser rendering cycle
           this.$nextTick(() => {
             if (this.editor && this.editor.view && this.editor.view.dom) {
-              this.updateNodeHeight()
+              // Dùng requestAnimationFrame để đợi browser render xong
+              requestAnimationFrame(() => {
+                this.updateNodeHeight()
+              })
             } else {
               
-              // Retry sau một chút
+              // Retry sau một chút (giảm delay)
               setTimeout(() => {
                 if (this.editor && this.editor.view && this.editor.view.dom) {
-                  this.updateNodeHeight()
+                  requestAnimationFrame(() => {
+                    this.updateNodeHeight()
+                  })
                 }
-              }, 100)
+              }, 50) // Giảm từ 100ms xuống 50ms
             }
           })
         }

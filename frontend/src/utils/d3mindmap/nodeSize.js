@@ -13,6 +13,12 @@ export function estimateNodeWidth(node, maxWidth = 400, getNodeLabelFn = getNode
 	const minWidth = 130 // Textarea width mặc định
 	if (!text || text.trim() === '') return minWidth
 	
+	// ⚠️ STEP 1: Nếu có ảnh, LUÔN trả về maxWidth = 400px
+	const hasImages = text.includes('<img') || text.includes('image-wrapper')
+	if (hasImages) {
+		return maxWidth
+	}
+	
 	// Parse HTML để tách riêng title (paragraph) và description (blockquote)
 	let titleText = ''
 	let descriptionText = ''
@@ -183,6 +189,9 @@ export function estimateNodeHeight(node, nodeWidth = null, getNodeLabelFn = getN
 	const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px (19px * 1.4 line-height + 16px padding)
 	if (!text || text.trim() === '') return singleLineHeight
 	
+	// ⚠️ STEP 1: Kiểm tra xem có ảnh không
+	const hasImages = text.includes('<img') || text.includes('image-wrapper')
+	
 	// Extract plain text từ HTML
 	let plainText = text
 	if (text.includes('<')) {
@@ -191,14 +200,19 @@ export function estimateNodeHeight(node, nodeWidth = null, getNodeLabelFn = getN
 		plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
 	}
 	
-	if (!plainText) return singleLineHeight
+	if (!plainText && !hasImages) return singleLineHeight
 	
-	const width = nodeWidth || estimateWidthFn(node)
+	// ⚠️ STEP 2: Nếu có ảnh, LUÔN dùng maxWidth = 400px
+	let width
+	if (hasImages) {
+		width = 400 // maxWidth
+	} else {
+		width = nodeWidth || estimateWidthFn(node)
+	}
 	
 	// ⚠️ DEBUG: Log để kiểm tra
 	const isRootNode = node.data?.isRoot || node.id === 'root'
 	if (isRootNode) {
-		console.log('[ROOT NODE] estimateNodeHeight - width:', width, 'text:', text.substring(0, 100))
 	}
 	
 	// ⚠️ FIX: Tạo temp element với ĐÚNG STYLES và ĐÚNG STRUCTURE
@@ -216,7 +230,7 @@ export function estimateNodeHeight(node, nodeWidth = null, getNodeLabelFn = getN
 		min-height: 0;
 	`
 	
-	// ⚠️ CRITICAL: Dùng innerHTML để giữ structure (paragraph + blockquote)
+	// ⚠️ CRITICAL: Dùng innerHTML để giữ structure (paragraph + blockquote + images)
 	if (text.includes('<')) {
 		tempDiv.innerHTML = text
 		
@@ -247,6 +261,22 @@ export function estimateNodeHeight(node, nodeWidth = null, getNodeLabelFn = getN
 				p.style.lineHeight = '1.6'
 			})
 		})
+		
+		// ⚠️ CRITICAL: Apply styles cho ảnh và image wrappers
+		const images = tempDiv.querySelectorAll('img')
+		const imageWrappers = tempDiv.querySelectorAll('.image-wrapper-node, .image-wrapper, div[data-image-src]')
+		
+		imageWrappers.forEach(wrapper => {
+			wrapper.style.margin = '12px 0'
+			wrapper.style.display = 'block'
+		})
+		
+		images.forEach(img => {
+			img.style.display = 'block'
+			img.style.maxWidth = '100%'
+			img.style.height = 'auto'
+			img.style.margin = '12px 0'
+		})
 	} else {
 		// Plain text: wrap trong paragraph
 		const p = document.createElement('p')
@@ -269,9 +299,51 @@ export function estimateNodeHeight(node, nodeWidth = null, getNodeLabelFn = getN
 	void tempDiv.offsetWidth
 	void tempDiv.offsetHeight
 	
+	// ⚠️ STEP 3: Đo height
+	let estimatedHeight = tempDiv.offsetHeight || 0
+	const images = tempDiv.querySelectorAll('img')
+	const imageWrappers = tempDiv.querySelectorAll('.image-wrapper-node, .image-wrapper, div[data-image-src]')
+	
+	if (images.length > 0 || imageWrappers.length > 0) {
+		
+		const imageCount = Math.max(images.length, imageWrappers.length)
+		
+		// ⚠️ CRITICAL: Ước tính height dựa trên ảnh thực tế nếu có
+		let totalImageHeight = 0
+		
+		// Kiểm tra xem ảnh đã load chưa để dùng naturalHeight
+		let allImagesHaveSize = true
+		images.forEach(img => {
+			if (!img.naturalHeight || img.naturalHeight === 0) {
+				allImagesHaveSize = false
+			}
+		})
+		
+		if (allImagesHaveSize && images.length > 0) {
+			// Ảnh đã có size - tính chính xác
+			const contentWidth = width - 32 // trừ padding
+			images.forEach(img => {
+				const imgWidth = contentWidth
+				const imgHeight = (img.naturalHeight * imgWidth) / img.naturalWidth
+				totalImageHeight += imgHeight + 24 // + margin
+			})
+		} else {
+			// Ảnh chưa load - ước tính cao hơn (400px mỗi ảnh)
+			// Vì ảnh thường có aspect ratio ~16:9 hoặc cao hơn
+			totalImageHeight = imageCount * 400 // 400px mỗi ảnh (conservative estimate)
+		}
+		
+		// Text height (chỉ lấy phần không phải ảnh)
+		const textOnlyHeight = 50 // Ước tính text height
+		
+		// Tổng height = text + images
+		estimatedHeight = textOnlyHeight + totalImageHeight
+		
+	}
+	
 	// ⚠️ FIX: Dùng offsetHeight (chính xác, không thừa)
 	const actualHeight = Math.max(
-		tempDiv.offsetHeight || 0,
+		estimatedHeight,
 		singleLineHeight
 	)
 	
@@ -279,13 +351,173 @@ export function estimateNodeHeight(node, nodeWidth = null, getNodeLabelFn = getN
 	
 	// ⚠️ DEBUG: Log chiều cao tính được
 	if (isRootNode) {
-		console.log('[ROOT NODE] estimateNodeHeight - tempDiv.offsetHeight:', tempDiv.offsetHeight)
-		console.log('[ROOT NODE] estimateNodeHeight - calculated height:', actualHeight)
-		console.log('[ROOT NODE] estimateNodeHeight - HTML content:', text)
 	}
 	
 	// ⚠️ NEW: Không thêm buffer ở đây (đã có padding trong CSS)
 	return actualHeight
+}
+
+/**
+ * Tính toán chiều cao của node khi có ảnh
+ * Hàm này đảm bảo tính toán chiều cao đồng nhất giữa lúc thêm ảnh và lúc render
+ * 
+ * @param {Object} options - Các tùy chọn
+ * @param {HTMLElement} options.editorContent - Editor content element (TipTap prose)
+ * @param {number} options.nodeWidth - Chiều rộng của node
+ * @param {string} options.htmlContent - Nội dung HTML của node
+ * @param {number} options.singleLineHeight - Chiều cao của 1 dòng text (default: 43px)
+ * @returns {Object} { height, hasImages, imageCount, estimatedHeight }
+ */
+export function calculateNodeHeightWithImages(options) {
+	const {
+		editorContent,
+		nodeWidth,
+		htmlContent,
+		singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
+	} = options
+	
+	// STEP 1: Kiểm tra xem có ảnh không
+	const hasImages = htmlContent?.includes('<img') || htmlContent?.includes('image-wrapper')
+	
+	if (!hasImages) {
+		// Không có ảnh - chỉ tính text height
+		return {
+			height: singleLineHeight,
+			hasImages: false,
+			imageCount: 0,
+			estimatedHeight: singleLineHeight
+		}
+	}
+	
+	// STEP 2: Có ảnh - tính toán layout và height
+	const borderOffset = 4 // 2px border mỗi bên
+	const padding = 32 // 16px mỗi bên (padding left + right)
+	const contentWidth = nodeWidth - borderOffset - padding
+	
+	// Lấy tất cả ảnh từ editor content
+	const images = editorContent ? editorContent.querySelectorAll('img') : []
+	const imageCount = images.length
+	
+	if (imageCount === 0) {
+		// Không tìm thấy ảnh trong DOM - fallback về text height
+		return {
+			height: singleLineHeight,
+			hasImages: false,
+			imageCount: 0,
+			estimatedHeight: singleLineHeight
+		}
+	}
+	
+	// STEP 3: Tính toán layout của ảnh dựa trên số lượng
+	// 1 ảnh: 1 cột (100% width)
+	// 2 ảnh: 2 cột (50% width mỗi ảnh)
+	// 3+ ảnh: 3 cột (33.333% width mỗi ảnh)
+	let perImageWidth = contentWidth // 1 ảnh = 100% width
+	let imagesPerRow = 1
+	
+	if (imageCount === 2) {
+		imagesPerRow = 2
+		perImageWidth = (contentWidth - 12) * 0.5 // 50% - half of gap (12px)
+	} else if (imageCount >= 3) {
+		imagesPerRow = 3
+		perImageWidth = (contentWidth - 24) * 0.3333 // 33.333% - 2/3 of gap (12px)
+	}
+	
+	// STEP 4: Tính height của từng ảnh dựa trên aspect ratio
+	const imageHeights = []
+	
+	images.forEach((img) => {
+		let imgHeight = 0
+		
+		// Ưu tiên lấy naturalHeight nếu ảnh đã load
+		if (img.naturalHeight > 0 && img.naturalWidth > 0) {
+			// Ảnh đã load - tính height chính xác dựa trên aspect ratio
+			const aspectRatio = img.naturalWidth / img.naturalHeight
+			imgHeight = perImageWidth / aspectRatio
+		} else if (img.getAttribute('height') && img.getAttribute('width')) {
+			// Có height/width attributes - ước tính dựa trên attributes
+			const attrWidth = parseInt(img.getAttribute('width'))
+			const attrHeight = parseInt(img.getAttribute('height'))
+			if (attrWidth > 0 && attrHeight > 0) {
+				const aspectRatio = attrWidth / attrHeight
+				imgHeight = perImageWidth / aspectRatio
+			}
+		} else {
+			// Không có thông tin - ước tính dựa trên aspect ratio mặc định
+			// Giả sử aspect ratio 4:3 (conservative estimate)
+			imgHeight = perImageWidth * 0.75 // 3/4
+		}
+		
+		imageHeights.push(imgHeight)
+	})
+	
+	// STEP 5: Nhóm ảnh theo hàng và tính MAX height của mỗi hàng
+	const numRows = Math.ceil(imageCount / imagesPerRow)
+	let totalRowsHeight = 0
+	
+	for (let row = 0; row < numRows; row++) {
+		const startIdx = row * imagesPerRow
+		const endIdx = Math.min(startIdx + imagesPerRow, imageCount)
+		const rowImages = imageHeights.slice(startIdx, endIdx)
+		const maxHeightInRow = Math.max(...rowImages)
+		const rowMargin = 24 // 12px top + 12px bottom margin cho mỗi hàng
+		totalRowsHeight += maxHeightInRow + rowMargin
+	}
+	
+	// STEP 6: Cộng thêm text height + padding
+	const textHeight = 50 // Ước tính cho text (title + description nếu có)
+	const topBottomPadding = 16 // 8px top + 8px bottom
+	const estimatedHeight = totalRowsHeight + textHeight + topBottomPadding
+	
+	// STEP 7: Đo height thực tế từ DOM nếu có editorContent
+	let actualHeight = estimatedHeight
+	
+	if (editorContent) {
+		// Force reflow để đảm bảo DOM đã cập nhật
+		void editorContent.offsetWidth
+		void editorContent.offsetHeight
+		void editorContent.scrollHeight
+		
+		// Đo từ scrollHeight để lấy chiều cao đầy đủ (bao gồm overflow)
+		const scrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
+		
+		// Đo từ image wrappers (nếu có) để lấy height chính xác bao gồm margin
+		const imageWrappers = editorContent.querySelectorAll('.image-wrapper, .image-wrapper-node')
+		let maxBottom = scrollHeight
+		
+		imageWrappers.forEach((wrapper) => {
+			const wrapperStyle = window.getComputedStyle(wrapper)
+			const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
+			const wrapperBottom = wrapper.offsetTop + wrapper.offsetHeight + wrapperMarginBottom
+			maxBottom = Math.max(maxBottom, wrapperBottom)
+		})
+		
+		// Đo trực tiếp từ ảnh (nếu không có wrapper)
+		images.forEach((img) => {
+			const imgStyle = window.getComputedStyle(img)
+			const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
+			const imgBottom = img.offsetTop + img.offsetHeight + imgMarginBottom
+			maxBottom = Math.max(maxBottom, imgBottom)
+		})
+		
+		// Thêm padding bottom
+		const paddingBottom = parseFloat(window.getComputedStyle(editorContent).paddingBottom) || 0
+		maxBottom += paddingBottom
+		
+		// Dùng giá trị lớn nhất giữa scrollHeight, maxBottom và estimatedHeight
+		actualHeight = Math.max(scrollHeight, maxBottom, estimatedHeight)
+	}
+	
+	// STEP 8: Đảm bảo height tối thiểu là singleLineHeight
+	const finalHeight = Math.max(actualHeight, singleLineHeight)
+	
+	return {
+		height: finalHeight,
+		hasImages: true,
+		imageCount: imageCount,
+		estimatedHeight: estimatedHeight,
+		actualHeight: actualHeight
+	}
 }
 
 /**

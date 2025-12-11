@@ -5,7 +5,7 @@
 
 import * as d3 from 'd3'
 import { estimateNodeSize } from './nodeSize.js'
-import { cleanupDragBranchEffects, getDescendantIds, isDescendant, getSiblingNodes, getParentNodeId } from './utils.js'
+import { cleanupDragBranchEffects, getDescendantIds, getParentNodeId, getSiblingNodes, isDescendant } from './utils.js'
 
 /**
  * Handle mousedown event to setup drag delay
@@ -82,7 +82,6 @@ export function handleMouseDown(renderer, event, d) {
   const startY = event.clientY
   const nodeId = d.id
   
-  console.log('[MOUSEDOWN] Starting drag delay for node:', nodeId)
   
   // Reset flags và lưu vị trí bắt đầu
   renderer.isDragStarting = true
@@ -98,7 +97,6 @@ export function handleMouseDown(renderer, event, d) {
   
   // Handler để cancel delay nếu thả chuột
   const cancelDrag = () => {
-    console.log('[MOUSEDOWN] Mouse up, canceling drag delay')
     renderer.mouseUpOccurred = true // Đánh dấu mouseup đã xảy ra
     if (renderer.dragStartTimeout) {
       clearTimeout(renderer.dragStartTimeout)
@@ -119,7 +117,6 @@ export function handleMouseDown(renderer, event, d) {
     const deltaY = Math.abs(e.clientY - startY)
     if (deltaX > 10 || deltaY > 10) {
       // Di chuyển nhiều -> cho phép drag ngay (không cancel, chỉ cho phép)
-      console.log('[MOUSEDOWN] Mouse moved > 10px, allowing drag immediately')
       renderer.hasMovedEnough = true // Đánh dấu đã di chuyển đủ để phân biệt với click
       if (renderer.dragStartTimeout) {
         clearTimeout(renderer.dragStartTimeout)
@@ -137,7 +134,6 @@ export function handleMouseDown(renderer, event, d) {
   
   // Sau 200ms, cho phép drag
   renderer.dragStartTimeout = setTimeout(() => {
-    console.log('[MOUSEDOWN] Delay finished (200ms), allowing drag')
     renderer.isDragStarting = false // Cho phép drag sau delay
     document.removeEventListener('mousemove', checkMouseMove)
     document.removeEventListener('mouseup', cancelDrag)
@@ -156,7 +152,6 @@ export function createDragFilter(renderer) {
     const isRoot = d.data?.isRoot || d.id === 'root'
     const isEditing = renderer.editingNode === d.id
     if (isRoot || isEditing) {
-      console.log('[DRAG FILTER] Blocked - isRoot:', isRoot, 'isEditing:', isEditing)
       return false
     }
     
@@ -189,7 +184,6 @@ export function createDragFilter(renderer) {
       let depth = 0
       while (current && depth < 10) {
         if (checkElement(current, editorClasses)) {
-          console.log('[DRAG FILTER] Blocked - click in editor')
           return false
         }
         current = current.parentNode
@@ -199,17 +193,14 @@ export function createDragFilter(renderer) {
     
     // Chỉ cho phép drag với left mouse button
     // Kiểm tra event.sourceEvent tồn tại và có button
-    console.log('[DRAG FILTER] Node:', d.id, 'event:', event, 'event.sourceEvent:', event.sourceEvent)
     
     // Nếu không có sourceEvent, có thể là touch event hoặc event khác, cho phép mặc định
     if (!event.sourceEvent) {
-      console.log('[DRAG FILTER] No sourceEvent, allowing drag (might be touch event)')
       return true
     }
     
     // Kiểm tra button: 0 = left mouse button
     const allow = event.sourceEvent.button === 0 || event.sourceEvent.button === undefined
-    console.log('[DRAG FILTER] Node:', d.id, 'button:', event.sourceEvent.button, 'allow:', allow)
     return allow
   }
 }
@@ -218,11 +209,9 @@ export function createDragFilter(renderer) {
  * Handle drag start event
  */
 export function handleDragStart(nodeElement, renderer, event, d) {
-  console.log('[DRAG START] Node:', d.id)
   
   // Nếu đang trong delay, cancel delay và cho phép drag
   if (renderer.isDragStarting) {
-    console.log('[DRAG START] Delay finished, allowing drag')
     if (renderer.dragStartTimeout) {
       clearTimeout(renderer.dragStartTimeout)
       renderer.dragStartTimeout = null
@@ -233,11 +222,9 @@ export function handleDragStart(nodeElement, renderer, event, d) {
   const isRoot = d.data?.isRoot || d.id === 'root'
   const isEditing = renderer.editingNode === d.id
   
-  console.log('[DRAG START] Node:', d.id, 'isRoot:', isRoot, 'isEditing:', isEditing)
   
   // Nếu là root hoặc đang edit thì không cho phép drag
   if (isRoot || isEditing) {
-    console.log('[DRAG START] Blocked - isRoot:', isRoot, 'isEditing:', isEditing)
     if (event.sourceEvent) {
       event.sourceEvent.preventDefault()
       event.sourceEvent.stopPropagation()
@@ -261,7 +248,6 @@ export function handleDragStart(nodeElement, renderer, event, d) {
   // Vì event này chỉ chạy 1 lần (0-1ms sau mousedown), không thể phân biệt click và drag
   // Chỉ tạo drag ghost và làm mờ node khi đã di chuyển đủ trong drag handler
   // Điều này đảm bảo click không bị ảnh hưởng
-  console.log('[DRAG START] ✅ Starting drag for node:', d.id, '- will create ghost when movement detected')
   // KHÔNG stopPropagation ở đây để không chặn click/dblclick events
   // Chỉ stopPropagation khi thực sự đang drag (trong on('drag'))
   renderer.draggedNode = d.id
@@ -318,7 +304,6 @@ export function handleDragStart(nodeElement, renderer, event, d) {
     }
   })
   
-  console.log('[DRAG START] Bounding box:', { minX, minY, maxX, maxY })
   
   // KHÔNG làm mờ edges ở đây - sẽ được làm mờ trong drag handler khi đã di chuyển đủ
   // Điều này đảm bảo edges chỉ bị làm mờ khi thực sự drag, không phải khi click
@@ -387,7 +372,6 @@ function calculateTargetEdgePath(sourcePos, targetPos, sourceSize, targetSize) {
  */
 export function handleDrag(nodeElement, renderer, event, d) {
   // Khi đang drag
-  console.log('[DRAG] Dragging node:', d.id, 'mouseUpOccurred:', renderer.mouseUpOccurred, 'hasMovedEnough:', renderer.hasMovedEnough)
   
   // QUAN TRỌNG: Phân biệt click và drag ở đây (event được gọi nhiều lần khi di chuyển)
   // Cập nhật hasMovedEnough trước khi kiểm tra
@@ -398,7 +382,6 @@ export function handleDrag(nodeElement, renderer, event, d) {
     const deltaY = Math.abs(currentY - renderer.dragStartPosition.y)
     if (deltaX > 10 || deltaY > 10) {
       renderer.hasMovedEnough = true
-      console.log('[DRAG] Movement detected:', { deltaX, deltaY })
     }
   }
   
@@ -407,7 +390,6 @@ export function handleDrag(nodeElement, renderer, event, d) {
   if (!renderer.hasMovedEnough) {
     // Nếu mouseup đã xảy ra -> chắc chắn là click, cancel drag
     if (renderer.mouseUpOccurred) {
-      console.log('[DRAG] Canceled - mouseup occurred and no movement, this was a click')
       // Disable drag handlers để không tiếp tục drag
       d3.select(nodeElement).on('drag', null).on('end', null)
       // Cleanup ngay lập tức
@@ -445,7 +427,6 @@ export function handleDrag(nodeElement, renderer, event, d) {
     
     // Tạo drag ghost và làm mờ node nếu chưa có (chỉ tạo 1 lần khi phát hiện movement)
     if (!renderer.dragGhost && renderer.dragStartNodeInfo) {
-      console.log('[DRAG] Movement detected, creating drag ghost and dimming nodes')
       const [x, y] = d3.pointer(event, renderer.g.node())
       const ghostX = x + renderer.dragOffset.x
       const ghostY = y + renderer.dragOffset.y
@@ -552,7 +533,6 @@ export function handleDrag(nodeElement, renderer, event, d) {
             .attr('opacity', 0.6)
         }
         
-        console.log('[DRAG] Drag ghost and branch effects created')
       } catch (error) {
         console.error('[DRAG] Error creating drag ghost:', error)
       }
@@ -610,7 +590,6 @@ export function handleDrag(nodeElement, renderer, event, d) {
   // Cập nhật vị trí ghost node (nếu đã được tạo)
   if (renderer.dragGhost) {
     renderer.dragGhost.attr('transform', `translate(${ghostX}, ${ghostY})`)
-    console.log('[DRAG] Updated ghost node position:', { ghostX, ghostY })
   }
   
   // KHÔNG cập nhật ghost edges xanh dương (đã bỏ)
@@ -691,10 +670,8 @@ export function handleDrag(nodeElement, renderer, event, d) {
   })
   
   if (closestNode) {
-    console.log('[DRAG] Found closest node:', closestNode.id, 'distance:', minDistance)
     targetNodeGroup = renderer.g.select(`[data-node-id="${closestNode.id}"]`)
   } else {
-    console.log('[DRAG] No closest node found')
   }
   
   if (targetNodeGroup && targetNodeGroup.node() && targetNodeGroup.datum()) {
@@ -702,14 +679,6 @@ export function handleDrag(nodeElement, renderer, event, d) {
     const isRoot = targetDatum.data?.isRoot || targetDatum.id === 'root'
     const isSameNode = targetDatum.id === d.id
     const isDescendantNode = isDescendant(d.id, targetDatum.id, renderer.edges)
-    
-    console.log('[DRAG] Target node check:', {
-      targetId: targetDatum.id,
-      isRoot,
-      isSameNode,
-      isDescendant: isDescendantNode,
-      isValid: !isSameNode && !isDescendantNode
-    })
     
     // Chỉ highlight nếu không phải cùng node và không phải descendant
     // Cho phép drop vào root node (giống Lark)
@@ -810,7 +779,6 @@ export function handleDrag(nodeElement, renderer, event, d) {
  */
 export function handleDragEnd(nodeElement, renderer, event, d) {
   // Kết thúc drag
-  console.log('[DRAG END] Ending drag for node:', d.id, 'targetNodeId:', renderer.dragTargetNode, 'hasMovedEnough:', renderer.hasMovedEnough)
   const targetNodeId = renderer.dragTargetNode
   
   // Kiểm tra: nếu chưa di chuyển đủ, coi như click -> không thực hiện drop
@@ -832,7 +800,6 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
   
   // Nếu chưa di chuyển đủ, coi như click -> cleanup và return, không thực hiện drop
   if (!actuallyMoved) {
-    console.log('[DRAG END] No significant movement detected, treating as click - no drop will occur')
   }
   
   // Xóa ghost
@@ -926,7 +893,6 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
         renderer.callbacks.onNodeUpdate(d.id, { parentId: newSource })
       }
       
-      console.log('[DRAG END] Dropped node:', d.id, 'to parent:', targetNodeId)
     }
   }
   // ⚠️ Xử lý sắp xếp lại thứ tự sibling nodes (chỉ khi không có target node hoặc target node chính là parent hiện tại)
@@ -970,7 +936,6 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
     // Re-render mindmap với layout mới
     renderer.render()
     
-    console.log('[DRAG END] Reordered sibling:', d.id, 'to position:', dropPosition, 'new order:', newOrder)
   }
   
   // Reset drag state

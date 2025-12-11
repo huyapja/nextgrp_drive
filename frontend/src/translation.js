@@ -29,8 +29,6 @@ function fetchTranslations() {
     cache: ["translations", Date.now()], // Add timestamp to prevent caching
     auto: true,
     transform: (data) => {
-      console.log("Loaded translations:", data)
-      console.log("Number of translations:", Object.keys(data || {}).length)
       window.translatedMessages = data || {}
       
       // Test a few translations immediately

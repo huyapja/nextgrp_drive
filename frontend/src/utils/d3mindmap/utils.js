@@ -110,6 +110,26 @@ export function getParentNodeId(nodeId, edges) {
 }
 
 /**
+ * Check if any ancestor of a node is completed
+ * Used to fade out child nodes when parent is completed
+ */
+export function hasCompletedAncestor(nodeId, nodes, edges) {
+	let currentId = nodeId
+	while (currentId) {
+		const parentId = getParentNodeId(currentId, edges)
+		if (!parentId) break
+		
+		const parentNode = nodes.find(n => n.id === parentId)
+		if (parentNode?.data?.completed) {
+			return true
+		}
+		
+		currentId = parentId
+	}
+	return false
+}
+
+/**
  * Cleanup drag branch effects (restore opacity, remove border, etc.)
  */
 export function cleanupDragBranchEffects(renderer) {

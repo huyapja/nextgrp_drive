@@ -336,12 +336,9 @@ export class D3MindmapRenderer {
           // Nếu cache < 200px, có thể là temporary height, tính toán lại
           if (cachedSize && cachedSize.height >= 200) {
             size = cachedSize
-            console.log('[ROOT NODE] render() - using valid cache:', size)
           } else {
             // Cache không hợp lý hoặc chưa có -> tính toán lại
             size = this.estimateNodeSize(node)
-            console.log('[ROOT NODE] render() - estimated size:', size)
-            console.log('[ROOT NODE] render() - node label:', this.getNodeLabel(node))
             // ⚠️ CRITICAL: Chỉ lưu cache nếu height hợp lý (>= 200px)
             if (size.height >= 200) {
               this.nodeSizeCache.set(node.id, size)
