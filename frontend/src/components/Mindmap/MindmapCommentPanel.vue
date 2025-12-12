@@ -25,7 +25,7 @@
       </div>
 
       <div v-else>
-        <div v-for="group in groups" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
+        <div v-for="group in parsedGroups" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
           @click="group.node.id !== activeNodeId && handleClickGroup(group.node.id, $event)" class="
             comment-panel
             group/comment-panel
@@ -128,8 +128,15 @@
 
               </div>
 
-              <div v-html="c.parsed.safe_html || c.parsed.text" class="text-black comment-content mt-2">
+              <div class="text-black comment-content mt-2">
+                <div v-html="c.parsedText"></div>
+
+                <div v-if="c.parsedImages.length" class="flex flex-wrap gap-2 mt-2">
+                  <Image data-image-comment v-for="src in c.parsedImages" :key="src" :src="src" preview
+                    imageClass="rounded-md max-w-[140px]" />
+                </div>
               </div>
+
             </div>
           </div>
 
@@ -271,6 +278,7 @@ import { useMindmapAPI } from "./composables/useMindmapAPI"
 import CommentEditor from "./MindmapCommentEditor.vue"
 import { useCommentRefs } from "./composables/useCommentRefs"
 import { useMindmapCommentImageUpload } from "./composables/useMindmapCommentImageUpload"
+import Image from 'primevue/image';
 
 
 
@@ -337,6 +345,36 @@ function setGroupRef(nodeId, el) {
     delete groupRefs.value[nodeId]
   }
 }
+
+function parseCommentHTML(html) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, "text/html");
+
+  const images = [...doc.querySelectorAll("img")].map(img => img.src);
+
+  // Xóa ảnh khỏi phần nội dung text
+  doc.querySelectorAll("img").forEach(img => img.remove());
+
+  return {
+    text: doc.body.innerHTML.trim(),
+    images,
+  };
+}
+
+const parsedGroups = computed(() => {
+  return groups.value.map(group => ({
+    ...group,
+    comments: group.comments.map(c => {
+      const { text, images } = parseCommentHTML(c.parsed.safe_html || c.parsed.text)
+      return {
+        ...c,
+        parsedText: text,
+        parsedImages: images,
+      }
+    })
+  }))
+})
+
 
 const mindmap_comment_list = createResource({
   url: "drive.api.mindmap_comment.get_comments",
@@ -510,6 +548,7 @@ function handleClickGroup(nodeId, e) {
   if (e.target.closest("[comment-add-form-cancel]")) return
   if (e.target.closest("[comment-add-form-submit]")) return
   if (e.target.closest("[data-mention-item]")) return
+  if (e.target.closest("[data-image-comment]")) return
 
   // Click lại chính node đang active → chỉ focus input
   if (props.node?.id === nodeId) {
