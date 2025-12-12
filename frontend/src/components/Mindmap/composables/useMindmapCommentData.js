@@ -7,7 +7,7 @@ export function useMindmapCommentData({
   activeNodeId
 }) {
 
-  const members = computed(() => getTeamMembers.data || [])
+  const members = computed(() => getTeamMembers.data || [])  
 
   const memberMap = computed(() => {
     const map = {}
@@ -172,6 +172,7 @@ const stripLabel = raw => {
   })
 
   return {
+    members,
     stripLabel,
     sortedNodes,
     mergedComments,

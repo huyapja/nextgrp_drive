@@ -2,15 +2,6 @@ import frappe
 import json
 from frappe import _
 
-from bleach import clean
-
-
-ALLOWED_TAGS = ["p", "br", "b", "i", "strong", "em", "img", "a"]
-ALLOWED_ATTRS = {
-    "img": ["src", "alt"],
-    "a": ["href", "target"]
-}
-
 
 @frappe.whitelist()
 def get_comments(mindmap_id: str):
@@ -36,17 +27,6 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
     except Exception:
         frappe.throw(_("Comment must be valid JSON"))
 
-    raw_text = comment_data.get("text", "")
-
-    safe_text = clean(
-        raw_text,
-        tags=ALLOWED_TAGS,
-        attributes=ALLOWED_ATTRS,
-        strip=True
-    )
-
-    comment_data["text"] = safe_text
-
     doc = frappe.get_doc({
         "doctype": "Drive Mindmap Comment",
         "mindmap_id": mindmap_id,
@@ -57,6 +37,7 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
 
     doc.insert(ignore_permissions=True)
 
+    # API vẫn lo realtime
     frappe.publish_realtime(
         event="drive_mindmap:new_comment",
         message={

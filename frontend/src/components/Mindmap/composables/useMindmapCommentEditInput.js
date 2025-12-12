@@ -7,8 +7,34 @@ export function useMindmapCommentEditInput({ entityName, comments }) {
 
   function startEdit(comment) {
     if (!comment?.name) return
+
     editingCommentId.value = comment.name
-    editingValue.value = comment.parsed?.text || comment.comment?.text || ""
+
+    // Chuẩn hoá PARSED
+    let parsed = {}
+
+    // TH1: backend trả parsed đã đúng format
+    if (comment.parsed) {
+      parsed = comment.parsed
+    }
+
+    // TH2: chỉ có comment.comment là JSON string
+    else if (typeof comment.comment === "string") {
+      try {
+        parsed = JSON.parse(comment.comment)
+      } catch (e) {
+        parsed = {}
+      }
+    }
+
+    // TH3: fallback dữ liệu sai format
+    else if (typeof comment.comment === "object") {
+      parsed = comment.comment
+    }
+
+    // cuối cùng: lấy text
+    editingValue.value =
+      parsed.raw_html || parsed.safe_html || parsed.parsed || parsed.text || ""
   }
 
   function cancelEdit() {
@@ -22,26 +48,26 @@ export function useMindmapCommentEditInput({ entityName, comments }) {
     const payload = {
       ...comment.parsed,
       text: editingValue.value.trim(),
-      edited_at: new Date().toISOString()
+      edited_at: new Date().toISOString(),
     }
 
     try {
       const res = await call("drive.api.mindmap_comment.edit_comment", {
         mindmap_id: entityName,
         comment_id: comment.name,
-        comment: JSON.stringify(payload)
+        comment: JSON.stringify(payload),
       })
 
       const updated = res.comment
 
-      const idx = comments.value.findIndex(c => c.name === updated.name)
+      const idx = comments.value.findIndex((c) => c.name === updated.name)
       if (idx !== -1) {
         comments.value[idx] = updated
       }
 
       cancelEdit()
     } catch (err) {
-      console.error("❌ Edit failed:", err)
+      console.error("Edit failed:", err)
     }
   }
 
@@ -50,6 +76,6 @@ export function useMindmapCommentEditInput({ entityName, comments }) {
     editingValue,
     startEdit,
     submitEdit,
-    cancelEdit
+    cancelEdit,
   }
 }
