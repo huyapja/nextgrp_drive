@@ -2190,6 +2190,7 @@ function handleClickOutside(e) {
 
   const panel = commentPanelRef.value?.$el
   const clickedInsidePanel = panel?.contains(e.target)
+  
 
   if (clickedInsidePanel) return
   if (e.target.closest(".node-group")) return
@@ -2199,6 +2200,8 @@ function handleClickOutside(e) {
   if (e.target.closest("[data-comment-more]")) return
   if (e.target.closest("[comment-editor-root]")) return
   if (e.target.closest("[data-comment-dots]")) return
+  if (e.target.closest("[data-upload-image-to-comment]")) return
+  
 
   if (commentInputValue.value.trim().length > 0) return
 

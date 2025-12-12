@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, onMounted, onBeforeUnmount, defineExpose } from "vue"
+import { ref, watch, onMounted, onBeforeUnmount, defineExpose, computed } from "vue"
 import { Editor, EditorContent } from "@tiptap/vue-3"
 import StarterKit from "@tiptap/starter-kit"
 import Image from "@tiptap/extension-image"
@@ -8,6 +8,7 @@ import { MentionSuggestion } from "./components/extensions/mention_suggestion"
 
 
 const props = defineProps({
+    currentUser: String,
     visible: Boolean,
     modelValue: {
         type: String,
@@ -27,6 +28,14 @@ const editor = ref(null)
 const localInsertedImages = new Set()
 const mentionMembers = ref(props.members || [])
 
+const filteredMembers = computed(() => {
+    if (!props.members) return []
+
+    return props.members.filter(m =>
+        m?.email && m.email !== props?.currentUser
+    )
+})
+
 
 
 onMounted(() => {
@@ -39,7 +48,7 @@ onMounted(() => {
             Image.configure({ inline: true }),
             Mention.configure({
                 suggestion: MentionSuggestion({
-                    getMembers: () => mentionMembers.value,
+                    getMembers: () => filteredMembers.value,
                     nodeId: props.nodeId
                 })
             })
@@ -97,6 +106,8 @@ onMounted(() => {
 
     })
 
+    editor.value.view.scrollToSelection = () => { };
+
     editor.value.on("focus", () => {
         window.__EDITOR_FOCUSED__ = true
     })
@@ -111,8 +122,6 @@ onMounted(() => {
 
 
 watch(() => props.members, (val) => {
-    console.log(val);
-
     mentionMembers.value = val || []
 })
 
