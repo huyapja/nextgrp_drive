@@ -10,14 +10,19 @@ function getCookie(name: string) {
 
 export function initSocket(): Socket {
   const host = window.location.hostname
-  const protocol = window.location.protocol === "https:" ? "https" : "http"
+  const isHttps = window.location.protocol === "https:"
+  const protocol = isHttps ? "https" : "http"
   const port = socketio_port || 9000
 
-  const site = 
+  const site =
     window?.frappe?.boot?.site_name ||
     window?.frappe?.boot?.sitename
 
-  const url = `${protocol}://${host}:${port}/${site}`
+  const url = isHttps
+    ? `${protocol}://${host}/${site}`
+    : `${protocol}://${host}:${port}/${site}`
+
+  console.log("🔗 Socket URL:", url)
 
   const socket = io(url, {
     path: "/socket.io",
@@ -36,10 +41,12 @@ export function initSocket(): Socket {
 
   socket.on("connect_error", (error) => {
     console.error("❌ Lỗi:", error.message)
-  })  
+  })
 
   return socket
 }
+
+
 export class RealTimeHandler {
   open_docs: Set<string>
   socket: Socket

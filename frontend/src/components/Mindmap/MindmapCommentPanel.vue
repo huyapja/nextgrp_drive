@@ -19,14 +19,14 @@
     </div>
 
     <!-- Danh sách comment -->
-    <div class="p-3 overflow-y-auto h-[calc(100%-100px)] comment-scroll-container">
+    <div class="p-3 overflow-y-auto overflow-x-hidden h-[calc(100%-100px)] comment-scroll-container">
       <div v-if="mindmap_comment_list.loading" class="text-gray-500 text-sm">
         Đang tải bình luận...
       </div>
 
       <div v-else>
-        <div v-for="group in mergedGroupsFinal" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
-          @click="group.node.id !== activeNodeId && handleClickGroup(group.node.id)" class="
+        <div v-for="group in groups" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
+          @click="group.node.id !== activeNodeId && handleClickGroup(group.node.id, $event)" class="
             comment-panel
             group/comment-panel
             cursor-pointer
@@ -34,7 +34,8 @@
             mb-5 p-3 rounded bg-white border shadow-sm
             text-xs text-gray-500
           " :class="group.node.id === activeNodeId ? 'active' : ''"
-          style="content-visibility: auto; contain-intrinsic-size: 180px;">
+          style="content-visibility: auto; contain-intrinsic-size: 180px;" data-comment-panel
+          :data-node-comment="isEditing ? 'edit-' + group.node.id : group.node.id">
 
           <!-- Header node -->
           <div :class="[
@@ -76,7 +77,8 @@
             </div>
           </div>
 
-          <div v-for="c in group.comments" :key="c.name"
+          <div v-for="c in group.comments" :key="c.name" :data-comment-id="c.name"
+            :ref="el => setCommentRef(c.name, el)"
             class="group/comment-item relative flex items-start py-2 px-3 gap-2 mb-3">
             <!-- Action nổi bên phải (reaction + comment + more) -->
             <div @click.stop :class="[
@@ -115,17 +117,18 @@
                   {{ c.user?.full_name }}
                 </div>
 
-                <span class="
-          text-[10px] text-gray-400 inline-block
-          transition-all duration-150
-          group-hover/comment-item:truncate
-          group-hover/comment-item:max-w-[50px]
-        ">
-                  {{ timeAgo(c.creation) }}
+                <span :title="displayTime(c)" :class="[
+                  'text-[10px] text-gray-400 inline-block transition-all duration-150',
+                  isEdited(c)
+                    ? 'truncate max-w-[90px]'
+                    : ''
+                ]">
+                  {{ displayTime(c) }}
                 </span>
+
               </div>
 
-              <div v-html="c.parsed.text" class="text-black mt-2">
+              <div v-html="c.parsed.safe_html || c.parsed.text" class="text-black comment-content mt-2">
               </div>
             </div>
           </div>
@@ -148,9 +151,10 @@
           <div class="mt-3 relative transition-opacity duration-150" :class="group.node.id === activeNodeId && !isEditing
             ? 'opacity-100 pointer-events-auto'
             : 'opacity-0 pointer-events-none h-0 overflow-hidden'">
-            <!-- <Textarea v-model="inputValue" class="search-input h-8 w-full add-comments-textarea" rows="1"
-              autoResize="false" :placeholder="group.comments?.length ? 'Trả lời' : 'Thêm nhận xét'"
-              @keydown.enter.exact.prevent="handleSubmit" @keydown.shift.enter.stop /> -->
+
+            <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
+              :data-node="group.node.id"></div>
+
 
             <div class="flex gap-2 w-full border rounded">
               <div class="flex-1">
@@ -161,24 +165,25 @@
                   if (group.node.id === activeNodeId) {
                     commentEditorRef.value[group.node.id] = el
                   }
-                }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmit"
-                  @navigate="handleNavigate" />
+                }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmit" :members="members"
+                  @navigate="handleNavigate" :nodeId="group.node.id" />
               </div>
 
-
-              <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
+              <i upload-image-to-comment
+                class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
                 @click="handleUploadCommentImage" />
 
             </div>
 
-            <div class="flex items-center justify-between mt-2">
+            <div class="flex items-center justify-end mt-3">
 
               <div v-if="inputValue.trim()" class="flex justify-end gap-2">
-                <button class="px-3 py-1 text-xs rounded bg-gray-200"
+                <button comment-add-form-cancel class="px-3 py-2 text-xs rounded bg-gray-200"
                   @click="handleCancel(group.comments?.length === 0)">
                   Huỷ
                 </button>
-                <button class="px-3 py-1 text-xs rounded bg-[#3B82F6] text-white" @click="handleSubmit">
+                <button comment-add-form-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
+                  @click="handleSubmit">
                   Đăng
                 </button>
               </div>
@@ -187,25 +192,46 @@
 
 
           <!-- INPUT EDIT COMMENT -->
-          <div v-if="isEditing && activeEditingComment?.node_id === group.node.id" class="mt-3 rounded p-2">
-            <Textarea v-model="editingValue" class="search-input h-8 w-full" rows="1" autoResize="false"
-              placeholder="Chỉnh sửa bình luận..." @keydown.enter.exact.prevent="submitEdit(activeEditingComment)"
-              @keydown.shift.enter.stop />
+          <div v-if="isEditing && activeEditingComment?.node_id === group.node.id"
+            class="mt-3 transition-opacity duration-150" comment-edit-form @click.stop>
+            <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
+              :data-node="'edit-' + group.node.id"></div>
+            <div class="flex gap-2 w-full border rounded bg-white">
+              <div class="flex-1">
+                <CommentEditor :ref="el => {
+                  if (!commentEditorRef.value) {
+                    commentEditorRef.value = {}
+                  }
+                  if (editingCommentId === activeEditingComment?.name) {
+                    commentEditorRef.value['edit-' + editingCommentId] = el
+                  }
+                }" v-model="editingValue" :previewImages="previewImages" @submit="handleSubmit" :members="members"
+                  @navigate="handleNavigate" :nodeId="'edit-' + group.node.id" />
+              </div>
 
-            <div class="flex justify-end gap-2 mt-2">
-              <button class="px-3 py-1 text-xs rounded bg-gray-200" @click="cancelEdit">
+              <!-- ICON UPLOAD (TÙY CHỌN) -->
+              <i upload-image-to-comment
+                class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
+                @click="handleUploadCommentImage" />
+            </div>
+
+            <div class="flex justify-end gap-2 mt-3">
+              <button comment-edit-cancel class="px-3 py-2 text-xs rounded bg-gray-200" @click.stop="cancelEdit">
                 Huỷ
               </button>
 
-              <button class="px-3 py-1 text-xs rounded bg-[#3B82F6] text-white"
-                @click="submitEdit(activeEditingComment)">
+              <button comment-edit-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
+                @click.stop="submitEdit(activeEditingComment)">
                 Lưu
               </button>
             </div>
           </div>
 
+
         </div>
       </div>
+
+
     </div>
   </div>
   <Teleport to="body">
@@ -230,7 +256,6 @@
 
 import { ref, watch, computed, nextTick, inject, defineExpose } from "vue"
 import { createResource } from "frappe-ui"
-import Textarea from "primevue/textarea"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import CustomAvatar from "../CustomAvatar.vue"
@@ -244,6 +269,9 @@ import { useScrollToActiveNode } from "./composables/useScrollToActiveNode"
 import { useMindmapCommentMenu } from "./composables/useMindmapCommentMenu"
 import { useMindmapAPI } from "./composables/useMindmapAPI"
 import CommentEditor from "./MindmapCommentEditor.vue"
+import { useCommentRefs } from "./composables/useCommentRefs"
+import { useMindmapCommentImageUpload } from "./composables/useMindmapCommentImageUpload"
+
 
 
 import { timeAgo } from "./utils/timeAgo"
@@ -270,12 +298,19 @@ const groupRefs = ref({})
 const previewImages = ref([])
 const hasLoadedOnce = ref(false)
 const openMenuCommentId = ref(null)
+const hashCommentIdInternal = ref(null)
+const hasData = ref(false)
 
 
 const isNavigatingByKeyboard = ref(false)
 
 
 const currentUser = computed(() => store.state.user)
+
+const { pickAndUploadImages } = useMindmapCommentImageUpload({
+  route,
+  isPrivate: computed(() => props.mindmap?.is_private)
+})
 
 const {
   activeComment,
@@ -286,10 +321,13 @@ const {
 } = useMindmapCommentMenu()
 
 
+const { setCommentRef, scrollToComment } = useCommentRefs()
+
+
+
 const { deleteComment } = useMindmapAPI({
   entityName
 })
-
 
 
 function setGroupRef(nodeId, el) {
@@ -307,6 +345,7 @@ const mindmap_comment_list = createResource({
   params: { mindmap_id: entityName },
   onSuccess(data) {
     comments.value = data || []
+    hasData.value = true
   },
   onError(error) {
     // Xử lý lỗi khi DocType chưa tồn tại hoặc lỗi khác
@@ -316,54 +355,83 @@ const mindmap_comment_list = createResource({
   }
 })
 
+function syncHashCommentId() {
+  const hash = window.location.hash || ""
+  const params = new URLSearchParams(hash.replace("#", ""))
+  hashCommentIdInternal.value = params.get("comment_id")
+}
+
 watch(
   () => props.visible,
-  async (isVisible) => {
-    // Nếu đang đóng → không làm gì
-    if (!isVisible || !entityName) return
+  async isVisible => {
+    if (!isVisible) return
 
-    // ĐÃ LOAD RỒI → KHÔNG FETCH LẠI
-    if (hasLoadedOnce.value) {
-      // vẫn cho scroll lại nếu cần
-      await nextTick()
-      requestAnimationFrame(() => {
-        if (activeNodeId.value) {
-          scrollToActiveNode(activeNodeId.value)
-        }
-      })
+    syncHashCommentId()
+
+
+    if (!hasLoadedOnce.value) {
+      await mindmap_comment_list.fetch()
+      hasLoadedOnce.value = true
+    }
+    await new Promise(res => setTimeout(res, 350))
+    await nextTick()
+
+    if (hashCommentIdInternal.value && hasData) {
+      scrollToComment(hashCommentIdInternal.value)
       return
     }
-
-    // LẦN ĐẦU TIÊN → FETCH
-    await mindmap_comment_list.fetch()
-    hasLoadedOnce.value = true
-
-    await nextTick()
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        if (activeNodeId.value) {
-          scrollToActiveNode(activeNodeId.value)
-        }
-      })
-    })
-
   },
   { immediate: true }
 )
 
+function isEdited(c) {
+  if (!c) return false
+  return new Date(c.modified) > new Date(c.creation)
+}
+
+
+function displayTime(c) {
+  if (!c) return ""
+
+  const created = new Date(c.creation)
+  const modified = new Date(c.modified)
+
+  const edited = modified > created
+
+  if (edited) {
+    return `${timeAgo(c.modified)} (đã chỉnh sửa)`
+  }
+
+  return timeAgo(c.creation)
+}
 
 // -----------------------------
 const closing = ref(false)
 
+function clearCommentIdFromUrl() {
+  const url = new URL(window.location.href)
+
+  url.searchParams.delete("node")
+
+  url.hash = ""
+
+  window.history.replaceState({}, "", url.toString())
+}
+
+
 function handleClose() {
   closing.value = true
   commentEditorRef.value?.blur?.()
+
+  clearCommentIdFromUrl()
+  hashCommentIdInternal.value = null
 
   setTimeout(() => {
     emit("close")
     closing.value = false
   }, 250)
 }
+
 
 // =============================
 // 1. INPUT STATE + API ACTIONS
@@ -377,7 +445,8 @@ const {
   activeNodeId,
   entityName,
   emit,
-  previewImages
+  previewImages,
+  commentEditorRef
 })
 
 const {
@@ -436,19 +505,20 @@ watch(
 // 3. FOCUS + CLICK INTERACTION
 // =============================
 
-function handleClickGroup(nodeId) {
+function handleClickGroup(nodeId, e) {
   if (!nodeId) return
+  if (e.target.closest("[comment-add-form-cancel]")) return
+  if (e.target.closest("[comment-add-form-submit]")) return
+  if (e.target.closest("[data-mention-item]")) return
 
   // Click lại chính node đang active → chỉ focus input
   if (props.node?.id === nodeId) {
-    // focusInput(nodeId)
     return
   }
 
   const node = nodeMap.value[nodeId] || { id: nodeId }
   emit("update:node", node)
 
-  // nextTick(() => focusInput(nodeId))
 }
 
 
@@ -462,6 +532,7 @@ const { scrollToActiveNode } = useScrollToActiveNode(groupRefs)
 // 5. DATA MERGE & COMPUTED
 // =============================
 const {
+  members,
   stripLabel,
   mergedComments,
   mergedGroupsFinal,
@@ -472,7 +543,6 @@ const {
   mindmap: computed(() => props.mindmap),
   activeNodeId
 })
-
 
 // =============================
 // 6. REALTIME
@@ -504,6 +574,9 @@ const {
 // =============================
 const vTooltip = Tooltip
 
+const groups = computed(() => mergedGroupsFinal.value)
+
+
 function handleNavigate(direction) {
   isNavigatingByKeyboard.value = true
 
@@ -527,79 +600,12 @@ function handleNavigate(direction) {
 }
 
 
-async function uploadImageGeneric(file, parentEntityName) {
-  const { v4: uuidv4 } = await import("uuid")
-  const fileUuid = uuidv4()
-
-  const chunkSize = 5 * 1024 * 1024
-  let chunkByteOffset = 0
-  let chunkIndex = 0
-  const totalChunks = Math.ceil(file.size / chunkSize)
-
-  while (chunkByteOffset < file.size) {
-    const currentChunk = file.slice(chunkByteOffset, chunkByteOffset + chunkSize)
-
-    const formData = new FormData()
-    formData.append("filename", file.name)
-    formData.append("team", route.params.team)
-    formData.append("total_file_size", file.size)
-    formData.append("mime_type", file.type)
-    formData.append("total_chunk_count", totalChunks)
-    formData.append("chunk_byte_offset", chunkByteOffset)
-    formData.append("chunk_index", chunkIndex)
-    formData.append("chunk_size", chunkSize)
-    formData.append("file", currentChunk)
-    formData.append("parent", parentEntityName)
-    formData.append("embed", 1)
-    formData.append("personal", props.mindmap?.is_private ? 1 : 0)
-    formData.append("uuid", fileUuid)
-
-    const res = await fetch("/api/method/drive.api.files.upload_file", {
-      method: "POST",
-      body: formData,
-      headers: {
-        "X-Frappe-CSRF-Token": window.csrf_token,
-        Accept: "application/json",
-      },
-    })
-
-    // ✅ Chunk cuối → trả về URL embed
-    if (chunkIndex === totalChunks - 1) {
-      const data = await res.json()
-      return `${window.location.origin}/api/method/drive.api.embed.get_file_content?embed_name=${data.message.name}&parent_entity_name=${parentEntityName}`
-    }
-
-    chunkByteOffset += chunkSize
-    chunkIndex++
-  }
-}
-
 async function handleUploadCommentImage() {
-  const input = document.createElement("input")
-  input.type = "file"
-  input.accept = "image/*"
-  input.multiple = true
-  input.style.display = "none"
-  document.body.appendChild(input)
+  const urls = await pickAndUploadImages(entityName)
 
-  input.onchange = async () => {
-    const files = Array.from(input.files || [])
-    input.remove()
-    if (!files.length) return
-
-    try {
-      for (const file of files) {
-        const imageUrl = await uploadImageGeneric(file, entityName)
-
-        previewImages.value.push(imageUrl)
-      }
-    } catch (err) {
-      console.error("Upload image failed:", err)
-    }
-  }
-
-  input.click()
+  urls.forEach(url => previewImages.value.push(url))
 }
+
 
 </script>
 
@@ -638,5 +644,20 @@ async function handleUploadCommentImage() {
   color: #9ca3af;
   font-size: 12px;
   opacity: 1;
+}
+
+.highlight-comment {
+  background-color: #fff7c2 !important;
+  transition: background-color 0.3s ease;
+  border-radius: 6px;
+}
+
+.comment-content :deep(span[data-mention]) {
+  background-color: #e7f3ff;
+  color: #0b63c4;
+  padding: 0px 4px;
+  border-radius: 4px;
+  font-weight: 500;
+  white-space: nowrap;
 }
 </style>

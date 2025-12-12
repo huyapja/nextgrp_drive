@@ -7,7 +7,7 @@ export function useMindmapCommentInput({
   entityName,
   emit,
   previewImages,
-  resetPreviewImages    
+  commentEditorRef
 }) {
   const inputValue = ref("")
   const commentCache = ref(
@@ -48,9 +48,9 @@ export function useMindmapCommentInput({
     })
 
     // RESET SAU KHI GỬI
-    resetPreviewImages()
     inputValue.value = ""
     commentCache.value[activeNodeId.value] = ""
+    commentEditorRef.value[activeNodeId]?.clearValues()
     saveCache()
 
     emit("submit", res.comment)

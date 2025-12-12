@@ -1,20 +1,28 @@
 import { onMounted, onUnmounted } from "vue"
 
+function getActiveEditor() {
+  const focused = document.querySelector(".ProseMirror-focused")
+  if (!focused) return null
+
+  const editors = window.__ALL_EDITORS__ || []
+  return editors.find((ed) => ed.view.dom === focused) || null
+}
+
 export function useMindmapCommentNavigation({
   activeNodeId,
   mergedGroupsFinal,
   nodeMap,
-  emit
+  emit,
 }) {
   function hasNextGroup(nodeId) {
     const list = mergedGroupsFinal.value
-    const index = list.findIndex(g => g.node.id === nodeId)
+    const index = list.findIndex((g) => g.node.id === nodeId)
     return index !== -1 && index < list.length - 1
   }
 
   function hasPrevGroup(nodeId) {
     const list = mergedGroupsFinal.value
-    const index = list.findIndex(g => g.node.id === nodeId)
+    const index = list.findIndex((g) => g.node.id === nodeId)
     return index > 0
   }
 
@@ -24,7 +32,7 @@ export function useMindmapCommentNavigation({
     const list = mergedGroupsFinal.value
     if (!list.length) return
 
-    const index = list.findIndex(g => g.node.id === currentNodeId)
+    const index = list.findIndex((g) => g.node.id === currentNodeId)
     if (index === -1) return
 
     const next = list[index + 1]
@@ -42,7 +50,7 @@ export function useMindmapCommentNavigation({
     const list = mergedGroupsFinal.value
     if (!list.length) return
 
-    const index = list.findIndex(g => g.node.id === currentNodeId)
+    const index = list.findIndex((g) => g.node.id === currentNodeId)
     if (index === -1) return
 
     const prev = list[index - 1]
@@ -55,6 +63,16 @@ export function useMindmapCommentNavigation({
   }
 
   function handleKeyNavigation(e) {
+    const editor = getActiveEditor()
+
+    if (editor?.storage?.__mentionOpen) {
+      return
+    }
+    
+    if(editor?.isFocused){
+      return
+    }
+    
     if (!activeNodeId.value) return
 
     if (e.key === "ArrowDown") {
@@ -84,6 +102,6 @@ export function useMindmapCommentNavigation({
     hasNextGroup,
     hasPrevGroup,
     selectNextGroup,
-    selectPrevGroup
+    selectPrevGroup,
   }
 }

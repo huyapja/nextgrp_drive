@@ -3,6 +3,9 @@ import { ref, watch, onMounted, onBeforeUnmount, defineExpose } from "vue"
 import { Editor, EditorContent } from "@tiptap/vue-3"
 import StarterKit from "@tiptap/starter-kit"
 import Image from "@tiptap/extension-image"
+import { Mention } from './components/extensions/mention'
+import { MentionSuggestion } from "./components/extensions/mention_suggestion"
+
 
 const props = defineProps({
     visible: Boolean,
@@ -14,12 +17,17 @@ const props = defineProps({
         type: Array,
         default: () => [],
     },
+    members: { type: Array, default: () => [] },
+    nodeId: String,
 })
 
 const emit = defineEmits(["update:modelValue", "submit", "navigate"])
 
 const editor = ref(null)
 const localInsertedImages = new Set()
+const mentionMembers = ref(props.members || [])
+
+
 
 onMounted(() => {
     editor.value = new Editor({
@@ -29,6 +37,12 @@ onMounted(() => {
                 paragraph: { HTMLAttributes: { class: "text-[13px] text-black" } },
             }),
             Image.configure({ inline: true }),
+            Mention.configure({
+                suggestion: MentionSuggestion({
+                    getMembers: () => mentionMembers.value,
+                    nodeId: props.nodeId
+                })
+            })
         ],
         autofocus: false,
 
@@ -38,42 +52,38 @@ onMounted(() => {
 
         editorProps: {
             handleKeyDown(view, event) {
-                event.stopPropagation()
+                const isMentionOpen = editor.value?.storage?.__mentionOpen;
 
-                // ✅ Arrow Down → chuyển node kế tiếp + BỎ FOCUS EDITOR
+                if (isMentionOpen) {
+                    return false;
+                }
+
                 if (event.key === "ArrowDown") {
                     event.preventDefault()
 
                     emit("navigate", "next")
 
-                    console.log(">>> i am herre");
-
-                    // ✅ blur editor để ngừng bắt phím
                     editor.value?.commands.blur()
 
                     return true
                 }
 
-                // ✅ Arrow Up → chuyển node trước + BỎ FOCUS EDITOR
                 if (event.key === "ArrowUp") {
                     event.preventDefault()
 
                     emit("navigate", "prev")
 
-                    // ✅ blur editor để ngừng bắt phím
                     editor.value?.commands.blur()
 
                     return true
                 }
 
-                // ✅ Enter → Submit (KHÔNG xuống dòng)
                 if (event.key === "Enter" && !event.shiftKey) {
                     event.preventDefault()
                     emit("submit")
                     return true
                 }
 
-                // ✅ Shift + Enter → xuống dòng bình thường
                 return false
             },
 
@@ -86,6 +96,24 @@ onMounted(() => {
         },
 
     })
+
+    editor.value.on("focus", () => {
+        window.__EDITOR_FOCUSED__ = true
+    })
+
+    editor.value.on("blur", () => {
+        window.__EDITOR_FOCUSED__ = false
+    })
+
+    if (!window.__ALL_EDITORS__) window.__ALL_EDITORS__ = []
+    window.__ALL_EDITORS__.push(editor.value)
+})
+
+
+watch(() => props.members, (val) => {
+    console.log(val);
+
+    mentionMembers.value = val || []
 })
 
 watch(
@@ -111,29 +139,29 @@ watch(
 
         const current = editor.value.getHTML()
 
-        if (
-            (!current && val) ||
-            (val === "" && current)
-        ) {
+        // 🚀 Chỉ cập nhật nếu thay đổi từ bên ngoài, không phải do self-update
+        if (val !== current) {
             editor.value.commands.setContent(val || "", false)
-            localInsertedImages.clear()
         }
-    },
-    { immediate: true }
+    }
 )
+
 
 onBeforeUnmount(() => {
     if (editor.value) {
         editor.value.destroy()
         editor.value = null
     }
+    if (window.__ALL_EDITORS__) {
+        window.__ALL_EDITORS__ = window.__ALL_EDITORS__.filter(
+            (ed) => ed !== editor.value
+        )
+    }
 })
 
 defineExpose({
     focus() {
         if (!editor.value) return
-
-        // ✅ Focus đúng ProseMirror view
         editor.value?.view?.focus()
     },
 
@@ -142,13 +170,17 @@ defineExpose({
     },
     clearImages() {
         localInsertedImages.clear()
-    }
+    },
+    clearValues() {
+        editor.value?.commands.setContent("", false)
+        localInsertedImages.clear()
+        emit("update:modelValue", "")
+    },
 })
 
 </script>
 
 <template>
-    <!-- ✅ TÁCH ROOT RIÊNG → MINDMAP KHÔNG CAN THIỆP -->
     <div class="rounded p-2 editor-wrapper comment-editor-root" comment-editor-root>
         <EditorContent :editor="editor" class="tiptap-editor overflow-y-auto" />
     </div>
@@ -156,14 +188,19 @@ defineExpose({
 </template>
 
 <style scoped>
-.comment-editor-root {
-    isolation: isolate;
-    /* ✅ NGĂN CSS & DOM BLEED */
-}
-
 .tiptap-editor :deep(img) {
     max-width: 120px;
     border-radius: 6px;
     margin: 4px;
+}
+
+.tiptap-editor :deep(span[data-mention]) {
+    background-color: #e7f3ff;
+    color: #0b63c4;
+    padding: 0px 4px;
+    border-radius: 4px;
+    font-weight: 500;
+    cursor: pointer;
+    white-space: nowrap;
 }
 </style>

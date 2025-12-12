@@ -104,6 +104,7 @@ declare module 'vue' {
     LucideX: typeof import('~icons/lucide/x')['default']
     Mention: typeof import('./src/components/DocEditor/icons/Mention.vue')['default']
     MentionList: typeof import('./src/components/DocEditor/components/MentionList.vue')['default']
+    MentionSuggestion: typeof import('./src/components/Mindmap/components/extensions/mention_suggestion')['default']
     Menu: typeof import('./src/components/DocEditor/components/Menu.vue')['default']
     Mindmap: typeof import('./src/components/MimeIcons/Mindmap.vue')['default']
     MindmapCommentEditor: typeof import('./src/components/Mindmap/MindmapCommentEditor.vue')['default']
