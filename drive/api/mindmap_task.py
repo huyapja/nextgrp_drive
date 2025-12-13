@@ -2,6 +2,7 @@ import frappe
 from frappe import _
 from functools import reduce
 from pypika import Order, functions as fn
+from frappe.query_builder import DocType
 
 
 def _first_existing_field(meta, candidates):
@@ -97,7 +98,7 @@ def _build_involvement_conditions(task_dt, task_meta, user):
 
 
 @frappe.whitelist()
-def get_my_tasks(project=None, page=1, page_size=10, search=None):
+def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=None):
     """
     Lấy danh sách công việc tôi liên quan.
 
@@ -105,13 +106,15 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None):
     - Lọc theo dự án (project) nếu truyền vào.
     - Order by ngày tạo (mới nhất trước).
     - Phân trang, mỗi trang 10 item.
+    - Nếu có node_owner, sử dụng node_owner thay vì frappe.session.user.
     """
     try:
         task_meta = frappe.get_meta("Task")
     except Exception:
         frappe.throw(_("Task DocType is not available"))
 
-    user = frappe.session.user
+    # Sử dụng node_owner nếu có, nếu không thì dùng frappe.session.user
+    user = node_owner if node_owner else frappe.session.user
     try:
         page = max(1, int(page or 1))
     except Exception:
@@ -206,7 +209,7 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None):
 
     # Map trạng thái sang tiếng Việt (nếu có)
     status_map = {
-        "In Progress": "Đang thực hiện",
+        "In Progress": "Thực hiện",
         "Pending": "Đang chờ",
         "Pending Approval": "Chờ phê duyệt",
         "Completed": "Hoàn thành",
@@ -229,3 +232,70 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None):
         },
         "project": project,
     }
+
+
+@frappe.whitelist()
+def get_my_projects(node_owner=None):
+    """
+    Lấy danh sách dự án mà user có quyền truy cập.
+    
+    - Nếu có node_owner, sử dụng node_owner thay vì frappe.session.user
+    - Trả về danh sách projects mà user là owner/approver/thành viên
+    """
+    try:
+        # Sử dụng node_owner nếu có, nếu không thì dùng frappe.session.user
+        user = node_owner if node_owner else frappe.session.user
+        
+        # Lấy Officer từ user
+        officer = frappe.db.get_value("Officer", {"user": user}, "name")
+        if not officer:
+            return {
+                "data": [],
+            }
+        
+        Project = DocType("Project")
+        ProjectUser = DocType("Project User")
+        
+        # Điều kiện: user là project_owner, approver, hoặc thành viên
+        cond = (
+            (Project.project_owner == officer)
+            | (Project.approver == officer)
+            | (ProjectUser.user == officer)
+        )
+        
+        # Query để lấy danh sách projects
+        qb = (
+            frappe.qb.from_(Project)
+            .left_join(ProjectUser)
+            .on(Project.name == ProjectUser.parent)
+            .where(cond)
+        )
+        
+        # Lấy tất cả projects (không limit để có đầy đủ options)
+        rows = (
+            qb.select(
+                Project.name,
+                Project.project_name,
+                Project.project_code,
+            )
+            .groupby(Project.name)
+            .orderby(Project.modified, order=Order.desc)
+        ).run(as_dict=True)
+        
+        # Format kết quả
+        projects = []
+        for row in rows:
+            projects.append({
+                "name": row.get("name"),
+                "project_name": row.get("project_name") or row.get("name"),
+                "project_code": row.get("project_code") or "",
+            })
+        
+        return {
+            "data": projects,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error in get_my_projects: {str(e)}")
+        return {
+            "data": [],
+        }

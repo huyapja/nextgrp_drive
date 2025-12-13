@@ -65,6 +65,11 @@
         :selected-task-id="selectedTaskId"
         :attach-link="attachTaskLink"
         :link-url="taskLinkUrl"
+        :node-owner="mindmapEntity?.data?.owner || ''"
+        :mindmap-title="mindmap?.data?.title || ''"
+        :team="props.team"
+        :mindmap-id="props.entityName"
+        :node-id="taskLinkNode?.id || ''"
         @update:mode="taskLinkMode = $event"
         @update:search="taskSearchInput = $event"
         @update:selectedTaskId="selectedTaskId = $event"
@@ -74,6 +79,7 @@
         @update:page="setTaskPage($event)"
         @close="closeTaskLinkModal"
         @confirm="confirmTaskLink"
+        @createTask="handleCreateTask"
       />
 
 
@@ -194,15 +200,57 @@ const taskPagination = ref({ page: 1, total_pages: 1, total: 0 })
 const taskLoading = ref(false)
 const taskProjectOptionMap = ref({})
 
+// Fetch project options separately
+const fetchProjectOptions = async () => {
+  try {
+    // Lấy owner của node nếu có taskLinkNode
+    let nodeOwner = null
+    if (taskLinkNode.value && mindmapEntity?.data?.owner) {
+      nodeOwner = mindmapEntity.data.owner
+    }
+    
+    console.log('fetchProjectOptions - nodeOwner:', nodeOwner, 'taskLinkNode:', taskLinkNode.value)
+    
+    const res = await call("drive.api.mindmap_task.get_my_projects", {
+      node_owner: nodeOwner || undefined
+    })
+    
+    const projects = res?.data || []
+    console.log('fetchProjectOptions - projects:', projects)
+    
+    // Cập nhật taskProjectOptionMap với tất cả projects
+    const nextMap = { ...(taskProjectOptionMap.value || {}) }
+    projects.forEach(p => {
+      if (p.name) {
+        nextMap[p.name] = p.project_name || p.name
+      }
+    })
+    taskProjectOptionMap.value = nextMap
+    console.log('fetchProjectOptions - taskProjectOptionMap updated:', taskProjectOptionMap.value)
+  } catch (err) {
+    console.error("Failed to fetch project options", err)
+  }
+}
+
 const fetchTaskOptions = async ({ resetPage = false } = {}) => {
   if (resetPage) taskPage.value = 1
   taskLoading.value = true
   try {
+    // Lấy owner của node nếu có taskLinkNode
+    // Luôn sử dụng owner từ mindmapEntity (entity owner = node owner trong mindmap)
+    let nodeOwner = null
+    if (taskLinkNode.value && mindmapEntity?.data?.owner) {
+      nodeOwner = mindmapEntity.data.owner
+    }
+    
+    console.log('fetchTaskOptions - nodeOwner:', nodeOwner, 'taskLinkMode:', taskLinkMode.value, 'taskLinkNode:', taskLinkNode.value, 'mindmapEntity:', mindmapEntity?.data)
+    
     const res = await call("drive.api.mindmap_task.get_my_tasks", {
       project: taskProjectFilter.value !== 'all' ? taskProjectFilter.value : null,
       page: taskPage.value,
       page_size: TASK_PAGE_SIZE,
-      search: taskSearch.value?.trim() || undefined
+      search: taskSearch.value?.trim() || undefined,
+      node_owner: nodeOwner || undefined
     })
     const list = res?.data || []
     taskOptions.value = list.map(t => ({
@@ -218,13 +266,17 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
     }))
 
     // Cập nhật tập dự án hiển thị (giữ lại để filter không bị thu hẹp)
+    // Luôn giữ lại các projects từ các lần fetch trước, chỉ thêm mới hoặc cập nhật
     const nextMap = { ...(taskProjectOptionMap.value || {}) }
     taskOptions.value.forEach(t => {
       if (t.project) {
+        // Thêm hoặc cập nhật project vào map
         nextMap[t.project] = t.project_name || t.project
       }
     })
     taskProjectOptionMap.value = nextMap
+    
+    console.log('taskProjectOptionMap updated:', taskProjectOptionMap.value)
 
     const pag = res?.pagination || {}
     taskPagination.value = {
@@ -1129,15 +1181,22 @@ const getDefaultTaskLink = (nodeId) => {
   return `${origin}/mtp/my-drive?drive_copy=${encodeURIComponent(driveCopyUrl)}`
 }
 
-const openTaskLinkModal = (node) => {
+const openTaskLinkModal = async (node) => {
   taskLinkNode.value = resolveTaskLinkNode(node)
-  showTaskLinkModal.value = true
   taskLinkMode.value = 'existing'
   taskSearch.value = ''
   attachTaskLink.value = false
   taskLinkUrl.value = ''
   taskPage.value = 1
-  fetchTaskOptions({ resetPage: true })
+  
+  // Fetch project options và tasks song song
+  await Promise.all([
+    fetchProjectOptions(),
+    fetchTaskOptions({ resetPage: true })
+  ])
+  
+  // Mở modal sau khi đã fetch xong để đảm bảo project options đã có
+  showTaskLinkModal.value = true
   selectedTaskId.value = filteredTasks.value?.[0]?.id || null
 }
 
@@ -1202,11 +1261,124 @@ const confirmTaskLink = async () => {
       })
     }
 
-    // Thêm badge tick xanh dưới title node
+    // Thêm badge tick xanh dưới title node (ngay sau paragraph đầu tiên, trước ảnh)
+    // Wrap badge trong section riêng để dễ phân biệt và style
     if (taskPayload.linkUrl) {
-      const badgeHtml = `<div class="node-task-badge" style="margin-top:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div>`
+      const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
       if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
-        targetNode.data.label = `${targetNode.data.label}${badgeHtml}`
+        // Parse HTML để chèn badge vào đúng vị trí (ngay sau title, trước ảnh)
+        try {
+          const parser = new DOMParser()
+          const doc = parser.parseFromString(targetNode.data.label, 'text/html')
+          const body = doc.body
+          
+          // Xóa tất cả paragraph rỗng (is-empty hoặc chỉ có br/whitespace) và paragraph chứa ⋮
+          const allParagraphs = body.querySelectorAll('p')
+          allParagraphs.forEach(p => {
+            const text = p.textContent?.trim() || ''
+            const hasOnlyBr = p.querySelectorAll('br').length === p.childNodes.length && p.childNodes.length > 0
+            const isEmpty = p.classList.contains('is-empty') || (text === '' && hasOnlyBr)
+            const hasMenuDots = text === '⋮' || text.includes('⋮')
+            if (isEmpty || hasMenuDots) {
+              p.remove()
+            }
+          })
+          
+          // Xóa tất cả button menu (image-menu-button)
+          const menuButtons = body.querySelectorAll('.image-menu-button, button[aria-label="Image options"]')
+          menuButtons.forEach(btn => btn.remove())
+          
+          // Tìm paragraph đầu tiên có nội dung (title) và thêm class để phân biệt
+          const firstParagraph = body.querySelector('p')
+          
+          if (firstParagraph) {
+            // Thêm class để phân biệt title
+            firstParagraph.classList.add('node-title-section')
+            firstParagraph.setAttribute('data-node-section', 'title')
+            
+            // Tạo badge element
+            const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+            
+            // Tìm ảnh đầu tiên trong toàn bộ body (có thể là img hoặc trong wrapper)
+            const firstImage = body.querySelector('img, .image-wrapper-node, .image-wrapper')
+            
+            if (firstImage) {
+              // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong paragraph đầu tiên không
+              const imageWrapper = firstImage.closest('.image-wrapper-node, .image-wrapper')
+              const imageContainer = imageWrapper || firstImage
+              const imageParent = imageContainer.parentElement
+              
+              // Thêm class và attribute để phân biệt phần ảnh
+              let finalImageContainer = imageContainer
+              if (imageContainer.classList.contains('image-wrapper-node') || imageContainer.classList.contains('image-wrapper')) {
+                // Đã có wrapper - thêm class vào wrapper
+                imageContainer.classList.add('node-image-section')
+                imageContainer.setAttribute('data-node-section', 'image')
+              } else if (imageContainer.tagName === 'IMG') {
+                // Ảnh không có wrapper - wrap trong section
+                const imageSection = doc.createElement('section')
+                imageSection.classList.add('node-image-section')
+                imageSection.setAttribute('data-node-section', 'image')
+                imageContainer.parentElement.insertBefore(imageSection, imageContainer)
+                imageSection.appendChild(imageContainer)
+                finalImageContainer = imageSection
+              } else {
+                // Element khác - thêm class trực tiếp
+                imageContainer.classList.add('node-image-section')
+                imageContainer.setAttribute('data-node-section', 'image')
+              }
+              
+              // Cập nhật lại imageParent sau khi có thể đã wrap
+              const updatedImageParent = finalImageContainer.parentElement
+              
+              if (updatedImageParent === firstParagraph) {
+                // Ảnh/wrapper nằm trong paragraph đầu tiên - tách ra và chèn badge
+                const imageClone = finalImageContainer.cloneNode(true)
+                finalImageContainer.remove()
+                // Chèn badge sau paragraph đầu tiên
+                body.insertBefore(badgeElement, firstParagraph.nextSibling)
+                // Chèn ảnh sau badge
+                body.insertBefore(imageClone, badgeElement.nextSibling)
+              } else {
+                // Ảnh ở element khác - chèn badge trước container của ảnh
+                finalImageContainer.parentElement.insertBefore(badgeElement, finalImageContainer)
+              }
+            } else {
+              // Không có ảnh - chèn badge ngay sau paragraph đầu tiên
+              if (firstParagraph.nextSibling) {
+                body.insertBefore(badgeElement, firstParagraph.nextSibling)
+              } else {
+                body.appendChild(badgeElement)
+              }
+            }
+            
+            // Thêm class cho các paragraph còn lại (mô tả) để phân biệt
+            const remainingParagraphs = body.querySelectorAll('p:not(.node-title-section)')
+            remainingParagraphs.forEach(p => {
+              if (!p.classList.contains('node-description-section')) {
+                p.classList.add('node-description-section')
+                p.setAttribute('data-node-section', 'description')
+              }
+            })
+            
+            // Serialize lại HTML
+            targetNode.data.label = body.innerHTML
+          } else {
+            // Không có paragraph - tạo paragraph mới cho title và chèn badge
+            const titleParagraph = doc.createElement('p')
+            titleParagraph.textContent = plainTitle || 'Nhánh mới'
+            body.appendChild(titleParagraph)
+            
+            const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+            body.appendChild(badgeElement)
+            
+            targetNode.data.label = body.innerHTML
+          }
+        } catch (err) {
+          // Fallback: chèn vào cuối nếu parse lỗi
+          console.error('Error parsing HTML for badge insertion:', err)
+          targetNode.data.label = `${targetNode.data.label}${badgeHtml}`
+        }
       }
       if (d3Renderer?.nodeSizeCache) {
         d3Renderer.nodeSizeCache.delete(targetNode.id)
@@ -1226,6 +1398,38 @@ const confirmTaskLink = async () => {
     }
 
     await updateD3RendererWithDelay(0)
+    
+    // ⚠️ CRITICAL: Trigger lại tính toán chiều cao node sau khi thêm badge
+    // Đợi DOM cập nhật xong rồi mới tính toán lại chiều cao
+    await nextTick()
+    
+    // ⚠️ FIX: Đợi nhiều frame để đảm bảo DOM đã cập nhật hoàn toàn với badge mới
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        // Đợi thêm một chút để đảm bảo editor đã cập nhật content với badge
+        setTimeout(() => {
+          // Tìm foreignObject element của node
+          const nodeGroup = document.querySelector(`[data-node-id="${targetNode.id}"]`)
+          if (nodeGroup && d3Renderer) {
+            const foElement = nodeGroup.querySelector('.node-text')
+            if (foElement) {
+              // ⚠️ CRITICAL: Gọi trực tiếp handleEditorBlur để tính toán lại height
+              // handleEditorBlur sẽ đo lại height từ DOM và cập nhật node size
+              try {
+                d3Renderer.handleEditorBlur(targetNode.id, foElement, targetNode)
+              } catch (err) {
+                console.error('Error calling handleEditorBlur:', err)
+                // Fallback: gọi updateNodeHeight từ Vue component
+                const vueAppEntry = d3Renderer?.vueApps?.get(targetNode.id)
+                if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                  vueAppEntry.instance.updateNodeHeight()
+                }
+              }
+            }
+          }
+        }, 150) // Tăng delay để đảm bảo DOM đã cập nhật
+      })
+    })
     scheduleSave()
     toast({ title: "Đã liên kết công việc thành công", indicator: "green" })
     closeTaskLinkModal()
@@ -1233,6 +1437,324 @@ const confirmTaskLink = async () => {
     console.error("Link task failed", err)
     toast({ title: "Liên kết công việc thất bại", indicator: "red" })
     closeTaskLinkModal()
+  }
+}
+
+// Handle create task from node
+const handleCreateTask = async (formData) => {
+  try {
+    // Format date for backend
+    const formatDateForBackend = (isoString) => {
+      if (!isoString) return null
+      const date = new Date(isoString)
+      const year = date.getFullYear()
+      const month = String(date.getMonth() + 1).padStart(2, '0')
+      const day = String(date.getDate()).padStart(2, '0')
+      return `${year}-${month}-${day}`
+    }
+
+    // Prepare payload
+    const payload = {
+      project: formData.project?.value,
+      task_name: formData.task_name,
+      assign_to: formData.name_assign_to?.value,
+      assigned_by: formData.assigned_by?.value || null,
+      priority: formData.priority?.value || null,
+      duration: formData.duration ? formatDateForBackend(formData.duration) : null,
+      section: formData.section_title?.value === '_empty' ? null : (formData.section_title?.value || null),
+      description: formData.description || '',
+      collaborator: (formData.collaborator || []).map((collab) => ({ 
+        officer: collab.id || collab.value 
+      })),
+      parent_task: formData.parent_task?.value || null
+    }
+
+    console.log('Creating task with payload:', payload)
+
+    // Call API to create task
+    const response = await call('nextgrp.api.task.task.create_task', {
+      payload: payload
+    })
+
+    console.log('Task created - full response:', response)
+
+    // Check response format - API returns { message: { result: {...} } }
+    // frappe-ui call may unwrap the response, so check multiple formats
+    // In Raven, they use: response.message.result.name
+    const taskResult = response?.message?.result || response?.result || response
+    console.log('Task result extracted:', taskResult)
+    
+    if (taskResult && taskResult.name) {
+      const taskId = taskResult.name
+      const projectId = formData.project?.value
+      console.log('Task ID:', taskId, 'Project ID:', projectId)
+
+      // Upload files if any
+      if (formData.files && formData.files.length > 0) {
+        for (const file of formData.files) {
+          try {
+            const formDataUpload = new FormData()
+            formDataUpload.append('file', file)
+            formDataUpload.append('doctype', 'Task')
+            formDataUpload.append('docname', taskId)
+            formDataUpload.append('fieldname', 'description')
+            formDataUpload.append('folder', 'Home')
+            formDataUpload.append('is_private', '1')
+
+            await fetch('/api/method/upload_file', {
+              method: 'POST',
+              body: formDataUpload,
+              headers: {
+                'X-Frappe-CSRF-Token': window.csrf_token || document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || ''
+              }
+            })
+          } catch (fileError) {
+            console.error('Failed to upload file:', fileError)
+            // Continue even if file upload fails
+          }
+        }
+      }
+
+      // Link task to node
+      const linkNode = resolveTaskLinkNode(taskLinkNode.value)
+      if (linkNode) {
+        const plainTitle = extractTitleFromLabel(linkNode.data?.label || '')
+        const fallbackLink = getDefaultTaskLink(linkNode.id)
+        const taskOpenLink = getTaskOpenUrl(taskId, projectId)
+
+        linkNode.data = {
+          ...linkNode.data,
+          taskLink: {
+            mode: 'existing',
+            nodeId: linkNode.id,
+            title: formData.task_name,
+            taskId: taskId,
+            assignee: formData.name_assign_to?.label || null,
+            status: null,
+            linkUrl: fallbackLink
+          }
+        }
+
+        // Thêm badge "Liên kết công việc" vào node label (tương tự confirmTaskLink)
+        if (taskOpenLink && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
+          const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
+          try {
+            const parser = new DOMParser()
+            const doc = parser.parseFromString(linkNode.data.label, 'text/html')
+            const body = doc.body
+            
+            // Xóa tất cả paragraph rỗng (is-empty hoặc chỉ có br/whitespace) và paragraph chứa ⋮
+            const allParagraphs = body.querySelectorAll('p')
+            allParagraphs.forEach(p => {
+              const text = p.textContent?.trim() || ''
+              const hasOnlyBr = p.querySelectorAll('br').length === p.childNodes.length && p.childNodes.length > 0
+              const isEmpty = p.classList.contains('is-empty') || (text === '' && hasOnlyBr)
+              const hasMenuDots = text === '⋮' || text.includes('⋮')
+              if (isEmpty || hasMenuDots) {
+                p.remove()
+              }
+            })
+            
+            // Xóa tất cả button menu (image-menu-button)
+            const menuButtons = body.querySelectorAll('.image-menu-button, button[aria-label="Image options"]')
+            menuButtons.forEach(btn => btn.remove())
+            
+            // Tìm paragraph đầu tiên có nội dung (title) và thêm class để phân biệt
+            const firstParagraph = body.querySelector('p')
+            
+            if (firstParagraph) {
+              // Thêm class để phân biệt title
+              firstParagraph.classList.add('node-title-section')
+              firstParagraph.setAttribute('data-node-section', 'title')
+              
+              // Tạo badge element
+              const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+              
+              // Tìm ảnh đầu tiên trong toàn bộ body (có thể là img hoặc trong wrapper)
+              const firstImage = body.querySelector('img, .image-wrapper-node, .image-wrapper')
+              
+              if (firstImage) {
+                // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong paragraph đầu tiên không
+                const imageWrapper = firstImage.closest('.image-wrapper-node, .image-wrapper')
+                const imageContainer = imageWrapper || firstImage
+                const imageParent = imageContainer.parentElement
+                
+                // Thêm class và attribute để phân biệt phần ảnh
+                let finalImageContainer = imageContainer
+                if (imageContainer.classList.contains('image-wrapper-node') || imageContainer.classList.contains('image-wrapper')) {
+                  // Đã có wrapper - thêm class vào wrapper
+                  imageContainer.classList.add('node-image-section')
+                  imageContainer.setAttribute('data-node-section', 'image')
+                } else if (imageContainer.tagName === 'IMG') {
+                  // Ảnh không có wrapper - wrap trong section
+                  const imageSection = doc.createElement('section')
+                  imageSection.classList.add('node-image-section')
+                  imageSection.setAttribute('data-node-section', 'image')
+                  imageContainer.parentElement.insertBefore(imageSection, imageContainer)
+                  imageSection.appendChild(imageContainer)
+                  finalImageContainer = imageSection
+                } else {
+                  // Element khác - thêm class trực tiếp
+                  imageContainer.classList.add('node-image-section')
+                  imageContainer.setAttribute('data-node-section', 'image')
+                }
+                
+                // Cập nhật lại imageParent sau khi có thể đã wrap
+                const updatedImageParent = finalImageContainer.parentElement
+                
+                if (updatedImageParent === firstParagraph) {
+                  // Ảnh/wrapper nằm trong paragraph đầu tiên - tách ra và chèn badge
+                  const imageClone = finalImageContainer.cloneNode(true)
+                  finalImageContainer.remove()
+                  // Chèn badge sau paragraph đầu tiên
+                  body.insertBefore(badgeElement, firstParagraph.nextSibling)
+                  // Chèn ảnh sau badge
+                  body.insertBefore(imageClone, badgeElement.nextSibling)
+                } else {
+                  // Ảnh ở element khác - chèn badge trước container của ảnh
+                  finalImageContainer.parentElement.insertBefore(badgeElement, finalImageContainer)
+                }
+              } else {
+                // Không có ảnh - chèn badge ngay sau paragraph đầu tiên
+                if (firstParagraph.nextSibling) {
+                  body.insertBefore(badgeElement, firstParagraph.nextSibling)
+                } else {
+                  body.appendChild(badgeElement)
+                }
+              }
+              
+              // Thêm class cho các paragraph còn lại (mô tả) để phân biệt
+              const remainingParagraphs = body.querySelectorAll('p:not(.node-title-section)')
+              remainingParagraphs.forEach(p => {
+                if (!p.classList.contains('node-description-section')) {
+                  p.classList.add('node-description-section')
+                  p.setAttribute('data-node-section', 'description')
+                }
+              })
+              
+              // Serialize lại HTML
+              linkNode.data.label = body.innerHTML
+            } else {
+              // Không có paragraph - tạo paragraph mới cho title và chèn badge
+              const titleParagraph = doc.createElement('p')
+              titleParagraph.textContent = plainTitle || 'Nhánh mới'
+              body.appendChild(titleParagraph)
+              
+              const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+              body.appendChild(badgeElement)
+              
+              linkNode.data.label = body.innerHTML
+            }
+          } catch (err) {
+            // Fallback: chèn vào cuối nếu parse lỗi
+            console.error('Error parsing HTML for badge insertion:', err)
+            linkNode.data.label = `${linkNode.data.label}${badgeHtml}`
+          }
+          
+          // Clear node size cache
+          if (d3Renderer?.nodeSizeCache) {
+            d3Renderer.nodeSizeCache.delete(linkNode.id)
+          }
+          
+          // Đồng bộ nội dung editor ngay lập tức
+          const editorInstance = d3Renderer?.getEditorInstance?.(linkNode.id)
+          if (editorInstance && typeof editorInstance.commands?.setContent === 'function') {
+            editorInstance.commands.setContent(linkNode.data?.label || '', false)
+          }
+          
+          // Cập nhật nodes array
+          const idx = nodes.value.findIndex(n => n.id === linkNode.id)
+          if (idx !== -1) {
+            nodes.value[idx] = { ...linkNode }
+            elements.value = [...nodes.value, ...edges.value]
+          }
+          
+          await updateD3RendererWithDelay(0)
+        }
+
+        // Update mindmap - get vueAppEntry from d3Renderer
+        await nextTick()
+        
+        // ⚠️ FIX: Đợi nhiều frame để đảm bảo DOM đã cập nhật hoàn toàn với badge mới
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            // Đợi thêm một chút để đảm bảo editor đã cập nhật content với badge
+            setTimeout(() => {
+              // Tìm foreignObject element của node
+              const nodeGroup = document.querySelector(`[data-node-id="${linkNode.id}"]`)
+              if (nodeGroup && d3Renderer) {
+                const foElement = nodeGroup.querySelector('.node-text')
+                if (foElement) {
+                  // ⚠️ CRITICAL: Gọi trực tiếp handleEditorBlur để tính toán lại height
+                  // handleEditorBlur sẽ đo lại height từ DOM và cập nhật node size
+                  try {
+                    d3Renderer.handleEditorBlur(linkNode.id, foElement, linkNode)
+                  } catch (err) {
+                    console.error('Error calling handleEditorBlur:', err)
+                    // Fallback: gọi updateNodeHeight từ Vue component
+                    const vueAppEntry = d3Renderer?.vueApps?.get(linkNode.id)
+                    if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                      vueAppEntry.instance.updateNodeHeight()
+                    }
+                  }
+                }
+              }
+            }, 150) // Tăng delay để đảm bảo DOM đã cập nhật
+          })
+        })
+        scheduleSave()
+
+        // Add comment link to task
+        if (fallbackLink && taskId) {
+          const nodeTitle = plainTitle || linkNode.data?.label || ''
+          const mindmapTitle = mindmap.data?.title || ''
+          await call("drive.api.mindmap_comment.add_task_link_comment", {
+            task_id: taskId,
+            node_id: linkNode.id,
+            node_title: nodeTitle,
+            mindmap_title: mindmapTitle,
+            link_url: fallbackLink
+          })
+        }
+      }
+
+      // Show success message with link
+      const origin = window.location.origin
+      const taskUrl = `${origin}/mtp/project/${projectId}?task_id=${taskId}`
+      
+      toast({ 
+        title: `Công việc "${formData.task_name}" đã được tạo thành công`, 
+        indicator: "green",
+        action: {
+          label: "Mở công việc",
+          onClick: () => {
+            window.open(taskUrl, '_blank')
+          }
+        }
+      })
+
+      closeTaskLinkModal()
+    } else {
+      // Log for debugging
+      console.error('Task creation failed - invalid response:', response)
+      console.error('Response keys:', Object.keys(response || {}))
+      console.error('Response.message:', response?.message)
+      console.error('Response.message.result:', response?.message?.result)
+      const errorMsg = response?.message || response?.errorMessage || 'Không thể tạo công việc'
+      throw new Error(errorMsg)
+    }
+  } catch (error) {
+    console.error('Create task failed:', error)
+    // Extract error message from various possible formats
+    let errorMessage = 'Có lỗi xảy ra khi tạo công việc'
+    if (error?.message?.result) {
+      errorMessage = error.message.result
+    } else if (error?.message) {
+      errorMessage = typeof error.message === 'string' ? error.message : JSON.stringify(error.message)
+    } else if (typeof error === 'string') {
+      errorMessage = error
+    }
+    toast({ title: errorMessage, indicator: "red" })
   }
 }
 

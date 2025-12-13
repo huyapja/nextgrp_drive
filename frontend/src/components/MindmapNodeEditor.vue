@@ -1796,7 +1796,25 @@ export default {
             const currentWidth = hasImages ? maxWidth : (parseFloat(proseElement.style.width) || 368)
             const foWidth = currentWidth - borderOffset
             
-            // ⚠️ CRITICAL: Set overflow: visible TRƯỚC để scrollHeight tính đúng ảnh
+            // ⚠️ CRITICAL: Đảm bảo wrapper và container có overflow visible và height auto
+            const wrapperElement = proseElement.closest('.node-content-wrapper')
+            const containerElement = proseElement.closest('.node-editor-container')
+            
+            if (wrapperElement) {
+              wrapperElement.style.overflow = 'visible'
+              wrapperElement.style.height = 'auto'
+              wrapperElement.style.minHeight = '0'
+              wrapperElement.style.maxHeight = 'none'
+            }
+            
+            if (containerElement) {
+              containerElement.style.overflow = 'visible'
+              containerElement.style.height = 'auto'
+              containerElement.style.minHeight = '0'
+              containerElement.style.maxHeight = 'none'
+            }
+            
+            // ⚠️ CRITICAL: Set overflow: visible TRƯỚC để scrollHeight tính đúng ảnh và badge
             proseElement.style.overflow = 'visible'
             proseElement.style.boxSizing = 'border-box'
             proseElement.style.width = `${foWidth}px`
@@ -1811,7 +1829,7 @@ export default {
             void proseElement.offsetHeight
             void proseElement.scrollHeight
             
-            // ⚠️ CRITICAL: Đảm bảo overflow là visible để scrollHeight tính đúng ảnh
+            // ⚠️ CRITICAL: Đảm bảo overflow là visible để scrollHeight tính đúng ảnh và badge
             proseElement.style.overflow = 'visible'
             
             // Force reflow lại sau khi set overflow
@@ -1829,10 +1847,14 @@ export default {
             const images = proseElement.querySelectorAll('img')
             const imageWrappers = proseElement.querySelectorAll('.image-wrapper-node')
             
+            // ⚠️ NEW: Kiểm tra xem có badge "Liên kết công việc" không
+            const taskLinkSections = proseElement.querySelectorAll('.node-task-link-section, section[data-node-section="task-link"]')
+            
+            // Dùng offsetTop + offsetHeight để đo vị trí cuối cùng của element
+            let maxBottom = scrollHeight
+            
             if (images.length > 0 || imageWrappers.length > 0) {
               // Có ảnh - đo height từ phần tử cuối cùng (có thể là ảnh)
-              // Dùng offsetTop + offsetHeight để đo vị trí cuối cùng của element
-              let maxBottom = scrollHeight
               
               // Đo từ tất cả image wrappers (bao gồm margin)
               imageWrappers.forEach((wrapper) => {
@@ -1854,19 +1876,34 @@ export default {
                 
               })
               
-              // Dùng maxBottom nếu lớn hơn scrollHeight
-              if (maxBottom > scrollHeight) {
-                scrollHeight = maxBottom
-                
-              }
-              
-              
-              
               images.forEach((img, idx) => {
                 
               })
+            }
+            
+            // ⚠️ NEW: Đo height từ badge "Liên kết công việc" (nếu có)
+            console.log('[DEBUG Task Link] measureHeightInternal - taskLinkSections found:', taskLinkSections.length)
+            taskLinkSections.forEach((section, idx) => {
+              const sectionStyle = window.getComputedStyle(section)
+              const sectionMarginTop = parseFloat(sectionStyle.marginTop) || 0
+              const sectionMarginBottom = parseFloat(sectionStyle.marginBottom) || 0
+              const sectionBottom = section.offsetTop + section.offsetHeight + sectionMarginBottom
+              console.log(`[DEBUG Task Link] Badge section ${idx}:`, {
+                offsetTop: section.offsetTop,
+                offsetHeight: section.offsetHeight,
+                marginTop: sectionMarginTop,
+                marginBottom: sectionMarginBottom,
+                sectionBottom: sectionBottom
+              })
+              maxBottom = Math.max(maxBottom, sectionBottom)
+            })
+            
+            // Dùng maxBottom nếu lớn hơn scrollHeight
+            if (maxBottom > scrollHeight) {
+              console.log('[DEBUG Task Link] maxBottom > scrollHeight:', maxBottom, '>', scrollHeight)
+              scrollHeight = maxBottom
             } else {
-              
+              console.log('[DEBUG Task Link] scrollHeight >= maxBottom:', scrollHeight, '>=', maxBottom)
             }
             
             // scrollHeight đã bao gồm padding rồi, không cần thêm
@@ -1874,6 +1911,14 @@ export default {
               scrollHeight || offsetHeight || 0,
               43 // min height
             )
+            
+            console.log('[DEBUG Task Link] measureHeightInternal - Final measurements:', {
+              scrollHeight,
+              offsetHeight,
+              maxBottom,
+              contentHeight,
+              taskLinkSectionsCount: taskLinkSections.length
+            })
             
             
             
@@ -1891,11 +1936,69 @@ export default {
                   if (rect && fo) {
                     const borderOffset = 4
                     const currentWidth = parseFloat(rect.getAttribute('width')) || 400
+                    const oldHeight = parseFloat(rect.getAttribute('height')) || 0
                     const newHeight = Math.max(contentHeight, 43) // min height
+                    
+                    console.log('[DEBUG Task Link] Updating node height:', {
+                      nodeId,
+                      oldHeight,
+                      newHeight,
+                      contentHeight,
+                      difference: newHeight - oldHeight
+                    })
                     
                     // Cập nhật height trực tiếp
                     rect.setAttribute('height', newHeight)
                     fo.setAttribute('height', Math.max(0, newHeight - borderOffset))
+                    
+                    console.log('[DEBUG Task Link] Node height updated - rect:', newHeight, 'fo:', Math.max(0, newHeight - borderOffset))
+                    
+                    // ⚠️ NEW: Đảm bảo wrapper và container vẫn có overflow visible sau khi cập nhật height
+                    const wrapperEl = editorContainer.querySelector('.node-content-wrapper')
+                    if (wrapperEl) {
+                      wrapperEl.style.overflow = 'visible'
+                      wrapperEl.style.height = 'auto'
+                      wrapperEl.style.maxHeight = 'none'
+                      wrapperEl.style.minHeight = '0'
+                    }
+                    editorContainer.style.overflow = 'visible'
+                    editorContainer.style.height = 'auto'
+                    editorContainer.style.maxHeight = 'none'
+                    editorContainer.style.minHeight = '0'
+                    
+                    // Đảm bảo prose element vẫn có overflow visible
+                    proseElement.style.overflow = 'visible'
+                    proseElement.style.height = 'auto'
+                    proseElement.style.maxHeight = 'none'
+                    
+                    // ⚠️ FIX: Nếu có task link badge, đảm bảo white-space không phải nowrap để cho phép wrap
+                    if (taskLinkSections.length > 0) {
+                      proseElement.style.whiteSpace = 'pre-wrap'
+                      proseElement.style.overflowWrap = 'break-word'
+                    }
+                    
+                    // ⚠️ NEW: Cập nhật cache ngay lập tức
+                    // Tìm renderer từ window hoặc từ nodeGroup
+                    const nodeGroupEl = nodeGroup?.closest('svg')?.parentElement
+                    let rendererInstance = null
+                    
+                    // Thử tìm renderer từ các cách khác nhau
+                    if (window.d3Renderer) {
+                      rendererInstance = window.d3Renderer
+                    } else if (nodeGroupEl && nodeGroupEl.__renderer) {
+                      rendererInstance = nodeGroupEl.__renderer
+                    }
+                    
+                    if (rendererInstance && rendererInstance.nodeSizeCache) {
+                      // ⚠️ CRITICAL: Cập nhật cache ngay lập tức với height mới
+                      rendererInstance.nodeSizeCache.set(nodeId, { width: currentWidth, height: newHeight })
+                      console.log('[DEBUG Task Link] Cache updated immediately:', { nodeId, width: currentWidth, height: newHeight })
+                      
+                      // Layout recalculation sẽ được trigger từ MindMap.vue sau khi đảm bảo DOM đã update
+                      // Không trigger ở đây để tránh race condition
+                    } else {
+                      console.warn('[DEBUG Task Link] Renderer instance not found, cannot update cache')
+                    }
                   }
                 }
               }

@@ -2,6 +2,14 @@ import frappe
 import json
 from frappe import _
 from raven.raven_bot.doctype.raven_bot.raven_bot import RavenBot
+import bleach
+
+ALLOWED_TAGS = ["p", "br", "b", "i", "strong", "em", "img", "a", "span"]
+ALLOWED_ATTRS = {
+    "img": ["src", "alt"],
+    "a": ["href", "target", "onclick", "rel"],
+    "span": ["id", "label", "data-mention"],
+}
 
 
 @frappe.whitelist()
@@ -12,11 +20,12 @@ def get_comments(mindmap_id: str):
     comments = frappe.get_all(
         "Drive Mindmap Comment",
         filters={"mindmap_id": mindmap_id},
-        fields=["name", "comment", "owner", "creation","modified", "node_id"],
-        order_by="creation asc"
+        fields=["name", "comment", "owner", "creation", "modified", "node_id"],
+        order_by="creation asc",
     )
 
     return comments
+
 
 @frappe.whitelist()
 def add_comment(mindmap_id: str, node_id: str, comment: str):
@@ -28,13 +37,15 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
     except Exception:
         frappe.throw(_("Comment must be valid JSON"))
 
-    doc = frappe.get_doc({
-        "doctype": "Drive Mindmap Comment",
-        "mindmap_id": mindmap_id,
-        "node_id": node_id,
-        "comment": comment_data,
-        "owner": frappe.session.user
-    })
+    doc = frappe.get_doc(
+        {
+            "doctype": "Drive Mindmap Comment",
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "comment": comment_data,
+            "owner": frappe.session.user,
+        }
+    )
 
     doc.insert(ignore_permissions=True)
 
@@ -44,18 +55,21 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
         message={
             "mindmap_id": mindmap_id,
             "node_id": node_id,
-            "comment": doc.as_dict()
-        }
+            "comment": doc.as_dict(),
+        },
     )
 
-    return {
-        "status": "ok",
-        "comment": doc.as_dict()
-    }
+    return {"status": "ok", "comment": doc.as_dict()}
 
 
 @frappe.whitelist()
-def add_link_comment(mindmap_id: str, node_id: str, node_title: str, mindmap_title: str, link_url: str = None):
+def add_link_comment(
+    mindmap_id: str,
+    node_id: str,
+    node_title: str,
+    mindmap_title: str,
+    link_url: str = None,
+):
     """
     Tạo comment thông báo liên kết công việc tới node.
     Format: "{user_full_name} đã liên kết công việc đến node "{node_title}" thuộc mindmap "{mindmap_title}". <a href="{link_url}">Mở nhánh</a>"
@@ -70,15 +84,19 @@ def add_link_comment(mindmap_id: str, node_id: str, node_title: str, mindmap_tit
     if link_url:
         text += f'. <a href="{link_url}" target="_blank" rel="noopener">Mở nhánh</a>'
 
-    safe_text = clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+    safe_text = bleach.clean(
+        text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True
+    )
 
-    doc = frappe.get_doc({
-        "doctype": "Drive Mindmap Comment",
-        "mindmap_id": mindmap_id,
-        "node_id": node_id,
-        "comment": {"text": safe_text},
-        "owner": user
-    })
+    doc = frappe.get_doc(
+        {
+            "doctype": "Drive Mindmap Comment",
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "comment": {"text": safe_text},
+            "owner": user,
+        }
+    )
 
     doc.insert(ignore_permissions=True)
 
@@ -87,18 +105,17 @@ def add_link_comment(mindmap_id: str, node_id: str, node_title: str, mindmap_tit
         message={
             "mindmap_id": mindmap_id,
             "node_id": node_id,
-            "comment": doc.as_dict()
-        }
+            "comment": doc.as_dict(),
+        },
     )
 
-    return {
-        "status": "ok",
-        "comment": doc.as_dict()
-    }
+    return {"status": "ok", "comment": doc.as_dict()}
 
 
 @frappe.whitelist()
-def add_task_link_comment(task_id: str, node_title: str, mindmap_title: str, link_url: str = None):
+def add_task_link_comment(
+    task_id: str, node_title: str, mindmap_title: str, link_url: str = None
+):
     """
     Tạo comment trên Task khi liên kết với mindmap node.
     Ghi vào doctype Comment (reference_doctype = "Task", reference_name = task_id).
@@ -113,19 +130,24 @@ def add_task_link_comment(task_id: str, node_title: str, mindmap_title: str, lin
     if link_url:
         text += f'. <a href="{link_url}" target="_parent" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" rel="noopener">Mở nhánh</a>'
 
-    safe_text = clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+    safe_text = bleach.clean(
+        text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True
+    )
 
-    comment_doc = frappe.get_doc({
-        "doctype": "Comment",
-        "comment_type": "Comment",
-        "reference_doctype": "Task",
-        "reference_name": task_id,
-        "content": safe_text,
-        "owner": user,
-    })
+    comment_doc = frappe.get_doc(
+        {
+            "doctype": "Comment",
+            "comment_type": "Comment",
+            "reference_doctype": "Task",
+            "reference_name": task_id,
+            "content": safe_text,
+            "owner": user,
+        }
+    )
     comment_doc.insert(ignore_permissions=True)
 
     return {"status": "ok", "comment": comment_doc.as_dict()}
+
 
 @frappe.whitelist()
 def delete_comments_by_nodes(mindmap_id: str, node_ids):
@@ -145,21 +167,15 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
     # Lấy danh sách comment cần xóa
     comments = frappe.get_all(
         "Drive Mindmap Comment",
-        filters={
-            "mindmap_id": mindmap_id,
-            "node_id": ["in", node_ids]
-        },
-        pluck="name"
+        filters={"mindmap_id": mindmap_id, "node_id": ["in", node_ids]},
+        pluck="name",
     )
 
     deleted = 0
 
     for name in comments:
         frappe.delete_doc(
-            "Drive Mindmap Comment",
-            name,
-            ignore_permissions=True,
-            force=True
+            "Drive Mindmap Comment", name, ignore_permissions=True, force=True
         )
         deleted += 1
 
@@ -169,14 +185,12 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
         message={
             "mindmap_id": mindmap_id,
             "node_ids": node_ids,
-            "deleted_count": deleted
-        }
+            "deleted_count": deleted,
+        },
     )
 
-    return {
-        "status": "ok",
-        "deleted": deleted
-    }
+    return {"status": "ok", "deleted": deleted}
+
 
 @frappe.whitelist()
 def delete_comment_by_id(mindmap_id: str, comment_id: str):
@@ -195,16 +209,16 @@ def delete_comment_by_id(mindmap_id: str, comment_id: str):
     # Check quyền XOÁ: chỉ owner mới được xoá
     # Nếu bạn dùng field khác owner thì đổi lại tại đây
     if doc.owner != current_user:
-        frappe.throw(_("You do not have permission to delete this comment"), frappe.PermissionError)
+        frappe.throw(
+            _("You do not have permission to delete this comment"),
+            frappe.PermissionError,
+        )
 
     node_id = doc.node_id
 
     # Xóa cứng
     frappe.delete_doc(
-        "Drive Mindmap Comment",
-        comment_id,
-        ignore_permissions=True,
-        force=True
+        "Drive Mindmap Comment", comment_id, ignore_permissions=True, force=True
     )
 
     # Realtime sync cho các client khác
@@ -213,15 +227,12 @@ def delete_comment_by_id(mindmap_id: str, comment_id: str):
         message={
             "mindmap_id": mindmap_id,
             "node_id": node_id,
-            "comment_id": comment_id
-        }
+            "comment_id": comment_id,
+        },
     )
 
-    return {
-        "status": "ok",
-        "deleted": 1,
-        "comment_id": comment_id
-    }
+    return {"status": "ok", "deleted": 1, "comment_id": comment_id}
+
 
 @frappe.whitelist()
 def edit_comment(mindmap_id: str, comment_id: str, comment: str):
@@ -245,7 +256,9 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
 
     # Check quyền SỬA: chỉ owner
     if doc.owner != current_user:
-        frappe.throw(_("You do not have permission to edit this comment"), frappe.PermissionError)
+        frappe.throw(
+            _("You do not have permission to edit this comment"), frappe.PermissionError
+        )
 
     # Cập nhật nội dung
     doc.comment = comment_data
@@ -257,8 +270,8 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
         message={
             "mindmap_id": mindmap_id,
             "node_id": doc.node_id,
-            "comment": doc.as_dict()
-        }
+            "comment": doc.as_dict(),
+        },
     )
 
     return {
@@ -423,3 +436,4 @@ def notify_comment(comment_name):
                 default=str,
             ),
         )
+    return {"status": "ok", "comment": doc.as_dict()}
