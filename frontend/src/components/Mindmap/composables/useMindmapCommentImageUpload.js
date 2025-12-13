@@ -1,5 +1,4 @@
 // composables/useMindmapCommentImageUpload.js
-import { ref } from "vue"
 
 export function useMindmapCommentImageUpload({ route, isPrivate }) {
   // -----------------------------
@@ -64,6 +63,7 @@ export function useMindmapCommentImageUpload({ route, isPrivate }) {
       input.type = "file"
       input.accept = "image/*"
       input.multiple = true
+      input.setAttribute("data-upload-image-to-comment", "true")
       input.style.display = "none"
       document.body.appendChild(input)
 
@@ -90,8 +90,25 @@ export function useMindmapCommentImageUpload({ route, isPrivate }) {
     })
   }
 
+  async function uploadImageFiles(files, entityName) {
+    if (!files?.length) return []
+
+    const urls = []
+    try {
+      for (const file of files) {
+        const url = await uploadImageGeneric(file, entityName)
+        urls.push(url)
+      }
+    } catch (err) {
+      console.error("Upload pasted image failed:", err)
+    }
+
+    return urls
+  }
+
   return {
     uploadImageGeneric,
     pickAndUploadImages,
+    uploadImageFiles
   }
 }

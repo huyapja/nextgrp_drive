@@ -13,6 +13,7 @@ export function useMindmapCommentNavigation({
   mergedGroupsFinal,
   nodeMap,
   emit,
+  galleryVisible,
 }) {
   function hasNextGroup(nodeId) {
     const list = mergedGroupsFinal.value
@@ -28,6 +29,7 @@ export function useMindmapCommentNavigation({
 
   function selectNextGroup(currentNodeId) {
     if (!currentNodeId) return
+    if (galleryVisible) return
 
     const list = mergedGroupsFinal.value
     if (!list.length) return
@@ -46,6 +48,7 @@ export function useMindmapCommentNavigation({
 
   function selectPrevGroup(currentNodeId) {
     if (!currentNodeId) return
+    if (galleryVisible) return
 
     const list = mergedGroupsFinal.value
     if (!list.length) return
@@ -68,11 +71,11 @@ export function useMindmapCommentNavigation({
     if (editor?.storage?.__mentionOpen) {
       return
     }
-    
-    if(editor?.isFocused){
+
+    if (editor?.isFocused) {
       return
     }
-    
+
     if (!activeNodeId.value) return
 
     if (e.key === "ArrowDown") {
