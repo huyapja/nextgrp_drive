@@ -338,6 +338,8 @@ import { useMindmapGallery } from "./composables/useMindmapGallery"
 import { useGalleryZoom } from "./composables/useGalleryZoom"
 import { useParsedComments } from "./composables/useParsedComments"
 import { usePanelClose } from "./composables/usePanelClose"
+import { useClickOutsideToResetActiveNode } from "./composables/useClickOutsideToResetActiveNode"
+
 
 
 
@@ -369,7 +371,7 @@ const openMenuCommentId = ref(null)
 const hashCommentIdInternal = ref(null)
 const hasData = ref(false)
 const isUploadingImage = ref(false)
-
+const pendingScroll = ref(null)
 
 
 const isNavigatingByKeyboard = ref(false)
@@ -435,22 +437,21 @@ function syncHashCommentId() {
 
 watch(
   () => props.visible,
-  async isVisible => {
+  async (isVisible) => {
     if (!isVisible) return
 
     syncHashCommentId()
-
 
     if (!hasLoadedOnce.value) {
       await mindmap_comment_list.fetch()
       hasLoadedOnce.value = true
     }
-    await new Promise(res => setTimeout(res, 350))
-    await nextTick()
 
-    if (hashCommentIdInternal.value && hasData) {
-      scrollToComment(hashCommentIdInternal.value)
-      return
+    if (hashCommentIdInternal.value) {
+      pendingScroll.value = {
+        type: "comment",
+        id: hashCommentIdInternal.value
+      }
     }
   },
   { immediate: true }
@@ -527,31 +528,88 @@ function resetActiveNode() {
   activeNodeId.value = null
 }
 
+function ensureGroupVisible(id) {
+  const el = groupRefs.value[id]
+  const container = document.querySelector(".comment-scroll-container")
+
+  if (!el || !container) return
+
+  const rect = el.getBoundingClientRect()
+  const containerRect = container.getBoundingClientRect()
+
+  const elTop = rect.top
+  const elBottom = rect.bottom
+
+  const containerTop = containerRect.top
+  const containerBottom = containerRect.bottom
+
+  // ✅ đã nằm gọn trong viewport → không làm gì
+  if (elTop >= containerTop && elBottom <= containerBottom) {
+    return
+  }
+
+  // ✅ tính target theo công thức bạn dùng
+  const target =
+    rect.top - containerRect.top + container.scrollTop
+
+  container.scrollTo({
+    top: target,
+    behavior: "auto",
+  })
+}
+
+
+
 watch(
   () => props.node?.id,
-  async (newId) => {
-    if (!newId) {
-      resetActiveNode()
-      return
-    }
-
-
-    if (activeNodeId.value === newId) {
-      return
-    }
+  (newId) => {
+    if (!newId || activeNodeId.value === newId) return
 
     activeNodeId.value = newId
     loadDraft(newId)
 
-    if (!hasLoadedOnce.value) {
-      await new Promise(res => setTimeout(res, 350))
-    }
+    ensureGroupVisible(newId)
 
-    scrollToActiveNode(newId)
+    if (!hasData.value) {
+      pendingScroll.value = { type: "node", id: newId }
+    }
   },
   { flush: "post" }
 )
 
+
+watch(
+  hasData,
+  async (ready) => {
+    if (!ready) return
+    if (!pendingScroll.value) return
+
+    // đợi DOM render thật
+    await nextTick()
+    await nextTick()
+
+    const task = pendingScroll.value
+
+    if (task.type === "comment") {
+      scrollToComment(task.id)
+    }
+
+    if (task.type === "node") {
+      scrollToActiveNode(task.id)
+    }
+
+    pendingScroll.value = null
+  },
+  { flush: "post" }
+)
+
+watch(
+  pendingScroll,
+  (task) => {
+    if (!task) return
+  },
+  { flush: "post" }
+)
 
 
 // =============================
@@ -752,6 +810,12 @@ watch(galleryVisible, (v) => {
     originY.value = 50
     rotateDeg.value = 0
   }
+})
+
+useClickOutsideToResetActiveNode({
+  activeNodeId,
+  inputValue,
+  previewImages,
 })
 
 </script>
