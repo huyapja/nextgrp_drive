@@ -421,10 +421,10 @@ export function renderNodes(renderer, positions) {
         editorInstance.commands.blur()
       }
       
-      // Disable pointer events cho editor container khi không edit
+      // Cho phép click link trong chế độ view
       const editorContainer = nodeGroup.select('.node-editor-container')
       if (editorContainer.node()) {
-        editorContainer.style('pointer-events', 'none')
+        editorContainer.style('pointer-events', 'auto')
       }
       
       // CHỈ select node, KHÔNG BAO GIỜ gọi onNodeAdd ở đây
@@ -1290,6 +1290,12 @@ export function renderNodes(renderer, positions) {
       const nodeLabel = nodeData.data?.label || ''
       const hasImages = nodeLabel.includes('<img') || nodeLabel.includes('image-wrapper')
       
+      // ⚠️ CRITICAL: Kiểm tra xem node có task link badge không
+      const hasTaskLink = nodeLabel.includes('node-task-link-section') || nodeLabel.includes('node-task-badge') || nodeLabel.includes('data-node-section="task-link"')
+      
+      // Nếu có ảnh hoặc có task link badge, cần overflow: visible để hiển thị đầy đủ
+      const needsVisibleOverflow = hasImages || hasTaskLink
+      
       const borderOffset = 4 // 2px border mỗi bên (top/bottom và left/right)
       fo.attr('x', 2)
       fo.attr('y', 2)
@@ -1301,13 +1307,13 @@ export function renderNodes(renderer, positions) {
         rect.attr('height', rectHeight)
       }
       
-      // ⚠️ CRITICAL: Tất cả các node đều dùng auto để hiển thị đầy đủ nội dung (bao gồm ảnh)
-      // Nếu có ảnh, dùng overflow: visible để hiển thị đầy đủ
-      const overflowValue = hasImages ? 'visible' : 'hidden'
+      // ⚠️ CRITICAL: Tất cả các node đều dùng auto để hiển thị đầy đủ nội dung (bao gồm ảnh và task link)
+      // Nếu có ảnh hoặc task link badge, dùng overflow: visible để hiển thị đầy đủ
+      const overflowValue = needsVisibleOverflow ? 'visible' : 'hidden'
       const wrapper = fo.select('.node-content-wrapper')
         .style('width', '100%') // Wrapper chiếm 100% foreignObject
-        .style('height', hasImages ? `${rectHeight - borderOffset}px` : 'auto')
-        .style('min-height', hasImages ? `${rectHeight - borderOffset}px` : '0')
+        .style('height', needsVisibleOverflow ? `${rectHeight - borderOffset}px` : 'auto')
+        .style('min-height', needsVisibleOverflow ? `${rectHeight - borderOffset}px` : '0')
         .style('max-height', 'none')
         .style('background', bgColor)
         .style('border-radius', '8px')
@@ -1319,11 +1325,11 @@ export function renderNodes(renderer, positions) {
       // Mount Vue TipTap editor component
       const editorContainer = wrapper.select('.node-editor-container')
         .style('width', '100%')
-        .style('height', hasImages ? `${rectHeight - borderOffset}px` : 'auto')
-        .style('min-height', hasImages ? `${rectHeight - borderOffset}px` : '0')
+        .style('height', needsVisibleOverflow ? `${rectHeight - borderOffset}px` : 'auto')
+        .style('min-height', needsVisibleOverflow ? `${rectHeight - borderOffset}px` : '0')
         .style('max-height', 'none')
         .style('pointer-events', 'none') // Disable pointer events để ngăn click khi chưa edit
-        .style('overflow', overflowValue) // Nếu có ảnh, dùng visible
+        .style('overflow', overflowValue) // Nếu có ảnh hoặc task link, dùng visible
         .style('box-sizing', 'border-box') // Đảm bảo padding/border tính trong width/height
       
       // Mount hoặc update Vue component

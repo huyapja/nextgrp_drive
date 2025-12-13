@@ -189,6 +189,17 @@
 					</div>
 					
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
+
+					<!-- Link task -->
+					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('link-task')">
+						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+						</svg>
+						<span>Liên kết công việc từ nhánh</span>
+					</div>
+					
+					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
 					
 					<!-- Add Comment -->
 					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('add-comment')">
@@ -1288,6 +1299,9 @@ const executeSetHighlightColor = (editorInstance, colorName) => {
 					currentHighlightColor.value = colorName
 				}
 				
+				// Collapse selection để hiển thị màu ngay (không còn vùng bôi đen)
+				editorInstance.chain().setTextSelection({ from: selectionTo, to: selectionTo }).run()
+				
 				savedSelection = null
 			})
 			
@@ -1694,7 +1708,7 @@ onBeforeUnmount(() => {
 	gap: 0;
 	padding: 6px;
 	min-width: 200px;
-	max-height: 400px;
+	max-height: 450px;
 	overflow-y: auto;
 }
 
