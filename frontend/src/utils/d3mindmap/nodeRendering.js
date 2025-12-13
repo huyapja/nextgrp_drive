@@ -421,10 +421,10 @@ export function renderNodes(renderer, positions) {
         editorInstance.commands.blur()
       }
       
-      // Disable pointer events cho editor container khi không edit
+      // Cho phép click link trong chế độ view
       const editorContainer = nodeGroup.select('.node-editor-container')
       if (editorContainer.node()) {
-        editorContainer.style('pointer-events', 'none')
+        editorContainer.style('pointer-events', 'auto')
       }
       
       // CHỈ select node, KHÔNG BAO GIỜ gọi onNodeAdd ở đây

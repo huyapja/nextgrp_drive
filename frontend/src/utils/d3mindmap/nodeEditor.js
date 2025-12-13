@@ -1424,7 +1424,8 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	// Disable pointer events
 	const editorContainer = fo.select('.node-editor-container')
 	if (editorContainer.node()) {
-		editorContainer.style('pointer-events', 'none')
+		// Cho phép click vào link trong chế độ view
+		editorContainer.style('pointer-events', 'auto')
 			.style('width', '100%')
 			.style('height', 'auto') // Tất cả node dùng auto
 			.style('min-height', '0')

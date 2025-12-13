@@ -111,6 +111,7 @@ declare module 'vue' {
     MindmapContextMenu: typeof import('./src/components/Mindmap/MindmapContextMenu.vue')['default']
     MindmapNode: typeof import('./src/components/MindmapNode.vue')['default']
     MindmapNodeEditor: typeof import('./src/components/MindmapNodeEditor.vue')['default']
+    MindmapTaskLinkModal: typeof import('./src/components/Mindmap/MindmapTaskLinkModal.vue')['default']
     MindmapToolbar: typeof import('./src/components/Mindmap/MindmapToolbar.vue')['default']
     MoveDialog: typeof import('./src/components/MoveDialog.vue')['default']
     MoveOwnerDialog: typeof import('./src/components/MoveOwnerDialog.vue')['default']

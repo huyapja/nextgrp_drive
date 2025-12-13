@@ -55,6 +55,79 @@ def add_comment(mindmap_id: str, node_id: str, comment: str):
 
 
 @frappe.whitelist()
+def add_link_comment(mindmap_id: str, node_id: str, node_title: str, mindmap_title: str, link_url: str = None):
+    """
+    Tạo comment thông báo liên kết công việc tới node.
+    Format: "{user_full_name} đã liên kết công việc đến node "{node_title}" thuộc mindmap "{mindmap_title}". <a href="{link_url}">Mở nhánh</a>"
+    """
+    if not mindmap_id or not node_id:
+        frappe.throw(_("Missing mindmap_id or node_id"))
+
+    user = frappe.session.user
+    full_name = frappe.db.get_value("User", user, "full_name") or user
+
+    text = f'{full_name} đã liên kết công việc đến node "{node_title}" thuộc mindmap "{mindmap_title}"'
+    if link_url:
+        text += f'. <a href="{link_url}" target="_blank" rel="noopener">Mở nhánh</a>'
+
+    safe_text = clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+
+    doc = frappe.get_doc({
+        "doctype": "Drive Mindmap Comment",
+        "mindmap_id": mindmap_id,
+        "node_id": node_id,
+        "comment": {"text": safe_text},
+        "owner": user
+    })
+
+    doc.insert(ignore_permissions=True)
+
+    frappe.publish_realtime(
+        event="drive_mindmap:new_comment",
+        message={
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "comment": doc.as_dict()
+        }
+    )
+
+    return {
+        "status": "ok",
+        "comment": doc.as_dict()
+    }
+
+
+@frappe.whitelist()
+def add_task_link_comment(task_id: str, node_title: str, mindmap_title: str, link_url: str = None):
+    """
+    Tạo comment trên Task khi liên kết với mindmap node.
+    Ghi vào doctype Comment (reference_doctype = "Task", reference_name = task_id).
+    """
+    if not task_id:
+        frappe.throw(_("Missing task_id"))
+
+    user = frappe.session.user
+    full_name = frappe.db.get_value("User", user, "full_name") or user
+
+    text = f'{full_name} đã liên kết công việc đến node "{node_title}" thuộc mindmap "{mindmap_title}"'
+    if link_url:
+        text += f'. <a href="{link_url}" target="_parent" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" rel="noopener">Mở nhánh</a>'
+
+    safe_text = clean(text, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+
+    comment_doc = frappe.get_doc({
+        "doctype": "Comment",
+        "comment_type": "Comment",
+        "reference_doctype": "Task",
+        "reference_name": task_id,
+        "content": safe_text,
+        "owner": user,
+    })
+    comment_doc.insert(ignore_permissions=True)
+
+    return {"status": "ok", "comment": comment_doc.as_dict()}
+
+@frappe.whitelist()
 def delete_comments_by_nodes(mindmap_id: str, node_ids):
     if not mindmap_id or not node_ids:
         frappe.throw(_("Missing mindmap_id or node_ids"))

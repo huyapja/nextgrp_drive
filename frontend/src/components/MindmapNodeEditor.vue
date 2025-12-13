@@ -2184,8 +2184,12 @@ export default {
         }),
         Code,
         Link.configure({
-          openOnClick: false,
+          openOnClick: true,
           autolink: true,
+          HTMLAttributes: {
+            rel: "noopener noreferrer",
+            target: "_parent",
+          },
         }),
         Typography,
         Placeholder.configure({

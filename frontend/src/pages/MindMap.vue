@@ -52,6 +52,31 @@
         </div>
       </div>
 
+      <MindmapTaskLinkModal
+        :visible="showTaskLinkModal"
+        :node-title="extractTitleFromLabel(taskLinkNode?.data?.label || '') || taskLinkNode?.data?.label || ''"
+        :mode="taskLinkMode"
+        :search="taskSearch"
+        :tasks="filteredTasks"
+        :project-filter="taskProjectFilter"
+        :project-options="taskProjectOptions"
+        :page="taskPage"
+        :total-pages="totalTaskPages"
+        :selected-task-id="selectedTaskId"
+        :attach-link="attachTaskLink"
+        :link-url="taskLinkUrl"
+        @update:mode="taskLinkMode = $event"
+        @update:search="taskSearchInput = $event"
+        @update:selectedTaskId="selectedTaskId = $event"
+        @update:attachLink="attachTaskLink = $event"
+        @update:linkUrl="taskLinkUrl = $event"
+        @update:projectFilter="taskProjectFilter = $event"
+        @update:page="setTaskPage($event)"
+        @close="closeTaskLinkModal"
+        @confirm="confirmTaskLink"
+      />
+
+
       <div style="height: calc(100vh - 84px); width: 100%" class="d3-mindmap-container">
         <!-- D3.js Mindmap Renderer -->
         <div ref="d3Container" class="d3-mindmap-wrapper"></div>
@@ -105,6 +130,7 @@ import { D3MindmapRenderer } from '@/utils/d3mindmap'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
 import { setBreadCrumbs } from "@/utils/files"
+import { toast } from "@/utils/toasts"
 import { call, createResource } from "frappe-ui"
 import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
@@ -115,6 +141,7 @@ import { useRoute } from "vue-router"
 import ImageZoomModal from "@/components/ImageZoomModal.vue"
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
 import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
+import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 
 
@@ -150,6 +177,156 @@ const activeCommentNode = ref(null)
 const commentPanelRef = ref(null)
 const commentInputValue = ref("")
 const isFromUI = ref(false)
+// Liên kết công việc
+const showTaskLinkModal = ref(false)
+const taskLinkNode = ref(null)
+const taskLinkMode = ref('existing') // 'existing' | 'from-node'
+const taskSearch = ref('')
+const taskSearchInput = ref('')
+const selectedTaskId = ref(null)
+const attachTaskLink = ref(false)
+const taskLinkUrl = ref('')
+const taskProjectFilter = ref('all')
+const taskPage = ref(1)
+const TASK_PAGE_SIZE = 10
+const taskOptions = ref([])
+const taskPagination = ref({ page: 1, total_pages: 1, total: 0 })
+const taskLoading = ref(false)
+const taskProjectOptionMap = ref({})
+
+const fetchTaskOptions = async ({ resetPage = false } = {}) => {
+  if (resetPage) taskPage.value = 1
+  taskLoading.value = true
+  try {
+    const res = await call("drive.api.mindmap_task.get_my_tasks", {
+      project: taskProjectFilter.value !== 'all' ? taskProjectFilter.value : null,
+      page: taskPage.value,
+      page_size: TASK_PAGE_SIZE,
+      search: taskSearch.value?.trim() || undefined
+    })
+    const list = res?.data || []
+    taskOptions.value = list.map(t => ({
+      id: t.id,
+      // lưu cả task_name và title để tương thích UI
+      task_name: t.task_name || t.title || t.id,
+      title: t.task_name || t.title || t.id,
+      assignee: t.assignee || '',
+      office_name: t.office_name || '',
+      status: t.status_vi || t.status || '',
+      project: t.project || null,
+      project_name: t.project_name || t.project || null
+    }))
+
+    // Cập nhật tập dự án hiển thị (giữ lại để filter không bị thu hẹp)
+    const nextMap = { ...(taskProjectOptionMap.value || {}) }
+    taskOptions.value.forEach(t => {
+      if (t.project) {
+        nextMap[t.project] = t.project_name || t.project
+      }
+    })
+    taskProjectOptionMap.value = nextMap
+
+    const pag = res?.pagination || {}
+    taskPagination.value = {
+      page: pag.page || taskPage.value,
+      total_pages: pag.total_pages || 1,
+      total: pag.total || taskOptions.value.length
+    }
+
+    if (!taskOptions.value.length) {
+      selectedTaskId.value = null
+    } else if (!selectedTaskId.value || !taskOptions.value.some(t => t.id === selectedTaskId.value)) {
+      selectedTaskId.value = taskOptions.value[0].id
+    }
+  } catch (err) {
+    console.error("Failed to fetch tasks", err)
+    taskOptions.value = []
+    taskPagination.value = { page: 1, total_pages: 1, total: 0 }
+    selectedTaskId.value = null
+  } finally {
+    taskLoading.value = false
+  }
+}
+
+const taskProjectOptions = computed(() => {
+  return Object.entries(taskProjectOptionMap.value || {}).map(([value, label]) => ({
+    value,
+    label,
+  }))
+})
+
+const filteredTasksRaw = computed(() => {
+  const keyword = taskSearch.value.trim().toLowerCase()
+  return taskOptions.value.filter(t => {
+    const name = (t.task_name || t.title || '').toLowerCase()
+    const matchKeyword = !keyword || name.includes(keyword) ||
+      (t.id && t.id.toLowerCase().includes(keyword)) ||
+      (t.assignee && t.assignee.toLowerCase().includes(keyword))
+    return matchKeyword
+  })
+})
+
+const totalTaskPages = computed(() => taskPagination.value.total_pages || 1)
+
+const filteredTasks = computed(() => filteredTasksRaw.value)
+
+watch([() => taskProjectFilter.value, () => taskSearch.value], () => {
+  taskPage.value = 1
+  fetchTaskOptions({ resetPage: true })
+})
+
+watch(() => taskPage.value, () => {
+  fetchTaskOptions()
+})
+
+// Đảm bảo luôn có selection hợp lệ khi lọc danh sách
+watch(filteredTasks, (list) => {
+  if (!list || list.length === 0) {
+    selectedTaskId.value = null
+    return
+  }
+  if (!selectedTaskId.value || !list.some(t => t.id === selectedTaskId.value)) {
+    selectedTaskId.value = list[0].id
+  }
+})
+
+const setTaskPage = (page) => {
+  const total = totalTaskPages.value
+  if (page < 1) page = 1
+  if (page > total) page = total
+  if (page !== taskPage.value) {
+    taskPage.value = page
+  }
+}
+
+// Đảm bảo luôn có selection hợp lệ khi lọc danh sách (raw) nếu rỗng thì clear
+watch(filteredTasksRaw, (list) => {
+  if (!list || list.length === 0) {
+    selectedTaskId.value = null
+    return
+  }
+})
+
+// Đảm bảo selection hợp lệ sau khi mở modal
+watch([filteredTasks, taskPage], ([list]) => {
+  if (!list || list.length === 0) {
+    selectedTaskId.value = null
+    return
+  }
+  if (!selectedTaskId.value || !list.some(t => t.id === selectedTaskId.value)) {
+    selectedTaskId.value = list[0].id
+  }
+})
+
+// Debounce search input to avoid rapid API calls
+let taskSearchDebounce
+watch(taskSearchInput, (val) => {
+  if (taskSearchDebounce) clearTimeout(taskSearchDebounce)
+  taskSearchDebounce = setTimeout(() => {
+    taskSearch.value = val
+  }, 350)
+})
+
 
 const route = useRoute()
 const isMindmapReady = ref(false)
@@ -416,15 +593,8 @@ const initD3Renderer = () => {
 
           // Nếu là root node, đổi tên file
           if (node.id === 'root' || node.data?.isRoot) {
-            let originalLabel = (node.data?.label || '').trim()
-            let newTitle = originalLabel
-
-            // Nếu label là HTML (từ TipTap editor), extract plain text
-            if (newTitle.includes('<')) {
-              const tempDiv = document.createElement('div')
-              tempDiv.innerHTML = newTitle
-              newTitle = (tempDiv.textContent || tempDiv.innerText || '').trim()
-            }
+            const originalLabel = (node.data?.label || '').trim()
+            const newTitle = extractTitleFromLabel(originalLabel)
 
             // Nếu xóa hết text, dùng tên mặc định
             if (!newTitle) {
@@ -689,6 +859,28 @@ const addChildToNode = async (parentId) => {
   scheduleSave()
 }
 
+// Helper: Extract plain title from node label (ignore blockquote/description)
+const extractTitleFromLabel = (label) => {
+  const raw = (label || '').trim()
+  if (!raw) return ''
+  if (!raw.includes('<')) return raw
+
+  const tempDiv = document.createElement('div')
+  tempDiv.innerHTML = raw
+
+  const paragraphs = Array.from(tempDiv.querySelectorAll('p'))
+  for (const p of paragraphs) {
+    // Lấy <p> đầu tiên không nằm trong blockquote (chỉ là title)
+    if (!p.closest('blockquote')) {
+      const text = (p.textContent || '').trim()
+      if (text) return text
+    }
+  }
+
+  // Fallback: toàn bộ textContent
+  return (tempDiv.textContent || '').trim()
+}
+
 // Add sibling node
 const addSiblingToNode = async (nodeId) => {
   if (nodeId === 'root') return
@@ -909,6 +1101,139 @@ const confirmDelete = () => {
     nodeToDelete.value = null
   }
   showDeleteDialog.value = false
+}
+
+// ===== Liên kết công việc cho nhánh =====
+const resolveTaskLinkNode = (val) => {
+  if (!val) return null
+  if (typeof val === 'string') {
+    return nodes.value.find((n) => n.id === val) || null
+  }
+  if (val.id) return val
+  return null
+}
+
+const getTaskOpenUrl = (taskId, projectId) => {
+  if (!taskId || !projectId) return ''
+  if (typeof window === 'undefined') return ''
+  const origin = window.location.origin
+  return `${origin}/mtp/project/${projectId}?task_id=${taskId}`
+}
+
+const getDefaultTaskLink = (nodeId) => {
+  if (typeof window === 'undefined') return ''
+  const origin = window.location.origin
+  const team = props.team || 't'
+  const mindmapId = props.entityName
+  const driveCopyUrl = `${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`
+  return `${origin}/mtp/my-drive?drive_copy=${encodeURIComponent(driveCopyUrl)}`
+}
+
+const openTaskLinkModal = (node) => {
+  taskLinkNode.value = resolveTaskLinkNode(node)
+  showTaskLinkModal.value = true
+  taskLinkMode.value = 'existing'
+  taskSearch.value = ''
+  attachTaskLink.value = false
+  taskLinkUrl.value = ''
+  taskPage.value = 1
+  fetchTaskOptions({ resetPage: true })
+  selectedTaskId.value = filteredTasks.value?.[0]?.id || null
+}
+
+const closeTaskLinkModal = () => {
+  showTaskLinkModal.value = false
+  taskLinkNode.value = null
+}
+
+const confirmTaskLink = async () => {
+  const linkNode = resolveTaskLinkNode(taskLinkNode.value)
+  if (!linkNode) {
+    closeTaskLinkModal()
+    return
+  }
+  const targetNode = resolveTaskLinkNode(linkNode)
+  if (!targetNode) {
+    closeTaskLinkModal()
+    return
+  }
+  if (targetNode.data?.taskLink?.taskId) {
+    toast({ title: "Node này đã liên kết công việc", indicator: "orange" })
+    closeTaskLinkModal()
+    return
+  }
+
+  const selectedTask = taskOptions.value.find(t => t.id === selectedTaskId.value) || null
+  const plainTitle = extractTitleFromLabel(targetNode.data?.label || '')
+
+  const fallbackLink = getDefaultTaskLink(targetNode.id)
+  const projectId = selectedTask?.project || selectedTask?.project_name
+  const taskOpenLink = selectedTask?.id && projectId
+    ? getTaskOpenUrl(selectedTask.id, projectId)
+    : ''
+
+  const taskPayload = {
+    mode: taskLinkMode.value,
+    nodeId: targetNode.id,
+    title: taskLinkMode.value === 'existing'
+      ? selectedTask?.title || ''
+      : plainTitle || targetNode.data?.label || '',
+    taskId: taskLinkMode.value === 'existing' ? selectedTask?.id || null : null,
+    assignee: selectedTask?.assignee || null,
+    status: selectedTask?.status || null,
+    linkUrl: fallbackLink
+  }
+
+  targetNode.data = {
+    ...targetNode.data,
+    taskLink: taskPayload
+  }
+
+  try {
+    // Tạo comment link (Task)
+    if (taskPayload.linkUrl && taskPayload.taskId) {
+      const nodeTitle = plainTitle || targetNode.data?.label || ''
+      const mindmapTitle = mindmap.data?.title || ''
+      await call("drive.api.mindmap_comment.add_task_link_comment", {
+        task_id: taskPayload.taskId,
+        node_title: nodeTitle,
+        mindmap_title: mindmapTitle,
+        link_url: taskPayload.linkUrl
+      })
+    }
+
+    // Thêm badge tick xanh dưới title node
+    if (taskPayload.linkUrl) {
+      const badgeHtml = `<div class="node-task-badge" style="margin-top:6px;display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div>`
+      if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
+        targetNode.data.label = `${targetNode.data.label}${badgeHtml}`
+      }
+      if (d3Renderer?.nodeSizeCache) {
+        d3Renderer.nodeSizeCache.delete(targetNode.id)
+      }
+    }
+
+    // Đồng bộ nội dung editor ngay lập tức
+    const editorInstance = d3Renderer?.getEditorInstance?.(targetNode.id)
+    if (editorInstance && typeof editorInstance.commands?.setContent === 'function') {
+      editorInstance.commands.setContent(targetNode.data?.label || '', false)
+    }
+
+    const idx = nodes.value.findIndex(n => n.id === targetNode.id)
+    if (idx !== -1) {
+      nodes.value[idx] = { ...targetNode }
+      elements.value = [...nodes.value, ...edges.value]
+    }
+
+    await updateD3RendererWithDelay(0)
+    scheduleSave()
+    toast({ title: "Đã liên kết công việc thành công", indicator: "green" })
+    closeTaskLinkModal()
+  } catch (err) {
+    console.error("Link task failed", err)
+    toast({ title: "Liên kết công việc thất bại", indicator: "red" })
+    closeTaskLinkModal()
+  }
 }
 
 // ⚠️ NEW: Theo dõi các phím chữ vừa được nhấn để tránh xóa nhầm
@@ -2144,6 +2469,10 @@ function handleContextMenuAction({ type, node }) {
       copyNodeLink(node.id)
       break
 
+    case "link-task":
+      openTaskLinkModal(node)
+      break
+
     // case "toggle-collapse":
     //   d3Renderer.toggleCollapse(node.id)
     //   break
@@ -3082,6 +3411,7 @@ kbd {
 .btn-delete:hover {
   background: #b91c1c;
 }
+
 
 @keyframes slideIn {
   from {
