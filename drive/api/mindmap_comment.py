@@ -1,6 +1,7 @@
 import frappe
 import json
 from frappe import _
+from raven.raven_bot.doctype.raven_bot.raven_bot import RavenBot
 
 
 @frappe.whitelist()
@@ -191,3 +192,98 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
         "status": "ok",
         "comment": doc.as_dict()
     }
+
+
+def notify_mentions(comment_name):
+    doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
+
+    drive_file = frappe.get_value(
+        "Drive File",
+        doc.mindmap_id,
+        ["team"],
+        as_dict=True,
+    )
+
+    if not drive_file or not drive_file.get("team"):
+        return
+    
+    team = drive_file["team"]
+
+    link = (
+        f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
+        f"?node={doc.node_id}"
+        f"#comment_id={doc.name}"
+    )
+
+    # ---- parse comment safely ----
+    comment = doc.comment
+    if isinstance(comment, str):
+        try:
+            comment = json.loads(comment)
+        except Exception:
+            return
+
+    mentions = comment.get("mentions", [])
+    if not mentions:
+        return
+
+    mentioned_users = {
+        m.get("id")
+        for m in mentions
+        if isinstance(m, dict) and m.get("id")
+    }
+
+    # Không notify chính mình
+    mentioned_users.discard(doc.owner)
+
+    if not mentioned_users:
+        return
+
+    valid_users = frappe.get_all(
+        "User",
+        filters={
+            "name": ["in", list(mentioned_users)],
+            "enabled": 1,
+        },
+        pluck="name",
+    )
+
+    if not valid_users:
+        return
+
+    bot_docs = frappe.conf.get("bot_docs")
+    if not bot_docs:
+        return
+
+    actor_full_name = frappe.db.get_value(
+        "User", doc.owner, "full_name"
+    ) or doc.owner
+
+    for user in valid_users:
+        message_data = {
+            "key": "mention_comment_mindmap",
+            "title": f'{actor_full_name} đã nhắc đến bạn trong một bình luận',
+            "full_name_owner": actor_full_name,
+            "to_user": user,
+            "comment_content": comment.get("parsed") or "",
+            "comment_id": doc.name,
+            "mindmap_id": doc.mindmap_id,
+            "node_id": doc.node_id,
+            # "link": f"/drive/mindmap/{doc.mindmap_id}?comment_id={doc.name}",
+            "link": link,
+        }
+
+        frappe.logger().error("MENTION: before send bot")
+
+
+        RavenBot.send_notification_to_user(
+            bot_name=bot_docs,
+            user_id=user,
+            message=json.dumps(
+                message_data,
+                ensure_ascii=False,
+                default=str
+            ),
+        )
+
+        frappe.logger().error("MENTION: after send bot")

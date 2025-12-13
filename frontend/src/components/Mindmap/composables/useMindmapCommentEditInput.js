@@ -1,7 +1,28 @@
 import { ref } from "vue"
 import { call } from "frappe-ui"
 
-export function useMindmapCommentEditInput({ entityName, comments, onEditDone  }) {
+function isEmptyHTML(html) {
+  if (!html) return true
+
+  // Parse HTML
+  const div = document.createElement("div")
+  div.innerHTML = html
+
+  // 1. Lấy text thuần
+  const text = div.textContent?.replace(/\u00A0/g, "").trim()
+
+  // 2. Kiểm tra có ảnh không
+  const hasImage = div.querySelector("img")
+
+  // rỗng nếu: không text + không img
+  return !text && !hasImage
+}
+
+export function useMindmapCommentEditInput({
+  entityName,
+  comments,
+  onEditDone,
+}) {
   const editingCommentId = ref(null)
   const editingValue = ref("")
 
@@ -44,6 +65,12 @@ export function useMindmapCommentEditInput({ entityName, comments, onEditDone  }
 
   async function submitEdit(comment) {
     if (!comment?.name || !editingValue.value.trim()) return
+
+    const finalHTML = editingValue.value
+
+    if (isEmptyHTML(finalHTML)) {
+      return
+    }
 
     const payload = {
       ...comment.parsed,
