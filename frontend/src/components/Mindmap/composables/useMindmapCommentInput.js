@@ -2,12 +2,29 @@
 import { ref, watch } from "vue"
 import { call } from "frappe-ui"
 
+function isEmptyHTML(html) {
+  if (!html) return true
+
+  // Parse HTML
+  const div = document.createElement("div")
+  div.innerHTML = html
+
+  // 1. Lấy text thuần
+  const text = div.textContent?.replace(/\u00A0/g, "").trim()
+
+  // 2. Kiểm tra có ảnh không
+  const hasImage = div.querySelector("img")
+
+  // rỗng nếu: không text + không img
+  return !text && !hasImage
+}
+
 export function useMindmapCommentInput({
   activeNodeId,
   entityName,
   emit,
   previewImages,
-  commentEditorRef
+  commentEditorRef,
 }) {
   const inputValue = ref("")
   const commentCache = ref(
@@ -32,10 +49,12 @@ export function useMindmapCommentInput({
 
   async function handleSubmit() {
     if (!activeNodeId.value) return
-    if (!inputValue.value.trim() && !previewImages.value.length) return
 
-    const finalHTML = inputValue.value.trim()
+    const finalHTML = inputValue.value
 
+    if (isEmptyHTML(finalHTML) && !previewImages.value.length) {
+      return
+    }
     const payload = {
       text: finalHTML,
       created_at: new Date().toISOString(),
@@ -60,7 +79,7 @@ export function useMindmapCommentInput({
     if (activeNodeId.value) {
       commentCache.value[activeNodeId.value] = ""
     }
-    
+
     inputValue.value = ""
     previewImages.value = []
 

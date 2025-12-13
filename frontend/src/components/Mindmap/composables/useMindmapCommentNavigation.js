@@ -28,8 +28,8 @@ export function useMindmapCommentNavigation({
   }
 
   function selectNextGroup(currentNodeId) {
-    if (!currentNodeId) return
-    if (galleryVisible) return
+    if (!currentNodeId) return    
+    if (galleryVisible.value) return
 
     const list = mergedGroupsFinal.value
     if (!list.length) return
@@ -48,7 +48,7 @@ export function useMindmapCommentNavigation({
 
   function selectPrevGroup(currentNodeId) {
     if (!currentNodeId) return
-    if (galleryVisible) return
+    if (galleryVisible.value) return
 
     const list = mergedGroupsFinal.value
     if (!list.length) return

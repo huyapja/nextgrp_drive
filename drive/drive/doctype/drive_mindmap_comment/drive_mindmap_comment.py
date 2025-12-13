@@ -5,6 +5,7 @@ from frappe.model.document import Document
 import frappe
 from bs4 import BeautifulSoup
 from bleach.sanitizer import Cleaner
+import json
 
 ALLOWED_TAGS = ["p", "br", "b", "i", "strong", "em", "img", "a", "span"]
 ALLOWED_ATTRS = {
@@ -52,3 +53,25 @@ class DriveMindmapComment(Document):
             "mentions": mentions,
             "created_at": self.comment.get("created_at")
         }
+    
+    def after_insert(self):
+        comment = self.comment
+
+        if isinstance(comment, str):
+            try:
+                comment = json.loads(comment)
+            except Exception:
+                return
+
+        if not isinstance(comment, dict):
+            return
+
+        if not comment.get("mentions"):
+            return
+
+        frappe.enqueue(
+            "drive.api.mindmap_comment.notify_mentions",
+            queue="short",
+            comment_name=self.name
+        )
+
