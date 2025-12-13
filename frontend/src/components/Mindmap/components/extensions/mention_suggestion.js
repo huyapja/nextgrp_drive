@@ -106,24 +106,132 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       <span>${item.full_name}</span>
     `
 
-          el.onclick = () => {
-            // Insert đúng tiptap mention node
-            props.editor
-              .chain()
-              .focus()
-              .deleteRange(props.range)
-              .insertContent({
-                type: "mention",
-                attrs: {
-                  id: item.email,
-                  label: item.full_name,
-                },
-              })
-              .insertContent(" ")
-              .run()
+          // el.onclick = () => {
+          //   // Insert đúng tiptap mention node
+          //   props.editor
+          //     .chain()
+          //     .focus()
+          //     .deleteRange(props.range)
+          //     .insertContent({
+          //       type: "mention",
+          //       attrs: {
+          //         id: item.email,
+          //         label: item.full_name,
+          //       },
+          //     })
+          //     .insertContent(" ")
+          //     .run()
 
-            // Đóng dropdown
+          //   // Đóng dropdown
+          //   props.exit?.()
+          // }
+
+          // el.onclick = () => {
+          //   // 1. Lưu scroll hiện tại của panel
+          //   const container = document.querySelector(
+          //     ".comment-scroll-container"
+          //   )
+          //   const oldScrollTop = container?.scrollTop ?? 0
+
+          //   // 2. Insert mention (KHÔNG để browser tự scroll)
+          //   props.editor
+          //     .chain()
+          //     .deleteRange(props.range)
+          //     .insertContent({
+          //       type: "mention",
+          //       attrs: {
+          //         id: item.email,
+          //         label: item.full_name,
+          //       },
+          //     })
+          //     .insertContent(" ")
+          //     .run()
+
+          //   // 3. Focus lại editor nhưng không scroll
+          //   props.editor.view.dom.focus({ preventScroll: true })
+
+          //   // 4. Restore scroll sau khi DOM update
+          //   requestAnimationFrame(() => {
+          //     if (container) {
+          //       container.scrollTop = oldScrollTop
+          //     }
+          //   })
+
+          //   // 5. Đóng dropdown
+          //   props.exit?.()
+          // }
+
+          // el.onmousedown = (e) => {
+          //   // ✅ QUAN TRỌNG: giữ focus/selection trong editor, ngăn browser scroll
+          //   e.preventDefault()
+          //   e.stopPropagation()
+
+          //   // lấy đúng container gần nhất (đỡ bug khi có nhiều panel)
+          //   const container =
+          //     document.querySelector(".comment-scroll-container") ||
+          //     wrapper.closest(".comment-scroll-container")
+
+          //   const oldScrollTop = container?.scrollTop ?? 0
+
+          //   // ✅ dùng focus với scrollIntoView:false (Tiptap v2 có)
+          //   props.editor
+          //     .chain()
+          //     .focus(null, { scrollIntoView: false })
+          //     .deleteRange(props.range)
+          //     .insertContent({
+          //       type: "mention",
+          //       attrs: { id: item.email, label: item.full_name },
+          //     })
+          //     .insertContent(" ")
+          //     .run()
+
+          //   // ✅ restore scroll 2 nhịp (ProseMirror đôi khi scroll lại sau update selection)
+          //   requestAnimationFrame(() => {
+          //     if (container) container.scrollTop = oldScrollTop
+          //     requestAnimationFrame(() => {
+          //       if (container) container.scrollTop = oldScrollTop
+          //     })
+          //   })
+
+          //   props.exit?.()
+          // }
+
+          el.onmousedown = (e) => {
+            e.preventDefault()
+            e.stopPropagation()
+
+            const container =
+              document.querySelector(".comment-scroll-container") ||
+              wrapper.closest(".comment-scroll-container")
+
+            const oldScrollTop = container?.scrollTop ?? 0
+
+            // 1️⃣ Đóng popup TRƯỚC (tránh layout shift sau)
             props.exit?.()
+
+            // 2️⃣ Insert mention ở frame kế tiếp
+            requestAnimationFrame(() => {
+              props.editor
+                .chain()
+                .focus(null, { scrollIntoView: false })
+                .deleteRange(props.range)
+                .insertContent({
+                  type: "mention",
+                  attrs: {
+                    id: item.email,
+                    label: item.full_name,
+                  },
+                })
+                .insertContent(" ")
+                .run()
+
+              // 3️⃣ Restore scroll SAU KHI editor update xong
+              requestAnimationFrame(() => {
+                if (container) {
+                  container.scrollTop = oldScrollTop
+                }
+              })
+            })
           }
 
           popup.appendChild(el)

@@ -543,6 +543,10 @@ watch(
     activeNodeId.value = newId
     loadDraft(newId)
 
+    if (!hasLoadedOnce.value) {
+      await new Promise(res => setTimeout(res, 350))
+    }
+
     scrollToActiveNode(newId)
   },
   { flush: "post" }

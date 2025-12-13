@@ -262,19 +262,15 @@ def notify_mentions(comment_name):
     for user in valid_users:
         message_data = {
             "key": "mention_comment_mindmap",
-            "title": f'{actor_full_name} đã nhắc đến bạn trong một bình luận',
+            "title": f'{actor_full_name} đã đề cập đến bạn trong sơ đồ tư duy',
             "full_name_owner": actor_full_name,
             "to_user": user,
             "comment_content": comment.get("parsed") or "",
             "comment_id": doc.name,
             "mindmap_id": doc.mindmap_id,
             "node_id": doc.node_id,
-            # "link": f"/drive/mindmap/{doc.mindmap_id}?comment_id={doc.name}",
             "link": link,
         }
-
-        frappe.logger().error("MENTION: before send bot")
-
 
         RavenBot.send_notification_to_user(
             bot_name=bot_docs,
@@ -286,4 +282,71 @@ def notify_mentions(comment_name):
             ),
         )
 
-        frappe.logger().error("MENTION: after send bot")
+
+def notify_comment(comment_name):
+    doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
+
+    drive_file = frappe.get_value(
+        "Drive File",
+        doc.mindmap_id,
+        ["team"],
+        as_dict=True,
+    )
+    if not drive_file or not drive_file.get("team"):
+        return
+
+    team = drive_file["team"]
+
+    link = (
+        f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
+        f"?node={doc.node_id}"
+    )
+
+    comment = doc.comment
+    if isinstance(comment, str):
+        try:
+            comment = json.loads(comment)
+        except Exception:
+            return
+
+    actor_full_name = (
+        frappe.db.get_value("User", doc.owner, "full_name")
+        or doc.owner
+    )
+
+    # 1️⃣ Lấy user trong team (tuỳ bạn: Drive Team Member / Workspace member)
+    team_members = frappe.get_all(
+        "Drive Team Member",
+        filters={"parent": team},
+        pluck="user",
+    )
+
+    if not team_members:
+        return
+
+    for user in team_members:
+        # ❌ không notify chính mình
+        if user == doc.owner:
+            continue
+
+        message_data = {
+            "key": "comment_mindmap",
+            "title": f"{actor_full_name} đã bình luận trong sơ đồ tư duy",
+            "full_name_owner": actor_full_name,
+            "to_user": user,
+            "comment_content": comment.get("parsed") or "",
+            "comment_id": doc.name,
+            "mindmap_id": doc.mindmap_id,
+            "node_id": doc.node_id,
+            "link": link,
+        }
+
+        RavenBot.send_notification_to_user(
+            bot_name=frappe.conf.get("bot_docs"),
+            user_id=user,
+            message=json.dumps(
+                message_data,
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
