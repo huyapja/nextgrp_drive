@@ -131,9 +131,10 @@
               <div class="text-black comment-content mt-2">
                 <div v-html="c.parsedText"></div>
 
-                <div v-if="c.parsedImages.length" class="flex gap-2 mt-2">
+                <div v-if="c.parsedImages.length" class="flex flex-wrap gap-1 mt-2">
                   <Image v-for="(src, index) in c.parsedImages" :key="src" :src="src" data-image-comment
-                    imageClass="!w-[62px] h-[62px] object-cover cursor-zoom-in" @click="openGallery(c.parsedImages, index)" />
+                    imageClass="!w-[62px] h-[62px] object-cover cursor-zoom-in"
+                    @click="openGallery(c.parsedImages, index)" />
 
                 </div>
               </div>
@@ -174,11 +175,11 @@
                     commentEditorRef.value[group.node.id] = el
                   }
                 }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmit" :members="members"
-                  @navigate="handleNavigate" :nodeId="group.node.id" :currentUser="currentUser?.id" />
+                  @navigate="handleNavigate" :nodeId="group.node.id" :currentUser="currentUser?.id"
+                  @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages" />
               </div>
 
-              <i data-upload-image-to-comment
-                class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
+              <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
                 @click.stop="handleUploadCommentImage" />
 
             </div>
@@ -214,12 +215,12 @@
                     commentEditorRef.value['edit-' + editingCommentId] = el
                   }
                 }" v-model="editingValue" :previewImages="previewImages" @submit="handleSubmit" :members="members"
-                  @navigate="handleNavigate" :nodeId="'edit-' + group.node.id" />
+                  @navigate="handleNavigate" :nodeId="'edit-' + group.node.id" @open-gallery="openGalleryFromEditor"
+                  @paste-images="handlePasteImages" />
               </div>
 
               <!-- ICON UPLOAD (TÙY CHỌN) -->
-              <i data-upload-image-to-comment
-                class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
+              <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
                 @click.stop="handleUploadCommentImage" />
             </div>
 
@@ -257,24 +258,54 @@
     </div>
   </Teleport>
 
-  <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header" contentClass="!p-0">
+  <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header"
+    contentClass="!p-0">
     <Galleria :value="galleryItems" v-model:activeIndex="galleryIndex" :responsiveOptions="[
       { breakpoint: '1400px', numVisible: 5 },
       { breakpoint: '1024px', numVisible: 4 },
       { breakpoint: '768px', numVisible: 3 },
       { breakpoint: '560px', numVisible: 2 }
-    ]" :showThumbnails="false" :showIndicators="false":fullScreen="false"
-      containerStyle="width: 100%; height: 100%;" class="w-full h-full">
+    ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false" containerStyle="width: 100%; height: 100%;"
+      class="w-full h-full">
       <!-- Ảnh full -->
       <template #item="{ item }">
-        <img :src="item.itemImageSrc" class="max-w-full max-h-[70vh] object-contain mx-auto" />
+        <div class="flex items-center justify-center w-full h-full overflow-hidden">
+          <!-- ROTATE LAYER -->
+          <div class="flex items-center justify-center transition-transform duration-200" :style="{
+            transform: `rotate(${rotateDeg}deg)`
+          }">
+            <!-- SCALE LAYER -->
+            <div class="transition-transform duration-150" :style="{
+              transform: `scale(${imageScale})`,
+              transformOrigin: `${originX}% ${originY}%`
+            }" @wheel="handleImageWheel">
+              <img :src="item.itemImageSrc" draggable="false"
+                class="max-w-full max-h-[70vh] object-contain select-none pointer-events-none" />
+            </div>
+          </div>
+        </div>
       </template>
 
-      <!-- Thumbnail -->
-      <template #thumbnail="{ item }">
-        <img :src="item.thumbnailImageSrc" class="w-16 h-16 object-cover rounded" />
-      </template>
+
+
     </Galleria>
+    <div v-if="galleryVisible" class="
+  absolute top-4 right-6 z-20
+  flex items-center gap-2
+  px-3 py-1
+  text-xs font-medium
+  rounded-full
+  bg-black/60 text-white
+  select-none
+">
+      {{ galleryCounterText }}
+
+      <div class="flex gap-2 ml-2 border-l border-white/30 pl-2">
+        <i class="pi pi-refresh cursor-pointer hover:text-blue-400" title="Xoay trái" @click="rotateLeft" />
+        <i class="pi pi-refresh cursor-pointer rotate-180 hover:text-blue-400" title="Xoay phải" @click="rotateRight" />
+      </div>
+    </div>
+
   </Dialog>
 
 
@@ -302,6 +333,12 @@ import CommentEditor from "./MindmapCommentEditor.vue"
 import { useCommentRefs } from "./composables/useCommentRefs"
 import { useMindmapCommentImageUpload } from "./composables/useMindmapCommentImageUpload"
 import Image from 'primevue/image';
+
+import { useMindmapGallery } from "./composables/useMindmapGallery"
+import { useGalleryZoom } from "./composables/useGalleryZoom"
+import { useParsedComments } from "./composables/useParsedComments"
+import { usePanelClose } from "./composables/usePanelClose"
+
 
 
 
@@ -334,27 +371,13 @@ const hasData = ref(false)
 const isUploadingImage = ref(false)
 
 
+
 const isNavigatingByKeyboard = ref(false)
-
-
-const galleryVisible = ref(false)
-const galleryIndex = ref(0)
-const galleryItems = ref([])
-
-function openGallery(images, index) {
-  galleryItems.value = images.map(src => ({
-    itemImageSrc: src,
-    thumbnailImageSrc: src
-  }))
-  galleryIndex.value = index
-  galleryVisible.value = true
-}
-
 
 
 const currentUser = computed(() => store.state.user)
 
-const { pickAndUploadImages } = useMindmapCommentImageUpload({
+const { pickAndUploadImages, uploadImageFiles } = useMindmapCommentImageUpload({
   route,
   isPrivate: computed(() => props.mindmap?.is_private)
 })
@@ -385,50 +408,6 @@ function setGroupRef(nodeId, el) {
   }
 }
 
-function parseCommentHTML(html) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(html, "text/html");
-
-  const images = [...doc.querySelectorAll("img")].map(img => img.src);
-
-  // Xóa ảnh khỏi phần nội dung text
-  doc.querySelectorAll("img").forEach(img => img.remove());
-
-  return {
-    text: doc.body.innerHTML.trim(),
-    images,
-  };
-}
-
-function normalizeText(text) {
-  if (!text) return "";
-
-  return text
-    // 1. Trim toàn bộ chuỗi
-    .trim()
-
-    // 2. Bỏ space thừa trước và sau newline
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n[ \t]+/g, "\n")
-
-    // 3. Chuyển newline thành <br>
-    .replace(/\n/g, "<br>");
-}
-
-
-const parsedGroups = computed(() => {
-  return groups.value.map(group => ({
-    ...group,
-    comments: group.comments.map(c => {
-      const { text, images } = parseCommentHTML(c.parsed.safe_html || c.parsed.text)
-      return {
-        ...c,
-        parsedText: normalizeText(text),
-        parsedImages: images,
-      }
-    })
-  }))
-})
 
 
 const mindmap_comment_list = createResource({
@@ -498,34 +477,6 @@ function displayTime(c) {
   return timeAgo(c.creation)
 }
 
-// -----------------------------
-const closing = ref(false)
-
-function clearCommentIdFromUrl() {
-  const url = new URL(window.location.href)
-
-  url.searchParams.delete("node")
-
-  url.hash = ""
-
-  window.history.replaceState({}, "", url.toString())
-}
-
-
-function handleClose() {
-  closing.value = true
-  commentEditorRef.value?.blur?.()
-
-  clearCommentIdFromUrl()
-  hashCommentIdInternal.value = null
-
-  setTimeout(() => {
-    emit("close")
-    closing.value = false
-  }, 250)
-}
-
-
 // =============================
 // 1. INPUT STATE + API ACTIONS
 // =============================
@@ -550,7 +501,12 @@ const {
   cancelEdit
 } = useMindmapCommentEditInput({
   entityName,
-  comments
+  comments,
+  onEditDone() {
+    inputValue.value = ""
+    previewImages.value = []
+    commentEditorRef.value?.[activeNodeId.value]?.clearValues?.()
+  }
 })
 
 
@@ -599,6 +555,12 @@ watch(
 // =============================
 
 function handleClickGroup(nodeId, e) {
+  const selection = window.getSelection()
+
+  if (selection && selection.toString().length > 0) {
+    return
+  }
+  if (e.target.closest("a")) return
   if (!nodeId) return
   if (e.target.closest("[comment-add-form-cancel]")) return
   if (e.target.closest("[comment-add-form-submit]")) return
@@ -651,8 +613,20 @@ useMindmapCommentRealtime({
 
 
 // =============================
-// 7. KEYBOARD / GROUP NAVIGATION
+// 7. KEYBOARD / GROUP NAVIGATION / GALLERY
 // =============================
+
+// gallery
+const {
+  galleryVisible,
+  galleryIndex,
+  galleryItems,
+  galleryCounterText,
+  openGallery,
+  openGalleryFromEditor
+} = useMindmapGallery()
+
+
 const {
   hasNextGroup,
   hasPrevGroup,
@@ -662,7 +636,8 @@ const {
   activeNodeId,
   mergedGroupsFinal,
   nodeMap,
-  emit
+  emit,
+  galleryVisible
 })
 
 // =============================
@@ -723,33 +698,62 @@ async function handleUploadCommentImage() {
   })
 }
 
-onMounted(() => {
-  window.addEventListener('keydown', handleGalleryKeydown)
-})
+async function handlePasteImages(files) {
+  if (!files?.length) return
 
-onBeforeUnmount(() => {
-  window.removeEventListener('keydown', handleGalleryKeydown)
-})
+  isUploadingImage.value = true
 
-function handleGalleryKeydown(e) {
-  if (!galleryVisible.value) return
+  const container = document.querySelector(".comment-scroll-container")
+  const oldScrollTop = container?.scrollTop || 0
+  const oldHeight = container?.scrollHeight || 0
 
-  if (e.key === "ArrowRight") {
-    galleryIndex.value = (galleryIndex.value + 1) % galleryItems.value.length
+  const urls = await uploadImageFiles(files, entityName)
+
+  urls.forEach(url => previewImages.value.push(url))
+
+  await nextTick()
+
+  if (container) {
+    const newHeight = container.scrollHeight
+    container.scrollTop = oldScrollTop + (newHeight - oldHeight)
   }
 
-  if (e.key === "ArrowLeft") {
-    galleryIndex.value =
-      (galleryIndex.value - 1 + galleryItems.value.length) % galleryItems.value.length
-  }
+  isUploadingImage.value = false
 }
 
+
+// zoom
+const {
+  imageScale,
+  originX,
+  originY,
+  rotateDeg,
+  handleImageWheel,
+  rotateLeft,
+  rotateRight,
+} = useGalleryZoom(galleryIndex)
+
+
+// parsed comments
+const { parsedGroups } = useParsedComments(groups)
+
+// close panel
+const { closing, handleClose } = usePanelClose(emit, commentEditorRef)
+
+
+watch(galleryVisible, (v) => {
+  if (!v) {
+    imageScale.value = 1
+    originX.value = 50
+    originY.value = 50
+    rotateDeg.value = 0
+  }
+})
 
 </script>
 
 
 <style scoped>
-
 /* Xóa nền trắng của Dialog */
 .hide-dialog-header .p-dialog-content {
   background: transparent !important;
@@ -831,5 +835,26 @@ function handleGalleryKeydown(e) {
   border-radius: 4px;
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* Link trong nội dung comment */
+.comment-content :deep(a) {
+  color: #2563eb;
+  /* xanh vừa, không gắt */
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  word-break: break-all;
+  /* link dài không vỡ layout */
+}
+
+/* Active (click) */
+.comment-content :deep(a:active) {
+  color: #1e40af;
+}
+
+/* Đảm bảo click được, không bị overlay ăn */
+.comment-content :deep(a) {
+  pointer-events: auto;
 }
 </style>

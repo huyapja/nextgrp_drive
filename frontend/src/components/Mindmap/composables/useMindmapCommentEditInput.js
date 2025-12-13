@@ -1,7 +1,7 @@
 import { ref } from "vue"
 import { call } from "frappe-ui"
 
-export function useMindmapCommentEditInput({ entityName, comments }) {
+export function useMindmapCommentEditInput({ entityName, comments, onEditDone  }) {
   const editingCommentId = ref(null)
   const editingValue = ref("")
 
@@ -66,6 +66,8 @@ export function useMindmapCommentEditInput({ entityName, comments }) {
       }
 
       cancelEdit()
+
+      onEditDone?.()
     } catch (err) {
       console.error("Edit failed:", err)
     }
