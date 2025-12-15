@@ -204,16 +204,9 @@ const taskProjectOptionMap = ref({})
 const fetchProjectOptions = async () => {
   try {
     // Lấy owner của node nếu có taskLinkNode
-    let nodeOwner = null
-    if (taskLinkNode.value && mindmapEntity?.data?.owner) {
-      nodeOwner = mindmapEntity.data.owner
-    }
     
-    console.log('fetchProjectOptions - nodeOwner:', nodeOwner, 'taskLinkNode:', taskLinkNode.value)
     
-    const res = await call("drive.api.mindmap_task.get_my_projects", {
-      node_owner: nodeOwner || undefined
-    })
+    const res = await call("drive.api.mindmap_task.get_my_projects")
     
     const projects = res?.data || []
     console.log('fetchProjectOptions - projects:', projects)
@@ -238,19 +231,12 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
   try {
     // Lấy owner của node nếu có taskLinkNode
     // Luôn sử dụng owner từ mindmapEntity (entity owner = node owner trong mindmap)
-    let nodeOwner = null
-    if (taskLinkNode.value && mindmapEntity?.data?.owner) {
-      nodeOwner = mindmapEntity.data.owner
-    }
-    
-    console.log('fetchTaskOptions - nodeOwner:', nodeOwner, 'taskLinkMode:', taskLinkMode.value, 'taskLinkNode:', taskLinkNode.value, 'mindmapEntity:', mindmapEntity?.data)
     
     const res = await call("drive.api.mindmap_task.get_my_tasks", {
       project: taskProjectFilter.value !== 'all' ? taskProjectFilter.value : null,
       page: taskPage.value,
       page_size: TASK_PAGE_SIZE,
-      search: taskSearch.value?.trim() || undefined,
-      node_owner: nodeOwner || undefined
+      search: taskSearch.value?.trim() || undefined
     })
     const list = res?.data || []
     taskOptions.value = list.map(t => ({
