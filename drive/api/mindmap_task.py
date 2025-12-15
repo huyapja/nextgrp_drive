@@ -65,21 +65,97 @@ def _build_involvement_conditions(task_dt, task_meta, user):
         "coordinator": [
             "coordinator",
             "task_coordinator",
-            "collaborator",
-            "collaborators",
+            # "collaborator" và "collaborators" là child table, xử lý riêng bên dưới
             "participant",
             "participants",
         ],
     }
 
     conditions = []
+    # ⚠️ FIX: Lấy danh sách các field thực sự tồn tại trong database
+    existing_fields = set()
+    try:
+        # Kiểm tra field có tồn tại trong database bằng cách query schema
+        table_columns = frappe.db.get_table_columns("Task")
+        if table_columns:
+            existing_fields = set(table_columns)
+        else:
+            # Nếu không lấy được, chỉ dùng các field phổ biến đã biết chắc chắn tồn tại
+            existing_fields = {
+                "assignee",
+                "task_assignee",
+                "assigned_to",
+                "assign_to",
+                "responsible",
+                "responsible_user",
+                "approver",
+                "task_approver",
+                "approved_by",
+                "reviewer",
+                "coordinator",
+                "task_coordinator",
+                "owner",
+            }
+    except Exception:
+        # Fallback: chỉ dùng các field phổ biến đã biết chắc chắn tồn tại
+        existing_fields = {
+            "assignee",
+            "task_assignee",
+            "assigned_to",
+            "assign_to",
+            "responsible",
+            "responsible_user",
+            "approver",
+            "task_approver",
+            "approved_by",
+            "reviewer",
+            "coordinator",
+            "task_coordinator",
+            "owner",
+        }
+
     for fields in field_groups.values():
         for field in fields:
-            if task_meta.has_field(field):
-                conditions.append(task_dt[field] == user)
+            # ⚠️ FIX: Kiểm tra field tồn tại trong cả meta và database
+            # Chỉ thêm điều kiện nếu field thực sự tồn tại trong database
+            if task_meta.has_field(field) and (
+                not existing_fields or field in existing_fields
+            ):
+                try:
+                    conditions.append(task_dt[field] == user)
+                except Exception:
+                    # Bỏ qua field nếu có lỗi khi truy cập
+                    continue
 
     # Always include document owner as a fallback
     conditions.append(task_dt.owner == user)
+
+    # ⚠️ FIX: Include Task Collaboration (child table) - user là collaborator
+    # Tìm Officer từ user trước
+    try:
+        officer = frappe.db.get_value("Officer", {"user": user}, "name")
+        if officer:
+            # Query Task Collaboration child table - lấy danh sách task IDs trước
+            # để tránh lỗi SQL khi dùng subquery trực tiếp trong WHERE
+            TaskCollab = frappe.qb.DocType("Task Collaboration")
+            collab_task_ids = (
+                frappe.qb.from_(TaskCollab)
+                .select(TaskCollab.parent)
+                .where(
+                    (TaskCollab.officer == officer)
+                    & (TaskCollab.parenttype == "Task")
+                    & (TaskCollab.parentfield == "collaborator")
+                )
+                .distinct()
+            )
+            # Chạy subquery trước để lấy danh sách task IDs
+            task_ids = [row[0] for row in collab_task_ids.run()]
+            if task_ids:
+                # Sử dụng IN với danh sách task IDs thay vì subquery
+                conditions.append(task_dt.name.isin(task_ids))
+    except Exception:
+        # Bỏ qua nếu không tìm được officer hoặc có lỗi
+        pass
 
     # Include ToDo assignments (standard Frappe assignment) via subquery
     ToDo = frappe.qb.DocType("ToDo")
@@ -144,14 +220,23 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=Non
         title_field = _first_existing_field(task_meta, ["subject", "task_name"])
         assignee_field = _first_existing_field(
             task_meta,
-            ["assignee", "task_assignee", "assigned_to", "assign_to", "responsible", "owner"],
+            [
+                "assignee",
+                "task_assignee",
+                "assigned_to",
+                "assign_to",
+                "responsible",
+                "owner",
+            ],
         )
         status_field = _first_existing_field(task_meta, ["status"])
 
         if title_field:
             search_fields.append(Task[title_field])
         if assignee_field:
-            search_fields.append(Task[assignee_field if assignee_field != "owner" else "owner"])
+            search_fields.append(
+                Task[assignee_field if assignee_field != "owner" else "owner"]
+            )
         if status_field:
             search_fields.append(Task[status_field])
 
@@ -163,7 +248,14 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=Non
     title_field = _first_existing_field(task_meta, ["subject", "task_name"])
     assignee_field = _first_existing_field(
         task_meta,
-        ["assignee", "task_assignee", "assigned_to", "assign_to", "responsible", "owner"],
+        [
+            "assignee",
+            "task_assignee",
+            "assigned_to",
+            "assign_to",
+            "responsible",
+            "owner",
+        ],
     )
     status_field = _first_existing_field(task_meta, ["status"])
     project_name_field = _first_existing_field(task_meta, ["project_name"])
@@ -171,9 +263,15 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=Non
     excluded_statuses = {"To Do", "Paused"}
 
     select_fields = [Task.name.as_("id"), Task.creation]
-    select_fields.append(Task[title_field].as_("task_name") if title_field else Task.name.as_("task_name"))
     select_fields.append(
-        Task[assignee_field].as_("assignee") if assignee_field != "owner" else Task.owner.as_("assignee")
+        Task[title_field].as_("task_name")
+        if title_field
+        else Task.name.as_("task_name")
+    )
+    select_fields.append(
+        Task[assignee_field].as_("assignee")
+        if assignee_field != "owner"
+        else Task.owner.as_("assignee")
     )
     if status_field:
         select_fields.append(Task[status_field].as_("status"))
@@ -203,7 +301,9 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=Non
         data_q = data_q.left_join(join_dt).on(join_cond)
     for f in filters:
         data_q = data_q.where(f)
-    data_q = data_q.orderby(Task.creation, order=Order.desc).limit(page_size).offset(offset)
+    data_q = (
+        data_q.orderby(Task.creation, order=Order.desc).limit(page_size).offset(offset)
+    )
 
     tasks = data_q.run(as_dict=True)
 
@@ -216,7 +316,7 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=Non
         "Closed": "Đóng",
         "Cancelled": "Hủy",
         "Paused": "Tạm dừng",
-        "To Do": "Được tạo"
+        "To Do": "Được tạo",
     }
     for t in tasks:
         if t.get("status"):
@@ -238,31 +338,31 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=Non
 def get_my_projects(node_owner=None):
     """
     Lấy danh sách dự án mà user có quyền truy cập.
-    
+
     - Nếu có node_owner, sử dụng node_owner thay vì frappe.session.user
     - Trả về danh sách projects mà user là owner/approver/thành viên
     """
     try:
         # Sử dụng node_owner nếu có, nếu không thì dùng frappe.session.user
         user = node_owner if node_owner else frappe.session.user
-        
+
         # Lấy Officer từ user
         officer = frappe.db.get_value("Officer", {"user": user}, "name")
         if not officer:
             return {
                 "data": [],
             }
-        
+
         Project = DocType("Project")
         ProjectUser = DocType("Project User")
-        
+
         # Điều kiện: user là project_owner, approver, hoặc thành viên
         cond = (
             (Project.project_owner == officer)
             | (Project.approver == officer)
             | (ProjectUser.user == officer)
         )
-        
+
         # Query để lấy danh sách projects
         qb = (
             frappe.qb.from_(Project)
@@ -270,7 +370,7 @@ def get_my_projects(node_owner=None):
             .on(Project.name == ProjectUser.parent)
             .where(cond)
         )
-        
+
         # Lấy tất cả projects (không limit để có đầy đủ options)
         rows = (
             qb.select(
@@ -281,16 +381,18 @@ def get_my_projects(node_owner=None):
             .groupby(Project.name)
             .orderby(Project.modified, order=Order.desc)
         ).run(as_dict=True)
-        
+
         # Format kết quả
         projects = []
         for row in rows:
-            projects.append({
-                "name": row.get("name"),
-                "project_name": row.get("project_name") or row.get("name"),
-                "project_code": row.get("project_code") or "",
-            })
-        
+            projects.append(
+                {
+                    "name": row.get("name"),
+                    "project_name": row.get("project_name") or row.get("name"),
+                    "project_code": row.get("project_code") or "",
+                }
+            )
+
         return {
             "data": projects,
         }
