@@ -1992,6 +1992,13 @@ onBeforeUnmount(() => {
   font-weight: 400;
   font-size: 14px;
   color: #111827;
+  /* Giới hạn hiển thị 1 dòng với dấu ... nếu dài */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
 }
 
 .task-link-overlay {
@@ -2082,9 +2089,9 @@ onBeforeUnmount(() => {
 }
 
 .task-link-tab.active {
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
-  color: #111827;
+  border: 1px solid #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
@@ -2124,6 +2131,7 @@ onBeforeUnmount(() => {
 .task-project-select {
   position: relative;
   min-width: 200px;
+  max-width: 200px;
 }
 
 .project-select-trigger {
@@ -2140,6 +2148,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  min-width: 0;
 }
 
 .project-select-trigger:focus,
@@ -2154,6 +2163,7 @@ onBeforeUnmount(() => {
   color: #6b7280;
   display: inline-flex;
   transition: transform 0.15s ease;
+  flex-shrink: 0;
 }
 
 .project-select-caret.open {
@@ -2237,12 +2247,21 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .task-item-title {
   font-weight: 500;
   font-size: 14px;
   color: #111827;
+  /* Giới hạn hiển thị 1 dòng với dấu ... nếu dài */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+  min-width: 0;
 }
 
 .task-item-meta {
@@ -2257,6 +2276,14 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   color: #2563eb;
+  /* Giới hạn hiển thị 1 dòng với dấu ... nếu dài */
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .task-assignee {

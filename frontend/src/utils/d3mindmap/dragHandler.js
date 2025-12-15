@@ -11,6 +11,13 @@ import { cleanupDragBranchEffects, getDescendantIds, getParentNodeId, getSibling
  * Handle mousedown event to setup drag delay
  */
 export function handleMouseDown(renderer, event, d) {
+  // ⚠️ CRITICAL: Ngăn drag node khi đang pan bằng middle mouse button (button === 1)
+  // Chỉ cho phép drag với left mouse button (button === 0)
+  if (event.button !== undefined && event.button !== 0) {
+    // Không cho phép drag với middle mouse button hoặc right mouse button
+    return
+  }
+  
   // Bắt đầu delay drag - chỉ cho phép drag sau 200ms
   const isRoot = d.data?.isRoot || d.id === 'root'
   const isEditing = renderer.editingNode === d.id

@@ -120,14 +120,38 @@ export class D3MindmapRenderer {
     
     this.svg.call(this.zoom)
     
-    // Ngăn browser zoom mặc định khi giữ Ctrl + wheel
-    // Thêm listener ở capture phase để preventDefault sớm
+    // ⚠️ CRITICAL: Xử lý wheel event để scroll nội dung mindmap
+    // Khi không có Ctrl/Meta: scroll/pan nội dung mindmap
+    // Khi có Ctrl/Meta: zoom như bình thường
     const svgNode = this.svg.node()
     if (svgNode) {
       svgNode.addEventListener('wheel', (event) => {
+        // Nếu có Ctrl/Meta: zoom (đã được xử lý bởi d3.zoom)
         if (event.ctrlKey || event.metaKey) {
           // Ngăn browser zoom mặc định
           event.preventDefault()
+        } else {
+          // ⚠️ CRITICAL: Khi không có Ctrl/Meta, scroll/pan nội dung mindmap
+          event.preventDefault()
+          
+          // Lấy transform hiện tại
+          const currentTransform = d3.zoomTransform(this.g.node())
+          
+          // Tính toán delta scroll
+          const deltaX = event.deltaX || 0
+          const deltaY = event.deltaY || 0
+          
+          // Tạo transform mới với translation mới
+          const newTransform = currentTransform.translate(
+            -deltaX / currentTransform.k, // Chia cho scale để đảm bảo scroll distance không đổi khi zoom
+            -deltaY / currentTransform.k
+          )
+          
+          // Áp dụng transform mới
+          this.g.attr('transform', newTransform)
+          
+          // Cập nhật zoom transform để giữ state đồng bộ
+          this.svg.call(this.zoom.transform, newTransform)
         }
       }, { passive: false, capture: true })
       
