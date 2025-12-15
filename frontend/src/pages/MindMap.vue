@@ -503,11 +503,16 @@ const initializeMindmap = async (data) => {
     }))
     nodeCounter = maxId + 1
 
-    // Store existing creation order
+    // ⚠️ CRITICAL: Store existing creation order từ node.data.order nếu có
+    // Nếu không có order trong node.data, dùng index làm fallback
     loadedNodes.forEach((node, index) => {
-      nodeCreationOrder.value.set(node.id, index)
+      // Ưu tiên sử dụng order từ node.data.order nếu có
+      const order = node.data?.order !== undefined ? node.data.order : index
+      nodeCreationOrder.value.set(node.id, order)
     })
-    creationOrderCounter = loadedNodes.length
+    // Tìm order lớn nhất để set creationOrderCounter
+    const maxOrder = Math.max(...Array.from(nodeCreationOrder.value.values()), loadedNodes.length - 1)
+    creationOrderCounter = maxOrder + 1
 
     
   } else {
@@ -2232,7 +2237,8 @@ const handleKeyDown = (event) => {
   }
   else if ((key === 'c' || key === 'C') && (event.ctrlKey || event.metaKey)) {
     // ⚠️ NEW: Ctrl+C để copy node (nếu không đang trong editor)
-    if (!isInEditor && selectedNode.value && selectedNode.value.id !== 'root') {
+    // ⚠️ CHANGED: Cho phép copy root node để có thể copy toàn bộ mindmap
+    if (!isInEditor && selectedNode.value) {
       event.preventDefault()
       event.stopPropagation()
       copyNode(selectedNode.value.id)
@@ -2311,6 +2317,7 @@ const scheduleSave = () => {
     isSaving.value = true
 
     // Get positions from D3 renderer if available
+    // ⚠️ CRITICAL: Lưu cả order từ nodeCreationOrder để giữ thứ tự các node cùng cấp
     const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
       const nodeWithPos = { ...node }
       if (d3Renderer && d3Renderer.positions) {
@@ -2318,6 +2325,14 @@ const scheduleSave = () => {
         if (pos) {
           nodeWithPos.position = { ...pos }
         }
+      }
+      // ⚠️ CRITICAL: Lưu order từ nodeCreationOrder vào node data
+      if (nodeCreationOrder.value.has(node.id)) {
+        const order = nodeCreationOrder.value.get(node.id)
+        if (!nodeWithPos.data) {
+          nodeWithPos.data = {}
+        }
+        nodeWithPos.data.order = order
       }
       return nodeWithPos
     })
@@ -2505,6 +2520,7 @@ function copyNode(nodeId) {
         fixedHeight: n.data?.fixedHeight,
         width: nodeSizes[n.id]?.width,
         height: nodeSizes[n.id]?.height,
+        completed: n.data?.completed || false, // ⚠️ CRITICAL: Copy trạng thái completed
       }
     })),
     edges: subtreeEdges.map(e => ({
@@ -2558,6 +2574,7 @@ function cutNode(nodeId) {
         fixedHeight: n.data?.fixedHeight,
         width: nodeSizes[n.id]?.width,
         height: nodeSizes[n.id]?.height,
+        completed: n.data?.completed || false, // ⚠️ CRITICAL: Copy trạng thái completed
       }
     })),
     edges: subtreeEdges.map(e => ({
@@ -2707,6 +2724,8 @@ function pasteToNode(targetNodeId) {
         data: {
           label: node.data?.label || '',
           parentId: parentId,
+          // ⚠️ CRITICAL: Copy trạng thái completed từ node gốc
+          completed: node.data?.completed || false,
           // ⚠️ FIX: Set fixedWidth/fixedHeight nếu có để node paste có kích thước chính xác
           ...(node.data?.fixedWidth && node.data?.fixedHeight ? {
             fixedWidth: node.data.fixedWidth,
@@ -2771,6 +2790,25 @@ function pasteToNode(targetNodeId) {
       
     }
 
+    // ⚠️ CRITICAL: Áp dụng strikethrough cho các node đã completed sau khi paste
+    nextTick(() => {
+      void document.body.offsetHeight
+      setTimeout(() => {
+        newNodes.forEach(newNode => {
+          const isCompleted = newNode.data?.completed || false
+          if (isCompleted) {
+            // Đợi editor được mount xong
+            setTimeout(() => {
+              const editorInstance = d3Renderer?.getEditorInstance?.(newNode.id)
+              if (editorInstance) {
+                applyStrikethroughToTitle(editorInstance, true)
+              }
+            }, 100)
+          }
+        })
+      }, 100)
+    })
+
     // Auto-focus root node's editor
     nextTick(() => {
       void document.body.offsetHeight
@@ -2798,8 +2836,12 @@ function pasteToNode(targetNodeId) {
   let newNodeFixedWidth = null
   let newNodeFixedHeight = null
 
+  let newNodeCompleted = false
+  
   if (clipboard.value.type === 'node') {
     newNodeLabel = clipboard.value.data.label || 'Nhánh mới'
+    // ⚠️ CRITICAL: Copy trạng thái completed từ node gốc
+    newNodeCompleted = clipboard.value.data.completed || false
     // ⚠️ FIX: Nếu có kích thước thực tế từ node gốc, dùng để paste chính xác
     if (clipboard.value.data.width && clipboard.value.data.height) {
       newNodeFixedWidth = clipboard.value.data.width
@@ -2814,6 +2856,7 @@ function pasteToNode(targetNodeId) {
     data: {
       label: newNodeLabel,
       parentId: targetNodeId,
+      completed: newNodeCompleted, // ⚠️ CRITICAL: Copy trạng thái completed
       // ⚠️ FIX: Set fixedWidth/fixedHeight nếu có để node paste có kích thước chính xác
       ...(newNodeFixedWidth && newNodeFixedHeight ? {
         fixedWidth: newNodeFixedWidth,
@@ -2845,7 +2888,18 @@ function pasteToNode(targetNodeId) {
     d3Renderer.selectedNode = newNodeId
   }
 
-  
+  // ⚠️ CRITICAL: Áp dụng strikethrough cho node đã completed sau khi paste
+  if (newNodeCompleted) {
+    nextTick(() => {
+      void document.body.offsetHeight
+      setTimeout(() => {
+        const editorInstance = d3Renderer?.getEditorInstance?.(newNodeId)
+        if (editorInstance) {
+          applyStrikethroughToTitle(editorInstance, true)
+        }
+      }, 100)
+    })
+  }
 
   // Auto-focus new node's editor
   nextTick(() => {
@@ -3357,7 +3411,8 @@ async function handleInsertImage({ node }) {
   // Tạo input file element
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = 'image/*'
+  // ⚠️ FIX: Chỉ định rõ các định dạng ảnh được phép, không dùng image/* để tránh chọn "Tất cả tệp tin"
+  input.accept = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg'
   input.style.display = 'none' // Ẩn input element
 
   // Append vào body để đảm bảo dialog hiển thị đúng
@@ -3375,6 +3430,21 @@ async function handleInsertImage({ node }) {
     }
 
     if (!file) return
+
+    // ⚠️ CRITICAL: Validate file type để đảm bảo chỉ upload ảnh
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml']
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']
+    const fileName = file.name.toLowerCase()
+    const fileExtension = fileName.substring(fileName.lastIndexOf('.'))
+    const isValidType = allowedTypes.includes(file.type) || allowedExtensions.includes(fileExtension)
+    
+    if (!isValidType) {
+      toast({ 
+        title: "Chỉ được phép tải lên file ảnh (JPG, PNG, GIF, WEBP, BMP, SVG)", 
+        indicator: "red" 
+      })
+      return
+    }
 
     // ⚠️ CRITICAL: Lưu node.id và editor instance trước khi upload
     const nodeId = node.id
@@ -3461,16 +3531,20 @@ async function handleInsertImage({ node }) {
             // Tìm paragraph cuối cùng không nằm trong blockquote (title cuối cùng)
             let lastTitleParagraphOffset = null
             let lastTitleParagraphSize = 0
+            // ⚠️ FIX: Tìm ảnh cuối cùng sau title (không nằm trong blockquote)
+            let lastImageEndPos = null
 
-            doc.forEach((node, offset) => {
+            // ⚠️ FIX: Sử dụng descendants để duyệt tất cả node (bao gồm cả node con)
+            doc.descendants((node, pos) => {
+              // Tìm blockquote đầu tiên
               if (node.type.name === 'blockquote' && blockquoteOffset === null) {
-                blockquoteOffset = offset
+                blockquoteOffset = pos
               }
               
               // Tìm paragraph cuối cùng không nằm trong blockquote
               if (node.type.name === 'paragraph') {
                 // Kiểm tra xem paragraph có nằm trong blockquote không
-                const resolvedPos = state.doc.resolve(offset + 1)
+                const resolvedPos = state.doc.resolve(pos)
                 let inBlockquote = false
                 
                 for (let i = resolvedPos.depth; i > 0; i--) {
@@ -3483,8 +3557,33 @@ async function handleInsertImage({ node }) {
                 
                 // Nếu không nằm trong blockquote, đây là title paragraph
                 if (!inBlockquote) {
-                  lastTitleParagraphOffset = offset
-                  lastTitleParagraphSize = node.nodeSize
+                  const paragraphEnd = pos + node.nodeSize
+                  if (lastTitleParagraphOffset === null || paragraphEnd > (lastTitleParagraphOffset + lastTitleParagraphSize)) {
+                    lastTitleParagraphOffset = pos
+                    lastTitleParagraphSize = node.nodeSize
+                  }
+                }
+              }
+              
+              // ⚠️ FIX: Tìm ảnh sau title paragraphs (không phải blockquote)
+              if (node.type.name === 'image') {
+                const resolvedPos = state.doc.resolve(pos)
+                let inBlockquote = false
+                
+                for (let i = resolvedPos.depth; i > 0; i--) {
+                  const nodeAtDepth = resolvedPos.node(i)
+                  if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                    inBlockquote = true
+                    break
+                  }
+                }
+                
+                // Nếu không phải blockquote, đó là ảnh sau title
+                if (!inBlockquote) {
+                  const imageEnd = pos + node.nodeSize
+                  if (lastImageEndPos === null || imageEnd > lastImageEndPos) {
+                    lastImageEndPos = imageEnd
+                  }
                 }
               }
             })
@@ -3493,24 +3592,28 @@ async function handleInsertImage({ node }) {
 
             if (blockquoteOffset !== null) {
               // Có blockquote: chèn ảnh vào giữa title và blockquote
-              if (lastTitleParagraphOffset !== null) {
+              // ⚠️ FIX: Ưu tiên chèn sau ảnh cuối cùng nếu có
+              if (lastImageEndPos !== null) {
+                // Có ảnh đã tồn tại, chèn sau ảnh cuối cùng (trước blockquote)
+                insertPosition = lastImageEndPos
+              } else if (lastTitleParagraphOffset !== null) {
                 // Chèn ảnh sau paragraph cuối cùng của title (trước blockquote)
                 insertPosition = lastTitleParagraphOffset + lastTitleParagraphSize
-                
               } else {
                 // Không có title paragraph: chèn ảnh vào trước blockquote
                 insertPosition = blockquoteOffset
-                
               }
             } else {
               // Không có blockquote: chèn ảnh sau paragraph cuối cùng của title
-              if (lastTitleParagraphOffset !== null) {
+              // ⚠️ FIX: Ưu tiên chèn sau ảnh cuối cùng nếu có
+              if (lastImageEndPos !== null) {
+                // Có ảnh đã tồn tại, chèn sau ảnh cuối cùng
+                insertPosition = lastImageEndPos
+              } else if (lastTitleParagraphOffset !== null) {
                 insertPosition = lastTitleParagraphOffset + lastTitleParagraphSize
-                
               } else {
                 // Không có title paragraph: chèn ảnh vào cuối document
                 insertPosition = doc.content.size
-                
               }
             }
 

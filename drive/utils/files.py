@@ -70,8 +70,21 @@ MIME_LIST_MAP = {
         "text/x-csrc",
         "text/x-sh",
     ],
-    "Audio": ["audio/mpeg", "audio/wav", "audio/x-midi", "audio/ogg", "audio/mp4", "audio/mp3"],
-    "Video": ["video/mp4", "video/webm", "video/ogg", "video/quicktime", "video/x-matroska"],
+    "Audio": [
+        "audio/mpeg",
+        "audio/wav",
+        "audio/x-midi",
+        "audio/ogg",
+        "audio/mp4",
+        "audio/mp3",
+    ],
+    "Video": [
+        "video/mp4",
+        "video/webm",
+        "video/ogg",
+        "video/quicktime",
+        "video/x-matroska",
+    ],
     "Book": ["application/epub+zip", "application/x-mobipocket-ebook"],
     "Application": [
         "application/octet-stream",
@@ -162,7 +175,9 @@ class FileManager:
             or file.mime_type in FileManager.ACCEPTABLE_MIME_TYPES
         )
 
-    def upload_file(self, current_path: str, new_path: str, drive_file: str = None) -> None:
+    def upload_file(
+        self, current_path: str, new_path: str, drive_file: str = None
+    ) -> None:
         """
         Moves the file from the current path to another path
         """
@@ -242,7 +257,9 @@ class FileManager:
                 if self.s3_enabled:
                     os.remove(file_path)
                     self.conn.upload_file(
-                        final_path, self.bucket, str(save_path.with_suffix(".thumbnail"))
+                        final_path,
+                        self.bucket,
+                        str(save_path.with_suffix(".thumbnail")),
                     )
                     final_path.unlink()
                 else:
@@ -275,7 +292,9 @@ class FileManager:
         return buf
 
     def get_thumbnail_path(self, team, name):
-        return Path(get_home_folder(team)["name"]) / "thumbnails" / (name + ".thumbnail")
+        return (
+            Path(get_home_folder(team)["name"]) / "thumbnails" / (name + ".thumbnail")
+        )
 
     def get_thumbnail(self, team, name):
         return self.get_file(str(self.get_thumbnail_path(team, name)))
@@ -356,7 +375,9 @@ def create_user_thumbnails_directory():
 
 def get_team_thumbnails_directory(team_name):
     return Path(
-        frappe.get_site_path("private/files"), get_home_folder(team_name)["name"], "thumbnails"
+        frappe.get_site_path("private/files"),
+        get_home_folder(team_name)["name"],
+        "thumbnails",
     )
 
 
@@ -453,14 +474,31 @@ def get_valid_breadcrumbs(entity, user_access):
 
 
 def update_file_size(entity, delta):
-    doc = frappe.get_doc("Drive File", entity)
-    while doc.parent_entity:
-        doc.file_size += delta
-        doc.save(ignore_permissions=True)
-        doc = frappe.get_doc("Drive File", doc.parent_entity)
-    # Update root
-    doc.file_size += delta
-    doc.save(ignore_permissions=True)
+    """
+    Update file_size cho entity và tất cả parent folders.
+    Sử dụng frappe.db.set_value với update_modified=False để tránh TimestampMismatchError.
+    """
+    current_entity = entity
+    while current_entity:
+        # Lấy file_size hiện tại từ database
+        current_size = (
+            frappe.db.get_value("Drive File", current_entity, "file_size") or 0
+        )
+        new_size = current_size + delta
+
+        # Update file_size trực tiếp vào database, không update modified timestamp
+        # Điều này tránh TimestampMismatchError khi có nhiều upload đồng thời
+        frappe.db.set_value(
+            "Drive File", current_entity, "file_size", new_size, update_modified=False
+        )
+
+        # Lấy parent_entity để tiếp tục update
+        current_entity = frappe.db.get_value(
+            "Drive File", current_entity, "parent_entity"
+        )
+
+    # Commit changes
+    frappe.db.commit()
 
 
 def if_folder_exists(team, folder_name, parent, personal):

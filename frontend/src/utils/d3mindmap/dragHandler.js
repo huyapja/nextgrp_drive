@@ -335,32 +335,63 @@ function calculateTargetEdgePath(sourcePos, targetPos, sourceSize, targetSize) {
   const dy = y2 - y1
   const direction = dy >= 0 ? 1 : -1
   
-  // Tính toán horizontal offset để tạo đường cong mượt mà
-  // dx luôn dương khi đi từ trái sang phải
-  const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.45, 130))
-  const horizontalOffset = Math.min(baseOffset, dx - 16)
+  // ⚠️ CRITICAL: Đảm bảo ghost edge luôn hiển thị, ngay cả khi nodes cách xa nhau
+  // Tăng giới hạn baseOffset và đảm bảo horizontalOffset luôn hợp lệ
+  const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.6, 300))
+  // ⚠️ FIX: Đảm bảo horizontalOffset luôn hợp lệ và đủ lớn
+  // Khi dx rất lớn, horizontalOffset sẽ bằng baseOffset (tối đa 300px)
+  const horizontalOffset = Math.max(40, Math.min(baseOffset, Math.max(0, dx - 8)))
+  
   const cornerRadius = Math.min(
     18,
     Math.abs(dy) / 2,
     Math.max(8, horizontalOffset / 3)
   )
   
-  // Nếu khoảng cách quá ngắn, vẽ đường thẳng
-  if (horizontalOffset < cornerRadius * 2 + 4) {
+  // ⚠️ CRITICAL: Đảm bảo path luôn hợp lệ
+  // Tính toán midX và kiểm tra tính hợp lệ
+  const minMidX = x1 + cornerRadius + 10
+  const maxMidX = x2 - cornerRadius - 10
+  
+  // Nếu nodes quá gần nhau, dùng đường thẳng
+  if (minMidX >= maxMidX || horizontalOffset < cornerRadius * 2 + 4) {
     return `M ${x1} ${y1} L ${x2} ${y2}`
   }
   
   // Tính điểm giữa cho đường cong
   // Đi từ bên trái ghost node sang bên phải target node
-  const midX = x1 + horizontalOffset
+  let midX = x1 + horizontalOffset
+  
+  // ⚠️ CRITICAL: Đảm bảo midX luôn hợp lệ và nằm giữa x1 và x2
+  if (midX <= minMidX) {
+    midX = minMidX + 10
+  } else if (midX >= maxMidX) {
+    midX = maxMidX - 10
+  }
+  
+  // Kiểm tra lại một lần nữa để đảm bảo midX hợp lệ
+  if (midX <= x1 + cornerRadius || midX >= x2 - cornerRadius) {
+    // Nếu không hợp lệ, dùng đường thẳng để đảm bảo edge luôn hiển thị
+    return `M ${x1} ${y1} L ${x2} ${y2}`
+  }
+  
+  // ⚠️ CRITICAL: Đảm bảo các điểm trong path luôn hợp lệ
+  const startX = midX - cornerRadius
+  const endX = midX + cornerRadius
+  
+  // Kiểm tra xem các điểm có hợp lệ không
+  if (startX <= x1 || endX >= x2) {
+    // Nếu không hợp lệ, dùng đường thẳng
+    return `M ${x1} ${y1} L ${x2} ${y2}`
+  }
   
   // Tạo đường cong mượt mà: đi ngang từ x1, sau đó cong lên/xuống, rồi đi ngang đến x2
   const path = [
     `M ${x1} ${y1}`, // Bắt đầu từ bên trái ghost node
-    `L ${midX - cornerRadius} ${y1}`, // Đi ngang sang phải
+    `L ${startX} ${y1}`, // Đi ngang sang phải
     `Q ${midX} ${y1} ${midX} ${y1 + direction * cornerRadius}`, // Cong lên/xuống
     `L ${midX} ${y2 - direction * cornerRadius}`, // Đi dọc đến gần y2
-    `Q ${midX} ${y2} ${midX + cornerRadius} ${y2}`, // Cong để đi ngang
+    `Q ${midX} ${y2} ${endX} ${y2}`, // Cong để đi ngang
     `L ${x2} ${y2}` // Đi ngang đến edge bên phải target node
   ]
   
@@ -546,35 +577,76 @@ export function handleDrag(nodeElement, renderer, event, d) {
   const ghostY = y + renderer.dragOffset.y
   const ghostNodePos = { x: ghostX, y: ghostY }
   
-  // ⚠️ NEW: Phát hiện sibling nodes để sắp xếp lại thứ tự
+  // ⚠️ CRITICAL: Lưu vị trí Y cuối cùng để tính toán drop position khi drop vào target node khác cấp
+  renderer.dragFinalY = ghostY
+  
+  // ⚠️ CRITICAL: Phát hiện sibling nodes để sắp xếp lại thứ tự
+  // Sử dụng vị trí Y của ghost node thay vì pointer để tính toán chính xác hơn
   const draggedNodeParentId = getParentNodeId(d.id, renderer.edges)
   if (draggedNodeParentId) {
     const siblings = getSiblingNodes(d.id, renderer.edges)
     let dropPosition = null // null = không drop, hoặc index trong danh sách siblings
     
-    // Tìm vị trí drop dựa trên vị trí Y của pointer
-    for (let i = 0; i < siblings.length; i++) {
-      const siblingId = siblings[i]
+    // ⚠️ CRITICAL: Sử dụng ghostY (vị trí Y của ghost node) thay vì y (vị trí Y của pointer)
+    // Điều này đảm bảo vị trí drop chính xác hơn
+    const ghostNodeSize = renderer.nodeSizeCache.get(d.id) || { width: 130, height: 43 }
+    const ghostCenterY = ghostY + ghostNodeSize.height / 2
+    
+    // Tìm vị trí drop dựa trên vị trí Y của ghost node
+    // Sắp xếp siblings theo thứ tự Y để tính toán chính xác
+    const sortedSiblings = siblings.map(siblingId => {
       const siblingPos = renderer.positions.get(siblingId)
       if (siblingPos) {
         const siblingSize = renderer.nodeSizeCache.get(siblingId) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === siblingId))
-        const siblingCenterY = siblingPos.y + siblingSize.height / 2
-        
-        // Nếu pointer ở trên sibling center, drop trước sibling này
-        if (y < siblingCenterY) {
-          dropPosition = i
-          break
+        return {
+          id: siblingId,
+          y: siblingPos.y,
+          centerY: siblingPos.y + siblingSize.height / 2,
+          bottomY: siblingPos.y + siblingSize.height
         }
       }
+      return null
+    }).filter(s => s !== null).sort((a, b) => a.y - b.y)
+    
+    // ⚠️ CRITICAL: Tìm vị trí drop dựa trên ghostCenterY
+    // dropPosition là index trong danh sách siblings đã được sắp xếp theo Y
+    if (sortedSiblings.length > 0) {
+      // Kiểm tra xem ghost node có ở trên sibling đầu tiên không
+      if (ghostCenterY < sortedSiblings[0].y) {
+        dropPosition = 0
+      }
+      // Kiểm tra xem ghost node có ở dưới sibling cuối cùng không
+      else if (ghostCenterY > sortedSiblings[sortedSiblings.length - 1].bottomY) {
+        dropPosition = sortedSiblings.length
+      }
+      // Tìm vị trí giữa các siblings
+      else {
+        for (let i = 0; i < sortedSiblings.length; i++) {
+          const sibling = sortedSiblings[i]
+          // Nếu ghost center ở trên center của sibling này, drop trước sibling này
+          if (ghostCenterY < sibling.centerY) {
+            // dropPosition là index trong danh sách đã sắp xếp theo Y
+            dropPosition = i
+            break
+          }
+        }
+        
+        // Nếu không tìm thấy, drop ở cuối
+        if (dropPosition === null) {
+          dropPosition = sortedSiblings.length
+        }
+      }
+    } else {
+      // Không có siblings, drop ở đầu
+      dropPosition = 0
     }
     
-    // Nếu không tìm thấy vị trí trước sibling nào, drop ở cuối
-    if (dropPosition === null) {
-      dropPosition = siblings.length
-    }
+    // ⚠️ CRITICAL: Lưu thông tin về sortedSiblings để dùng trong handleDragEnd
+    // Điều này đảm bảo dropPosition được tính toán dựa trên thứ tự Y, không phải thứ tự edges
+    renderer.dragSortedSiblingIds = sortedSiblings.map(s => s.id)
     
-    // Lưu thông tin drop position để dùng trong handleDragEnd (không hiển thị visual indicator)
-    if (dropPosition !== null && siblings.length > 0) {
+    // Lưu thông tin drop position để dùng trong handleDragEnd
+    if (dropPosition !== null && siblings.length >= 0) {
       renderer.dragSiblingDropPosition = dropPosition
       renderer.dragSiblingParentId = draggedNodeParentId
     } else {
@@ -590,6 +662,104 @@ export function handleDrag(nodeElement, renderer, event, d) {
   // Cập nhật vị trí ghost node (nếu đã được tạo)
   if (renderer.dragGhost) {
     renderer.dragGhost.attr('transform', `translate(${ghostX}, ${ghostY})`)
+  }
+  
+  // ⚠️ CRITICAL: Tạo/cập nhật ghost edge từ parent đến ghost node khi reorder trong cùng parent
+  // Sử dụng draggedNodeParentId đã được khai báo ở trên
+  if (renderer.dragGhostEdgesGroup && draggedNodeParentId && !renderer.dragTargetNode) {
+    // Chỉ tạo ghost edge khi không có target node mới (đang reorder trong cùng parent)
+    const parentPos = renderer.positions.get(draggedNodeParentId)
+    const parentNode = renderer.nodes.find(n => n.id === draggedNodeParentId)
+    
+    if (parentPos && parentNode) {
+      const parentSize = renderer.nodeSizeCache.get(draggedNodeParentId) || estimateNodeSize(renderer, parentNode)
+      const ghostNodeSize = renderer.nodeSizeCache.get(d.id) || { width: 130, height: 43 }
+      
+      // Kiểm tra xem đã có ghost edge đến parent chưa
+      let parentGhostEdge = renderer.dragGhostEdgesGroup.select('.drag-ghost-edge-parent')
+      
+      if (parentGhostEdge.empty()) {
+        // Tạo mới ghost edge đến parent với màu xanh dương giống như edge bình thường
+        parentGhostEdge = renderer.dragGhostEdgesGroup.append('path')
+          .attr('class', 'drag-ghost-edge-parent')
+          .attr('fill', 'none')
+          .attr('stroke', '#3b82f6') // Màu xanh dương
+          .attr('stroke-width', 2) // Bằng với edge bình thường
+          .attr('stroke-dasharray', '8,4') // Nét đứt
+          .attr('stroke-opacity', 0.6) // Màu nhạt hơn
+          .attr('stroke-linecap', 'round')
+          .attr('stroke-linejoin', 'round')
+          .raise() // Đảm bảo edge luôn ở trên cùng
+      }
+      
+      // Tính toán path từ parent đến ghost node
+      // Parent node ở bên trái, ghost node ở bên phải
+      const x1 = parentPos.x + parentSize.width // Bên phải parent node
+      const y1 = parentPos.y + (parentSize.height / 2) // Giữa parent node
+      const x2 = ghostNodePos.x // Bên trái ghost node
+      const y2 = ghostNodePos.y + (ghostNodeSize.height / 2) // Giữa ghost node
+      
+      const dx = x2 - x1
+      const dy = y2 - y1
+      const direction = dy >= 0 ? 1 : -1
+      
+      // Tính toán horizontal offset để tạo đường cong mượt mà
+      const baseOffset = Math.max(40, Math.min(Math.abs(dx) * 0.6, 300))
+      const horizontalOffset = Math.max(40, Math.min(baseOffset, Math.max(0, dx - 8)))
+      
+      const cornerRadius = Math.min(
+        18,
+        Math.abs(dy) / 2,
+        Math.max(8, horizontalOffset / 3)
+      )
+      
+      // Tính toán midX và kiểm tra tính hợp lệ
+      const minMidX = x1 + cornerRadius + 10
+      const maxMidX = x2 - cornerRadius - 10
+      
+      let edgePath = ''
+      if (minMidX >= maxMidX || horizontalOffset < cornerRadius * 2 + 4) {
+        // Dùng đường thẳng nếu quá gần
+        edgePath = `M ${x1} ${y1} L ${x2} ${y2}`
+      } else {
+        // Tính điểm giữa cho đường cong
+        let midX = x1 + horizontalOffset
+        
+        // Đảm bảo midX luôn hợp lệ
+        if (midX <= minMidX) {
+          midX = minMidX + 10
+        } else if (midX >= maxMidX) {
+          midX = maxMidX - 10
+        }
+        
+        // Kiểm tra lại một lần nữa
+        if (midX <= x1 + cornerRadius || midX >= x2 - cornerRadius) {
+          edgePath = `M ${x1} ${y1} L ${x2} ${y2}`
+        } else {
+          const startX = midX - cornerRadius
+          const endX = midX + cornerRadius
+          
+          if (startX <= x1 || endX >= x2) {
+            edgePath = `M ${x1} ${y1} L ${x2} ${y2}`
+          } else {
+            edgePath = [
+              `M ${x1} ${y1}`,
+              `L ${startX} ${y1}`,
+              `Q ${midX} ${y1} ${midX} ${y1 + direction * cornerRadius}`,
+              `L ${midX} ${y2 - direction * cornerRadius}`,
+              `Q ${midX} ${y2} ${endX} ${y2}`,
+              `L ${x2} ${y2}`
+            ].join(' ')
+          }
+        }
+      }
+      
+      // Cập nhật path và đảm bảo edge luôn ở trên cùng
+      parentGhostEdge.attr('d', edgePath).raise()
+    }
+  } else if (renderer.dragGhostEdgesGroup && (!draggedNodeParentId || renderer.dragTargetNode)) {
+    // Xóa ghost edge đến parent nếu không có parent hoặc đang drag sang parent mới
+    renderer.dragGhostEdgesGroup.select('.drag-ghost-edge-parent').remove()
   }
   
   // KHÔNG cập nhật ghost edges xanh dương (đã bỏ)
@@ -702,6 +872,11 @@ export function handleDrag(nodeElement, renderer, event, d) {
         .attr('stroke-width', 2) // Giống như khi được select
         // Không có stroke-dasharray để border active không nét đứt
       
+      // ⚠️ CRITICAL: Xóa ghost edge đến parent khi có target node mới
+      if (renderer.dragGhostEdgesGroup) {
+        renderer.dragGhostEdgesGroup.select('.drag-ghost-edge-parent').remove()
+      }
+      
       // Tạo/cập nhật ghost edge từ ghost node đến target node
       if (renderer.dragGhostEdgesGroup) {
         const targetPos = renderer.positions.get(targetDatum.id)
@@ -756,6 +931,8 @@ export function handleDrag(nodeElement, renderer, event, d) {
           renderer.dragGhostEdgesGroup.select('.drag-ghost-edge-target').remove()
         }
       }
+      // ⚠️ CRITICAL: Khi không có target node hợp lệ, hiển thị lại ghost edge đến parent nếu có
+      // Logic này sẽ được xử lý ở phần đầu của handleDrag khi cập nhật ghost edge đến parent
     }
   } else {
     // Remove highlight nếu không có target
@@ -771,6 +948,8 @@ export function handleDrag(nodeElement, renderer, event, d) {
         renderer.dragGhostEdgesGroup.select('.drag-ghost-edge-target').remove()
       }
     }
+    // ⚠️ CRITICAL: Khi không có target, hiển thị lại ghost edge đến parent nếu có
+    // Logic này sẽ được xử lý ở phần đầu của handleDrag khi cập nhật ghost edge đến parent
   }
 }
 
@@ -885,8 +1064,73 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
         })
       }
       
-      // Re-render mindmap với layout mới
-      renderer.render()
+      // ⚠️ CRITICAL: Tính toán drop position dựa trên vị trí Y mà người dùng đã kéo đến
+      // Lấy danh sách children của parent mới (sau khi đã cập nhật edge)
+      const newSiblings = getSiblingNodes(d.id, renderer.edges)
+      const nodeCreationOrder = renderer.options?.nodeCreationOrder || new Map()
+      
+      if (newSiblings.length > 0 && renderer.dragFinalY !== undefined) {
+        // Tính toán drop position dựa trên vị trí Y cuối cùng
+        // Sắp xếp siblings theo creation order để tìm vị trí đúng
+        const sortedSiblings = newSiblings.map(siblingId => ({
+          id: siblingId,
+          order: nodeCreationOrder.get(siblingId) ?? Infinity
+        })).sort((a, b) => a.order - b.order)
+        
+        // ⚠️ CRITICAL: Render một lần để có positions mới của các children
+        renderer.render()
+        
+        // Tìm vị trí drop dựa trên vị trí Y (sử dụng positions sau khi render)
+        let dropPosition = null
+        for (let i = 0; i < sortedSiblings.length; i++) {
+          const siblingId = sortedSiblings[i].id
+          const siblingPos = renderer.positions.get(siblingId)
+          if (siblingPos) {
+            const siblingSize = renderer.nodeSizeCache.get(siblingId) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === siblingId))
+            const siblingCenterY = siblingPos.y + siblingSize.height / 2
+            
+            // Nếu vị trí Y cuối cùng ở trên sibling center, drop trước sibling này
+            if (renderer.dragFinalY < siblingCenterY) {
+              dropPosition = i
+              break
+            }
+          }
+        }
+        
+        // Nếu không tìm thấy vị trí trước sibling nào, drop ở cuối
+        if (dropPosition === null) {
+          dropPosition = sortedSiblings.length
+        }
+        
+        // Tính order mới cho node được drag
+        let newOrder
+        if (dropPosition === 0) {
+          // Drop ở đầu: order nhỏ hơn sibling đầu tiên
+          newOrder = sortedSiblings[0]?.order - 1 ?? 0
+        } else if (dropPosition >= sortedSiblings.length) {
+          // Drop ở cuối: order lớn hơn sibling cuối cùng
+          newOrder = (sortedSiblings[sortedSiblings.length - 1]?.order ?? 0) + 1
+        } else {
+          // Drop giữa: order giữa 2 siblings
+          const prevOrder = sortedSiblings[dropPosition - 1]?.order ?? 0
+          const nextOrder = sortedSiblings[dropPosition]?.order ?? Infinity
+          newOrder = prevOrder + (nextOrder - prevOrder) / 2
+        }
+        
+        // Cập nhật nodeCreationOrder
+        nodeCreationOrder.set(d.id, newOrder)
+        
+        // Gọi callback để cập nhật nodeCreationOrder
+        if (renderer.callbacks.onNodeReorder) {
+          renderer.callbacks.onNodeReorder(d.id, newOrder)
+        }
+        
+        // Render lại với order mới để node được đặt ở đúng vị trí
+        renderer.render()
+      } else {
+        // Không có siblings hoặc không có vị trí Y cuối cùng, chỉ render một lần
+        renderer.render()
+      }
       
       // Gọi callback để cập nhật data
       if (renderer.callbacks.onNodeUpdate) {
@@ -895,34 +1139,53 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
       
     }
   }
-  // ⚠️ Xử lý sắp xếp lại thứ tự sibling nodes (chỉ khi không có target node hoặc target node chính là parent hiện tại)
+  // ⚠️ CRITICAL: Xử lý sắp xếp lại thứ tự sibling nodes
+  // Sử dụng dragSortedSiblingIds để đảm bảo thứ tự được tính toán dựa trên vị trí Y thực tế
   else if (actuallyMoved && renderer.dragSiblingDropPosition !== null && renderer.dragSiblingParentId) {
-    const siblings = getSiblingNodes(d.id, renderer.edges)
+    // ⚠️ CRITICAL: Sử dụng dragSortedSiblingIds nếu có (đã được sắp xếp theo Y trong handleDrag)
+    // Nếu không có, fallback về siblings từ edges
+    const sortedSiblingIds = renderer.dragSortedSiblingIds || getSiblingNodes(d.id, renderer.edges)
     const dropPosition = renderer.dragSiblingDropPosition
     
     // Lấy nodeCreationOrder từ renderer options
     const nodeCreationOrder = renderer.options?.nodeCreationOrder || new Map()
     
-    // Tính toán lại thứ tự
+    // ⚠️ CRITICAL: Tính toán lại thứ tự dựa trên sortedSiblingIds (đã được sắp xếp theo Y)
     const currentOrder = nodeCreationOrder.get(d.id) ?? Infinity
-    const siblingOrders = siblings.map(siblingId => ({
+    const siblingOrders = sortedSiblingIds.map(siblingId => ({
       id: siblingId,
       order: nodeCreationOrder.get(siblingId) ?? Infinity
     })).sort((a, b) => a.order - b.order)
     
-    // Tính order mới cho node được drag
+    // ⚠️ CRITICAL: Tính order mới cho node được drag
+    // Đảm bảo order được tính toán chính xác dựa trên dropPosition
     let newOrder
     if (dropPosition === 0) {
       // Drop ở đầu: order nhỏ hơn sibling đầu tiên
-      newOrder = siblingOrders[0]?.order - 1 ?? 0
+      const firstOrder = siblingOrders[0]?.order ?? 0
+      newOrder = firstOrder - 1
+      // Đảm bảo order không quá nhỏ (tránh số âm quá lớn)
+      if (newOrder < firstOrder - 1000) {
+        newOrder = firstOrder - 1
+      }
     } else if (dropPosition >= siblingOrders.length) {
       // Drop ở cuối: order lớn hơn sibling cuối cùng
-      newOrder = (siblingOrders[siblingOrders.length - 1]?.order ?? 0) + 1
+      const lastOrder = siblingOrders[siblingOrders.length - 1]?.order ?? 0
+      newOrder = lastOrder + 1
     } else {
       // Drop giữa: order giữa 2 siblings
       const prevOrder = siblingOrders[dropPosition - 1]?.order ?? 0
       const nextOrder = siblingOrders[dropPosition]?.order ?? Infinity
-      newOrder = prevOrder + (nextOrder - prevOrder) / 2
+      
+      // ⚠️ CRITICAL: Nếu khoảng cách giữa 2 orders quá nhỏ, cần normalize lại
+      if (nextOrder === Infinity) {
+        newOrder = prevOrder + 1
+      } else if (nextOrder - prevOrder < 1) {
+        // Nếu khoảng cách quá nhỏ, đặt order ở giữa và normalize sau
+        newOrder = prevOrder + (nextOrder - prevOrder) / 2
+      } else {
+        newOrder = prevOrder + (nextOrder - prevOrder) / 2
+      }
     }
     
     // Cập nhật nodeCreationOrder
@@ -949,6 +1212,8 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
   renderer.dragStartNodeInfo = null
   renderer.dragSiblingDropPosition = null
   renderer.dragSiblingParentId = null
+  renderer.dragSortedSiblingIds = null // ⚠️ CRITICAL: Reset danh sách siblings đã sắp xếp
+  renderer.dragFinalY = undefined // ⚠️ CRITICAL: Reset vị trí Y cuối cùng
 }
 
 /**
