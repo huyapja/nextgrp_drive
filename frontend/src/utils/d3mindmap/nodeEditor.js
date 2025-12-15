@@ -536,12 +536,13 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	nodeGroup.select('.node-hover-layer').attr('height', finalHeight)
 	nodeGroup.select('.collapse-button-bridge').attr('height', finalHeight)
 	
-	// ⚠️ FIX: Cập nhật wrapper và editor container với HEIGHT CỤ THỂ và !important
+	// ⚠️ FIX: Cập nhật wrapper và editor container - để height tự động điều chỉnh theo nội dung
+	// Thay vì set height cố định, chỉ set min-height để tránh khoảng trống thừa
 	const wrapperNode = fo.select('.node-content-wrapper').node()
 	if (wrapperNode) {
 		wrapperNode.style.setProperty('width', '100%', 'important')
-		wrapperNode.style.setProperty('height', `${foHeight}px`, 'important')
-		wrapperNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+		wrapperNode.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
+		wrapperNode.style.setProperty('min-height', `${foHeight}px`, 'important') // Đảm bảo không nhỏ hơn foHeight
 		wrapperNode.style.setProperty('max-height', 'none', 'important')
 		wrapperNode.style.setProperty('overflow', 'visible', 'important')
 	}
@@ -549,8 +550,8 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	const containerNode = fo.select('.node-editor-container').node()
 	if (containerNode) {
 		containerNode.style.setProperty('width', '100%', 'important')
-		containerNode.style.setProperty('height', `${foHeight}px`, 'important')
-		containerNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+		containerNode.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
+		containerNode.style.setProperty('min-height', `${foHeight}px`, 'important') // Đảm bảo không nhỏ hơn foHeight
 		containerNode.style.setProperty('max-height', 'none', 'important')
 		containerNode.style.setProperty('overflow', 'visible', 'important')
 	}
@@ -558,16 +559,16 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	// ⚠️ CRITICAL: Cũng set cho .mindmap-node-editor và .mindmap-editor-content
 	const nodeEditorEl = fo.select('.mindmap-node-editor').node()
 	if (nodeEditorEl) {
-		nodeEditorEl.style.setProperty('height', `${foHeight}px`, 'important')
-		nodeEditorEl.style.setProperty('min-height', `${foHeight}px`, 'important')
+		nodeEditorEl.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
+		nodeEditorEl.style.setProperty('min-height', `${foHeight}px`, 'important') // Đảm bảo không nhỏ hơn foHeight
 		nodeEditorEl.style.setProperty('max-height', 'none', 'important')
 		nodeEditorEl.style.setProperty('overflow', 'visible', 'important')
 	}
 	
 	const editorContentEl = fo.select('.mindmap-editor-content').node()
 	if (editorContentEl) {
-		editorContentEl.style.setProperty('height', `${foHeight}px`, 'important')
-		editorContentEl.style.setProperty('min-height', `${foHeight}px`, 'important')
+		editorContentEl.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
+		editorContentEl.style.setProperty('min-height', `${foHeight}px`, 'important') // Đảm bảo không nhỏ hơn foHeight
 		editorContentEl.style.setProperty('max-height', 'none', 'important')
 		editorContentEl.style.setProperty('overflow', 'visible', 'important')
 	}
@@ -1040,22 +1041,47 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				const finalHasImages = hasImages || hasImagesInHTML
 				
 				
-				// ⚠️ CRITICAL: Nếu có ảnh, CHỈ ĐỌC fixedWidth/fixedHeight đã lưu
-				// KHÔNG tính toán lại (đã tính ở handleEditorInput)
+				// ⚠️ CRITICAL: Kiểm tra xem có task link không
+				// Task link có thể là section hoặc paragraph chứa link "Liên kết công việc"
+				const hasTaskLinkSection = proseElement ? (
+					proseElement.querySelector('.node-task-link-section') ||
+					proseElement.querySelector('[data-node-section="task-link"]') ||
+					proseElement.querySelector('.node-task-badge')
+				) : false
+				const hasTaskLinkParagraph = proseElement ? (
+					Array.from(proseElement.querySelectorAll('p')).some(p => {
+						const text = p.textContent?.trim() || ''
+						return text.includes('Liên kết công việc') || 
+							p.querySelector('a[href*="task_id"]') || 
+							p.querySelector('a[href*="task"]')
+					})
+				) : false
+				const hasTaskLinkInHTML = finalValue.includes('node-task-link-section') || 
+					finalValue.includes('node-task-badge') || 
+					finalValue.includes('data-node-section="task-link"') ||
+					finalValue.includes('Liên kết công việc')
+				const finalHasTaskLink = hasTaskLinkSection || hasTaskLinkParagraph || hasTaskLinkInHTML
+				
+				// ⚠️ CRITICAL: Nếu có ảnh, LUÔN set width = maxWidth (400px)
 				if (finalHasImages) {
 					measuredWidth = maxWidth // 400px
+					hasMeasuredFromDOM = true
 					
-					// ĐỌC fixedHeight đã lưu từ handleEditorInput
-					if (nodeData.data && nodeData.data.fixedHeight) {
-						measuredHeight = nodeData.data.fixedHeight
-						hasMeasuredHeightFromDOM = true
-					} else {
-						// Nếu chưa có fixedHeight (trường hợp ảnh insert trước khi có hàm mới)
-						// Fallback: đọc từ cache
-						const cachedSize = renderer.nodeSizeCache.get(nodeId)
-						if (cachedSize && cachedSize.height > 0) {
-							measuredHeight = cachedSize.height
+					// Nếu KHÔNG có task link, đọc fixedHeight đã lưu
+					// Nếu CÓ task link, sẽ đo lại từ DOM ở phần dưới
+					if (!finalHasTaskLink) {
+						// ĐỌC fixedHeight đã lưu từ handleEditorInput
+						if (nodeData.data && nodeData.data.fixedHeight) {
+							measuredHeight = nodeData.data.fixedHeight
 							hasMeasuredHeightFromDOM = true
+						} else {
+							// Nếu chưa có fixedHeight (trường hợp ảnh insert trước khi có hàm mới)
+							// Fallback: đọc từ cache
+							const cachedSize = renderer.nodeSizeCache.get(nodeId)
+							if (cachedSize && cachedSize.height > 0) {
+								measuredHeight = cachedSize.height
+								hasMeasuredHeightFromDOM = true
+							}
 						}
 					}
 					// ⚠️ KHÔNG clamp khi có ảnh, vì đã force = maxWidth
@@ -1083,9 +1109,10 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				// Đánh dấu đã đo được từ DOM
 				hasMeasuredFromDOM = true
 				
-				// ⚠️ STEP 2: Đo height CHỈ KHI KHÔNG CÓ ẢNH
-				// Nếu có ảnh, đã đọc fixedHeight ở trên, không cần đo lại
-				if (!finalHasImages) {
+				// ⚠️ STEP 2: Đo height từ DOM
+				// - Nếu KHÔNG có ảnh: đo từ DOM
+				// - Nếu có ảnh NHƯNG có task link: đo lại từ DOM để bao gồm task link
+				if (!finalHasImages || (finalHasImages && finalHasTaskLink)) {
 					const borderOffset = 4
 					const foWidth = measuredWidth - borderOffset
 					
@@ -1133,11 +1160,110 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					void editorContent.offsetHeight
 					void editorContent.scrollHeight
 					
-					// Đo height từ scrollHeight
-					measuredHeight = Math.max(
-						editorContent.scrollHeight || editorContent.offsetHeight || 0,
-						singleLineHeight
-					)
+					// ⚠️ CRITICAL: Đo height từ DOM, bao gồm cả task link sections
+					let measuredHeightFromDOM = editorContent.scrollHeight || editorContent.offsetHeight || 0
+					
+					// Nếu có task link hoặc ảnh, đo chính xác hơn bằng getBoundingClientRect
+					if (finalHasTaskLink || finalHasImages) {
+						const editorRect = editorContent.getBoundingClientRect()
+						const paddingTop = parseFloat(window.getComputedStyle(editorContent).paddingTop) || 0
+						const paddingBottom = parseFloat(window.getComputedStyle(editorContent).paddingBottom) || 0
+						let maxBottom = 0
+						
+						// Đo từ task link sections (có thể là section hoặc paragraph chứa link)
+						const taskLinkSections = editorContent.querySelectorAll('.node-task-link-section, [data-node-section="task-link"]')
+						taskLinkSections.forEach((section) => {
+							const sectionRect = section.getBoundingClientRect()
+							const sectionStyle = window.getComputedStyle(section)
+							const sectionMarginBottom = parseFloat(sectionStyle.marginBottom) || 0
+							const sectionBottom = sectionRect.bottom - editorRect.top + sectionMarginBottom
+							maxBottom = Math.max(maxBottom, sectionBottom)
+						})
+						
+						// ⚠️ CRITICAL: Tìm các paragraph chứa link "Liên kết công việc" (nếu không có section wrapper)
+						if (taskLinkSections.length === 0) {
+							const paragraphs = editorContent.querySelectorAll('p')
+							paragraphs.forEach((p) => {
+								const linkText = p.textContent?.trim() || ''
+								const hasTaskLinkText = linkText.includes('Liên kết công việc') || 
+									p.querySelector('a[href*="task_id"]') || 
+									p.querySelector('a[href*="task"]')
+								if (hasTaskLinkText) {
+									const pRect = p.getBoundingClientRect()
+									const pStyle = window.getComputedStyle(p)
+									const pMarginBottom = parseFloat(pStyle.marginBottom) || 0
+									const pBottom = pRect.bottom - editorRect.top + pMarginBottom
+									maxBottom = Math.max(maxBottom, pBottom)
+								}
+							})
+						}
+						
+						// Đo từ image wrappers (nếu có)
+						const imageWrappers = editorContent.querySelectorAll('.image-wrapper-node, .image-wrapper')
+						if (imageWrappers.length > 0) {
+							imageWrappers.forEach((wrapper) => {
+								const wrapperRect = wrapper.getBoundingClientRect()
+								const wrapperStyle = window.getComputedStyle(wrapper)
+								const wrapperMarginTop = parseFloat(wrapperStyle.marginTop) || 0
+								const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
+								// Tính bottom bao gồm cả margin
+								const wrapperBottom = wrapperRect.bottom - editorRect.top + wrapperMarginBottom
+								maxBottom = Math.max(maxBottom, wrapperBottom)
+							})
+						}
+						
+						// Đo từ images (nếu không có wrapper)
+						if (imageWrappers.length === 0) {
+							const images = editorContent.querySelectorAll('img')
+							images.forEach((img) => {
+								const imgRect = img.getBoundingClientRect()
+								const imgStyle = window.getComputedStyle(img)
+								const imgMarginTop = parseFloat(imgStyle.marginTop) || 0
+								const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
+								const imgBottom = imgRect.bottom - editorRect.top + imgMarginBottom
+								maxBottom = Math.max(maxBottom, imgBottom)
+							})
+						}
+						
+						// Đo từ các phần tử text (paragraphs, blockquotes, etc)
+						const textElements = Array.from(editorContent.children).filter((child) => {
+							const hasText = child.textContent?.trim().length > 0
+							const hasImage = child.querySelector('img') || child.querySelector('.image-wrapper-node')
+							const hasTaskLinkSection = child.querySelector('.node-task-link-section') || child.querySelector('[data-node-section="task-link"]')
+							// Kiểm tra xem có phải là paragraph chứa task link không
+							const isTaskLinkParagraph = child.tagName === 'P' && (
+								child.textContent?.includes('Liên kết công việc') ||
+								child.querySelector('a[href*="task_id"]') ||
+								child.querySelector('a[href*="task"]')
+							)
+							return hasText || hasImage || hasTaskLinkSection || isTaskLinkParagraph
+						})
+						
+						textElements.forEach((element) => {
+							const elementRect = element.getBoundingClientRect()
+							const elementStyle = window.getComputedStyle(element)
+							const elementMarginBottom = parseFloat(elementStyle.marginBottom) || 0
+							const elementBottom = elementRect.bottom - editorRect.top + elementMarginBottom
+							maxBottom = Math.max(maxBottom, elementBottom)
+						})
+						
+						// Tính height: padding top + nội dung + padding bottom
+						if (maxBottom > paddingTop) {
+							// maxBottom đã tính từ top của editorContent (bao gồm padding top)
+							// Chỉ cần cộng thêm padding bottom
+							const calculatedHeight = maxBottom + paddingBottom
+							// Dùng giá trị lớn hơn giữa calculatedHeight và scrollHeight để đảm bảo không thiếu
+							measuredHeightFromDOM = Math.max(measuredHeightFromDOM, calculatedHeight, editorContent.scrollHeight || 0)
+						} else {
+							// Fallback: dùng scrollHeight
+							measuredHeightFromDOM = Math.max(measuredHeightFromDOM, editorContent.scrollHeight || 0)
+						}
+					}
+					
+					// ⚠️ CRITICAL: Đảm bảo height không nhỏ hơn scrollHeight để tránh thiếu nội dung
+					measuredHeightFromDOM = Math.max(measuredHeightFromDOM, editorContent.scrollHeight || measuredHeightFromDOM)
+					
+					measuredHeight = Math.max(measuredHeightFromDOM, singleLineHeight)
 					hasMeasuredHeightFromDOM = true
 				}
 			}

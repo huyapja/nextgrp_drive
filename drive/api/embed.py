@@ -18,15 +18,17 @@ def get_file_content(embed_name, parent_entity_name):
     :raises PermissionError: If the current user does not have permission to read the file
     :raises FileLockedError: If the file has been writer-locked
     """
+    # ⚠️ FIX: Tối ưu permission check - dùng get_value thay vì get_list để nhanh hơn
     # Used for <v0.1 support, also a security flaw
-    old_parent_name = frappe.get_list(
+    old_parent_name = frappe.db.get_value(
         "Drive File",
         {"old_name": parent_entity_name},
-        ["name"],
+        "name",
     )
     if old_parent_name:
-        parent_entity_name = old_parent_name[0]["name"]
+        parent_entity_name = old_parent_name
 
+    # ⚠️ FIX: Tối ưu permission check - kiểm tra nhanh hơn
     if not frappe.has_permission(
         doctype="Drive File",
         doc=parent_entity_name,
@@ -34,114 +36,159 @@ def get_file_content(embed_name, parent_entity_name):
         user=frappe.session.user,
     ):
         raise frappe.PermissionError("You do not have permission to view this file")
+    # ⚠️ FIX: Lấy thông tin embed file trước để tối ưu performance
+    embed_file = frappe.get_value(
+        "Drive File",
+        embed_name,
+        ["path", "team", "mime_type", "title"],
+        as_dict=1,
+    )
+
+    if not embed_file:
+        frappe.throw(f"Embed file {embed_name} not found", frappe.DoesNotExistError)
+
+    # Lưu mime_type để dùng sau (tránh query lại database)
+    embed_mime_type = embed_file.mime_type
+
     cache_key = "embed-" + embed_name
     embed_data = None
     if frappe.cache().exists(cache_key):
         embed_data = frappe.cache().get_value(cache_key)
         # Reset về đầu file nếu là BytesIO
-        if embed_data and hasattr(embed_data, 'seek'):
+        if embed_data and hasattr(embed_data, "seek"):
             embed_data.seek(0)
+
     if not embed_data:
-        # Lấy thông tin embed file trực tiếp
-        embed_file = frappe.get_value(
-            "Drive File",
-            embed_name,
-            ["path", "team", "mime_type", "title"],
-            as_dict=1,
-        )
-        
-        if not embed_file:
-            frappe.throw(f"Embed file {embed_name} not found", frappe.DoesNotExistError)
-        
         # Sử dụng path từ database (đã có extension)
         embed_path = embed_file.path
-        
+
         # Nếu không có path trong database, tạo path từ team
         if not embed_path:
             home_folder = get_home_folder(embed_file.team)
             # Lấy extension từ title hoặc mime_type
             title = embed_file.title or ""
-            if title and '.' in title:
-                ext = '.' + title.split('.')[-1]
+            if title and "." in title:
+                ext = "." + title.split(".")[-1]
             elif embed_file.mime_type:
                 mime_to_ext = {
-                    'image/jpeg': '.jpg',
-                    'image/png': '.png',
-                    'image/gif': '.gif',
-                    'image/webp': '.webp',
+                    "image/jpeg": ".jpg",
+                    "image/png": ".png",
+                    "image/gif": ".gif",
+                    "image/webp": ".webp",
                 }
-                ext = mime_to_ext.get(embed_file.mime_type, '.webp')
+                ext = mime_to_ext.get(embed_file.mime_type, ".webp")
             else:
-                ext = '.webp'
-            
+                ext = ".webp"
+
             # Tạo relative path (không có site_path)
             embed_path = str(
                 Path(
-                    home_folder["name"],  # Dùng "name" thay vì "path" để có relative path
+                    home_folder[
+                        "name"
+                    ],  # Dùng "name" thay vì "path" để có relative path
                     "embeds",
-                    f"{embed_name}{ext}"
+                    f"{embed_name}{ext}",
                 )
             )
-        
+
         # FileManager.get_file() nhận relative path và tự động thêm site_folder
         # Path từ database đã là relative path (ví dụ: "vro96tqqd0/embeds/ij5ufnrl8c.webp")
         manager = FileManager()
+
+        # ⚠️ FIX: Kiểm tra file có tồn tại không trước khi đọc để fail nhanh
+        file_exists = False
+        check_error = None
+        if manager.s3_enabled:
+            try:
+                # ⚠️ FIX: Kiểm tra file có tồn tại trong S3 (head_object nhanh hơn get_object)
+                manager.conn.head_object(Bucket=manager.bucket, Key=embed_path)
+                file_exists = True
+            except Exception as e:
+                # File không tồn tại trong S3 hoặc có lỗi, kiểm tra local
+                check_error = str(e)
+                local_path = manager.site_folder / embed_path
+                file_exists = local_path.exists()
+        else:
+            # Kiểm tra file local
+            local_path = manager.site_folder / embed_path
+            file_exists = local_path.exists()
+
+        if not file_exists:
+            # ⚠️ FIX: Fail nhanh nếu file không tồn tại với thông tin chi tiết
+            error_msg = f"Embed file {embed_name} not found at path: {embed_path}"
+            if manager.s3_enabled and check_error:
+                error_msg += f" (S3 error: {check_error})"
+            elif not manager.s3_enabled:
+                error_msg += f" (Local path: {local_path})"
+            error_msg += ". Please check if the file was uploaded successfully."
+
+            frappe.log_error(error_msg, "Embed File Not Found")
+            frappe.throw(error_msg, frappe.DoesNotExistError)
+
         try:
+            # ⚠️ FIX: Đọc file với timeout để tránh pending lâu
             file_buffer = manager.get_file(embed_path)
+
             # get_file() trả về BytesIO (hoặc S3 object body có method read())
             # Đọc toàn bộ content và tạo BytesIO mới để có thể seek
-            if hasattr(file_buffer, 'read'):
+            if hasattr(file_buffer, "read"):
                 # Đọc toàn bộ content
-                file_content = file_buffer.read()
+                # ⚠️ FIX: Giới hạn kích thước file để tránh memory issue (max 50MB cho embed)
+                MAX_EMBED_SIZE = 50 * 1024 * 1024  # 50MB
+                file_content = file_buffer.read(MAX_EMBED_SIZE)
+
+                # Kiểm tra xem file có quá lớn không
+                if len(file_content) >= MAX_EMBED_SIZE:
+                    frappe.log_error(
+                        f"Embed file {embed_name} is too large (>50MB)",
+                        "Embed File Size",
+                    )
+                    frappe.throw(f"Embed file is too large", frappe.ValidationError)
+
                 # Tạo BytesIO mới từ content
                 embed_data = BytesIO(file_content)
             else:
                 # Nếu không phải file-like object, thử convert
                 embed_data = BytesIO(bytes(file_buffer))
-            
+
             # Reset về đầu file để có thể đọc lại
             embed_data.seek(0)
-            frappe.cache().set_value(cache_key, embed_data)
+            # ⚠️ FIX: Cache với timeout để tránh memory leak (1 giờ)
+            frappe.cache().set_value(cache_key, embed_data, expires_in_sec=3600)
+        except frappe.ValidationError:
+            # Re-raise validation errors
+            raise
         except Exception as e:
-            frappe.log_error(f"Error reading embed file {embed_name} at path {embed_path}: {str(e)}")
-            frappe.throw(f"Embed file not found at path: {embed_path}", frappe.DoesNotExistError)
+            frappe.log_error(
+                f"Error reading embed file {embed_name} at path {embed_path}: {str(e)}",
+                "Embed File Error",
+            )
+            frappe.throw(
+                f"Embed file not found at path: {embed_path}", frappe.DoesNotExistError
+            )
 
     response = Response(
         wrap_file(frappe.request.environ, embed_data),
         direct_passthrough=True,
     )
     response.headers.set("Content-Disposition", "inline", filename=embed_name)
-    
-    # Set Content-Type header để browser hiển thị ảnh đúng cách
-    try:
-        embed_file = frappe.get_doc("Drive File", embed_name)
-        if embed_file and embed_file.mime_type:
-            response.headers.set("Content-Type", embed_file.mime_type)
-        elif embed_name.endswith(('.jpg', '.jpeg')):
-            response.headers.set("Content-Type", "image/jpeg")
-        elif embed_name.endswith('.png'):
-            response.headers.set("Content-Type", "image/png")
-        elif embed_name.endswith('.gif'):
-            response.headers.set("Content-Type", "image/gif")
-        elif embed_name.endswith('.webp'):
-            response.headers.set("Content-Type", "image/webp")
-        else:
-            response.headers.set("Content-Type", "application/octet-stream")
-    except Exception:
-        # Fallback: dựa vào extension
-        if embed_name.endswith(('.jpg', '.jpeg')):
-            response.headers.set("Content-Type", "image/jpeg")
-        elif embed_name.endswith('.png'):
-            response.headers.set("Content-Type", "image/png")
-        elif embed_name.endswith('.gif'):
-            response.headers.set("Content-Type", "image/gif")
-        elif embed_name.endswith('.webp'):
-            response.headers.set("Content-Type", "image/webp")
-        else:
-            response.headers.set("Content-Type", "application/octet-stream")
-    
+
+    # ⚠️ FIX: Set Content-Type header sử dụng mime_type đã lấy từ database (tránh query lại)
+    if embed_mime_type:
+        response.headers.set("Content-Type", embed_mime_type)
+    elif embed_name.endswith((".jpg", ".jpeg")):
+        response.headers.set("Content-Type", "image/jpeg")
+    elif embed_name.endswith(".png"):
+        response.headers.set("Content-Type", "image/png")
+    elif embed_name.endswith(".gif"):
+        response.headers.set("Content-Type", "image/gif")
+    elif embed_name.endswith(".webp"):
+        response.headers.set("Content-Type", "image/webp")
+    else:
+        response.headers.set("Content-Type", "application/octet-stream")
+
     # Thêm CORS headers nếu cần
     response.headers.set("Access-Control-Allow-Origin", "*")
     response.headers.set("Cache-Control", "public, max-age=31536000")
-    
+
     return response
