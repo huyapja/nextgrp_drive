@@ -211,11 +211,18 @@ const fetchProjectOptions = async () => {
     const projects = res?.data || []
     console.log('fetchProjectOptions - projects:', projects)
     
-    // Cập nhật taskProjectOptionMap với tất cả projects
+    // Cập nhật taskProjectOptionMap với tất cả projects, bao gồm end_date
     const nextMap = { ...(taskProjectOptionMap.value || {}) }
     projects.forEach(p => {
       if (p.name) {
-        nextMap[p.name] = p.project_name || p.name
+        // Lưu object đầy đủ thông tin project bao gồm end_date
+        nextMap[p.name] = {
+          label: p.project_name || p.name,
+          project_name: p.project_name || p.name,
+          end_date: p.end_date || null, // Đảm bảo không undefined
+          need_approve: p.need_approve || false // Đảm bảo không undefined
+        }
+        console.log(`[fetchProjectOptions] Project ${p.name}: end_date=${p.end_date}, need_approve=${p.need_approve}`)
       }
     })
     taskProjectOptionMap.value = nextMap
@@ -238,7 +245,22 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
       page_size: TASK_PAGE_SIZE,
       search: taskSearch.value?.trim() || undefined
     })
-    const list = res?.data || []
+    // Xử lý response: frappe-ui call() có thể trả về res.message hoặc res trực tiếp
+    // Kiểm tra cả hai trường hợp để đảm bảo tương thích
+    let list = []
+    if (res?.message?.data) {
+      // Trường hợp: { message: { data: [...] } }
+      list = res.message.data
+    } else if (res?.data) {
+      // Trường hợp: { data: [...] } (frappe-ui đã unwrap)
+      list = res.data
+    } else if (Array.isArray(res)) {
+      // Trường hợp: frappe-ui trả về array trực tiếp
+      list = res
+    }
+    console.log('[DEBUG fetchTaskOptions] res:', res)
+    console.log('[DEBUG fetchTaskOptions] list:', list)
+    
     taskOptions.value = list.map(t => ({
       id: t.id,
       // lưu cả task_name và title để tương thích UI
@@ -264,7 +286,13 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
     
     console.log('taskProjectOptionMap updated:', taskProjectOptionMap.value)
 
-    const pag = res?.pagination || {}
+    // Xử lý pagination tương tự như data
+    let pag = {}
+    if (res?.message?.pagination) {
+      pag = res.message.pagination
+    } else if (res?.pagination) {
+      pag = res.pagination
+    }
     taskPagination.value = {
       page: pag.page || taskPage.value,
       total_pages: pag.total_pages || 1,
@@ -287,21 +315,33 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
 }
 
 const taskProjectOptions = computed(() => {
-  return Object.entries(taskProjectOptionMap.value || {}).map(([value, label]) => ({
-    value,
-    label,
-  }))
+  // Lấy thông tin đầy đủ của project từ taskProjectOptionMap hoặc từ API response
+  return Object.entries(taskProjectOptionMap.value || {}).map(([value, data]) => {
+    // Nếu data là object có end_date, giữ nguyên
+    if (typeof data === 'object' && data !== null) {
+      const option = {
+        value,
+        label: data.label || data.project_name || value,
+        end_date: data.end_date || null, // Đảm bảo không undefined
+        need_approve: data.need_approve !== undefined ? data.need_approve : false
+      }
+      console.log(`[taskProjectOptions] Project ${value}: end_date=${option.end_date}, need_approve=${option.need_approve}`)
+      return option
+    }
+    // Nếu data chỉ là string (label), chỉ trả về value và label
+    return {
+      value,
+      label: data || value,
+      end_date: null,
+      need_approve: false
+    }
+  })
 })
 
 const filteredTasksRaw = computed(() => {
-  const keyword = taskSearch.value.trim().toLowerCase()
-  return taskOptions.value.filter(t => {
-    const name = (t.task_name || t.title || '').toLowerCase()
-    const matchKeyword = !keyword || name.includes(keyword) ||
-      (t.id && t.id.toLowerCase().includes(keyword)) ||
-      (t.assignee && t.assignee.toLowerCase().includes(keyword))
-    return matchKeyword
-  })
+  // Backend đã thực hiện search rồi, không cần filter lại ở frontend
+  // Chỉ trả về taskOptions.value trực tiếp
+  return taskOptions.value
 })
 
 const totalTaskPages = computed(() => taskPagination.value.total_pages || 1)
@@ -1254,7 +1294,8 @@ const confirmTaskLink = async () => {
 
     // Thêm badge tick xanh dưới title node (ngay sau paragraph đầu tiên, trước ảnh)
     // Wrap badge trong section riêng để dễ phân biệt và style
-    if (taskPayload.linkUrl) {
+    // Chỉ thêm badge khi người dùng đã tick checkbox "Gắn link công việc"
+    if (taskPayload.linkUrl && attachTaskLink.value) {
       const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
       if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
         // Parse HTML để chèn badge vào đúng vị trí (ngay sau title, trước ảnh)
@@ -1527,7 +1568,8 @@ const handleCreateTask = async (formData) => {
         }
 
         // Thêm badge "Liên kết công việc" vào node label (tương tự confirmTaskLink)
-        if (taskOpenLink && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
+        // Chỉ thêm badge khi người dùng đã tick checkbox "Gắn link công việc"
+        if (taskOpenLink && attachTaskLink.value && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
           const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
           try {
             const parser = new DOMParser()
@@ -1695,18 +1737,18 @@ const handleCreateTask = async (formData) => {
         })
         scheduleSave()
 
-        // Add comment link to task
-        if (fallbackLink && taskId) {
-          const nodeTitle = plainTitle || linkNode.data?.label || ''
-          const mindmapTitle = mindmap.data?.title || ''
-          await call("drive.api.mindmap_comment.add_task_link_comment", {
-            task_id: taskId,
-            node_id: linkNode.id,
-            node_title: nodeTitle,
-            mindmap_title: mindmapTitle,
-            link_url: fallbackLink
-          })
-        }
+        // Add comment link to task - Đã bỏ vì không cần tạo comment khi tạo mới công việc từ node
+        // if (fallbackLink && taskId) {
+        //   const nodeTitle = plainTitle || linkNode.data?.label || ''
+        //   const mindmapTitle = mindmap.data?.title || ''
+        //   await call("drive.api.mindmap_comment.add_task_link_comment", {
+        //     task_id: taskId,
+        //     node_id: linkNode.id,
+        //     node_title: nodeTitle,
+        //     mindmap_title: mindmapTitle,
+        //     link_url: fallbackLink
+        //   })
+        // }
       }
 
       // Show success message with link
@@ -1735,17 +1777,22 @@ const handleCreateTask = async (formData) => {
       throw new Error(errorMsg)
     }
   } catch (error) {
-    console.error('Create task failed:', error)
     // Extract error message from various possible formats
     let errorMessage = 'Có lỗi xảy ra khi tạo công việc'
-    if (error?.message?.result) {
+    
+    // Xử lý lỗi CharacterLengthExceededError và dịch sang tiếng Việt
+    const errorStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error))
+    if (errorStr.includes('CharacterLengthExceededError') || errorStr.includes('character length')) {
+      errorMessage = 'Tên công việc không được vượt quá 500 ký tự.'
+    } else if (error?.message?.result) {
       errorMessage = error.message.result
     } else if (error?.message) {
       errorMessage = typeof error.message === 'string' ? error.message : JSON.stringify(error.message)
     } else if (typeof error === 'string') {
       errorMessage = error
     }
-    toast({ title: errorMessage, indicator: "red" })
+    
+    toast(errorMessage)
   }
 }
 
