@@ -592,6 +592,11 @@ const initD3Renderer = () => {
 
   d3Renderer.setCallbacks({
     onNodeClick: (node, event) => {
+      // Đóng context menu khi click vào node
+      if (showContextMenu.value) {
+        showContextMenu.value = false
+      }
+      
       if (event?.target?.closest?.('.comment-count-badge')) {
         // chặn click select node để click badge count -> mở comment list section
         
@@ -3124,6 +3129,14 @@ onBeforeUnmount(() => {
 })
 
 function handleClickOutside(e) {
+  // Đóng context menu khi click outside (trừ khi click vào context menu)
+  if (showContextMenu.value) {
+    const contextMenu = e.target.closest('.mindmap-context-menu')
+    if (!contextMenu) {
+      showContextMenu.value = false
+    }
+  }
+
   if (!showPanel.value) return
 
   const panel = commentPanelRef.value?.$el
