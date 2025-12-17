@@ -37,16 +37,17 @@
 
 
       <!-- Delete confirmation dialog -->
-      <div v-if="showDeleteDialog" class="delete-dialog-overlay" @click.self="showDeleteDialog = false">
+      <div v-if="showDeleteDialog" class="delete-dialog-overlay" @click.self="closeDeleteDialog">
         <div class="delete-dialog">
           <div class="delete-dialog-header">
             <h3>Xác nhận xóa</h3>
           </div>
           <div class="delete-dialog-body">
-            <p>Xóa nhánh này sẽ xóa toàn bộ nhánh con.</p>
+            <p v-if="deleteDialogType === 'children'">Xóa nhánh này sẽ xóa toàn bộ nhánh con.</p>
+            <p v-else-if="deleteDialogType === 'task-link'">Nhánh đang có liên kết tới công việc, xóa nhánh này</p>
           </div>
           <div class="delete-dialog-footer">
-            <button @click="showDeleteDialog = false" class="btn-cancel">Hủy</button>
+            <button @click="closeDeleteDialog" class="btn-cancel">Hủy</button>
             <button @click="confirmDelete" class="btn-delete">Xóa</button>
           </div>
         </div>
@@ -175,6 +176,7 @@ const editingNode = ref(null)
 const showDeleteDialog = ref(false)
 const nodeToDelete = ref(null)
 const childCount = ref(0)
+const deleteDialogType = ref('children') // 'children' | 'task-link'
 const isRendering = ref(true) // Loading state khi đang render mindmap
 let saveTimeout = null
 const SAVE_DELAY = 2000
@@ -682,7 +684,7 @@ const initD3Renderer = () => {
           // Nếu là root node, đổi tên file
           if (node.id === 'root' || node.data?.isRoot) {
             const originalLabel = (node.data?.label || '').trim()
-            const newTitle = extractTitleFromLabel(originalLabel)
+            let newTitle = extractTitleFromLabel(originalLabel)
 
             // Nếu xóa hết text, dùng tên mặc định
             if (!newTitle) {
@@ -1110,20 +1112,32 @@ const deleteSelectedNode = () => {
   }
 
   const nodeId = selectedNode.value.id
+  const node = selectedNode.value
 
   // Kiểm tra xem node có node con không
   const children = edges.value.filter(e => e.source === nodeId)
   const totalChildren = countChildren(nodeId)
 
+  // Ưu tiên cảnh báo về nhánh con nếu có
   if (children.length > 0) {
     // Có node con: hiển thị popup cảnh báo
     nodeToDelete.value = nodeId
     childCount.value = totalChildren
+    deleteDialogType.value = 'children'
     showDeleteDialog.value = true
     return
   }
 
-  // Không có node con: xóa trực tiếp
+  // Không có node con: kiểm tra có task link không
+  if (node.data?.taskLink?.taskId) {
+    // Có task link: hiển thị popup cảnh báo
+    nodeToDelete.value = nodeId
+    deleteDialogType.value = 'task-link'
+    showDeleteDialog.value = true
+    return
+  }
+
+  // Không có node con và không có task link: xóa trực tiếp
   performDelete(nodeId)
 }
 
@@ -1182,12 +1196,20 @@ const performDelete = async (nodeId) => {
   scheduleSave()
 }
 
+// Đóng dialog xóa
+const closeDeleteDialog = () => {
+  showDeleteDialog.value = false
+  deleteDialogType.value = 'children' // Reset về mặc định
+  nodeToDelete.value = null
+}
+
 // Xác nhận xóa từ dialog
 const confirmDelete = () => {
   if (nodeToDelete.value) {
     performDelete(nodeToDelete.value)
     nodeToDelete.value = null
   }
+  deleteDialogType.value = 'children' // Reset về mặc định
   showDeleteDialog.value = false
 }
 
@@ -1474,6 +1496,133 @@ const confirmTaskLink = async () => {
     console.error("Link task failed", err)
     toast({ title: "Liên kết công việc thất bại", indicator: "red" })
     closeTaskLinkModal()
+  }
+}
+
+const deleteTaskLink = async (node) => {
+  const targetNode = resolveTaskLinkNode(node)
+  if (!targetNode) {
+    return
+  }
+  
+  if (!targetNode.data?.taskLink?.taskId) {
+    toast({ title: "Node này chưa có liên kết công việc", indicator: "orange" })
+    return
+  }
+
+  try {
+    // Xóa task link section khỏi node label HTML
+    if (typeof targetNode.data?.label === 'string') {
+      try {
+        const parser = new DOMParser()
+        const doc = parser.parseFromString(targetNode.data.label, 'text/html')
+        const body = doc.body
+        
+        // Xóa tất cả task link sections
+        const taskLinkSections = body.querySelectorAll('.node-task-link-section, [data-node-section="task-link"]')
+        taskLinkSections.forEach(section => section.remove())
+        
+        // Xóa các paragraph chứa link "Liên kết công việc" hoặc link có task_id trong href
+        const paragraphs = body.querySelectorAll('p')
+        paragraphs.forEach(p => {
+          const text = p.textContent?.trim() || ''
+          const hasTaskLinkText = text.includes('Liên kết công việc')
+          const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
+            p.querySelector('a[href*="/mtp/project/"]')
+          
+          // Xóa nếu paragraph chứa text "Liên kết công việc" hoặc có link với task_id
+          if (hasTaskLinkText || hasTaskLinkAnchor) {
+            p.remove()
+          }
+        })
+        
+        // Xóa các link trực tiếp (không nằm trong paragraph) có task_id
+        const taskLinks = body.querySelectorAll('a[href*="task_id"], a[href*="/mtp/project/"]')
+        taskLinks.forEach(link => {
+          const linkText = link.textContent?.trim() || ''
+          if (linkText.includes('Liên kết công việc') || link.getAttribute('href')?.includes('task_id')) {
+            // Xóa parent element nếu là paragraph, hoặc xóa link nếu không có parent quan trọng
+            const parent = link.parentElement
+            if (parent && parent.tagName === 'P') {
+              parent.remove()
+            } else {
+              link.remove()
+            }
+          }
+        })
+        
+        // Serialize lại HTML
+        targetNode.data.label = body.innerHTML
+      } catch (err) {
+        console.error('Error parsing HTML for task link removal:', err)
+        // Fallback: xóa bằng regex - xóa cả section và paragraph chứa task link
+        let cleanedLabel = targetNode.data.label
+          // Xóa section wrapper
+          .replace(/<section[^>]*class="node-task-link-section"[^>]*>.*?<\/section>/gi, '')
+          .replace(/<section[^>]*data-node-section="task-link"[^>]*>.*?<\/section>/gi, '')
+          // Xóa paragraph chứa "Liên kết công việc" hoặc có task_id trong href
+          .replace(/<p[^>]*>.*?Liên kết công việc.*?<\/p>/gi, '')
+          .replace(/<p[^>]*>.*?<a[^>]*href="[^"]*task_id[^"]*"[^>]*>.*?<\/a>.*?<\/p>/gi, '')
+          .replace(/<p[^>]*>.*?<a[^>]*href="[^"]*\/mtp\/project\/[^"]*"[^>]*>.*?Liên kết công việc.*?<\/a>.*?<\/p>/gi, '')
+        
+        targetNode.data.label = cleanedLabel
+      }
+    }
+
+    // Xóa taskLink khỏi node.data
+    const { taskLink, ...restData } = targetNode.data
+    targetNode.data = restData
+
+    // Xóa cache size
+    if (d3Renderer?.nodeSizeCache) {
+      d3Renderer.nodeSizeCache.delete(targetNode.id)
+    }
+
+    // Đồng bộ nội dung editor ngay lập tức
+    const editorInstance = d3Renderer?.getEditorInstance?.(targetNode.id)
+    if (editorInstance && typeof editorInstance.commands?.setContent === 'function') {
+      editorInstance.commands.setContent(targetNode.data?.label || '', false)
+    }
+
+    // Cập nhật nodes array
+    const idx = nodes.value.findIndex(n => n.id === targetNode.id)
+    if (idx !== -1) {
+      nodes.value[idx] = { ...targetNode }
+      elements.value = [...nodes.value, ...edges.value]
+    }
+
+    await updateD3RendererWithDelay(0)
+    
+    // Trigger lại tính toán chiều cao node sau khi xóa badge
+    await nextTick()
+    
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const nodeGroup = document.querySelector(`[data-node-id="${targetNode.id}"]`)
+          if (nodeGroup && d3Renderer) {
+            const foElement = nodeGroup.querySelector('.node-text')
+            if (foElement) {
+              try {
+                d3Renderer.handleEditorBlur(targetNode.id, foElement, targetNode)
+              } catch (err) {
+                console.error('Error calling handleEditorBlur:', err)
+                const vueAppEntry = d3Renderer?.vueApps?.get(targetNode.id)
+                if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                  vueAppEntry.instance.updateNodeHeight()
+                }
+              }
+            }
+          }
+        }, 150)
+      })
+    })
+    
+    scheduleSave()
+    toast({ title: "Đã xóa liên kết công việc thành công", indicator: "green" })
+  } catch (err) {
+    console.error("Delete task link failed", err)
+    toast({ title: "Xóa liên kết công việc thất bại", indicator: "red" })
   }
 }
 
@@ -3085,6 +3234,10 @@ function handleContextMenuAction({ type, node }) {
 
     case "link-task":
       openTaskLinkModal(node)
+      break
+
+    case "delete-task-link":
+      deleteTaskLink(node)
       break
 
     // case "toggle-collapse":

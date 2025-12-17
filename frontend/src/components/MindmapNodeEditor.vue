@@ -99,6 +99,79 @@ const PreserveTrailingSpaces = Extension.create({
   name: 'preserveTrailingSpaces',
 })
 
+// Extension để ngăn xóa task link sections trong edit mode
+const PreventTaskLinkDeletionExtension = Extension.create({
+  name: 'preventTaskLinkDeletion',
+  
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        props: {
+          handleDOMEvents: {
+            keydown: (view, event) => {
+              // Chỉ xử lý Backspace và Delete
+              if (event.key !== 'Backspace' && event.key !== 'Delete') {
+                return false
+              }
+              
+              const { state } = view
+              const { selection } = state
+              const { from, to } = selection
+              
+              // Kiểm tra xem selection có chứa task link section không
+              let hasTaskLinkInSelection = false
+              
+              // Lấy DOM element tại vị trí selection
+              const dom = view.domAtPos(from)
+              if (dom) {
+                let element = dom.node
+                
+                // Nếu là text node, lấy parent element
+                if (element.nodeType === Node.TEXT_NODE) {
+                  element = element.parentElement
+                }
+                
+                // Kiểm tra element và các parent elements
+                let currentElement = element
+                while (currentElement && currentElement !== view.dom) {
+                  if (currentElement.classList?.contains('node-task-link-section') ||
+                      currentElement.getAttribute?.('data-node-section') === 'task-link' ||
+                      currentElement.querySelector?.('.node-task-link-section') ||
+                      currentElement.querySelector?.('[data-node-section="task-link"]') ||
+                      currentElement.textContent?.includes('Liên kết công việc')) {
+                    hasTaskLinkInSelection = true
+                    break
+                  }
+                  currentElement = currentElement.parentElement
+                }
+              }
+              
+              // Kiểm tra trong ProseMirror document
+              state.doc.nodesBetween(from, to, (node, pos) => {
+                if (node.type.name === 'paragraph') {
+                  const nodeText = node.textContent || ''
+                  if (nodeText.includes('Liên kết công việc')) {
+                    hasTaskLinkInSelection = true
+                  }
+                }
+              })
+              
+              // Nếu selection chứa task link, ngăn xóa
+              if (hasTaskLinkInSelection) {
+                event.preventDefault()
+                event.stopPropagation()
+                return true
+              }
+              
+              return false
+            },
+          },
+        },
+      }),
+    ]
+  },
+})
+
 // Extension để upload ảnh khi paste (cho mindmap)
 // Tạo extension factory để có thể pass uploadImage function
 function createUploadImageOnPasteExtension(uploadImageFn) {
@@ -2373,6 +2446,7 @@ export default {
     this.editor = new Editor({
       extensions: [
         FilterMenuTextExtension, // ⚠️ CRITICAL: Phải là extension đầu tiên
+        PreventTaskLinkDeletionExtension, // Ngăn xóa task link sections
         Document,
         Paragraph,
         Text,
@@ -3150,6 +3224,21 @@ export default {
   -ms-user-select: text;
   overflow: visible;
   /* Visible để hiển thị đủ nội dung */
+  background: transparent !important; /* Đảm bảo background trong suốt */
+}
+
+/* ⚠️ FIX: Đảm bảo node-content-wrapper và node-editor-container có background trắng */
+:deep(.node-content-wrapper),
+:deep(.node-editor-container) {
+  background: #ffffff !important; /* Tất cả đều có nền trắng */
+}
+
+/* ⚠️ FIX: Root node wrapper vẫn có nền xanh - sử dụng class is-root */
+:deep(.node-content-wrapper:has(.mindmap-node-editor.is-root)),
+:deep(.node-content-wrapper:has(.mindmap-editor-content.is-root)),
+:deep(.node-editor-container:has(.mindmap-node-editor.is-root)),
+:deep(.node-editor-container:has(.mindmap-editor-content.is-root)) {
+  background: #3b82f6 !important; /* Root node có nền xanh */
 }
 
 /* ⚠️ CRITICAL: Root node không bị giới hạn height */
@@ -3214,6 +3303,13 @@ export default {
   /* ⚠️ NEW: Xóa margin thừa */
   padding-bottom: 8px;
   /* ⚠️ FIX: Padding đều 8px (không thừa) */
+}
+
+/* ⚠️ FIX: Đảm bảo background luôn trong suốt khi focus */
+:deep(.mindmap-editor-prose:focus),
+:deep(.mindmap-editor-prose:focus-within),
+:deep(.mindmap-editor-prose.ProseMirror-focused) {
+  background: transparent !important;
 }
 
 :deep(.mindmap-editor-prose > *) {

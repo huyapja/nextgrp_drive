@@ -1067,9 +1067,15 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					measuredWidth = maxWidth // 400px
 					hasMeasuredFromDOM = true
 					
-					// Nếu KHÔNG có task link, đọc fixedHeight đã lưu
-					// Nếu CÓ task link, sẽ đo lại từ DOM ở phần dưới
-					if (!finalHasTaskLink) {
+					// ⚠️ FIX: KHÔNG đọc fixedHeight từ cache khi có blockquote
+					// Vì blockquote đã được truncate, cần đo lại height từ DOM
+					// Chỉ đọc từ cache nếu KHÔNG có blockquote
+					const hasBlockquote = editorContent && editorContent.querySelectorAll('blockquote').length > 0
+					
+					// Nếu KHÔNG có task link VÀ KHÔNG có blockquote, đọc fixedHeight đã lưu
+					// Nếu CÓ task link HOẶC CÓ blockquote, sẽ đo lại từ DOM ở phần dưới
+					if (!finalHasTaskLink && !hasBlockquote) {
+						console.log('[DEBUG handleEditorBlur] No blockquote, reading fixedHeight from cache')
 						// ĐỌC fixedHeight đã lưu từ handleEditorInput
 						if (nodeData.data && nodeData.data.fixedHeight) {
 							measuredHeight = nodeData.data.fixedHeight
@@ -1083,6 +1089,8 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 								hasMeasuredHeightFromDOM = true
 							}
 						}
+					} else {
+						console.log('[DEBUG handleEditorBlur] Has blockquote or task link, will measure from DOM')
 					}
 					// ⚠️ KHÔNG clamp khi có ảnh, vì đã force = maxWidth
 				} else if (maxTextWidth === 0) {
@@ -1109,12 +1117,56 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				// Đánh dấu đã đo được từ DOM
 				hasMeasuredFromDOM = true
 				
+				// ⚠️ CRITICAL: Áp dụng truncate cho blockquote TRƯỚC KHI đo height
+				// Cần làm điều này cho TẤT CẢ các trường hợp (có ảnh hoặc không có ảnh)
+				console.log('[DEBUG handleEditorBlur] Applying truncate to blockquotes BEFORE height measurement')
+				console.log('  - editorContent exists:', !!editorContent)
+				if (editorContent) {
+					const blockquotesBefore = editorContent.querySelectorAll('blockquote')
+					console.log('[DEBUG handleEditorBlur] Blockquotes found BEFORE measurement:', blockquotesBefore.length)
+					if (blockquotesBefore.length > 0) {
+						blockquotesBefore.forEach((blockquote, index) => {
+							console.log(`[DEBUG handleEditorBlur] Blockquote ${index} BEFORE truncate - offsetHeight:`, blockquote.offsetHeight, 'scrollHeight:', blockquote.scrollHeight)
+							blockquote.style.setProperty('display', '-webkit-box', 'important')
+							blockquote.style.setProperty('-webkit-line-clamp', '1', 'important')
+							blockquote.style.setProperty('-webkit-box-orient', 'vertical', 'important')
+							blockquote.style.setProperty('overflow', 'hidden', 'important')
+							blockquote.style.setProperty('text-overflow', 'ellipsis', 'important')
+							blockquote.style.setProperty('white-space', 'normal', 'important')
+						})
+						// Force reflow để đảm bảo truncate được áp dụng
+						blockquotesBefore.forEach((blockquote, index) => {
+							void blockquote.offsetWidth
+							void blockquote.offsetHeight
+							void blockquote.scrollHeight
+							console.log(`[DEBUG handleEditorBlur] Blockquote ${index} AFTER truncate - offsetHeight:`, blockquote.offsetHeight, 'scrollHeight:', blockquote.scrollHeight)
+						})
+					}
+				}
+				
 				// ⚠️ STEP 2: Đo height từ DOM
 				// - Nếu KHÔNG có ảnh: đo từ DOM
 				// - Nếu có ảnh NHƯNG có task link: đo lại từ DOM để bao gồm task link
-				if (!finalHasImages || (finalHasImages && finalHasTaskLink)) {
+				// - Nếu có ảnh VÀ có blockquote: đo lại từ DOM để tính blockquote đã truncate
+				const hasBlockquoteForMeasure = editorContent && editorContent.querySelectorAll('blockquote').length > 0
+				console.log('[DEBUG handleEditorBlur] Starting height measurement:')
+				console.log('  - finalHasImages:', finalHasImages)
+				console.log('  - finalHasTaskLink:', finalHasTaskLink)
+				console.log('  - hasBlockquoteForMeasure:', hasBlockquoteForMeasure)
+				console.log('  - hasMeasuredHeightFromDOM:', hasMeasuredHeightFromDOM)
+				console.log('  - Condition (!finalHasImages || (finalHasImages && finalHasTaskLink) || (finalHasImages && hasBlockquoteForMeasure)):', !finalHasImages || (finalHasImages && finalHasTaskLink) || (finalHasImages && hasBlockquoteForMeasure))
+				
+				// ⚠️ FIX: Đo lại từ DOM nếu:
+				// 1. KHÔNG có ảnh
+				// 2. CÓ ảnh VÀ có task link
+				// 3. CÓ ảnh VÀ có blockquote (để tính blockquote đã truncate)
+				if (!finalHasImages || (finalHasImages && finalHasTaskLink) || (finalHasImages && hasBlockquoteForMeasure && !hasMeasuredHeightFromDOM)) {
+					console.log('[DEBUG handleEditorBlur] Entering height measurement block')
 					const borderOffset = 4
 					const foWidth = measuredWidth - borderOffset
+					
+					console.log('[DEBUG handleEditorBlur] editorContent exists:', !!editorContent)
+					console.log('[DEBUG handleEditorBlur] editorContent.innerHTML length:', editorContent?.innerHTML?.length || 0)
 					
 					// ⚠️ CRITICAL: Tạm thời mở rộng foreignObject và rect để đo chính xác
 					const fo = d3.select(foElement)
@@ -1155,13 +1207,34 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 						p.style.setProperty('white-space', whiteSpaceValue, 'important')
 					})
 					
-					// Force reflow
+					// ⚠️ NOTE: Blockquote đã được truncate ở trên (trước khi vào đoạn này)
+					// Chỉ cần đảm bảo nó vẫn được truncate
+					const blockquotes = editorContent.querySelectorAll('blockquote')
+					console.log('[DEBUG handleEditorBlur] Blockquotes in measurement block:', blockquotes.length)
+					if (blockquotes.length > 0) {
+						blockquotes.forEach((blockquote, index) => {
+							const computedStyle = window.getComputedStyle(blockquote)
+							console.log(`[DEBUG handleEditorBlur] Blockquote ${index} in measurement - display:`, computedStyle.display, 'line-clamp:', computedStyle.webkitLineClamp, 'offsetHeight:', blockquote.offsetHeight)
+						})
+					}
+					
+					// Force reflow để CSS được áp dụng
 					void editorContent.offsetWidth
 					void editorContent.offsetHeight
-					void editorContent.scrollHeight
+					const scrollHeightBefore = editorContent.scrollHeight
+					console.log('[DEBUG handleEditorBlur] ScrollHeight before final reflow:', scrollHeightBefore)
+					
+					// ⚠️ CRITICAL: Force reflow thêm một lần nữa để đảm bảo scrollHeight được cập nhật
+					// Đo lại các giá trị để trigger reflow
+					void editorContent.offsetWidth
+					void editorContent.offsetHeight
+					const scrollHeightAfter = editorContent.scrollHeight
+					console.log('[DEBUG handleEditorBlur] ScrollHeight after final reflow:', scrollHeightAfter)
 					
 					// ⚠️ CRITICAL: Đo height từ DOM, bao gồm cả task link sections
+					// Blockquote đã được truncate thành 1 dòng ở trên
 					let measuredHeightFromDOM = editorContent.scrollHeight || editorContent.offsetHeight || 0
+					console.log('[DEBUG handleEditorBlur] Initial measuredHeightFromDOM:', measuredHeightFromDOM, 'offsetHeight:', editorContent.offsetHeight)
 					
 					// Nếu có task link hoặc ảnh, đo chính xác hơn bằng getBoundingClientRect
 					if (finalHasTaskLink || finalHasImages) {
@@ -1225,8 +1298,13 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 							})
 						}
 						
-						// Đo từ các phần tử text (paragraphs, blockquotes, etc)
+						// ⚠️ FIX: Đo từ các phần tử text NHƯNG loại trừ blockquote (vì blockquote đã được truncate)
+						// Blockquote sẽ được tính từ scrollHeight sau khi đã truncate
 						const textElements = Array.from(editorContent.children).filter((child) => {
+							// Loại trừ blockquote vì nó đã được truncate và sẽ được tính từ scrollHeight
+							if (child.tagName === 'BLOCKQUOTE') {
+								return false
+							}
 							const hasText = child.textContent?.trim().length > 0
 							const hasImage = child.querySelector('img') || child.querySelector('.image-wrapper-node')
 							const hasTaskLinkSection = child.querySelector('.node-task-link-section') || child.querySelector('[data-node-section="task-link"]')
@@ -1247,23 +1325,107 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 							maxBottom = Math.max(maxBottom, elementBottom)
 						})
 						
-						// Tính height: padding top + nội dung + padding bottom
+						// ⚠️ CRITICAL: Sau khi đo từ images và task links, đo lại scrollHeight
+						// scrollHeight sẽ phản ánh đúng height sau khi blockquote đã được truncate
+						// Đảm bảo scrollHeight được cập nhật sau khi truncate
+						
+						// ⚠️ FIX: Đo lại blockquote để đảm bảo nó đã được truncate đúng cách
+						const blockquotesAfterMeasure = editorContent.querySelectorAll('blockquote')
+						if (blockquotesAfterMeasure.length > 0) {
+							blockquotesAfterMeasure.forEach((blockquote, index) => {
+								const blockquoteRect = blockquote.getBoundingClientRect()
+								const blockquoteComputedStyle = window.getComputedStyle(blockquote)
+								console.log(`[DEBUG handleEditorBlur] Blockquote ${index} after measuring:`)
+								console.log(`  - getBoundingClientRect().height:`, blockquoteRect.height)
+								console.log(`  - offsetHeight:`, blockquote.offsetHeight)
+								console.log(`  - scrollHeight:`, blockquote.scrollHeight)
+								console.log(`  - computed display:`, blockquoteComputedStyle.display)
+								console.log(`  - computed -webkit-line-clamp:`, blockquoteComputedStyle.webkitLineClamp)
+								console.log(`  - computed overflow:`, blockquoteComputedStyle.overflow)
+							})
+						}
+						
+						// ⚠️ CRITICAL: Force reflow nhiều lần để đảm bảo scrollHeight được cập nhật đúng
+						// Đo lại từng phần tử để trigger reflow
+						Array.from(editorContent.children).forEach(child => {
+							void child.offsetWidth
+							void child.offsetHeight
+							void child.scrollHeight
+						})
+						
+						void editorContent.offsetWidth
+						void editorContent.offsetHeight
+						const scrollHeightAfterMeasure = editorContent.scrollHeight
+						void editorContent.scrollHeight
+						
+						// Đo lại một lần nữa sau khi force reflow
+						const scrollHeightFinal = editorContent.scrollHeight
+						console.log('[DEBUG handleEditorBlur] ScrollHeight measurements:')
+						console.log('  - scrollHeightAfterMeasure:', scrollHeightAfterMeasure)
+						console.log('  - scrollHeightFinal:', scrollHeightFinal)
+						
+						console.log('[DEBUG handleEditorBlur] After measuring images/task links:')
+						console.log('  - maxBottom:', maxBottom)
+						console.log('  - paddingTop:', paddingTop)
+						console.log('  - paddingBottom:', paddingBottom)
+						console.log('  - scrollHeight (before):', editorContent.scrollHeight)
+						console.log('  - scrollHeightAfterMeasure:', scrollHeightAfterMeasure)
+						console.log('  - offsetHeight:', editorContent.offsetHeight)
+						
+						// ⚠️ FIX: Tính height từ scrollHeight (đã bao gồm blockquote đã truncate)
+						// scrollHeight sẽ phản ánh đúng height sau khi blockquote đã được truncate thành 1 dòng
+						// Nếu có images hoặc task links, đảm bảo height bao gồm cả chúng
+						
+						// ⚠️ CRITICAL: Dùng scrollHeightFinal (sau khi force reflow nhiều lần) 
+						// để đảm bảo giá trị đã được cập nhật sau khi truncate
+						const scrollHeightValue = scrollHeightFinal || scrollHeightAfterMeasure || editorContent.scrollHeight || 0
+						console.log('[DEBUG handleEditorBlur] Using scrollHeightValue:', scrollHeightValue)
+						
 						if (maxBottom > paddingTop) {
-							// maxBottom đã tính từ top của editorContent (bao gồm padding top)
-							// Chỉ cần cộng thêm padding bottom
-							const calculatedHeight = maxBottom + paddingBottom
-							// Dùng giá trị lớn hơn giữa calculatedHeight và scrollHeight để đảm bảo không thiếu
-							measuredHeightFromDOM = Math.max(measuredHeightFromDOM, calculatedHeight, editorContent.scrollHeight || 0)
+							// maxBottom bao gồm images và task links (không bao gồm blockquote)
+							// scrollHeight bao gồm tất cả (images, task links, và blockquote đã truncate)
+							// Dùng scrollHeight để đảm bảo tính chính xác
+							const calculatedFromMaxBottom = maxBottom + paddingBottom
+							console.log('[DEBUG handleEditorBlur] Calculating height:')
+							console.log('  - scrollHeightValue:', scrollHeightValue)
+							console.log('  - calculatedFromMaxBottom (maxBottom + paddingBottom):', calculatedFromMaxBottom)
+							console.log('  - maxBottom:', maxBottom)
+							console.log('  - paddingBottom:', paddingBottom)
+							// ⚠️ CRITICAL: Chỉ dùng scrollHeightValue (đã bao gồm blockquote đã truncate)
+							// KHÔNG dùng Math.max với calculatedFromMaxBottom vì nó có thể lớn hơn do blockquote chưa truncate
+							measuredHeightFromDOM = scrollHeightValue
+							console.log('  - Using scrollHeightValue directly:', measuredHeightFromDOM)
+							// Chỉ đảm bảo không nhỏ hơn maxBottom nếu scrollHeight quá nhỏ (trường hợp edge case)
+							if (measuredHeightFromDOM < calculatedFromMaxBottom) {
+								console.log('  - WARNING: scrollHeight < calculatedFromMaxBottom, using calculatedFromMaxBottom')
+								measuredHeightFromDOM = calculatedFromMaxBottom
+							}
+							console.log('  - Final measuredHeightFromDOM:', measuredHeightFromDOM)
 						} else {
-							// Fallback: dùng scrollHeight
-							measuredHeightFromDOM = Math.max(measuredHeightFromDOM, editorContent.scrollHeight || 0)
+							// Không có images/task links, chỉ dùng scrollHeight (đã bao gồm blockquote đã truncate)
+							console.log('[DEBUG handleEditorBlur] No images/task links, using scrollHeight:', scrollHeightValue)
+							measuredHeightFromDOM = Math.max(measuredHeightFromDOM, scrollHeightValue)
+							console.log('  - Final measuredHeightFromDOM:', measuredHeightFromDOM)
 						}
 					}
 					
 					// ⚠️ CRITICAL: Đảm bảo height không nhỏ hơn scrollHeight để tránh thiếu nội dung
-					measuredHeightFromDOM = Math.max(measuredHeightFromDOM, editorContent.scrollHeight || measuredHeightFromDOM)
+					// NHƯNG: Blockquote đã được truncate thành 1 dòng, nên KHÔNG nên dùng Math.max với scrollHeight
+					// vì scrollHeight có thể vẫn tính từ blockquote ở trạng thái đầy đủ
+					// Chỉ dùng measuredHeightFromDOM đã được tính từ scrollHeightValue (sau khi truncate)
+					console.log('[DEBUG handleEditorBlur] Before final check:')
+					console.log('  - measuredHeightFromDOM:', measuredHeightFromDOM)
+					console.log('  - editorContent.scrollHeight:', editorContent.scrollHeight)
+					console.log('  - editorContent.offsetHeight:', editorContent.offsetHeight)
+					// ⚠️ FIX: KHÔNG dùng Math.max với scrollHeight vì nó có thể vẫn tính từ blockquote đầy đủ
+					// Chỉ đảm bảo không nhỏ hơn singleLineHeight
+					// measuredHeightFromDOM đã được tính đúng từ scrollHeightValue (sau khi truncate)
 					
+					console.log('[DEBUG handleEditorBlur] Before singleLineHeight check:')
+					console.log('  - measuredHeightFromDOM:', measuredHeightFromDOM)
+					console.log('  - singleLineHeight:', singleLineHeight)
 					measuredHeight = Math.max(measuredHeightFromDOM, singleLineHeight)
+					console.log('  - measuredHeight (final):', measuredHeight)
 					hasMeasuredHeightFromDOM = true
 				}
 			}
@@ -1345,9 +1507,17 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 		finalWidth = measuredWidth
 		finalHeight = measuredHeight
 		
+		console.log('[DEBUG handleEditorBlur] FINAL VALUES:')
+		console.log('  - nodeId:', nodeId)
+		console.log('  - finalWidth:', finalWidth)
+		console.log('  - finalHeight:', finalHeight)
+		console.log('  - measuredWidth:', measuredWidth)
+		console.log('  - measuredHeight:', measuredHeight)
+		console.log('  - singleLineHeight:', singleLineHeight)
 		
 		// Update cache TRƯỚC KHI clear editingNode
 		renderer.nodeSizeCache.set(nodeId, { width: finalWidth, height: finalHeight })
+		console.log('[DEBUG handleEditorBlur] Cache updated:', renderer.nodeSizeCache.get(nodeId))
 	}
 	
 	// ⚠️ CRITICAL: Log kích thước thực tế sau khi cập nhật
@@ -1483,20 +1653,51 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					p.style.setProperty('white-space', whiteSpaceValue, 'important')
 				})
 				
+				// ⚠️ FIX: Đảm bảo blockquote đã được truncate trước khi đo lại height
+				const blockquotesInUpdate = editorContent.querySelectorAll('blockquote')
+				if (blockquotesInUpdate.length > 0) {
+					blockquotesInUpdate.forEach(blockquote => {
+						blockquote.style.setProperty('display', '-webkit-box', 'important')
+						blockquote.style.setProperty('-webkit-line-clamp', '1', 'important')
+						blockquote.style.setProperty('-webkit-box-orient', 'vertical', 'important')
+						blockquote.style.setProperty('overflow', 'hidden', 'important')
+						blockquote.style.setProperty('text-overflow', 'ellipsis', 'important')
+						blockquote.style.setProperty('white-space', 'normal', 'important')
+					})
+					// Force reflow để đảm bảo truncate được áp dụng
+					blockquotesInUpdate.forEach(blockquote => {
+						void blockquote.offsetWidth
+						void blockquote.offsetHeight
+						void blockquote.scrollHeight
+					})
+				}
+				
 				// Force reflow để đảm bảo DOM đã cập nhật
 				void editorContent.offsetWidth
 				void editorContent.offsetHeight
+				void editorContent.scrollHeight
+				
+				console.log('[DEBUG handleEditorBlur] Re-measuring height in setTimeout:')
+				console.log('  - scrollHeight:', editorContent.scrollHeight)
+				console.log('  - offsetHeight:', editorContent.offsetHeight)
+				console.log('  - finalHeight (calculated):', finalHeight)
 				
 				// Đo lại height sau khi DOM đã cập nhật hoàn toàn
-				// Dùng scrollHeight để lấy chiều cao đầy đủ của content
+				// ⚠️ CRITICAL: Dùng scrollHeight sau khi đã truncate blockquote
+				// Blockquote đã được truncate ở trên, nên scrollHeight sẽ phản ánh đúng height
 				const actualHeight = Math.max(
 					editorContent.scrollHeight || editorContent.offsetHeight || 0,
 					singleLineHeight
 				)
 				
+				console.log('  - actualHeight (re-measured):', actualHeight)
+				
 				// Chỉ cập nhật nếu khác biệt đáng kể (> 1px)
-				if (Math.abs(actualHeight - finalHeight) > 1) {
+				// NHƯNG: Nếu actualHeight lớn hơn finalHeight, có thể là do scrollHeight vẫn tính từ blockquote đầy đủ
+				// Trong trường hợp đó, KHÔNG cập nhật và dùng finalHeight đã được tính đúng
+				if (Math.abs(actualHeight - finalHeight) > 1 && actualHeight <= finalHeight) {
 					const updatedHeight = actualHeight
+					console.log('  - Updating height to:', updatedHeight)
 					
 					// Cập nhật lại node size
 					rect.attr('height', updatedHeight)

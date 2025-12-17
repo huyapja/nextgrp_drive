@@ -98,7 +98,7 @@ export function renderNodes(renderer, positions) {
     .attr('height', d => getNodeSize(d).height) // Set height ngay khi tạo để đảm bảo kích thước đúng
     .attr('stroke', d => d.data?.isRoot ? 'none' : '#cbd5e1')
     .attr('stroke-width', 2)
-    .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff')
+    .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff') // Root node màu xanh, các node khác màu trắng
     .attr('filter', 'url(#shadow)')
     .attr('opacity', d => getNodeOpacity(d)) // Làm mờ node khi completed hoặc có ancestor completed
   
@@ -333,10 +333,7 @@ export function renderNodes(renderer, positions) {
   
   // Update node rect style dựa trên selectedNode
   nodesUpdate.select('.node-rect')
-    .attr('fill', d => {
-      if (renderer.selectedNode === d.id) return '#ffffff' // Selected: màu trắng
-      return d.data?.isRoot ? '#3b82f6' : '#ffffff' // Default
-    })
+    .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff') // Root node màu xanh, các node khác màu trắng
     .attr('stroke', d => {
       if (renderer.selectedNode === d.id) return '#3b82f6' // Blue border for selected
       return d.data?.isRoot ? 'none' : '#cbd5e1' // Default
@@ -576,16 +573,7 @@ export function renderNodes(renderer, positions) {
       // QUAN TRỌNG: Kiểm tra selectedNode TRƯỚC KHI sử dụng
       const isSelected = renderer.selectedNode === d.id
       nodeGroup.select('.node-rect')
-        .attr('fill', d => {
-          if (isSelected) {
-            // Selected: màu trắng
-            return '#ffffff'
-          } else if (d.data?.isRoot) {
-            return '#2563eb' // Darker blue for root
-          } else {
-            return '#f9fafb' // Very light gray for hover (nhạt hơn #f3f4f6)
-          }
-        })
+        .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff') // Root node màu xanh, các node khác màu trắng
         .attr('stroke', d => {
           if (isSelected) {
             return '#3b82f6' // Blue border for selected
@@ -800,10 +788,7 @@ export function renderNodes(renderer, positions) {
       // Restore node rect style
       const isSelected = renderer.selectedNode === d.id
       nodeGroup.select('.node-rect')
-        .attr('fill', d => {
-          if (isSelected) return '#ffffff' // Selected: màu trắng
-          return d.data?.isRoot ? '#3b82f6' : '#ffffff' // Default
-        })
+        .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff') // Root node màu xanh, các node khác màu trắng
         .attr('stroke', d => {
           if (isSelected) return '#3b82f6'
           return d.data?.isRoot ? 'none' : '#cbd5e1'
@@ -1171,16 +1156,7 @@ export function renderNodes(renderer, positions) {
       return nodeSize.width
     })
     .attr('height', d => getNodeSize(d).height)
-    .attr('fill', d => {
-      // Hover state takes priority
-      if (renderer.hoveredNode === d.id) {
-        return d.data?.isRoot ? '#2563eb' : '#f3f4f6'
-      }
-      // Selected state
-      if (renderer.selectedNode === d.id) return '#ffffff' // Selected: màu trắng
-      // Default state
-      return d.data?.isRoot ? '#3b82f6' : '#ffffff'
-    })
+    .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff') // Root node màu xanh, các node khác màu trắng
     .attr('stroke', d => {
       // Hover state takes priority
       if (renderer.hoveredNode === d.id) {
@@ -1200,7 +1176,7 @@ export function renderNodes(renderer, positions) {
       const fo = d3.select(nodeArray[idx])
       const text = nodeData.data?.label || ''
       const color = nodeData.data?.isRoot ? '#ffffff' : '#000000'
-      const bgColor = nodeData.data?.isRoot ? '#3b82f6' : '#ffffff'
+      const bgColor = nodeData.data?.isRoot ? '#3b82f6' : '#ffffff' // Root node màu xanh, các node khác màu trắng
       
       const nodeSize = getNodeSize(nodeData)
       const minWidth = 130

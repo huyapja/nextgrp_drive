@@ -20,7 +20,7 @@ export function selectNode(renderer, nodeId, skipCallback = false) {
   renderer.g.selectAll('.node-group')
     .select('.node-rect')
     .attr('fill', d => {
-      if (renderer.selectedNode === d.id) return '#e0e7ff'
+      // Chỉ root node có màu xanh, các node khác (kể cả khi selected) đều màu trắng
       return d.data?.isRoot ? '#3b82f6' : '#ffffff'
     })
     .attr('stroke', d => {
