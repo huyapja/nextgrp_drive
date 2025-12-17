@@ -90,6 +90,10 @@ class DriveMindmapComment(Document):
         }
     
     def after_insert(self):
+        """Send only ONE type of notification:
+        - If comment contains mentions → send mention notification ONLY.
+        - Else → send normal comment notification.
+        """
         comment = self.comment
 
         if isinstance(comment, str):
@@ -101,20 +105,24 @@ class DriveMindmapComment(Document):
         if not isinstance(comment, dict):
             return
 
-        # 1️⃣ Luôn notify COMMENT thường
-        frappe.enqueue(
-            "drive.api.mindmap_comment.notify_comment",
-            queue="short",
-            comment_name=self.name
-        )
+        mentions = comment.get("mentions") or []
 
-        # 2️⃣ Nếu có mention → notify thêm mention
-        if comment.get("mentions"):
+        # Nếu có mention → chỉ notify mention, KHÔNG notify comment thường
+        if mentions:
             frappe.enqueue(
                 "drive.api.mindmap_comment.notify_mentions",
                 queue="short",
-                comment_name=self.name
+                comment_name=self.name,
+                enqueue_after_commit=True 
             )
+            return
+
+        frappe.enqueue(
+            "drive.api.mindmap_comment.notify_comment",
+            queue="short",
+            comment_name=self.name,
+            enqueue_after_commit=True 
+        )
 
 
     def on_update(self):
@@ -159,6 +167,7 @@ class DriveMindmapComment(Document):
         frappe.enqueue(
             "drive.api.mindmap_comment.notify_mentions",
             queue="short",
-            comment_name=self.name
+            comment_name=self.name,
+            enqueue_after_commit=True 
         )
 

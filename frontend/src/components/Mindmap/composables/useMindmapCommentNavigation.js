@@ -9,86 +9,92 @@ function getActiveEditor() {
 }
 
 export function useMindmapCommentNavigation({
-  activeNodeId,
+  activeGroupKey,
   mergedGroupsFinal,
   nodeMap,
   emit,
   galleryVisible,
+  groupKeyOf
 }) {
-  function hasNextGroup(nodeId) {
-    const list = mergedGroupsFinal.value
-    const index = list.findIndex((g) => g.node.id === nodeId)
-    return index !== -1 && index < list.length - 1
+
+  function getIndex(key) {
+    return mergedGroupsFinal.value.findIndex(
+      g => groupKeyOf(g) === key
+    )
   }
 
-  function hasPrevGroup(nodeId) {
-    const list = mergedGroupsFinal.value
-    const index = list.findIndex((g) => g.node.id === nodeId)
+  function hasNextGroup(key) {
+    const index = getIndex(key)
+    return index !== -1 && index < mergedGroupsFinal.value.length - 1
+  }
+
+  function hasPrevGroup(key) {
+    const index = getIndex(key)
     return index > 0
   }
 
-  function selectNextGroup(currentNodeId) {
-    if (!currentNodeId) return    
+  function selectNextGroup(currentKey) {
+    if (!currentKey) return
     if (galleryVisible.value) return
 
-    const list = mergedGroupsFinal.value
-    if (!list.length) return
-
-    const index = list.findIndex((g) => g.node.id === currentNodeId)
+    const index = getIndex(currentKey)    
     if (index === -1) return
 
-    const next = list[index + 1]
+    const next = mergedGroupsFinal.value[index + 1]
     if (!next) return
 
-    const nextNodeId = next.node.id
-    const node = nodeMap.value[nextNodeId] || { id: nextNodeId }
+    const nextKey = groupKeyOf(next)    
 
+    // set active group → đúng session luôn
+    activeGroupKey.value = nextKey
+
+    // vẫn emit node để mindmap highlight đúng node (không mất session)
+    const nodeId = next.node.id
+    const node = nodeMap.value[nodeId] || { id: nodeId }
     emit("update:node", node)
   }
 
-  function selectPrevGroup(currentNodeId) {
-    if (!currentNodeId) return
+  function selectPrevGroup(currentKey) {
+    if (!currentKey) return
     if (galleryVisible.value) return
 
-    const list = mergedGroupsFinal.value
-    if (!list.length) return
-
-    const index = list.findIndex((g) => g.node.id === currentNodeId)
+    const index = getIndex(currentKey)
     if (index === -1) return
 
-    const prev = list[index - 1]
+    const prev = mergedGroupsFinal.value[index - 1]
     if (!prev) return
 
-    const prevNodeId = prev.node.id
-    const node = nodeMap.value[prevNodeId] || { id: prevNodeId }
+    const prevKey = groupKeyOf(prev)
 
+    activeGroupKey.value = prevKey
+
+    const nodeId = prev.node.id
+    const node = nodeMap.value[nodeId] || { id: nodeId }
     emit("update:node", node)
   }
 
   function handleKeyNavigation(e) {
     const editor = getActiveEditor()
 
-    if (editor?.storage?.__mentionOpen) {
-      return
-    }
+    // đang mở mention → không navigate
+    if (editor?.storage?.__mentionOpen) return
 
-    if (editor?.isFocused) {
-      return
-    }
+    // đang focus editor → không navigate
+    if (editor?.isFocused) return
 
-    if (!activeNodeId.value) return
+    if (!activeGroupKey.value) return
 
     if (e.key === "ArrowDown") {
       e.preventDefault()
-      if (hasNextGroup(activeNodeId.value)) {
-        selectNextGroup(activeNodeId.value)
+      if (hasNextGroup(activeGroupKey.value)) {
+        selectNextGroup(activeGroupKey.value)
       }
     }
 
     if (e.key === "ArrowUp") {
       e.preventDefault()
-      if (hasPrevGroup(activeNodeId.value)) {
-        selectPrevGroup(activeNodeId.value)
+      if (hasPrevGroup(activeGroupKey.value)) {
+        selectPrevGroup(activeGroupKey.value)
       }
     }
   }
@@ -105,6 +111,6 @@ export function useMindmapCommentNavigation({
     hasNextGroup,
     hasPrevGroup,
     selectNextGroup,
-    selectPrevGroup,
+    selectPrevGroup
   }
 }

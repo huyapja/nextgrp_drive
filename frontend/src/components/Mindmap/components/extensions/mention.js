@@ -1,25 +1,25 @@
 // extensions/mention.js
-import { Node, mergeAttributes } from '@tiptap/core'
-import Suggestion from '@tiptap/suggestion'
+import { Node, mergeAttributes } from "@tiptap/core"
+import Suggestion from "@tiptap/suggestion"
 
 export const Mention = Node.create({
-  name: 'mention',
+  name: "mention",
 
   inline: true,
-  group: 'inline',
+  group: "inline",
   atom: true,
   selectable: false,
 
   addOptions() {
     return {
       suggestion: {
-        char: '@',
+        char: "@",
         allowSpaces: false,
         items: () => [],
         render: () => {},
       },
       HTMLAttributes: {
-        class: 'mention',
+        class: "mention",
       },
     }
   },
@@ -32,14 +32,14 @@ export const Mention = Node.create({
   },
 
   parseHTML() {
-    return [{ tag: 'span[data-mention]' }]
+    return [{ tag: "span[data-mention]" }]
   },
 
   renderHTML({ node, HTMLAttributes }) {
     return [
-      'span',
+      "span",
       mergeAttributes(HTMLAttributes, {
-        'data-mention': node.attrs.id,
+        "data-mention": node.attrs.id,
       }),
       `@${node.attrs.label}`,
     ]
@@ -52,13 +52,54 @@ export const Mention = Node.create({
   addCommands() {
     return {
       insertMention:
-        attrs =>
+        (attrs) =>
         ({ commands }) => {
           return commands.insertContent({
             type: this.name,
             attrs,
           })
         },
+    }
+  },
+
+  addKeyboardShortcuts() {
+    return {
+      Backspace: () => {
+        const { state, view } = this.editor
+        const { selection } = state
+        const { $from } = selection
+
+        // node ngay trước cursor
+        const nodeBefore = $from.nodeBefore
+
+        // position hiện tại
+        const pos = $from.pos
+
+        // CASE 1: cursor đứng sau SPACE mà trước đó là mention
+        if (nodeBefore?.isText && nodeBefore.text === " ") {
+          const beforeSpace = state.doc.resolve(
+            pos - nodeBefore.nodeSize
+          ).nodeBefore
+
+          if (beforeSpace?.type.name === this.name) {
+            const tr = state.tr.delete(
+              pos - nodeBefore.nodeSize - beforeSpace.nodeSize,
+              pos
+            )
+            view.dispatch(tr)
+            return true
+          }
+        }
+
+        // CASE 2: cursor đứng ngay sau mention
+        if (nodeBefore?.type.name === this.name) {
+          const tr = state.tr.delete(pos - nodeBefore.nodeSize, pos)
+          view.dispatch(tr)
+          return true
+        }
+
+        return false
+      },
     }
   },
 
