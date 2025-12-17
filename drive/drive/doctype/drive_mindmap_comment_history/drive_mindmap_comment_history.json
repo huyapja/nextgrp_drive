@@ -1,0 +1,126 @@
+{
+  "doctype": "DocType",
+  "name": "Drive Mindmap Comment History",
+  "module": "Drive",
+  "custom": 0,
+  "is_submittable": 0,
+  "editable_grid": 0,
+  "engine": "InnoDB",
+  "autoname": "hash",
+  "title_field": "node_title",
+  "track_changes": 1,
+  "track_views": 0,
+  "allow_copy": 0,
+  "read_only": 1,
+  "fields": [
+    {
+      "fieldname": "mindmap_id",
+      "label": "Mindmap",
+      "fieldtype": "Link",
+      "options": "Drive File",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "node_id",
+      "label": "Node ID",
+      "fieldtype": "Data",
+      "reqd": 1,
+      "in_list_view": 0
+    },
+    {
+      "fieldname": "node_key",
+      "label": "Node Key",
+      "fieldtype": "Data",
+      "reqd": 0,
+      "in_list_view": 1
+    },
+    {
+    "fieldname": "node_created_at",
+    "label": "Node Created At",
+    "fieldtype": "Datetime",
+    "reqd": 0,
+    "in_list_view": 1
+    },
+    {
+      "fieldname": "session_index",
+      "label": "Session Index",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "resolved_at",
+      "label": "Resolved At",
+      "fieldtype": "Datetime",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "resolved_by",
+      "label": "Resolved By",
+      "fieldtype": "Link",
+      "options": "User",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "comment_count",
+      "label": "Comment Count",
+      "fieldtype": "Int",
+      "reqd": 1,
+      "default": 0
+    },
+    {
+      "fieldname": "node_title",
+      "label": "Node Title",
+      "fieldtype": "Data",
+      "reqd": 0,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "node_position",
+      "label": "Node Position",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "comments_snapshot",
+      "label": "Comments Snapshot",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },
+    {
+      "fieldname": "node_deleted",
+      "label": "Node Deleted",
+      "fieldtype": "Check",
+      "default": 0
+    }
+  ],
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1
+    },
+    {
+      "role": "Drive User",
+      "read": 1
+    }
+  ],
+  "indexes": [
+    {
+      "fields": ["mindmap_id"]
+    },
+    {
+      "fields": ["node_key"]
+    },
+    {
+      "fields": ["mindmap_id", "resolved_at"]
+    }
+  ],
+  "sort_field": "resolved_at",
+  "sort_order": "DESC"
+}

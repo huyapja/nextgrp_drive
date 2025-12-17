@@ -3,6 +3,8 @@ import json
 from frappe import _
 from raven.raven_bot.doctype.raven_bot.raven_bot import RavenBot
 import bleach
+from frappe.utils import get_datetime, convert_utc_to_system_timezone
+
 
 ALLOWED_TAGS = ["p", "br", "b", "i", "strong", "em", "img", "a", "span"]
 ALLOWED_ATTRS = {
@@ -619,9 +621,17 @@ def notify_comment(comment_name):
 
 
 @frappe.whitelist()
-def resolve_node(entity_name: str, node_id: str, session_index: int):
+def resolve_node(
+    entity_name: str,
+    node_id: str,
+    session_index: int,
+    history: dict | None = None
+):
     if not entity_name or not node_id or session_index is None:
         frappe.throw("Missing parameters")
+
+    if not history:
+        frappe.throw("Missing history payload")
 
     doc_drive = frappe.get_doc("Drive File", entity_name)
     if not frappe.has_permission("Drive File", "write", doc_drive):
@@ -629,7 +639,6 @@ def resolve_node(entity_name: str, node_id: str, session_index: int):
 
     now = frappe.utils.now_datetime()
 
-    # tìm đúng session đang mở theo index
     session = frappe.db.get_value(
         "Drive Mindmap Comment Session",
         {
@@ -638,7 +647,7 @@ def resolve_node(entity_name: str, node_id: str, session_index: int):
             "session_index": session_index,
             "is_closed": 0,
         },
-        ["name"],
+        ["name", "comment_count"],
         as_dict=True
     )
 
@@ -648,6 +657,37 @@ def resolve_node(entity_name: str, node_id: str, session_index: int):
             "already_closed": True,
             "session_index": session_index
         }
+
+    required_fields = [
+        "node_key",
+        "node_created_at",
+        "node_position",
+        "comments",
+    ]
+    # for f in required_fields:
+    #     if not history.get(f):
+    #         frappe.throw(f"Missing history.{f}")
+
+    dt = get_datetime(history.get("node_created_at"))
+    dt = convert_utc_to_system_timezone(dt)
+    node_created_at = dt.replace(tzinfo=None, microsecond=0)
+
+    history_doc = frappe.new_doc("Drive Mindmap Comment History")
+    history_doc.update({
+        "mindmap_id": entity_name,
+        "node_id": node_id,
+        "node_key": history.get("node_key"),
+        "node_created_at": node_created_at,
+        "node_title": history.get("node_title"),
+        "session_index": session_index,
+        "resolved_at": now,
+        "resolved_by": frappe.session.user,
+        "comment_count": session.comment_count,
+        "node_position": frappe.as_json(history.get("node_position")),
+        "comments_snapshot": frappe.as_json(history.get("comments")),
+        "node_deleted": 0,
+    })
+    history_doc.insert(ignore_permissions=True)
 
     frappe.db.set_value(
         "Drive Mindmap Comment Session",
@@ -663,7 +703,9 @@ def resolve_node(entity_name: str, node_id: str, session_index: int):
         message={
             "mindmap_id": entity_name,
             "node_id": node_id,
+            "node_key": history.get("node_key"),
             "session_index": session_index,
+            "count": session.comment_count,
         },
     )
 
@@ -671,4 +713,77 @@ def resolve_node(entity_name: str, node_id: str, session_index: int):
         "ok": True,
         "resolved": True,
         "session_index": session_index
+    }
+
+
+@frappe.whitelist()
+def get_comment_history_list(
+    mindmap_id: str,
+    node_key: str | None = None
+):
+    if not mindmap_id:
+        frappe.throw("Missing mindmap_id")
+
+    if not frappe.has_permission("Drive File", "read", mindmap_id):
+        frappe.throw("No permission")
+
+    filters = {
+        "mindmap_id": mindmap_id
+    }
+
+    if node_key:
+        filters["node_key"] = node_key
+
+    rows = frappe.get_all(
+        "Drive Mindmap Comment History",
+        filters=filters,
+        fields=[
+            "name",
+            "mindmap_id",
+            "node_id",
+            "node_key",
+            "node_title",
+            "node_created_at",
+            "session_index",
+            "resolved_at",
+            "resolved_by",
+            "comment_count",
+            "node_deleted",
+            "node_position",
+            "comments_snapshot",
+        ],
+        order_by="resolved_at desc",
+    )
+
+    results = []
+
+    for row in rows:
+        try:
+            node_position = json.loads(row.node_position or "{}")
+        except Exception:
+            node_position = {}
+
+        try:
+            comments = json.loads(row.comments_snapshot or "[]")
+        except Exception:
+            comments = []
+
+        results.append({
+            "name": row.name,
+            "node_key": row.node_key,
+            "node_id": row.node_id,
+            "node_title": row.node_title or "",
+            "node_created_at": row.node_created_at,
+            "session_index": row.session_index,
+            "resolved_at": row.resolved_at,
+            "resolved_by": row.resolved_by,
+            "comment_count": row.comment_count,
+            "node_deleted": row.node_deleted,
+            "node_position": node_position,
+            "comments": comments,
+        })
+
+    return {
+        "ok": True,
+        "items": results,
     }

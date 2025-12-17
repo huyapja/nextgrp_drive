@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted } from "vue"
 
-export function useMindmapCommentRealtime({ socket, entityName, comments }) {
+export function useMindmapCommentRealtime({ socket, entityName, comments, activeGroupKey }) {
   function handleRealtimeNewComment(payload) {
     if (!payload) return
     if (payload.mindmap_id !== entityName) return
@@ -60,6 +60,9 @@ export function useMindmapCommentRealtime({ socket, entityName, comments }) {
     comments.value = comments.value.filter(
       (c) => !(c.node_id === node_id && c.session_index === session_index)
     )
+    if (activeGroupKey.value?.startsWith(`${node_id}__`)) {
+      activeGroupKey.value = null
+    }
   }
 
   onMounted(() => {
@@ -72,7 +75,6 @@ export function useMindmapCommentRealtime({ socket, entityName, comments }) {
       socket.on("drive_mindmap:comment_deleted", handleRealtimeDeleteOne)
       socket.on("drive_mindmap:comment_updated", handleRealtimeUpdateComment)
       socket.on("drive_mindmap:node_resolved", handleRealtimeNodeResolved)
-
     }
   })
 
@@ -86,7 +88,6 @@ export function useMindmapCommentRealtime({ socket, entityName, comments }) {
       socket.off("drive_mindmap:comment_deleted", handleRealtimeDeleteOne)
       socket.off("drive_mindmap:comment_updated", handleRealtimeUpdateComment)
       socket.off("drive_mindmap:node_resolved", handleRealtimeNodeResolved)
-
     }
   })
 }

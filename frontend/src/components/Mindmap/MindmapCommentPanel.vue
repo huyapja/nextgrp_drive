@@ -1,6 +1,6 @@
 <template>
   <div :class="[
-    'absolute top-0 right-0 h-full w-[320px] bg-[#f5f6f7] z-[80] border-l border-b',
+    'comment-panel-list absolute top-0 right-0 h-full w-[320px] bg-[#f5f6f7] z-[80] border-l border-b',
     'transition-all duration-300',
     visible ? 'translate-x-0' : 'translate-x-full',
     closing ? 'animate-slide-out' : ''
@@ -8,8 +8,15 @@
     <!-- Header -->
     <div class="flex py-4 px-3 items-center">
       <p class="font-medium">Nhận xét ({{ totalComments }})</p>
-      <i class="pi pi-times ml-auto cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out"
-        @click="handleClose" />
+      <!-- <Popover dismissable ref="op" class="w-[360px] history-mindmap-popover">
+        <MindmapCommentHistory :mindmapId="entityName"/>
+      </Popover> -->
+      <div class="ml-auto">
+        <!-- <i @click="toggle"
+          class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" /> -->
+        <i class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
+          @click="handleClose" />
+      </div>
     </div>
 
     <div v-if="props?.node && mergedComments.length === 0"></div>
@@ -73,8 +80,9 @@
 
               <i v-tooltip.top="{ value: 'Sao chép liên kết', pt: { text: { class: ['text-[12px]'] } } }"
                 class="pi pi-link !text-[12px] mr-2 cursor-pointer" />
-              <i v-tooltip.top="{ value: 'Giải quyết và ẩn', pt: { text: { class: ['text-[12px]'] } } }"
-                @click="resolveNode(group.node.data.label)" class="pi pi-check-circle !text-[12px] cursor-pointer" />
+              <i data-resolved-trigger
+                v-tooltip.top="{ value: 'Giải quyết và ẩn', pt: { text: { class: ['text-[12px]'] } } }"
+                @click.stop="handleResolveGroup(group)" class="pi pi-check-circle !text-[12px] cursor-pointer" />
             </div>
           </div>
 
@@ -168,9 +176,9 @@
                     activeGroupKey = key
                   }
                   focusEditorOf(group)
-                  requestAnimationFrame(() => {
-                    suppressAutoScroll = false
-                  })
+                  // requestAnimationFrame(() => {
+                  //   suppressAutoScroll = false
+                  // })
                 }">Trả lời...</p>
 
           <!-- Input -->
@@ -362,6 +370,9 @@ import { usePanelClose } from "./composables/usePanelClose"
 import { useClickOutsideToResetActiveNode } from "./composables/useClickOutsideToResetActiveNode"
 import { useResolvedNode } from "./composables/useResolvedNode"
 
+import MindmapCommentHistory from './MindmapCommentHistory.vue'
+import Popover from "primevue/popover"
+
 import { timeAgo } from "./utils/timeAgo"
 
 // -----------------------------
@@ -369,6 +380,7 @@ const props = defineProps({
   visible: Boolean,
   node: Object,
   mindmap: Array,
+  userAddComment: Boolean
 })
 const emit = defineEmits(["close", "cancel", "submit", "update:input", "update:node"])
 const socket = inject("socket")
@@ -394,6 +406,11 @@ const hasConsumedRouteNode = ref(false)
 const isNavigatingByKeyboard = ref(false)
 const isSubmitting = ref(false)
 const suppressAutoScroll = ref(false)
+const op = ref(null)
+
+function toggle(event) {
+  op.value.toggle(event)
+}
 
 function groupKeyOf(group) {
   return `${group.node.id}__${group.session_index}`
@@ -592,8 +609,10 @@ watch(
   () => props.node,
   (node) => {
     if (!node) return
+    if (!props.visible) return
 
-    // nếu chưa có group nào của node này
+    if (!props.userAddComment) return
+
     const hasGroup = mergedGroupsFinal.value.some(
       g => g.node.id === node.id
     )
@@ -604,6 +623,7 @@ watch(
   },
   { immediate: true }
 )
+
 
 watch(
   pendingScroll,
@@ -630,6 +650,7 @@ function handleClickGroup(group, e) {
   if (e.target.closest("[data-mention-item]")) return
   if (e.target.closest("[data-image-comment]")) return
   if (e.target.closest("[data-upload-image-to-comment]")) return
+  if (e.target.closest("[data-resolved-trigger]")) return
 
   // 3. validate group
   if (!group || !group.node?.id) return
@@ -678,7 +699,8 @@ const {
 useMindmapCommentRealtime({
   socket,
   entityName,
-  comments
+  comments,
+  activeGroupKey
 })
 
 
@@ -916,6 +938,21 @@ const activeNode = computed(() => {
 
 const { resolveNode } = useResolvedNode({ activeNode, comments, entityName, activeSessionIndex })
 
+async function handleResolveGroup(group) {
+  if (!group?.node?.id) return
+
+  const key = groupKeyOf(group)
+
+  // đảm bảo activeGroupKey đang trỏ đúng group vừa bấm
+  if (activeGroupKey.value !== key) {
+    activeGroupKey.value = key
+    emit("update:node", group.node)
+    await nextTick()
+  }
+
+  resolveNode(group.node.data.label)
+}
+
 watch(
   [pendingScroll, hasData, mergedGroupsFinal, () => props.visible],
   async ([task, ready, _groups, visible]) => {
@@ -1062,6 +1099,10 @@ watch(
 
 
 <style scoped>
+:global(.history-mindmap-popover) {
+  --p-popover-arrow-offset: 0.25rem;
+}
+
 /* Xóa nền trắng của Dialog */
 .hide-dialog-header .p-dialog-content {
   background: transparent !important;
