@@ -267,12 +267,11 @@
                     v-model="newTaskFormData.duration"
                     type="date"
                     class="task-new-form-input"
+                    :min="minDate"
                     :max="maxDate"
                     @change="validateDuration"
                     />
-                    <!-- :min="minDate" -->
-                  
-                  
+                  <div v-if="durationError" class="task-new-form-error">{{ durationError }}</div>
                 </div>
 
                 <!-- Người phê duyệt -->
@@ -1363,10 +1362,14 @@ const filteredCollaboratorOptions = computed(() => {
   })
 })
 
+// Min date là ngày hôm nay (không cho chọn ngày trong quá khứ)
 const minDate = computed(() => {
-  const yesterday = new Date()
-  yesterday.setDate(yesterday.getDate() - 1)
-  return yesterday.toISOString().split('T')[0]
+  // Sử dụng local date để tránh vấn đề timezone
+  const today = new Date()
+  const year = today.getFullYear()
+  const month = String(today.getMonth() + 1).padStart(2, '0')
+  const day = String(today.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}` // Format: YYYY-MM-DD (local timezone)
 })
 
 const maxDate = computed(() => {
@@ -1380,14 +1383,12 @@ const maxDate = computed(() => {
         return null
       }
       const formatted = endDate.toISOString().split('T')[0]
-      console.log('[maxDate] Project:', project.label, 'end_date:', project.end_date, 'formatted:', formatted)
       return formatted
     } catch (error) {
       console.error('[maxDate] Error formatting date:', error)
       return null
     }
   }
-  console.log('[maxDate] No valid end_date for project:', project)
   return null
 })
 
@@ -1395,19 +1396,40 @@ const maxDate = computed(() => {
 const validateDuration = () => {
   durationError.value = ''
   const duration = newTaskFormData.value.duration
-  const project = newTaskFormData.value.project
   
-  if (!duration || !project?.end_date) {
+  if (!duration) {
     return
   }
   
-  const selectedDate = new Date(duration)
-  const maxEndDate = new Date(project.end_date)
+  // Parse selected date (format: YYYY-MM-DD)
+  const [selectedYear, selectedMonth, selectedDay] = duration.split('-').map(Number)
+  const selectedDate = new Date(selectedYear, selectedMonth - 1, selectedDay)
   
-  if (selectedDate > maxEndDate) {
-    durationError.value = `Thời hạn không được vượt quá ngày kết thúc dự án (${maxDate.value})`
-    // Clear duration nếu vượt quá
+  // Get today's date (local timezone)
+  const today = new Date()
+  const todayYear = today.getFullYear()
+  const todayMonth = today.getMonth()
+  const todayDay = today.getDate()
+  const todayDate = new Date(todayYear, todayMonth, todayDay)
+  
+  // Kiểm tra ngày không được nhỏ hơn ngày hôm nay
+  if (selectedDate < todayDate) {
+    durationError.value = 'Thời hạn không được nhỏ hơn ngày hôm nay'
+    // Clear duration nếu nhỏ hơn ngày hôm nay
     newTaskFormData.value.duration = null
+    return
+  }
+  
+  // Kiểm tra ngày không được vượt quá ngày kết thúc dự án
+  const project = newTaskFormData.value.project
+  if (project?.end_date) {
+    const maxEndDate = new Date(project.end_date)
+    
+    if (selectedDate > maxEndDate) {
+      durationError.value = `Thời hạn không được vượt quá ngày kết thúc dự án (${maxDate.value})`
+      // Clear duration nếu vượt quá
+      newTaskFormData.value.duration = null
+    }
   }
 }
 
@@ -1882,13 +1904,32 @@ const validateForm = () => {
     errors.assigned_by = 'Người phê duyệt là bắt buộc khi dự án yêu cầu phê duyệt'
   }
   
-  // Validate duration không được vượt quá end_date của dự án
-  if (newTaskFormData.value.duration && newTaskFormData.value.project?.end_date) {
-    const selectedDate = new Date(newTaskFormData.value.duration)
-    const maxEndDate = new Date(newTaskFormData.value.project.end_date)
-    if (selectedDate > maxEndDate) {
-      errors.duration = `Thời hạn không được vượt quá ngày kết thúc dự án (${maxDate.value})`
+  // Validate duration không được nhỏ hơn ngày hôm nay và không được vượt quá end_date của dự án
+  if (newTaskFormData.value.duration) {
+    // Parse selected date (format: YYYY-MM-DD)
+    const [selectedYear, selectedMonth, selectedDay] = newTaskFormData.value.duration.split('-').map(Number)
+    const selectedDate = new Date(selectedYear, selectedMonth - 1, selectedDay)
+    
+    // Get today's date (local timezone)
+    const today = new Date()
+    const todayYear = today.getFullYear()
+    const todayMonth = today.getMonth()
+    const todayDay = today.getDate()
+    const todayDate = new Date(todayYear, todayMonth, todayDay)
+    
+    // Kiểm tra ngày không được nhỏ hơn ngày hôm nay
+    if (selectedDate < todayDate) {
+      errors.duration = 'Thời hạn không được nhỏ hơn ngày hôm nay'
       durationError.value = errors.duration
+    }
+    
+    // Kiểm tra ngày không được vượt quá ngày kết thúc dự án
+    if (newTaskFormData.value.project?.end_date) {
+      const maxEndDate = new Date(newTaskFormData.value.project.end_date)
+      if (selectedDate > maxEndDate) {
+        errors.duration = `Thời hạn không được vượt quá ngày kết thúc dự án (${maxDate.value})`
+        durationError.value = errors.duration
+      }
     }
   }
   

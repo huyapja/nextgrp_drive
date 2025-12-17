@@ -15,6 +15,7 @@ export default Node.create({
     return {
       inline: false,
       HTMLAttributes: {},
+      disableDropImage: false, // Option để disable dropImagePlugin (dùng cho mindmap)
     }
   },
   inline() {
@@ -188,7 +189,7 @@ export default Node.create({
 
   addProseMirrorPlugins() {
     return [
-      dropImagePlugin(),
+      ...(this.options.disableDropImage ? [] : [dropImagePlugin()]),
       // Plugin để attach event listeners cho button menu
       new Plugin({
         view(editorView) {

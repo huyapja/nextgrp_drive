@@ -229,7 +229,6 @@ export function handleDragStart(nodeElement, renderer, event, d) {
   const isRoot = d.data?.isRoot || d.id === 'root'
   const isEditing = renderer.editingNode === d.id
   
-  
   // Nếu là root hoặc đang edit thì không cho phép drag
   if (isRoot || isEditing) {
     if (event.sourceEvent) {
@@ -423,6 +422,77 @@ export function handleDrag(nodeElement, renderer, event, d) {
     }
   }
   
+  // ⚠️ Kiểm tra node có task link không CHỈ KHI ĐÃ DI CHUYỂN ĐỦ (drag thực sự, không phải click)
+  // Chỉ kiểm tra một lần khi phát hiện movement đầu tiên
+  if (renderer.hasMovedEnough && !renderer.taskLinkDragChecked && renderer.draggedNode === d.id) {
+    const nodeLabel = d.data?.label || ''
+    const hasTaskLink = d.data?.taskLink || 
+      nodeLabel.includes('node-task-link-section') || 
+      nodeLabel.includes('node-task-badge') || 
+      nodeLabel.includes('data-node-section="task-link"') ||
+      nodeLabel.includes('Liên kết công việc')
+    
+    // Đánh dấu đã kiểm tra để không kiểm tra lại
+    renderer.taskLinkDragChecked = true
+    
+    // Nếu node có task link và chưa được confirm, hiển thị cảnh báo và cancel drag
+    if (hasTaskLink && !renderer.taskLinkDragConfirmed.has(d.id)) {
+      // Cancel drag ngay lập tức và đợi user confirm
+      if (event.sourceEvent) {
+        event.sourceEvent.preventDefault()
+        event.sourceEvent.stopPropagation()
+      }
+      // Disable drag handlers tạm thời
+      d3.select(nodeElement).on('drag', null).on('end', null)
+      
+      // Gọi callback để hiển thị dialog (không await vì d3.drag không hỗ trợ async)
+      const confirmPromise = renderer.callbacks?.onTaskLinkDragConfirm 
+        ? renderer.callbacks.onTaskLinkDragConfirm(d.id)
+        : Promise.resolve(window.confirm('Nhánh đang được liên kết tới công việc, bạn vẫn muốn thay đổi vị trí nhánh?'))
+      
+      confirmPromise.then((confirmed) => {
+        if (confirmed) {
+          // Nếu user xác nhận, lưu vào Set để lần sau không hỏi nữa
+          renderer.taskLinkDragConfirmed.add(d.id)
+        } else {
+          // User hủy - đã cancel drag ở trên
+        }
+        // Reset flag để có thể kiểm tra lại lần sau
+        renderer.taskLinkDragChecked = false
+      }).catch((error) => {
+        console.error('[DRAG] Error showing task link drag dialog:', error)
+        // Fallback to window.confirm nếu callback lỗi
+        const confirmed = window.confirm('Nhánh đang được liên kết tới công việc, bạn vẫn muốn thay đổi vị trí nhánh?')
+        if (confirmed) {
+          renderer.taskLinkDragConfirmed.add(d.id)
+        }
+        renderer.taskLinkDragChecked = false
+      })
+      
+      // Reset flags và cleanup
+      renderer.isDragStarting = false
+      renderer.mouseUpOccurred = false
+      renderer.hasMovedEnough = false
+      renderer.dragStartPosition = null
+      renderer.dragStartTime = null
+      renderer.dragStartNodeInfo = null
+      renderer.draggedNode = null
+      
+      // Cleanup drag effects
+      if (renderer.dragGhost) {
+        renderer.dragGhost.remove()
+        renderer.dragGhost = null
+      }
+      if (renderer.dragGhostEdgesGroup) {
+        renderer.dragGhostEdgesGroup.remove()
+        renderer.dragGhostEdgesGroup = null
+      }
+      cleanupDragBranchEffects(renderer)
+      
+      return
+    }
+  }
+  
   // QUAN TRỌNG: Kiểm tra click TRƯỚC KHI stopPropagation
   // Nếu chưa di chuyển đủ, có thể là click -> không làm gì cả, để click handler hoạt động
   if (!renderer.hasMovedEnough) {
@@ -447,6 +517,7 @@ export function handleDrag(nodeElement, renderer, event, d) {
       renderer.dragStartPosition = null
       renderer.dragStartTime = null
       renderer.dragStartNodeInfo = null
+      renderer.taskLinkDragChecked = false // Reset flag để có thể kiểm tra lại lần sau
       // KHÔNG stopPropagation để click handler có thể hoạt động
       return
     }
@@ -804,6 +875,7 @@ export function handleDrag(nodeElement, renderer, event, d) {
   const maxTargetDistance = 150 // Khoảng cách tối đa từ pointer đến edge bên phải (tăng để dễ detect hơn)
   
   // Tìm node gần nhất với edge bên phải của node
+  // ⚠️ FIX: Mở rộng detection để bao phủ toàn bộ nhánh con (đặc biệt vùng dưới node con cuối cùng)
   renderer.nodes.forEach(node => {
     const pos = renderer.positions.get(node.id)
     if (pos) {
@@ -813,6 +885,30 @@ export function handleDrag(nodeElement, renderer, event, d) {
       const nodeTop = pos.y
       const nodeBottom = pos.y + nodeSize.height
       
+      // ⚠️ FIX: Tính toán phạm vi dọc của toàn bộ nhánh con (bao gồm cả các node con cháu)
+      const childEdges = renderer.edges.filter(e => e.source === node.id)
+      let maxChildY = nodeBottom // Vị trí Y của node con xa nhất về phía dưới
+      let minChildY = nodeTop // Vị trí Y của node con xa nhất về phía trên
+      
+      if (childEdges.length > 0) {
+        // Tìm tất cả node con cháu để tính phạm vi dọc
+        const descendantIds = getDescendantIds(node.id, renderer.edges)
+        descendantIds.forEach(descendantId => {
+          const descendantPos = renderer.positions.get(descendantId)
+          if (descendantPos) {
+            const descendantSize = renderer.nodeSizeCache.get(descendantId) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === descendantId))
+            const descendantBottom = descendantPos.y + descendantSize.height
+            
+            if (descendantBottom > maxChildY) {
+              maxChildY = descendantBottom
+            }
+            if (descendantPos.y < minChildY) {
+              minChildY = descendantPos.y
+            }
+          }
+        })
+      }
+      
       // Chỉ tính khoảng cách đến edge bên phải của node (không phải toàn bộ node)
       // Pointer có thể ở bên trái hoặc bên phải edge một chút
       const edgeX = nodeRight
@@ -821,25 +917,34 @@ export function handleDrag(nodeElement, renderer, event, d) {
       // Khoảng cách ngang: từ pointer đến edge (có thể âm nếu pointer ở bên trái edge)
       const dx = Math.abs(x - edgeX)
       
-      // Khoảng cách dọc: từ pointer đến điểm gần nhất trên edge
+      // ⚠️ FIX: Tính khoảng cách dọc dựa trên phạm vi của toàn bộ nhánh con
       let dy
-      if (y < nodeTop) {
-        // Pointer ở trên edge -> khoảng cách đến điểm trên cùng của edge
-        dy = nodeTop - y
-      } else if (y > nodeBottom) {
-        // Pointer ở dưới edge -> khoảng cách đến điểm dưới cùng của edge
-        dy = y - nodeBottom
+      if (y < minChildY) {
+        // Pointer ở trên toàn bộ nhánh -> khoảng cách đến điểm trên cùng
+        dy = minChildY - y
+      } else if (y > maxChildY) {
+        // Pointer ở dưới toàn bộ nhánh -> khoảng cách đến điểm dưới cùng
+        dy = y - maxChildY
       } else {
-        // Pointer ở trong phạm vi dọc của edge -> khoảng cách dọc = 0
+        // Pointer ở trong phạm vi dọc của nhánh (từ minChildY đến maxChildY) -> khoảng cách dọc = 0
         dy = 0
       }
       
       // Tính khoảng cách tổng từ pointer đến edge bên phải
       const distance = Math.sqrt(dx * dx + dy * dy)
       
-      // Chỉ xem xét node nếu khoảng cách <= maxTargetDistance
-      // Và pointer phải ở gần edge (không quá xa về phía trái)
-      if (distance <= maxTargetDistance && x >= edgeX - maxTargetDistance && distance < minDistance) {
+      // ⚠️ FIX: Mở rộng điều kiện detection:
+      // 1. Khoảng cách <= maxTargetDistance HOẶC
+      // 2. Pointer ở trong phạm vi dọc của nhánh (dy === 0) và gần về mặt ngang (dx <= maxTargetDistance * 2)
+      const isInVerticalRange = dy === 0
+      const isHorizontallyClose = dx <= maxTargetDistance * 2 // Mở rộng phạm vi ngang khi ở trong vùng dọc
+      
+      // Chỉ xem xét node nếu:
+      // - Khoảng cách tổng <= maxTargetDistance, HOẶC
+      // - Pointer ở trong phạm vi dọc của nhánh và gần về mặt ngang
+      // - Pointer phải ở gần edge (không quá xa về phía trái)
+      if ((distance <= maxTargetDistance || (isInVerticalRange && isHorizontallyClose)) && 
+          x >= edgeX - maxTargetDistance * 2 && distance < minDistance) {
         minDistance = distance
         closestNode = node
       }
@@ -872,6 +977,84 @@ export function handleDrag(nodeElement, renderer, event, d) {
           .attr('stroke-width', d => renderer.selectedNode === d.id ? 2 : 2)
       }
       
+      // ⚠️ FIX: Xác định drop zone dựa trên vị trí các node con (chỉ cho node có children)
+      const targetPos = renderer.positions.get(targetDatum.id)
+      const targetSize = renderer.nodeSizeCache.get(targetDatum.id) || { width: 130, height: 43 }
+      const ghostNodeSize = renderer.nodeSizeCache.get(d.id) || { width: 130, height: 43 }
+      const ghostNodeCenterY = ghostNodePos.y + ghostNodeSize.height / 2
+      
+      // Lấy danh sách node con trực tiếp của target node
+      const childEdges = renderer.edges.filter(e => e.source === targetDatum.id)
+      const hasChildren = childEdges.length > 0
+      
+      let dropZone = null // 'child' | 'sibling-above' | 'sibling-below'
+      
+      if (hasChildren && targetPos) {
+        // Tính toán vị trí Y của node con đầu tiên và cuối cùng
+        const childNodes = childEdges.map(edge => {
+          const childPos = renderer.positions.get(edge.target)
+          if (childPos) {
+            const childSize = renderer.nodeSizeCache.get(edge.target) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === edge.target))
+            return {
+              id: edge.target,
+              top: childPos.y,
+              bottom: childPos.y + childSize.height,
+              centerY: childPos.y + childSize.height / 2
+            }
+          }
+          return null
+        }).filter(n => n !== null).sort((a, b) => a.top - b.top) // Sắp xếp theo Y từ trên xuống
+        
+        if (childNodes.length > 0) {
+          const firstChildTop = childNodes[0].top
+          const lastChildBottom = childNodes[childNodes.length - 1].bottom
+          const targetTop = targetPos.y
+          const targetBottom = targetPos.y + targetSize.height
+          
+          // ⚠️ FIX: Mở rộng vùng drop zones với buffer để dễ drop vào vị trí đầu/cuối
+          // Buffer zone để dễ dàng drop vào vị trí đầu/cuối (50% chiều cao của node con đầu/cuối)
+          const firstChildHeight = childNodes[0].bottom - childNodes[0].top
+          const lastChildHeight = childNodes[childNodes.length - 1].bottom - childNodes[childNodes.length - 1].top
+          const bufferAbove = Math.max(30, firstChildHeight * 0.5) // Buffer tối thiểu 30px
+          const bufferBelow = Math.max(30, lastChildHeight * 0.5) // Buffer tối thiểu 30px
+          
+          // Xác định 3 vùng drop zones:
+          // 1. Sibling Above Zone: từ đầu node đến đầu node con đầu tiên + buffer
+          // 2. Child Zone: từ đầu node con đầu tiên - buffer đến cuối node con cuối cùng + buffer
+          // 3. Sibling Below Zone: từ cuối node con cuối cùng - buffer đến cuối node
+          
+          const siblingAboveZoneEnd = firstChildTop + bufferAbove
+          const siblingBelowZoneStart = lastChildBottom - bufferBelow
+          
+          if (ghostNodeCenterY < siblingAboveZoneEnd) {
+            // Vùng trên cùng - trở thành anh em trên của node con đầu tiên
+            dropZone = 'sibling-above'
+          } else if (ghostNodeCenterY > siblingBelowZoneStart) {
+            // Vùng dưới cùng - trở thành anh em dưới của node con cuối cùng
+            dropZone = 'sibling-below'
+          } else {
+            // Vùng giữa - trở thành con của target node
+            dropZone = 'child'
+          }
+          
+          
+          // Lưu drop zone và thông tin về vị trí drop
+          renderer.dragDropZone = dropZone
+          if (dropZone === 'sibling-above') {
+            renderer.dragDropTargetSiblingId = childNodes[0].id // Node con đầu tiên
+          } else if (dropZone === 'sibling-below') {
+            renderer.dragDropTargetSiblingId = childNodes[childNodes.length - 1].id // Node con cuối cùng
+          } else {
+            renderer.dragDropTargetSiblingId = null
+          }
+        }
+      } else {
+        // Node không có children - chỉ có child zone (toàn bộ node)
+        dropZone = 'child'
+        renderer.dragDropZone = dropZone
+        renderer.dragDropTargetSiblingId = null
+      }
+      
       // Highlight node mới với màu xanh dương giống như khi được select
       renderer.dragTargetNode = targetDatum.id
       targetNodeGroup.select('.node-rect')
@@ -885,39 +1068,33 @@ export function handleDrag(nodeElement, renderer, event, d) {
       }
       
       // Tạo/cập nhật ghost edge từ ghost node đến target node
-      if (renderer.dragGhostEdgesGroup) {
-        const targetPos = renderer.positions.get(targetDatum.id)
-        const targetSize = renderer.nodeSizeCache.get(targetDatum.id) || { width: 130, height: 43 }
-        const ghostNodeSize = renderer.nodeSizeCache.get(d.id) || { width: 130, height: 43 }
+      if (renderer.dragGhostEdgesGroup && targetPos) {
+        const edgePath = calculateTargetEdgePath(
+          ghostNodePos,
+          targetPos,
+          ghostNodeSize,
+          targetSize
+        )
         
-        if (targetPos) {
-          const edgePath = calculateTargetEdgePath(
-            ghostNodePos,
-            targetPos,
-            ghostNodeSize,
-            targetSize
-          )
-          
-          // Kiểm tra xem đã có ghost edge đến target chưa
-          let targetGhostEdge = renderer.dragGhostEdgesGroup.select('.drag-ghost-edge-target')
-          
-          if (targetGhostEdge.empty()) {
-            // Tạo mới ghost edge đến target với màu xanh dương giống Lark
-            targetGhostEdge = renderer.dragGhostEdgesGroup.append('path')
-              .attr('class', 'drag-ghost-edge-target')
-              .attr('fill', 'none')
-              .attr('stroke', '#3b82f6') // Màu xanh dương
-              .attr('stroke-width', 2) // Bằng với edge bình thường
-              .attr('stroke-dasharray', '8,4') // Nét đứt
-              .attr('stroke-opacity', 0.6) // Màu nhạt hơn
-              .attr('stroke-linecap', 'round')
-              .attr('stroke-linejoin', 'round')
-              .raise() // Đảm bảo edge đến target luôn ở trên cùng
-          }
-          
-          // Cập nhật path và đảm bảo edge đến target luôn ở trên cùng
-          targetGhostEdge.attr('d', edgePath).raise()
+        // Kiểm tra xem đã có ghost edge đến target chưa
+        let targetGhostEdge = renderer.dragGhostEdgesGroup.select('.drag-ghost-edge-target')
+        
+        if (targetGhostEdge.empty()) {
+          // Tạo mới ghost edge đến target với màu xanh dương giống Lark
+          targetGhostEdge = renderer.dragGhostEdgesGroup.append('path')
+            .attr('class', 'drag-ghost-edge-target')
+            .attr('fill', 'none')
+            .attr('stroke', '#3b82f6') // Màu xanh dương
+            .attr('stroke-width', 2) // Bằng với edge bình thường
+            .attr('stroke-dasharray', '8,4') // Nét đứt
+            .attr('stroke-opacity', 0.6) // Màu nhạt hơn
+            .attr('stroke-linecap', 'round')
+            .attr('stroke-linejoin', 'round')
+            .raise() // Đảm bảo edge đến target luôn ở trên cùng
         }
+        
+        // Cập nhật path và đảm bảo edge đến target luôn ở trên cùng
+        targetGhostEdge.attr('d', edgePath).raise()
       }
     } else {
       // Remove highlight nếu không hợp lệ
@@ -932,6 +1109,8 @@ export function handleDrag(nodeElement, renderer, event, d) {
           .attr('stroke-width', d => renderer.selectedNode === d.id ? 2 : 2)
           .attr('stroke-dasharray', null)
         renderer.dragTargetNode = null
+        renderer.dragDropZone = null
+        renderer.dragDropTargetSiblingId = null
         
         // Xóa ghost edge đến target
         if (renderer.dragGhostEdgesGroup) {
@@ -949,6 +1128,8 @@ export function handleDrag(nodeElement, renderer, event, d) {
         .attr('stroke', d => d.data?.isRoot ? 'none' : '#cbd5e1')
         .attr('stroke-width', 2)
       renderer.dragTargetNode = null
+      renderer.dragDropZone = null
+      renderer.dragDropTargetSiblingId = null
       
       // Xóa ghost edge đến target
       if (renderer.dragGhostEdgesGroup) {
@@ -1042,108 +1223,173 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
   // Reset drag offset
   renderer.dragOffset = { x: 0, y: 0 }
   
-  // ⚠️ FIX: Ưu tiên drop vào target node nếu có và khác với parent hiện tại
-  // Chỉ reorder sibling khi không có target node hoặc target node chính là parent hiện tại
+  // ⚠️ FIX: Xử lý drop dựa trên drop zone (Child, Sibling Above, Sibling Below)
   const draggedNodeParentId = getParentNodeId(d.id, renderer.edges)
+  const dropZone = renderer.dragDropZone // 'child' | 'sibling-above' | 'sibling-below' | null
+  const targetSiblingId = renderer.dragDropTargetSiblingId // ID của node con đầu tiên/cuối cùng (nếu sibling zone)
   const shouldDropToTarget = actuallyMoved && targetNodeId && targetNodeId !== d.id && targetNodeId !== draggedNodeParentId
   
-  // Xử lý drop vào target node (ưu tiên cao nhất)
-  if (shouldDropToTarget) {
+  // Xử lý drop vào target node với drop zone
+  if (shouldDropToTarget && dropZone) {
     const targetNode = renderer.nodes.find(n => n.id === targetNodeId)
     const isDescendantNode = isDescendant(d.id, targetNodeId, renderer.edges)
     
     // Cho phép drop vào bất kỳ node nào (bao gồm root) trừ khi là descendant
     if (targetNode && !isDescendantNode) {
-      // Cập nhật parent của node
-      const oldEdge = renderer.edges.find(e => e.target === d.id)
-      const newSource = targetNodeId
-      
-      if (oldEdge) {
-        // Cập nhật edge hiện có
-        oldEdge.source = newSource
-        oldEdge.id = `edge-${newSource}-${d.id}`
-      } else {
-        // Tạo edge mới nếu chưa có
-        renderer.edges.push({
-          id: `edge-${newSource}-${d.id}`,
-          source: newSource,
-          target: d.id
-        })
-      }
-      
-      // ⚠️ CRITICAL: Tính toán drop position dựa trên vị trí Y mà người dùng đã kéo đến
-      // Lấy danh sách children của parent mới (sau khi đã cập nhật edge)
-      const newSiblings = getSiblingNodes(d.id, renderer.edges)
       const nodeCreationOrder = renderer.options?.nodeCreationOrder || new Map()
       
-      if (newSiblings.length > 0 && renderer.dragFinalY !== undefined) {
-        // Tính toán drop position dựa trên vị trí Y cuối cùng
-        // Sắp xếp siblings theo creation order để tìm vị trí đúng
-        const sortedSiblings = newSiblings.map(siblingId => ({
-          id: siblingId,
-          order: nodeCreationOrder.get(siblingId) ?? Infinity
-        })).sort((a, b) => a.order - b.order)
+      if (dropZone === 'child') {
+        // ⚠️ FIX: Child Zone - Node A trở thành con của Node B
+        const oldEdge = renderer.edges.find(e => e.target === d.id)
+        const newSource = targetNodeId
         
-        // ⚠️ CRITICAL: Render một lần để có positions mới của các children
-        renderer.render()
+        if (oldEdge) {
+          oldEdge.source = newSource
+          oldEdge.id = `edge-${newSource}-${d.id}`
+        } else {
+          renderer.edges.push({
+            id: `edge-${newSource}-${d.id}`,
+            source: newSource,
+            target: d.id
+          })
+        }
         
-        // Tìm vị trí drop dựa trên vị trí Y (sử dụng positions sau khi render)
-        let dropPosition = null
-        for (let i = 0; i < sortedSiblings.length; i++) {
-          const siblingId = sortedSiblings[i].id
-          const siblingPos = renderer.positions.get(siblingId)
-          if (siblingPos) {
-            const siblingSize = renderer.nodeSizeCache.get(siblingId) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === siblingId))
-            const siblingCenterY = siblingPos.y + siblingSize.height / 2
-            
-            // Nếu vị trí Y cuối cùng ở trên sibling center, drop trước sibling này
-            if (renderer.dragFinalY < siblingCenterY) {
-              dropPosition = i
-              break
+        // Tính toán drop position trong danh sách children của parent mới
+        const newSiblings = getSiblingNodes(d.id, renderer.edges)
+        
+        if (newSiblings.length > 0 && renderer.dragFinalY !== undefined) {
+          renderer.render()
+          
+          const sortedSiblings = newSiblings.map(siblingId => ({
+            id: siblingId,
+            order: nodeCreationOrder.get(siblingId) ?? Infinity
+          })).sort((a, b) => a.order - b.order)
+          
+          let dropPosition = null
+          for (let i = 0; i < sortedSiblings.length; i++) {
+            const siblingId = sortedSiblings[i].id
+            const siblingPos = renderer.positions.get(siblingId)
+            if (siblingPos) {
+              const siblingSize = renderer.nodeSizeCache.get(siblingId) || estimateNodeSize(renderer, renderer.nodes.find(n => n.id === siblingId))
+              const siblingCenterY = siblingPos.y + siblingSize.height / 2
+              
+              if (renderer.dragFinalY < siblingCenterY) {
+                dropPosition = i
+                break
+              }
             }
           }
-        }
-        
-        // Nếu không tìm thấy vị trí trước sibling nào, drop ở cuối
-        if (dropPosition === null) {
-          dropPosition = sortedSiblings.length
-        }
-        
-        // Tính order mới cho node được drag
-        let newOrder
-        if (dropPosition === 0) {
-          // Drop ở đầu: order nhỏ hơn sibling đầu tiên
-          newOrder = sortedSiblings[0]?.order - 1 ?? 0
-        } else if (dropPosition >= sortedSiblings.length) {
-          // Drop ở cuối: order lớn hơn sibling cuối cùng
-          newOrder = (sortedSiblings[sortedSiblings.length - 1]?.order ?? 0) + 1
+          
+          if (dropPosition === null) {
+            dropPosition = sortedSiblings.length
+          }
+          
+          let newOrder
+          if (dropPosition === 0) {
+            newOrder = sortedSiblings[0]?.order - 1 ?? 0
+          } else if (dropPosition >= sortedSiblings.length) {
+            newOrder = (sortedSiblings[sortedSiblings.length - 1]?.order ?? 0) + 1
+          } else {
+            const prevOrder = sortedSiblings[dropPosition - 1]?.order ?? 0
+            const nextOrder = sortedSiblings[dropPosition]?.order ?? Infinity
+            newOrder = prevOrder + (nextOrder - prevOrder) / 2
+          }
+          
+          nodeCreationOrder.set(d.id, newOrder)
+          
+          if (renderer.callbacks.onNodeReorder) {
+            renderer.callbacks.onNodeReorder(d.id, newOrder)
+          }
+          
+          renderer.render()
         } else {
-          // Drop giữa: order giữa 2 siblings
-          const prevOrder = sortedSiblings[dropPosition - 1]?.order ?? 0
-          const nextOrder = sortedSiblings[dropPosition]?.order ?? Infinity
-          newOrder = prevOrder + (nextOrder - prevOrder) / 2
+          renderer.render()
         }
         
-        // Cập nhật nodeCreationOrder
-        nodeCreationOrder.set(d.id, newOrder)
-        
-        // Gọi callback để cập nhật nodeCreationOrder
-        if (renderer.callbacks.onNodeReorder) {
-          renderer.callbacks.onNodeReorder(d.id, newOrder)
+        // Gọi callback để cập nhật parent
+        if (renderer.callbacks.onNodeUpdate) {
+          renderer.callbacks.onNodeUpdate(d.id, { parentId: newSource })
         }
         
-        // Render lại với order mới để node được đặt ở đúng vị trí
-        renderer.render()
-      } else {
-        // Không có siblings hoặc không có vị trí Y cuối cùng, chỉ render một lần
-        renderer.render()
+        return
+      } else if (dropZone === 'sibling-above' || dropZone === 'sibling-below') {
+        // ⚠️ FIX: Sibling Zone - Node A trở thành anh em của target sibling (cùng parent với target sibling)
+        // targetSiblingId là node con đầu tiên (sibling-above) hoặc cuối cùng (sibling-below) của target node
+        if (targetSiblingId) {
+          const targetSiblingParentId = getParentNodeId(targetSiblingId, renderer.edges)
+          
+          if (targetSiblingParentId) {
+            // Cập nhật parent của node A thành parent của target sibling
+            const oldEdge = renderer.edges.find(e => e.target === d.id)
+            const newSource = targetSiblingParentId
+            
+            if (oldEdge) {
+              oldEdge.source = newSource
+              oldEdge.id = `edge-${newSource}-${d.id}`
+            } else {
+              renderer.edges.push({
+                id: `edge-${newSource}-${d.id}`,
+                source: newSource,
+                target: d.id
+              })
+            }
+            
+            // Tính toán drop position trong danh sách siblings của target sibling
+            const targetSiblingSiblings = getSiblingNodes(targetSiblingId, renderer.edges)
+            const allSiblings = [...targetSiblingSiblings, targetSiblingId].filter(id => id !== d.id)
+            
+            if (allSiblings.length > 0) {
+              renderer.render()
+              
+              const sortedSiblings = allSiblings.map(siblingId => ({
+                id: siblingId,
+                order: nodeCreationOrder.get(siblingId) ?? Infinity
+              })).sort((a, b) => a.order - b.order)
+              
+              // Tìm vị trí của target sibling trong danh sách siblings
+              const targetIndex = sortedSiblings.findIndex(s => s.id === targetSiblingId)
+              
+              let dropPosition
+              if (dropZone === 'sibling-above') {
+                // Drop trước target sibling (node con đầu tiên)
+                dropPosition = targetIndex
+              } else {
+                // Drop sau target sibling (node con cuối cùng)
+                dropPosition = targetIndex + 1
+              }
+              
+              // Tính order mới
+              let newOrder
+              if (dropPosition === 0) {
+                newOrder = sortedSiblings[0]?.order - 1 ?? 0
+              } else if (dropPosition >= sortedSiblings.length) {
+                newOrder = (sortedSiblings[sortedSiblings.length - 1]?.order ?? 0) + 1
+              } else {
+                const prevOrder = sortedSiblings[dropPosition - 1]?.order ?? 0
+                const nextOrder = sortedSiblings[dropPosition]?.order ?? Infinity
+                newOrder = prevOrder + (nextOrder - prevOrder) / 2
+              }
+              
+              nodeCreationOrder.set(d.id, newOrder)
+              
+              if (renderer.callbacks.onNodeReorder) {
+                renderer.callbacks.onNodeReorder(d.id, newOrder)
+              }
+              
+              renderer.render()
+            } else {
+              renderer.render()
+            }
+            
+            // Gọi callback để cập nhật parent
+            if (renderer.callbacks.onNodeUpdate) {
+              renderer.callbacks.onNodeUpdate(d.id, { parentId: newSource })
+            }
+            
+            return
+          }
+        }
       }
-      
-      // Gọi callback để cập nhật data
-      if (renderer.callbacks.onNodeUpdate) {
-        renderer.callbacks.onNodeUpdate(d.id, { parentId: newSource })
-      }
-      
     }
   }
   // ⚠️ CRITICAL: Xử lý sắp xếp lại thứ tự sibling nodes
@@ -1210,7 +1456,10 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
   
   // Reset drag state
   renderer.draggedNode = null
+  renderer.taskLinkDragChecked = false // Reset flag để có thể kiểm tra lại lần sau
   renderer.dragTargetNode = null
+  renderer.dragDropZone = null // Reset drop zone
+  renderer.dragDropTargetSiblingId = null // Reset target sibling ID
   renderer.isDragStarting = false
   renderer.mouseUpOccurred = false
   renderer.hasMovedEnough = false

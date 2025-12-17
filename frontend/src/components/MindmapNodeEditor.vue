@@ -188,6 +188,11 @@ function createUploadImageOnPasteExtension(uploadImageFn) {
               const clipboardData = event.clipboardData
               if (!clipboardData || !uploadImageFn) return false
 
+              // ⚠️ FIX: Nếu có window.imageClipboard, để keyboard handler xử lý (tránh paste 2 lần)
+              if (window.imageClipboard && window.imageClipboard.type === 'image') {
+                return false
+              }
+
               // Kiểm tra xem có ảnh trong clipboard không
               const items = Array.from(clipboardData.items || [])
               const imageItem = items.find(item => item.type.indexOf('image') === 0)
@@ -196,6 +201,8 @@ function createUploadImageOnPasteExtension(uploadImageFn) {
                 const imageFile = imageItem.getAsFile()
                 if (imageFile) {
                   event.preventDefault()
+                  // ⚠️ FIX: Return true ngay lập tức để ngăn các plugin khác (như dropImagePlugin) xử lý
+                  // Không đợi đến khi upload xong vì dropImagePlugin chạy đồng bộ và sẽ chèn ảnh base64 trước
 
                   // Đọc kích thước ảnh từ file
                   const reader = new FileReader()
@@ -398,7 +405,7 @@ function createUploadImageOnPasteExtension(uploadImageFn) {
                         
                         // Xóa placeholder nếu upload thất bại
                         const { state } = view
-                        const transaction = state.tr.delete(pos, pos + placeholderNode.nodeSize)
+                        const transaction = state.tr.delete(savedInsertPos, savedInsertPos + placeholderNode.nodeSize)
                         view.dispatch(transaction)
                       })
                     }
@@ -824,7 +831,15 @@ const ImageWithMenuExtension = Extension.create({
                   })
                   
                   menuItem.addEventListener('click', (e) => {
+                    e.preventDefault()
                     e.stopPropagation()
+                    
+                    // ⚠️ CRITICAL: Focus lại editor ngay lập tức để tránh blur
+                    if (view && view.focused) {
+                      // Editor đang focus, giữ focus
+                    } else {
+                      view.focus()
+                    }
                     
                     const pos = getPos()
                     if (typeof pos !== 'number') return
@@ -847,10 +862,28 @@ const ImageWithMenuExtension = Extension.create({
                       if (item.action === 'cut') {
                         const tr = state.tr.delete(pos, pos + node.nodeSize)
                         dispatch(tr)
+                        
+                        // ⚠️ FIX: Trigger tính toán lại kích thước node sau khi xóa ảnh
+                        setTimeout(() => {
+                          // Dispatch custom event để component có thể lắng nghe và gọi updateNodeHeight()
+                          window.dispatchEvent(new CustomEvent('image-deleted-in-editor'))
+                          // Emit input event để trigger handleEditorInput và tính toán lại kích thước
+                          const inputEvent = new Event('input', { bubbles: true })
+                          view.dom.dispatchEvent(inputEvent)
+                        }, 50)
                       }
                     } else if (item.action === 'delete') {
                       const tr = state.tr.delete(pos, pos + node.nodeSize)
                       dispatch(tr)
+                      
+                      // ⚠️ FIX: Trigger tính toán lại kích thước node sau khi xóa ảnh
+                      setTimeout(() => {
+                        // Dispatch custom event để component có thể lắng nghe và gọi updateNodeHeight()
+                        window.dispatchEvent(new CustomEvent('image-deleted-in-editor'))
+                        // Emit input event để trigger handleEditorInput và tính toán lại kích thước
+                        const inputEvent = new Event('input', { bubbles: true })
+                        view.dom.dispatchEvent(inputEvent)
+                      }, 50)
                     }
                     
                     // Đóng menu và remove event listeners
@@ -1067,7 +1100,16 @@ const ImageClickExtension = Extension.create({
               })
               
               menuItem.addEventListener('click', (e) => {
+                e.preventDefault()
                 e.stopPropagation()
+                
+                // ⚠️ CRITICAL: Focus lại editor ngay lập tức để tránh blur
+                if (editorView && editorView.focused !== undefined) {
+                  if (!editorView.focused) {
+                    editorView.focus()
+                  }
+                }
+                
                 handleMenuAction(item.action, imgNode, imgPos, editorView)
                 menu.remove()
                 activeMenu = null
@@ -1148,11 +1190,29 @@ const ImageClickExtension = Extension.create({
                 // Xóa ảnh khỏi node hiện tại
                 const transaction = state.tr.delete(imgPos, imgPos + imgNode.nodeSize)
                 dispatch(transaction)
+                
+                // ⚠️ FIX: Trigger tính toán lại kích thước node sau khi xóa ảnh
+                setTimeout(() => {
+                  // Dispatch custom event để component có thể lắng nghe và gọi updateNodeHeight()
+                  window.dispatchEvent(new CustomEvent('image-deleted-in-editor'))
+                  // Emit input event để trigger handleEditorInput và tính toán lại kích thước
+                  const inputEvent = new Event('input', { bubbles: true })
+                  view.dom.dispatchEvent(inputEvent)
+                }, 50)
               }
             } else if (action === 'delete') {
               // Xóa ảnh
               const transaction = state.tr.delete(imgPos, imgPos + imgNode.nodeSize)
               dispatch(transaction)
+              
+              // ⚠️ FIX: Trigger tính toán lại kích thước node sau khi xóa ảnh
+              setTimeout(() => {
+                // Dispatch custom event để component có thể lắng nghe và gọi updateNodeHeight()
+                window.dispatchEvent(new CustomEvent('image-deleted-in-editor'))
+                // Emit input event để trigger handleEditorInput và tính toán lại kích thước
+                const inputEvent = new Event('input', { bubbles: true })
+                view.dom.dispatchEvent(inputEvent)
+              }, 50)
             }
           }
           
@@ -2457,7 +2517,7 @@ export default {
         BackgroundColor, // Extension để highlight text
         createUploadImageOnPasteExtension(this.uploadImage || null), // Extension để upload ảnh khi paste
         ApplyCurrentStyleOnPaste, // Extension để áp dụng style hiện tại khi paste
-        ImageExtension, // Extension để chèn hình ảnh
+        ImageExtension.configure({ disableDropImage: true }), // Extension để chèn hình ảnh (disable dropImagePlugin để tránh duplicate)
         ImageClickExtension, // Extension để xử lý click vào ảnh
         ImageWithMenuExtension, // Extension để render image với menu button
         StarterKit.configure({
@@ -2787,10 +2847,8 @@ export default {
                 const transaction = state.tr.insert(insertPos, imageNode)
                 dispatch(transaction)
                 
-                // Nếu là cut operation, xóa clipboard sau khi paste
-                if (window.imageClipboard.operation === 'cut') {
-                  window.imageClipboard = null
-                }
+                // ⚠️ FIX: Xóa clipboard sau khi paste (cho cả copy và cut) để tránh paste lại
+                window.imageClipboard = null
                 
                 return true
               }
@@ -3132,6 +3190,21 @@ export default {
         window.addEventListener('image-loaded-in-editor', handleImageLoaded)
         // Lưu handler để có thể remove khi unmount
         this._imageLoadedHandler = handleImageLoaded
+        
+        // ⚠️ FIX: Lắng nghe event khi ảnh bị xóa để trigger tính toán lại kích thước node
+        const handleImageDeleted = () => {
+          this.$nextTick(() => {
+            if (this.editor && this.editor.view && this.editor.view.dom) {
+              // Dùng requestAnimationFrame để đợi browser render xong sau khi xóa ảnh
+              requestAnimationFrame(() => {
+                this.updateNodeHeight()
+              })
+            }
+          })
+        }
+        window.addEventListener('image-deleted-in-editor', handleImageDeleted)
+        // Lưu handler để có thể remove khi unmount
+        this._imageDeletedHandler = handleImageDeleted
 
         // Event listener để ngăn chặn các phím tắt lan truyền lên MindMap.vue
         // Chỉ stop propagation để không trigger event handler ở MindMap.vue
@@ -3193,6 +3266,9 @@ export default {
     // Remove image loaded event listener nếu có
     if (this._imageLoadedHandler) {
       window.removeEventListener('image-loaded-in-editor', this._imageLoadedHandler)
+      if (this._imageDeletedHandler) {
+        window.removeEventListener('image-deleted-in-editor', this._imageDeletedHandler)
+      }
       this._imageLoadedHandler = null
     }
 

@@ -57,6 +57,8 @@ export class D3MindmapRenderer {
     this.dragBranchGhost = null // Rect bao quanh nhánh ở vị trí cũ
     this.dragBranchNodeIds = [] // Danh sách các node ID trong nhánh để restore sau
     this.dragStartNodeInfo = null // Thông tin node khi bắt đầu drag (để tạo ghost sau khi di chuyển đủ)
+    this.taskLinkDragConfirmed = new Set() // Set các node ID đã được confirm khi drag (có task link)
+    this.taskLinkDragChecked = false // Flag để đảm bảo chỉ kiểm tra task link một lần khi bắt đầu drag
     
     this.zoom = null
     this.svg = null
@@ -72,7 +74,8 @@ export class D3MindmapRenderer {
       onNodeEditingEnd: null,
       onNodeHover: null,
       onNodeCollapse: null,
-      onRenderComplete: null // Callback khi render hoàn tất
+      onRenderComplete: null, // Callback khi render hoàn tất
+      onTaskLinkDragConfirm: null // Callback để hiển thị dialog cảnh báo khi drag node có task link
     }
     
     this.init()

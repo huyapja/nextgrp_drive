@@ -31,6 +31,31 @@ export function renderNodes(renderer, positions) {
   renderer.nodes.forEach(node => {
     const isRootNode = node.data?.isRoot || node.id === 'root'
     
+    // ⚠️ CRITICAL: Kiểm tra xem rect đã được set kích thước chưa (từ handleEditorBlur)
+    // Nếu rect đã có kích thước, ưu tiên dùng kích thước đó thay vì cache cũ
+    const nodeGroup = renderer.g.select(`[data-node-id="${node.id}"]`)
+    if (!nodeGroup.empty()) {
+      const rect = nodeGroup.select('.node-rect')
+      const rectWidth = parseFloat(rect.attr('width')) || 0
+      const rectHeight = parseFloat(rect.attr('height')) || 0
+      
+      // Nếu rect đã có kích thước hợp lý (> 0), dùng kích thước đó và cập nhật cache
+      if (rectWidth > 0 && rectHeight > 0) {
+        renderer.nodeSizeCache.set(node.id, {
+          width: rectWidth,
+          height: rectHeight,
+        })
+        // Nếu node có fixedWidth/fixedHeight nhưng khác với rect, cập nhật lại
+        if (node.data && !isRootNode) {
+          if (node.data.fixedWidth !== rectWidth || node.data.fixedHeight !== rectHeight) {
+            node.data.fixedWidth = rectWidth
+            node.data.fixedHeight = rectHeight
+          }
+        }
+        return // Đã cập nhật từ rect, không cần tính toán lại
+      }
+    }
+    
     // Nếu node có fixedWidth/fixedHeight, dùng trực tiếp và cập nhật cache
     if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
       renderer.nodeSizeCache.set(node.id, {
@@ -48,11 +73,17 @@ export function renderNodes(renderer, positions) {
   })
   
   const getNodeSize = (node) => {
+    // ⚠️ CRITICAL: Kiểm tra xem có ảnh không để đảm bảo width = 400px
+    const nodeLabel = node.data?.label || ''
+    const hasImages = nodeLabel.includes('<img') || nodeLabel.includes('image-wrapper') || nodeLabel.includes('image-wrapper-node')
+    
     // Ưu tiên dùng fixedWidth/fixedHeight nếu có
     const isRootNode = node.data?.isRoot || node.id === 'root'
     if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
+      // ⚠️ FIX: Nếu có ảnh nhưng fixedWidth < 400px, force = 400px
+      const width = hasImages && node.data.fixedWidth < 400 ? 400 : node.data.fixedWidth
       return {
-        width: node.data.fixedWidth,
+        width: width,
         height: node.data.fixedHeight,
       }
     }
@@ -60,12 +91,23 @@ export function renderNodes(renderer, positions) {
     // Điều này đảm bảo node mới paste có kích thước chính xác
     const cached = renderer.nodeSizeCache.get(node.id)
     if (cached) {
-      return cached
+      // ⚠️ FIX: Nếu có ảnh nhưng cached width < 400px, force = 400px
+      const width = hasImages && cached.width < 400 ? 400 : cached.width
+      return {
+        width: width,
+        height: cached.height,
+      }
     }
     // Tính toán lại nếu chưa có cache
     const size = renderer.estimateNodeSize(node)
-    renderer.nodeSizeCache.set(node.id, size)
-    return size
+    // ⚠️ FIX: Nếu có ảnh nhưng size.width < 400px, force = 400px
+    const width = hasImages && size.width < 400 ? 400 : size.width
+    const finalSize = {
+      width: width,
+      height: size.height,
+    }
+    renderer.nodeSizeCache.set(node.id, finalSize)
+    return finalSize
   }
   
   const that = renderer // Store reference for use in callbacks
@@ -392,7 +434,10 @@ export function renderNodes(renderer, positions) {
         target.closest('.mindmap-toolbar') ||
         target.closest('.toolbar-btn') ||
         target.closest('.toolbar-top-popup') ||
-        target.closest('.toolbar-bottom')
+        target.closest('.toolbar-bottom') ||
+        target.closest('.image-context-menu') ||
+        target.closest('.image-menu-item') ||
+        target.closest('.image-menu-button')
       )
       
       // QUAN TRỌNG: Nếu click vào collapse button hoặc toolbar, KHÔNG BAO GIỜ xử lý ở đây
@@ -1219,6 +1264,7 @@ export function renderNodes(renderer, positions) {
       const nodeGroup = d3.select(nodeArray[idx].parentNode)
       const rect = nodeGroup.select('.node-rect')
       const isRootNode = nodeData.data?.isRoot || nodeData.id === 'root'
+      // ⚠️ CRITICAL: Luôn lấy width từ rect hiện tại, không dùng cache để tránh dùng giá trị cũ
       let rectWidth = parseFloat(rect.attr('width')) || currentTextareaWidth
       
       // Với root node, LUÔN dùng cache nếu có để tránh tính lại và nháy
@@ -1230,10 +1276,18 @@ export function renderNodes(renderer, positions) {
         if (cachedSize && cachedSize.height >= 43) {
           // ⚠️ FIX: Dùng cache nếu có và height hợp lý (>= 43px, có thể là single line hoặc multi-line)
           rectHeight = cachedSize.height
-          // Đảm bảo width cũng được cập nhật từ cache
-          if (rectWidth !== cachedSize.width) {
-            rect.attr('width', cachedSize.width)
-            rectWidth = cachedSize.width
+          // ⚠️ FIX: Chỉ cập nhật width từ cache nếu rect chưa được set (width = 0 hoặc undefined)
+          // Nếu rect đã có width (từ handleEditorBlur), không override để tránh dùng giá trị cũ
+          const currentRectWidth = parseFloat(rect.attr('width')) || 0
+          if (currentRectWidth === 0 || currentRectWidth === rectWidth) {
+            // Rect chưa được set hoặc đang dùng giá trị cũ, cập nhật từ cache
+            if (rectWidth !== cachedSize.width) {
+              rect.attr('width', cachedSize.width)
+              rectWidth = cachedSize.width
+            }
+          } else {
+            // Rect đã được set từ handleEditorBlur, dùng giá trị hiện tại
+            rectWidth = currentRectWidth
           }
         } else {
           // ⚠️ FIX: Khi chưa có cache hoặc cache không hợp lý (< 43px), dùng height tạm thời
@@ -1268,6 +1322,14 @@ export function renderNodes(renderer, positions) {
       
       // ⚠️ CRITICAL: Kiểm tra xem node có task link badge không
       const hasTaskLink = nodeLabel.includes('node-task-link-section') || nodeLabel.includes('node-task-badge') || nodeLabel.includes('data-node-section="task-link"')
+      
+      // ⚠️ FIX: Đảm bảo rectWidth được lấy từ rect hiện tại, không phải từ cache cũ
+      // Sau khi xóa task link/ảnh, rect đã được cập nhật trong handleEditorBlur
+      const actualRectWidth = parseFloat(rect.attr('width')) || rectWidth
+      if (actualRectWidth !== rectWidth) {
+        console.log('[DEBUG nodeRendering] Rect width mismatch, using actual:', actualRectWidth, 'instead of', rectWidth)
+        rectWidth = actualRectWidth
+      }
       
       // Nếu có ảnh hoặc có task link badge, cần overflow: visible để hiển thị đầy đủ
       const needsVisibleOverflow = hasImages || hasTaskLink

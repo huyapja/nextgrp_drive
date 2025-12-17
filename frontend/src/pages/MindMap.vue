@@ -53,6 +53,22 @@
         </div>
       </div>
 
+      <!-- Task link drag warning dialog -->
+      <div v-if="showTaskLinkDragDialog" class="delete-dialog-overlay" @click.self="closeTaskLinkDragDialog">
+        <div class="delete-dialog">
+          <div class="delete-dialog-header">
+            <h3>Cảnh báo</h3>
+          </div>
+          <div class="delete-dialog-body">
+            <p>Nhánh đang được liên kết tới công việc, bạn vẫn muốn thay đổi vị trí nhánh?</p>
+          </div>
+          <div class="delete-dialog-footer">
+            <button @click="closeTaskLinkDragDialog" class="btn-cancel">Hủy</button>
+            <button @click="confirmTaskLinkDrag" class="btn-delete">Xác nhận</button>
+          </div>
+        </div>
+      </div>
+
       <MindmapTaskLinkModal
         :visible="showTaskLinkModal"
         :node-title="extractTitleFromLabel(taskLinkNode?.data?.label || '') || taskLinkNode?.data?.label || ''"
@@ -178,6 +194,9 @@ const nodeToDelete = ref(null)
 const childCount = ref(0)
 const deleteDialogType = ref('children') // 'children' | 'task-link'
 const isRendering = ref(true) // Loading state khi đang render mindmap
+const showTaskLinkDragDialog = ref(false)
+const taskLinkDragNodeId = ref(null)
+const taskLinkDragResolve = ref(null) // Promise resolve function để trả kết quả từ dialog
 let saveTimeout = null
 const SAVE_DELAY = 2000
 const showPanel = ref(false);
@@ -732,6 +751,10 @@ const initD3Renderer = () => {
       showContextMenu.value = true
     },
     onOpenCommentList: handleContextMenuAction,
+    onTaskLinkDragConfirm: async (nodeId) => {
+      // Hiển thị dialog và trả về kết quả (true nếu user xác nhận, false nếu hủy)
+      return await showTaskLinkDragWarning(nodeId)
+    },
   })
 
   updateD3Renderer()
@@ -1213,6 +1236,33 @@ const confirmDelete = () => {
   showDeleteDialog.value = false
 }
 
+// ===== Task link drag warning dialog =====
+const showTaskLinkDragWarning = (nodeId) => {
+  return new Promise((resolve) => {
+    taskLinkDragNodeId.value = nodeId
+    taskLinkDragResolve.value = resolve
+    showTaskLinkDragDialog.value = true
+  })
+}
+
+const closeTaskLinkDragDialog = () => {
+  if (taskLinkDragResolve.value) {
+    taskLinkDragResolve.value(false) // User hủy
+    taskLinkDragResolve.value = null
+  }
+  showTaskLinkDragDialog.value = false
+  taskLinkDragNodeId.value = null
+}
+
+const confirmTaskLinkDrag = () => {
+  if (taskLinkDragResolve.value) {
+    taskLinkDragResolve.value(true) // User xác nhận
+    taskLinkDragResolve.value = null
+  }
+  showTaskLinkDragDialog.value = false
+  taskLinkDragNodeId.value = null
+}
+
 // ===== Liên kết công việc cho nhánh =====
 const resolveTaskLinkNode = (val) => {
   if (!val) return null
@@ -1420,8 +1470,15 @@ const confirmTaskLink = async () => {
               }
             })
             
-            // Serialize lại HTML
-            targetNode.data.label = body.innerHTML
+        // Serialize lại HTML và cleanup thêm một lần nữa để đảm bảo xóa hết <p>⋮</p>
+        let cleanedHtml = body.innerHTML
+        // Xóa tất cả paragraph chỉ chứa ⋮
+        cleanedHtml = cleanedHtml.replace(/<p[^>]*>\s*⋮\s*<\/p>/gi, '')
+        cleanedHtml = cleanedHtml.replace(/<p[^>]*>.*?⋮.*?<\/p>/gi, '')
+        // Xóa tất cả ký tự ⋮ còn lại
+        cleanedHtml = cleanedHtml.replace(/⋮/g, '')
+        
+        targetNode.data.label = cleanedHtml
           } else {
             // Không có paragraph - tạo paragraph mới cho title và chèn badge
             const titleParagraph = doc.createElement('p')
@@ -1522,16 +1579,17 @@ const deleteTaskLink = async (node) => {
         const taskLinkSections = body.querySelectorAll('.node-task-link-section, [data-node-section="task-link"]')
         taskLinkSections.forEach(section => section.remove())
         
-        // Xóa các paragraph chứa link "Liên kết công việc" hoặc link có task_id trong href
+        // Xóa các paragraph chứa link "Liên kết công việc", link có task_id trong href, hoặc chỉ chứa ⋮
         const paragraphs = body.querySelectorAll('p')
         paragraphs.forEach(p => {
           const text = p.textContent?.trim() || ''
           const hasTaskLinkText = text.includes('Liên kết công việc')
           const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
             p.querySelector('a[href*="/mtp/project/"]')
+          const hasMenuDots = text === '⋮' || text.includes('⋮')
           
-          // Xóa nếu paragraph chứa text "Liên kết công việc" hoặc có link với task_id
-          if (hasTaskLinkText || hasTaskLinkAnchor) {
+          // Xóa nếu paragraph chứa text "Liên kết công việc", có link với task_id, hoặc chỉ chứa ⋮
+          if (hasTaskLinkText || hasTaskLinkAnchor || hasMenuDots) {
             p.remove()
           }
         })
@@ -1551,8 +1609,27 @@ const deleteTaskLink = async (node) => {
           }
         })
         
-        // Serialize lại HTML
-        targetNode.data.label = body.innerHTML
+        // Cleanup: Xóa các paragraph rỗng hoặc chỉ chứa whitespace sau khi xóa task link
+        const remainingParagraphs = body.querySelectorAll('p')
+        remainingParagraphs.forEach(p => {
+          const text = p.textContent?.trim() || ''
+          const hasOnlyBr = p.querySelectorAll('br').length === p.childNodes.length && p.childNodes.length > 0
+          const isEmpty = p.classList.contains('is-empty') || (text === '' && hasOnlyBr)
+          const hasMenuDots = text === '⋮' || text.includes('⋮')
+          if (isEmpty || hasMenuDots) {
+            p.remove()
+          }
+        })
+        
+        // Serialize lại HTML và cleanup thêm một lần nữa để đảm bảo xóa hết <p>⋮</p>
+        let cleanedHtml = body.innerHTML
+        // Xóa tất cả paragraph chỉ chứa ⋮
+        cleanedHtml = cleanedHtml.replace(/<p[^>]*>\s*⋮\s*<\/p>/gi, '')
+        cleanedHtml = cleanedHtml.replace(/<p[^>]*>.*?⋮.*?<\/p>/gi, '')
+        // Xóa tất cả ký tự ⋮ còn lại (không nằm trong button)
+        cleanedHtml = cleanedHtml.replace(/(?<!<button[^>]*>.*?)⋮(?![^<]*<\/button>)/g, '')
+        
+        targetNode.data.label = cleanedHtml
       } catch (err) {
         console.error('Error parsing HTML for task link removal:', err)
         // Fallback: xóa bằng regex - xóa cả section và paragraph chứa task link
@@ -1560,10 +1637,16 @@ const deleteTaskLink = async (node) => {
           // Xóa section wrapper
           .replace(/<section[^>]*class="node-task-link-section"[^>]*>.*?<\/section>/gi, '')
           .replace(/<section[^>]*data-node-section="task-link"[^>]*>.*?<\/section>/gi, '')
-          // Xóa paragraph chứa "Liên kết công việc" hoặc có task_id trong href
+          // Xóa paragraph chứa "Liên kết công việc", có task_id trong href, hoặc chỉ chứa ⋮
           .replace(/<p[^>]*>.*?Liên kết công việc.*?<\/p>/gi, '')
           .replace(/<p[^>]*>.*?<a[^>]*href="[^"]*task_id[^"]*"[^>]*>.*?<\/a>.*?<\/p>/gi, '')
           .replace(/<p[^>]*>.*?<a[^>]*href="[^"]*\/mtp\/project\/[^"]*"[^>]*>.*?Liên kết công việc.*?<\/a>.*?<\/p>/gi, '')
+          .replace(/<p[^>]*>⋮<\/p>/gi, '')
+          .replace(/<p[^>]*>.*?⋮.*?<\/p>/gi, '')
+          // Xóa các paragraph rỗng hoặc chỉ chứa whitespace
+          .replace(/<p[^>]*class="is-empty"[^>]*>.*?<\/p>/gi, '')
+          .replace(/<p[^>]*>\s*<\/p>/gi, '')
+          .replace(/<p[^>]*>\s*<br[^>]*>\s*<\/p>/gi, '')
         
         targetNode.data.label = cleanedLabel
       }
@@ -1573,15 +1656,41 @@ const deleteTaskLink = async (node) => {
     const { taskLink, ...restData } = targetNode.data
     targetNode.data = restData
 
-    // Xóa cache size
+    // ⚠️ CRITICAL: Xóa fixedWidth và fixedHeight để buộc đo lại từ DOM
+    // Vì sau khi xóa task link, kích thước node có thể thay đổi
+    if (targetNode.data) {
+      delete targetNode.data.fixedWidth
+      delete targetNode.data.fixedHeight
+    }
+
+    // Xóa cache size để buộc đo lại từ DOM
     if (d3Renderer?.nodeSizeCache) {
       d3Renderer.nodeSizeCache.delete(targetNode.id)
     }
 
     // Đồng bộ nội dung editor ngay lập tức
     const editorInstance = d3Renderer?.getEditorInstance?.(targetNode.id)
-    if (editorInstance && typeof editorInstance.commands?.setContent === 'function') {
-      editorInstance.commands.setContent(targetNode.data?.label || '', false)
+    if (editorInstance) {
+      // Clean HTML trước khi set vào editor để xóa <p>⋮</p>
+      let contentToSet = targetNode.data?.label || ''
+      if (contentToSet) {
+        // Xóa tất cả paragraph chỉ chứa ⋮
+        contentToSet = contentToSet.replace(/<p[^>]*>\s*⋮\s*<\/p>/gi, '')
+        contentToSet = contentToSet.replace(/<p[^>]*>.*?⋮.*?<\/p>/gi, '')
+        // Xóa tất cả ký tự ⋮ còn lại
+        contentToSet = contentToSet.replace(/⋮/g, '')
+      }
+      
+      if (typeof editorInstance.commands?.setContent === 'function') {
+        editorInstance.commands.setContent(contentToSet, false)
+      }
+      
+      // Gọi cleanup function để xóa ⋮ từ DOM và ProseMirror document
+      if (typeof editorInstance.cleanupRemoveMenuText === 'function') {
+        setTimeout(() => {
+          editorInstance.cleanupRemoveMenuText()
+        }, 100)
+      }
     }
 
     // Cập nhật nodes array
@@ -1591,9 +1700,8 @@ const deleteTaskLink = async (node) => {
       elements.value = [...nodes.value, ...edges.value]
     }
 
-    await updateD3RendererWithDelay(0)
-    
-    // Trigger lại tính toán chiều cao node sau khi xóa badge
+    // ⚠️ FIX: Gọi handleEditorBlur TRƯỚC updateD3Renderer để đảm bảo kích thước được set đúng
+    // Sau đó mới updateD3Renderer để render lại với kích thước đúng
     await nextTick()
     
     requestAnimationFrame(() => {
@@ -1604,15 +1712,30 @@ const deleteTaskLink = async (node) => {
             const foElement = nodeGroup.querySelector('.node-text')
             if (foElement) {
               try {
+                // ⚠️ CRITICAL: Gọi handleEditorBlur để đo lại và set đúng kích thước
                 d3Renderer.handleEditorBlur(targetNode.id, foElement, targetNode)
+                
+                // ⚠️ FIX: Sau khi handleEditorBlur đã set đúng kích thước, mới updateD3Renderer
+                // Điều này đảm bảo renderNodes sẽ dùng kích thước từ rect (đã được set đúng)
+                setTimeout(() => {
+                  updateD3RendererWithDelay(0)
+                }, 100)
               } catch (err) {
                 console.error('Error calling handleEditorBlur:', err)
                 const vueAppEntry = d3Renderer?.vueApps?.get(targetNode.id)
                 if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
                   vueAppEntry.instance.updateNodeHeight()
                 }
+                // Fallback: vẫn updateD3Renderer nếu có lỗi
+                updateD3RendererWithDelay(0)
               }
+            } else {
+              // Nếu không tìm thấy foElement, vẫn updateD3Renderer
+              updateD3RendererWithDelay(0)
             }
+          } else {
+            // Nếu không tìm thấy nodeGroup, vẫn updateD3Renderer
+            updateD3RendererWithDelay(0)
           }
         }, 150)
       })

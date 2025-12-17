@@ -1062,8 +1062,16 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					finalValue.includes('Liên kết công việc')
 				const finalHasTaskLink = hasTaskLinkSection || hasTaskLinkParagraph || hasTaskLinkInHTML
 				
-				// ⚠️ CRITICAL: Nếu có ảnh, LUÔN set width = maxWidth (400px)
-				if (finalHasImages) {
+				// ⚠️ CRITICAL: Kiểm tra lại chính xác xem có còn ảnh trong HTML hiện tại không
+				// Kiểm tra từ finalValue (HTML đã được lưu) để đảm bảo chính xác
+				const hasImagesInFinalValue = finalValue && (
+					finalValue.includes('<img') || 
+					finalValue.includes('image-wrapper') ||
+					finalValue.includes('image-wrapper-node')
+				)
+				
+				// ⚠️ CRITICAL: Nếu có ảnh trong HTML hiện tại, LUÔN set width = maxWidth (400px)
+				if (hasImagesInFinalValue) {
 					measuredWidth = maxWidth // 400px
 					hasMeasuredFromDOM = true
 					
@@ -1072,46 +1080,53 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					// Chỉ đọc từ cache nếu KHÔNG có blockquote
 					const hasBlockquote = editorContent && editorContent.querySelectorAll('blockquote').length > 0
 					
-					// Nếu KHÔNG có task link VÀ KHÔNG có blockquote, đọc fixedHeight đã lưu
-					// Nếu CÓ task link HOẶC CÓ blockquote, sẽ đo lại từ DOM ở phần dưới
-					if (!finalHasTaskLink && !hasBlockquote) {
+					// ⚠️ FIX: Sau khi xóa task link, fixedHeight đã bị xóa, nên cần đo lại từ DOM
+					// Chỉ đọc từ cache nếu KHÔNG có task link VÀ KHÔNG có blockquote VÀ có fixedHeight
+					if (!finalHasTaskLink && !hasBlockquote && nodeData.data && nodeData.data.fixedHeight) {
 						console.log('[DEBUG handleEditorBlur] No blockquote, reading fixedHeight from cache')
 						// ĐỌC fixedHeight đã lưu từ handleEditorInput
-						if (nodeData.data && nodeData.data.fixedHeight) {
-							measuredHeight = nodeData.data.fixedHeight
-							hasMeasuredHeightFromDOM = true
-						} else {
-							// Nếu chưa có fixedHeight (trường hợp ảnh insert trước khi có hàm mới)
-							// Fallback: đọc từ cache
-							const cachedSize = renderer.nodeSizeCache.get(nodeId)
-							if (cachedSize && cachedSize.height > 0) {
-								measuredHeight = cachedSize.height
-								hasMeasuredHeightFromDOM = true
-							}
-						}
+						measuredHeight = nodeData.data.fixedHeight
+						hasMeasuredHeightFromDOM = true
 					} else {
-						console.log('[DEBUG handleEditorBlur] Has blockquote or task link, will measure from DOM')
+						// ⚠️ FIX: Nếu không có fixedHeight (đã bị xóa sau khi xóa task link) hoặc có blockquote/task link
+						// Đo lại từ DOM để đảm bảo kích thước chính xác
+						console.log('[DEBUG handleEditorBlur] Will measure height from DOM (no fixedHeight or has blockquote/task link)')
+						hasMeasuredHeightFromDOM = false // Đảm bảo sẽ đo lại từ DOM
 					}
 					// ⚠️ KHÔNG clamp khi có ảnh, vì đã force = maxWidth
-				} else if (maxTextWidth === 0) {
-					// Nếu không có text và không có ảnh, dùng absoluteMinWidth
-					measuredWidth = absoluteMinWidth
-					// Clamp width giữa absoluteMinWidth và maxWidth
-					measuredWidth = Math.min(measuredWidth, maxWidth)
 				} else {
-					// Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
-					const requiredWidth = maxTextWidth + 32 + 4
-					// Cho phép node thu nhỏ xuống fit với nội dung
-					// Chỉ clamp với absoluteMinWidth nếu requiredWidth quá nhỏ (< 40px)
-					// Nếu requiredWidth >= 40px thì dùng trực tiếp để fit chính xác với nội dung
-					const minRequiredWidth = 40 // Giá trị tối thiểu hợp lý cho requiredWidth
-					if (requiredWidth < minRequiredWidth) {
-						measuredWidth = Math.max(requiredWidth, absoluteMinWidth)
-					} else {
-						measuredWidth = requiredWidth // Dùng trực tiếp để fit chính xác
+					// ⚠️ FIX: Không còn ảnh - xóa fixedHeight và cache để đo lại từ DOM
+					if (nodeData.data && nodeData.data.fixedHeight) {
+						delete nodeData.data.fixedHeight
 					}
-					// Clamp width giữa absoluteMinWidth và maxWidth
-					measuredWidth = Math.min(measuredWidth, maxWidth)
+					// Xóa cache height cũ để đo lại
+					const cachedSize = renderer.nodeSizeCache.get(nodeId)
+					if (cachedSize) {
+						renderer.nodeSizeCache.set(nodeId, { width: cachedSize.width, height: null })
+					}
+					hasMeasuredHeightFromDOM = false // Đảm bảo sẽ đo lại từ DOM
+					
+					// Đo width từ text như bình thường
+					if (maxTextWidth === 0) {
+						// Nếu không có text và không có ảnh, dùng absoluteMinWidth
+						measuredWidth = absoluteMinWidth
+						// Clamp width giữa absoluteMinWidth và maxWidth
+						measuredWidth = Math.min(measuredWidth, maxWidth)
+					} else {
+						// Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
+						const requiredWidth = maxTextWidth + 32 + 4
+						// Cho phép node thu nhỏ xuống fit với nội dung
+						// Chỉ clamp với absoluteMinWidth nếu requiredWidth quá nhỏ (< 40px)
+						// Nếu requiredWidth >= 40px thì dùng trực tiếp để fit chính xác với nội dung
+						const minRequiredWidth = 40 // Giá trị tối thiểu hợp lý cho requiredWidth
+						if (requiredWidth < minRequiredWidth) {
+							measuredWidth = Math.max(requiredWidth, absoluteMinWidth)
+						} else {
+							measuredWidth = requiredWidth // Dùng trực tiếp để fit chính xác
+						}
+						// Clamp width giữa absoluteMinWidth và maxWidth
+						measuredWidth = Math.min(measuredWidth, maxWidth)
+					}
 				}
 				
 				// Đánh dấu đã đo được từ DOM
@@ -1157,10 +1172,12 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				console.log('  - Condition (!finalHasImages || (finalHasImages && finalHasTaskLink) || (finalHasImages && hasBlockquoteForMeasure)):', !finalHasImages || (finalHasImages && finalHasTaskLink) || (finalHasImages && hasBlockquoteForMeasure))
 				
 				// ⚠️ FIX: Đo lại từ DOM nếu:
-				// 1. KHÔNG có ảnh
+				// 1. KHÔNG có ảnh (trong HTML hiện tại)
 				// 2. CÓ ảnh VÀ có task link
 				// 3. CÓ ảnh VÀ có blockquote (để tính blockquote đã truncate)
-				if (!finalHasImages || (finalHasImages && finalHasTaskLink) || (finalHasImages && hasBlockquoteForMeasure && !hasMeasuredHeightFromDOM)) {
+				// 4. Không có hasMeasuredHeightFromDOM (đã xóa cache khi không còn ảnh)
+				// hasImagesInFinalValue đã được khai báo ở trên (dòng 1067)
+				if (!hasImagesInFinalValue || (hasImagesInFinalValue && finalHasTaskLink) || (hasImagesInFinalValue && hasBlockquoteForMeasure && !hasMeasuredHeightFromDOM)) {
 					console.log('[DEBUG handleEditorBlur] Entering height measurement block')
 					const borderOffset = 4
 					const foWidth = measuredWidth - borderOffset
@@ -1170,6 +1187,12 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					
 					// ⚠️ CRITICAL: Tạm thời mở rộng foreignObject và rect để đo chính xác
 					const fo = d3.select(foElement)
+					// ⚠️ FIX: Đảm bảo width đã được set đúng trước khi đo height
+					// Nếu có ảnh, width phải là maxWidth (400px)
+					if (hasImagesInFinalValue && measuredWidth === maxWidth) {
+						rect.attr('width', maxWidth)
+						fo.attr('width', Math.max(0, maxWidth - borderOffset))
+					}
 					fo.attr('height', 2000)
 					rect.attr('height', 2000)
 					
@@ -1499,9 +1522,22 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 			
 			const finalHasImages = hasImages || hasImagesInHTML
 			
+			// ⚠️ CRITICAL: Nếu có ảnh, LUÔN set width = maxWidth (400px) để hiển thị đầy đủ ảnh
 			if (finalHasImages && measuredWidth !== maxWidth) {
+				console.log('[DEBUG handleEditorBlur] Has images, forcing width to maxWidth:', maxWidth, '(was:', measuredWidth, ')')
 				measuredWidth = maxWidth
 			}
+		}
+		
+		// ⚠️ FINAL CHECK: Đảm bảo nếu có ảnh trong finalValue, width = 400px
+		const hasImagesInFinalValue = finalValue && (
+			finalValue.includes('<img') || 
+			finalValue.includes('image-wrapper') ||
+			finalValue.includes('image-wrapper-node')
+		)
+		if (hasImagesInFinalValue && measuredWidth !== maxWidth) {
+			console.log('[DEBUG handleEditorBlur] Final check: Has images in finalValue, forcing width to maxWidth:', maxWidth, '(was:', measuredWidth, ')')
+			measuredWidth = maxWidth
 		}
 		
 		finalWidth = measuredWidth
@@ -1514,6 +1550,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 		console.log('  - measuredWidth:', measuredWidth)
 		console.log('  - measuredHeight:', measuredHeight)
 		console.log('  - singleLineHeight:', singleLineHeight)
+		console.log('  - hasImagesInFinalValue:', hasImagesInFinalValue)
 		
 		// Update cache TRƯỚC KHI clear editingNode
 		renderer.nodeSizeCache.set(nodeId, { width: finalWidth, height: finalHeight })
@@ -1541,8 +1578,10 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 		nodeData.data.keepSingleLine = (finalWidth < maxWidth)
 	}
 	
+	console.log('[DEBUG handleEditorBlur] Setting rect width/height:', { finalWidth, finalHeight, nodeId })
 	rect.attr('width', finalWidth)
 	rect.attr('height', finalHeight)
+	console.log('[DEBUG handleEditorBlur] Rect width after setting:', rect.attr('width'))
 	
 	// Cập nhật vị trí nút add-child
 	nodeGroup.select('.add-child-btn').attr('cx', finalWidth + 20)
@@ -1692,37 +1731,77 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				
 				console.log('  - actualHeight (re-measured):', actualHeight)
 				
-				// Chỉ cập nhật nếu khác biệt đáng kể (> 1px)
-				// NHƯNG: Nếu actualHeight lớn hơn finalHeight, có thể là do scrollHeight vẫn tính từ blockquote đầy đủ
-				// Trong trường hợp đó, KHÔNG cập nhật và dùng finalHeight đã được tính đúng
-				if (Math.abs(actualHeight - finalHeight) > 1 && actualHeight <= finalHeight) {
+				// ⚠️ FIX: So sánh với chiều cao hiện tại của rect/fo thay vì finalHeight
+				// Vì finalHeight có thể đã được tính lại, nhưng rect/fo vẫn giữ giá trị cũ
+				// borderOffset đã được định nghĩa ở trên (dòng 1655)
+				const currentRectHeight = parseFloat(rect.attr('height')) || 0
+				const currentFoHeight = parseFloat(fo.attr('height')) || 0
+				const expectedFoHeight = Math.max(0, actualHeight - borderOffset)
+				
+				console.log('  - currentRectHeight:', currentRectHeight)
+				console.log('  - currentFoHeight:', currentFoHeight)
+				console.log('  - expectedFoHeight:', expectedFoHeight)
+				
+				// ⚠️ FIX: Cập nhật nếu khác biệt đáng kể (> 1px) giữa actualHeight và chiều cao hiện tại
+				const rectHeightDiff = Math.abs(actualHeight - currentRectHeight)
+				const foHeightDiff = Math.abs(expectedFoHeight - currentFoHeight)
+				const shouldUpdate = (rectHeightDiff > 1 || foHeightDiff > 1) && (
+					actualHeight < currentRectHeight || // actualHeight nhỏ hơn -> cập nhật (ví dụ: xóa ảnh)
+					(actualHeight > currentRectHeight && actualHeight - currentRectHeight < 50) // actualHeight lớn hơn một chút (< 50px) -> cập nhật
+				)
+				
+				if (shouldUpdate) {
 					const updatedHeight = actualHeight
-					console.log('  - Updating height to:', updatedHeight)
+					const updatedFoHeight = Math.max(0, updatedHeight - borderOffset)
+					// ⚠️ FIX: Đảm bảo width cũng được cập nhật đúng
+					const currentRectWidth = parseFloat(rect.attr('width')) || 0
+					const updatedFoWidth = Math.max(0, currentRectWidth - borderOffset)
+					console.log('  - Updating height to:', updatedHeight, '(from', finalHeight, ')')
+					console.log('  - Updating width to:', currentRectWidth, 'foWidth:', updatedFoWidth)
 					
 					// Cập nhật lại node size
 					rect.attr('height', updatedHeight)
-					fo.attr('height', Math.max(0, updatedHeight - borderOffset))
+					fo.attr('width', updatedFoWidth)
+					fo.attr('height', updatedFoHeight)
 					
-					// ⚠️ CRITICAL: Với root node, đảm bảo wrapper và container có height đúng
-					if (isRootNode) {
-						const wrapper = fo.select('.node-content-wrapper')
-						if (wrapper.node()) {
-							wrapper.style('height', 'auto')
-							wrapper.style('min-height', '0')
-							wrapper.style('max-height', 'none')
-							wrapper.style('overflow', 'visible')
-						}
-						const editorContainer = fo.select('.node-editor-container')
-						if (editorContainer.node()) {
-							editorContainer.style('height', 'auto')
-							editorContainer.style('min-height', '0')
-							editorContainer.style('max-height', 'none')
-							editorContainer.style('overflow', 'visible')
-						}
+					// ⚠️ CRITICAL: Cập nhật tất cả các style của wrapper và container
+					const wrapperNode = fo.select('.node-content-wrapper').node()
+					if (wrapperNode) {
+						wrapperNode.style.setProperty('height', `${updatedFoHeight}px`, 'important')
+						wrapperNode.style.setProperty('min-height', `${updatedFoHeight}px`, 'important')
+						wrapperNode.style.setProperty('max-height', 'none', 'important')
+						wrapperNode.style.setProperty('overflow', 'visible', 'important')
+					}
+					
+					const containerNode = fo.select('.node-editor-container').node()
+					if (containerNode) {
+						containerNode.style.setProperty('height', `${updatedFoHeight}px`, 'important')
+						containerNode.style.setProperty('min-height', `${updatedFoHeight}px`, 'important')
+						containerNode.style.setProperty('max-height', 'none', 'important')
+						containerNode.style.setProperty('overflow', 'visible', 'important')
+					}
+					
+					const nodeEditorEl = fo.select('.mindmap-node-editor').node()
+					if (nodeEditorEl) {
+						nodeEditorEl.style.setProperty('height', `${updatedFoHeight}px`, 'important')
+						nodeEditorEl.style.setProperty('min-height', `${updatedFoHeight}px`, 'important')
+						nodeEditorEl.style.setProperty('max-height', 'none', 'important')
+						nodeEditorEl.style.setProperty('overflow', 'visible', 'important')
+					}
+					
+					const editorContentEl = fo.select('.mindmap-editor-content').node()
+					if (editorContentEl) {
+						editorContentEl.style.setProperty('height', `${updatedFoHeight}px`, 'important')
+						editorContentEl.style.setProperty('min-height', `${updatedFoHeight}px`, 'important')
+						editorContentEl.style.setProperty('max-height', 'none', 'important')
+						editorContentEl.style.setProperty('overflow', 'visible', 'important')
 					}
 					
 					// Cập nhật cache
 					renderer.nodeSizeCache.set(nodeId, { width: finalWidth, height: updatedHeight })
+					
+					// Cập nhật finalHeight để các phần code sau dùng giá trị đúng
+					finalHeight = updatedHeight
 					
 					// Cập nhật vị trí nút add-child
 					nodeGroup.select('.add-child-btn').attr('cy', updatedHeight / 2)

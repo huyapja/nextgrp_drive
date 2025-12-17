@@ -191,12 +191,23 @@
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
 
 					<!-- Link task -->
-					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('link-task')">
+					<div v-if="props.selectedNode?.id !== 'root' && !props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item" @click.stop="handleContextAction('link-task')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
 							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
 						</svg>
 						<span>Liên kết công việc từ nhánh</span>
+					</div>
+					
+					<!-- Delete task link -->
+					<div v-if="props.selectedNode?.id !== 'root' && props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item" @click.stop="handleContextAction('delete-task-link')">
+						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+							<line x1="18" y1="6" x2="6" y2="18"/>
+							<line x1="6" y1="6" x2="18" y2="18"/>
+						</svg>
+						<span>Xóa liên kết công việc</span>
 					</div>
 					
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
