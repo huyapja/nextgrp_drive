@@ -1,13 +1,14 @@
 import { computed } from "vue"
 import { getTeamMembers } from "../../../resources/team"
 
-export function useMindmapCommentData({
-  comments,
-  mindmap,
-  activeNodeId
-}) {
+function buildGroupKey(nodeId, sessionIndex) {
+  return `${nodeId}__${sessionIndex}`
+}
 
-  const members = computed(() => getTeamMembers.data || [])  
+export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
+  /* ---------------- members ---------------- */
+
+  const members = computed(() => getTeamMembers.data || [])
 
   const memberMap = computed(() => {
     const map = {}
@@ -16,8 +17,10 @@ export function useMindmapCommentData({
     }
     return map
   })
-  // -----------------------------
-  const parseComment = raw => {
+
+  /* ---------------- helpers ---------------- */
+
+  const parseComment = (raw) => {
     try {
       return JSON.parse(raw)
     } catch {
@@ -25,150 +28,190 @@ export function useMindmapCommentData({
     }
   }
 
+  const stripLabel = (raw) => {
+    if (!raw) return ""
+    const match = String(raw).match(/<p[^>]*>(.*?)<\/p>/i)
+    return match ? match[1] : ""
+  }
+
+  /* ---------------- node map ---------------- */
+
   const nodeMap = computed(() => {
-  const map = {}
-  for (const n of mindmap.value || []) {
+    const map = {}
+    for (const n of mindmap.value || []) {
       map[n.id] = n
     }
     return map
   })
-  // -----------------------------
-const stripLabel = raw => {
-  if (!raw) return ""
 
-  const str = String(raw)
+  /* ---------------- sort nodes (giữ nguyên logic) ---------------- */
 
-  // Lấy nội dung của thẻ <p> đầu tiên
-  const match = str.match(/<p[^>]*>(.*?)<\/p>/i)
-
-  return match ? match[1] : ""
-}
-
-  // -----------------------------
   function sortMindmapNodes(nodes) {
     if (!Array.isArray(nodes)) return []
 
     const cloned = JSON.parse(JSON.stringify(nodes))
-
     const map = {}
-    cloned.forEach(n => {
+
+    cloned.forEach((n) => {
       map[n.id] = { ...n, children: [] }
     })
 
-    cloned.forEach(n => {
+    cloned.forEach((n) => {
       const parentId = n.data?.parentId
       if (parentId && parentId !== "root" && map[parentId]) {
         map[parentId].children.push(map[n.id])
       }
     })
 
-    const roots = Object.values(map).filter(
-      n => n.data?.parentId === "root"
-    )
+    const roots = Object.values(map).filter((n) => n.data?.parentId === "root")
 
     function sortByPos(a, b) {
       const ay = a?.position?.y ?? 0
       const by = b?.position?.y ?? 0
       if (ay !== by) return ay - by
-
-      const ax = a?.position?.x ?? 0
-      const bx = b?.position?.x ?? 0
-      return ax - bx
+      return (a?.position?.x ?? 0) - (b?.position?.x ?? 0)
     }
 
     roots.sort(sortByPos)
 
     const result = []
-
     function dfs(node) {
       result.push(node)
       node.children.sort(sortByPos)
-      node.children.forEach(child => dfs(child))
+      node.children.forEach(dfs)
     }
 
-    roots.forEach(root => dfs(root))
-
+    roots.forEach(dfs)
     return result
   }
 
-  const sortedNodes = computed(() => {
-    return sortMindmapNodes(mindmap.value || [])
+  const sortedNodes = computed(() => sortMindmapNodes(mindmap.value || []))
+
+  /* ---- group comments theo node (1 lần duy nhất) ---- */
+
+  const commentsByNode = computed(() => {
+    const map = {}
+    for (const c of comments.value) {
+      if (!map[c.node_id]) map[c.node_id] = []
+      map[c.node_id].push(c)
+    }
+    return map
   })
 
-  // -----------------------------
+  const commentsByNodeSession = computed(() => {
+    const map = {}
+
+    for (const c of comments.value) {
+      const key = `${c.node_id}__${c.session_index}`
+      if (!map[key]) {
+        map[key] = {
+          node_id: c.node_id,
+          session_index: c.session_index,
+          comments: [],
+        }
+      }
+      map[key].comments.push(c)
+    }
+
+    return map
+  })
+
+  /* ---------------- mergedComments ---------------- */
+
   const mergedComments = computed(() => {
     if (!comments.value.length) return []
-    if (!sortedNodes.value.length) return []
 
-    return comments.value.map(c => ({
+    return comments.value.map((c) => ({
       ...c,
+      session_index: c.session_index ?? null,
       node: nodeMap.value[c.node_id] || null,
       user: memberMap.value[c.owner] || null,
-      parsed: parseComment(c.comment)
+      parsed: parseComment(c.comment),
     }))
   })
 
-  // -----------------------------
+  /* ---------------- totalComments ---------------- */
+
   const totalComments = computed(() => {
-    const seen = new Set()
-    mergedComments.value.forEach(c => {
-      if (c.node_id) seen.add(c.node_id)
-    })
-    return seen.size
+    return Object.keys(commentsByNode.value).length
   })
 
-  // -----------------------------
+  /* ---------------- mergedGroups ---------------- */
+  /* Duyệt theo sortedNodes + commentsByNode */
+
   const mergedGroups = computed(() => {
-    if (!sortedNodes.value.length || !comments.value.length) return []
-
-    const groupMap = {}
-
-    for (const c of comments.value) {
-      if (!groupMap[c.node_id]) {
-        const node = nodeMap.value[c.node_id]
-        if (!node) continue
-
-        groupMap[c.node_id] = {
-          node,
-          comments: []
-        }
-      }
-
-      groupMap[c.node_id].comments.push({
-        ...c,
-        user: memberMap.value[c.owner] || null,
-        parsed: parseComment(c.comment)
-      })
-    }
-
-    return sortedNodes.value
-      .filter(n => groupMap[n.id])
-      .map(n => groupMap[n.id])
-  })
-
-  // -----------------------------
-  const mergedGroupsFinal = computed(() => {
     if (!sortedNodes.value.length) return []
 
-    const map = {}
+    const result = []
 
-    for (const g of mergedGroups.value) {
-      map[g.node.id] = g
-    }
+    for (const node of sortedNodes.value) {
+      const sessions = Object.values(commentsByNodeSession.value)
+        .filter((s) => s.node_id === node.id)
+        .sort((a, b) => a.session_index - b.session_index)
 
-    if (activeNodeId.value && !map[activeNodeId.value]) {
-      const node = nodeMap.value[activeNodeId.value]
-      if (node) {
-        map[activeNodeId.value] = {
+      for (const s of sessions) {
+        result.push({
           node,
-          comments: []
-        }
+          session_index: s.session_index,
+          groupKey: buildGroupKey(node.id, s.session_index),
+          comments: s.comments.map((c) => ({
+            ...c,
+            user: memberMap.value[c.owner] || null,
+            parsed: parseComment(c.comment),
+          })),
+        })
       }
     }
 
-    return sortedNodes.value
-      .filter(n => map[n.id])
-      .map(n => map[n.id])
+    return result
+  })
+
+  /* ---------------- mergedGroupsFinal ---------------- */
+
+  const mergedGroupsFinal = computed(() => {
+    const out = []
+
+    // active node + session (nếu chưa có thì default 1)
+    let activeNodeId = null
+    let activeSession = 1
+    if (activeGroupKey?.value) {
+      const [n, s] = activeGroupKey.value.split("__")
+      activeNodeId = n
+      activeSession = Number(s || 1)
+    }
+
+    for (const node of sortedNodes.value) {
+      const sessions = Object.values(commentsByNodeSession.value)
+        .filter((s) => s.node_id === node.id)
+        .sort((a, b) => (a.session_index ?? 0) - (b.session_index ?? 0))
+
+      // add real groups
+      for (const s of sessions) {
+        out.push({
+          node,
+          session_index: s.session_index,
+          groupKey: buildGroupKey(node.id, s.session_index),
+          comments: s.comments.map((c) => ({
+            ...c,
+            user: memberMap.value[c.owner] || null,
+            parsed: parseComment(c.comment),
+          })),
+        })
+      }
+
+      // ✅ nếu node này đang active mà chưa có session nào -> add group ảo NGAY TẠI ĐÂY
+      if (activeNodeId === node.id && sessions.length === 0) {
+        out.push({
+          node,
+          session_index: activeSession,
+          groupKey: buildGroupKey(node.id, activeSession),
+          comments: [],
+          __virtual: true,
+        })
+      }
+    }
+
+    return out
   })
 
   return {
@@ -179,6 +222,6 @@ const stripLabel = raw => {
     mergedGroups,
     mergedGroupsFinal,
     totalComments,
-    nodeMap  
+    nodeMap,
   }
 }

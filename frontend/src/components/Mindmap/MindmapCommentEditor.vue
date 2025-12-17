@@ -8,6 +8,7 @@ import { MentionSuggestion } from "./components/extensions/mention_suggestion"
 import { ImageRow } from "./components/extensions/ImageRow"
 // import { UploadImage } from "./components/extensions/UploadImage"
 import Link from "@tiptap/extension-link"
+import Placeholder from '@tiptap/extension-placeholder'
 
 
 
@@ -42,13 +43,18 @@ const props = defineProps({
     },
     members: { type: Array, default: () => [] },
     nodeId: String,
+    placeholder: {
+        type: String,
+        default: "Thêm nhận xét"
+    }
 })
 
-const emit = defineEmits(["update:modelValue", "submit", "navigate", "open-gallery", "paste-images"])
+const emit = defineEmits(["update:modelValue", "submit", "navigate", "open-gallery", "paste-images", "focus", "blur"])
 
 const editor = ref(null)
 const localInsertedImages = new Set()
 const mentionMembers = ref(props.members || [])
+const hasInitialized = ref(false)
 
 const filteredMembers = computed(() => {
     if (!props.members) return []
@@ -101,8 +107,11 @@ onMounted(() => {
                     rel: "noopener noreferrer",
                     target: "_blank",
                 },
-            })
-
+            }),
+            Placeholder.configure({
+                placeholder: () => props.placeholder,  // dynamic theo node
+                includeChildren: false,
+            }),
         ],
         autofocus: false,
 
@@ -201,6 +210,9 @@ onMounted(() => {
         window.__EDITOR_FOCUSED__ = false
     })
 
+    editor.value.on("focus", () => emit("focus"));
+    editor.value.on("blur", () => emit("blur"));
+
     if (!window.__ALL_EDITORS__) window.__ALL_EDITORS__ = []
     window.__ALL_EDITORS__.push(editor.value)
 })
@@ -228,19 +240,26 @@ watch(
 )
 
 
+const isSyncing = ref(false)
+
 watch(
     () => props.modelValue,
     (val) => {
         if (!editor.value) return
+        if (isSyncing.value) return
 
+        const next = val || ""
         const current = editor.value.getHTML()
 
-        if (val !== current) {
-            editor.value.commands.setContent(val || "", false)
-        }
-    }
-)
+        // tránh setContent vô hạn vòng lặp
+        if (current === next) return
 
+        isSyncing.value = true
+        editor.value.commands.setContent(next, false)
+        queueMicrotask(() => (isSyncing.value = false))
+    },
+    { immediate: true }
+)
 
 onBeforeUnmount(() => {
     if (editor.value) {
@@ -259,6 +278,7 @@ onBeforeUnmount(() => {
 })
 
 defineExpose({
+    editor,
     focus() {
         if (!editor.value) return
         editor.value?.view?.focus()
@@ -271,9 +291,56 @@ defineExpose({
         localInsertedImages.clear()
     },
     clearValues() {
-        editor.value?.commands.setContent("", false)
+        if (!editor.value) return
+
+        editor.value.commands.clearContent(true) // clear chuẩn nhất
         localInsertedImages.clear()
+
+        // modelValue phải được set về "" từ parent, không emit 2 chiều kiểu này nữa
         emit("update:modelValue", "")
+    },
+    insertMention({ id, label }) {
+        if (!editor.value) return;
+
+        const view = editor.value.view;
+        const state = view.state;
+        const tr = state.tr;
+        const { schema } = state;
+
+        const paragraph = state.doc.firstChild;
+        const firstChild = paragraph?.firstChild;
+
+        // -----------------------------
+        // 1️⃣ Nếu token đầu tiên là mention → XOÁ MENTION CŨ
+        // -----------------------------
+        if (firstChild?.type.name === "mention") {
+            const from = 1;
+            const to = 1 + firstChild.nodeSize;
+
+            tr.delete(from, to);
+        }
+
+        // -----------------------------
+        // 2️⃣ CHÈN LẠI MENTION MỚI VỀ ĐẦU DOCUMENT
+        // -----------------------------
+        const mentionNode = schema.nodes.mention.create({ id, label });
+        const space = schema.text(" ");
+
+        // insert vào vị trí 1 (bên trong paragraph)
+        tr.insert(1, mentionNode);
+        tr.insert(1 + mentionNode.nodeSize, space);
+
+        // -----------------------------
+        // 3️⃣ Đặt caret ngay sau space
+        // -----------------------------
+        const pos = 1 + mentionNode.nodeSize + space.nodeSize;
+
+        tr.setSelection(
+            state.selection.constructor.near(tr.doc.resolve(pos))
+        );
+
+        view.dispatch(tr);
+        view.focus();
     },
 })
 
@@ -282,7 +349,8 @@ defineExpose({
 <template>
     <div class="rounded p-2 pr-0 editor-wrapper comment-editor-root" comment-editor-root>
         <div class="editor-content-flex">
-            <EditorContent :editor="editor" class="tiptap-editor overflow-y-auto" />
+            <EditorContent :data-placeholder="props.placeholder" :editor="editor"
+                class="tiptap-editor overflow-y-auto" />
         </div>
     </div>
 

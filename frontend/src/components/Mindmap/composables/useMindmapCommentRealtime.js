@@ -41,16 +41,26 @@ export function useMindmapCommentRealtime({ socket, entityName, comments }) {
     const updated = payload.comment
     if (!updated?.name) return
 
-    const idx = comments.value.findIndex(c => c.name === updated.name)
+    const idx = comments.value.findIndex((c) => c.name === updated.name)
     if (idx === -1) return
 
-    
     comments.value[idx] = {
       ...comments.value[idx],
-      ...updated
+      ...updated,
     }
   }
 
+  function handleRealtimeNodeResolved(payload) {
+    if (!payload) return
+    if (payload.mindmap_id !== entityName) return
+
+    const { node_id, session_index } = payload
+    if (!node_id || session_index == null) return
+
+    comments.value = comments.value.filter(
+      (c) => !(c.node_id === node_id && c.session_index === session_index)
+    )
+  }
 
   onMounted(() => {
     if (socket?.on) {
@@ -60,10 +70,9 @@ export function useMindmapCommentRealtime({ socket, entityName, comments }) {
         handleRealtimeDeleteComments
       )
       socket.on("drive_mindmap:comment_deleted", handleRealtimeDeleteOne)
-      socket.on(
-      "drive_mindmap:comment_updated",
-      handleRealtimeUpdateComment
-    )
+      socket.on("drive_mindmap:comment_updated", handleRealtimeUpdateComment)
+      socket.on("drive_mindmap:node_resolved", handleRealtimeNodeResolved)
+
     }
   })
 
@@ -75,10 +84,9 @@ export function useMindmapCommentRealtime({ socket, entityName, comments }) {
         handleRealtimeDeleteComments
       )
       socket.off("drive_mindmap:comment_deleted", handleRealtimeDeleteOne)
-      socket.off(
-      "drive_mindmap:comment_updated",
-      handleRealtimeUpdateComment
-    )
+      socket.off("drive_mindmap:comment_updated", handleRealtimeUpdateComment)
+      socket.off("drive_mindmap:node_resolved", handleRealtimeNodeResolved)
+
     }
   })
 }

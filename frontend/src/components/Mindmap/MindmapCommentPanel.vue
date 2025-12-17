@@ -25,17 +25,17 @@
       </div>
 
       <div v-else>
-        <div v-for="group in parsedGroups" :ref="el => setGroupRef(group.node.id, el)" :key="group.node.id"
-          @click="group.node.id !== activeNodeId && handleClickGroup(group.node.id, $event)" class="
+        <div v-for="group in parsedGroups" :ref="el => setGroupRef(groupKeyOf(group), el)" :key="groupKeyOf(group)"
+          @click="handleClickGroup(group, $event)" class="
             comment-panel
             group/comment-panel
             cursor-pointer
             relative
             mb-5 p-3 rounded bg-white border shadow-sm
             text-xs text-gray-500
-          " :class="group.node.id === activeNodeId ? 'active' : ''"
+          " :class="groupKeyOf(group) === activeGroupKey ? 'active' : ''"
           style="content-visibility: auto; contain-intrinsic-size: 180px;" data-comment-panel
-          :data-node-comment="isEditing ? 'edit-' + group.node.id : group.node.id">
+          :data-node-comment="isEditing ? 'edit-' + groupKeyOf(group) : groupKeyOf(group)">
 
           <!-- Header node -->
           <div :class="[
@@ -55,25 +55,26 @@
                 group-hover/comment-panel:opacity-100
                 transition-opacity duration-150
               ">
-              <i v-tooltip.top="hasNextGroup(group.node.id)
+              <i v-tooltip.top="hasNextGroup(groupKeyOf(group))
                 ? { value: 'Tiếp (↓)', pt: { text: { class: ['text-[12px]'] } } }
-                : null" class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(group.node.id)
+                : null" class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(groupKeyOf(group))
                   ? 'cursor-pointer hover:text-blue-500'
                   : 'cursor-not-allowed opacity-40'"
-                @click.stop="hasNextGroup(group.node.id) && selectNextGroup(group.node.id)" />
+                @click.stop="hasNextGroup(groupKeyOf(group)) && selectNextGroup(groupKeyOf(group))" />
 
-              <i v-tooltip.top="hasPrevGroup(group.node.id)
+              <i v-tooltip.top="hasPrevGroup(groupKeyOf(group))
                 ? { value: 'Trước (↑)', pt: { text: { class: ['text-[12px]'] } } }
-                : null" class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(group.node.id)
+                : null" class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(groupKeyOf(group))
                   ? 'cursor-pointer hover:text-blue-500'
                   : 'cursor-not-allowed opacity-40'"
-                @click.stop="hasPrevGroup(group.node.id) && selectPrevGroup(group.node.id)" />
+                @click.stop="hasPrevGroup(groupKeyOf(group)) && selectPrevGroup(groupKeyOf(group))" />
 
               <div class="panel-separate border-l w-[1px] h-[16px]" />
 
               <i v-tooltip.top="{ value: 'Sao chép liên kết', pt: { text: { class: ['text-[12px]'] } } }"
                 class="pi pi-link !text-[12px] mr-2 cursor-pointer" />
-              <i class="pi pi-check-circle !text-[12px] cursor-pointer" />
+              <i v-tooltip.top="{ value: 'Giải quyết và ẩn', pt: { text: { class: ['text-[12px]'] } } }"
+                @click="resolveNode(group.node.data.label)" class="pi pi-check-circle !text-[12px] cursor-pointer" />
             </div>
           </div>
 
@@ -94,7 +95,8 @@
 
               <!-- Reply -->
               <i v-tooltip.top="{ value: 'Trả lời', pt: { text: { class: ['text-[12px]'] } } }"
-                class="pi pi-comment !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"></i>
+                class="pi pi-comment !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
+                @click="handleReply(c)" />
 
               <!-- More -->
               <div data-comment-more v-if="currentUser?.id === c.user?.email" class="relative">
@@ -144,7 +146,7 @@
 
 
           <!-- Empty state -->
-          <div v-if="group.comments?.length === 0 && group.node.id === activeNodeId"
+          <div v-if="group.comments?.length === 0 && groupKeyOf(group) === activeGroupKey"
             class="flex items-start gap-2 my-5">
             <CustomAvatar :image="currentUser?.imageURL" :label="currentUser?.fullName?.slice(0, 1)" shape="circle"
               size="small" />
@@ -156,13 +158,28 @@
             </div>
           </div>
 
+          <p v-if="groupKeyOf(group) !== activeGroupKey" class="pl-[50px] !text-[12px] opacity-0
+                group-hover/comment-panel:opacity-100
+                transition-opacity duration-150" data-reply-trigger @mousedown.stop @click.stop="() => {
+                  const key = groupKeyOf(group)
+                  suppressAutoScroll = true
+                  activeGroupKey = key
+                  if (activeGroupKey !== key) {
+                    activeGroupKey = key
+                  }
+                  focusEditorOf(group)
+                  requestAnimationFrame(() => {
+                    suppressAutoScroll = false
+                  })
+                }">Trả lời...</p>
+
           <!-- Input -->
-          <div class="mt-3 relative transition-opacity duration-150" :class="group.node.id === activeNodeId && !isEditing
+          <div class="mt-3 relative transition-opacity duration-150" :class="groupKeyOf(group) === activeGroupKey && !isEditing
             ? 'opacity-100 pointer-events-auto'
             : 'opacity-0 pointer-events-none h-0 overflow-hidden'">
 
             <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
-              :data-node="group.node.id"></div>
+              :data-node="groupKeyOf(group)"></div>
 
 
             <div class="flex gap-2 w-full border rounded">
@@ -171,12 +188,13 @@
                   if (!commentEditorRef.value) {
                     commentEditorRef.value = {}
                   }
-                  if (group.node.id === activeNodeId) {
-                    commentEditorRef.value[group.node.id] = el
+                  if (groupKeyOf(group) === activeGroupKey) {
+                    commentEditorRef.value[groupKeyOf(group)] = el
                   }
-                }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmit" :members="members"
-                  @navigate="handleNavigate" :nodeId="group.node.id" :currentUser="currentUser?.id"
-                  @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages" />
+                }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmitSafe" :members="members"
+                  @navigate="handleNavigate" :nodeId="groupKeyOf(group)" :currentUser="currentUser?.id"
+                  @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages"
+                  :placeholder="group.comments?.length === 0 ? 'Thêm nhận xét' : 'Trả lời'" />
               </div>
 
               <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
@@ -192,7 +210,7 @@
                   Huỷ
                 </button>
                 <button comment-add-form-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
-                  @click="handleSubmit">
+                  @click="handleSubmitSafe">
                   Đăng
                 </button>
               </div>
@@ -201,10 +219,14 @@
 
 
           <!-- INPUT EDIT COMMENT -->
-          <div v-if="isEditing && activeEditingComment?.node_id === group.node.id"
-            class="mt-3 transition-opacity duration-150" comment-edit-form @click.stop>
+          <div v-if="
+            isEditing &&
+            activeEditingComment &&
+            groupKeyOf(group) ===
+            `${activeEditingComment.node_id}__${activeEditingComment.session_index}`
+          " class="mt-3 transition-opacity duration-150" comment-edit-form @click.stop>
             <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
-              :data-node="'edit-' + group.node.id"></div>
+              :data-node="'edit-' + groupKeyOf(group)"></div>
             <div class="flex gap-2 w-full border rounded bg-white">
               <div class="flex-1">
                 <CommentEditor :ref="el => {
@@ -214,9 +236,9 @@
                   if (editingCommentId === activeEditingComment?.name) {
                     commentEditorRef.value['edit-' + editingCommentId] = el
                   }
-                }" v-model="editingValue" :previewImages="previewImages" @submit="handleSubmit" :members="members"
-                  @navigate="handleNavigate" :nodeId="'edit-' + group.node.id" @open-gallery="openGalleryFromEditor"
-                  @paste-images="handlePasteImages" />
+                }" v-model="editingValue" :previewImages="previewImages" @submit="submitEdit(activeEditingComment)"
+                  :members="members" @navigate="handleNavigate" :nodeId="'edit-' + groupKeyOf(group)"
+                  @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages" />
               </div>
 
               <!-- ICON UPLOAD (TÙY CHỌN) -->
@@ -246,8 +268,7 @@
   <Teleport to="body">
     <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
       class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
-      <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2"
-        @click="handleEditComment(startEdit)">
+      <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2" @click="handleEditAndFocus">
         <span>Chỉnh sửa</span>
       </div>
 
@@ -339,10 +360,7 @@ import { useGalleryZoom } from "./composables/useGalleryZoom"
 import { useParsedComments } from "./composables/useParsedComments"
 import { usePanelClose } from "./composables/usePanelClose"
 import { useClickOutsideToResetActiveNode } from "./composables/useClickOutsideToResetActiveNode"
-
-
-
-
+import { useResolvedNode } from "./composables/useResolvedNode"
 
 import { timeAgo } from "./utils/timeAgo"
 
@@ -350,7 +368,7 @@ import { timeAgo } from "./utils/timeAgo"
 const props = defineProps({
   visible: Boolean,
   node: Object,
-  mindmap: Array
+  mindmap: Array,
 })
 const emit = defineEmits(["close", "cancel", "submit", "update:input", "update:node"])
 const socket = inject("socket")
@@ -362,7 +380,7 @@ const store = useStore()
 const route = useRoute()
 const entityName = route.params.entityName
 const comments = ref([])
-const activeNodeId = ref(null)
+const activeGroupKey = ref(null)
 const commentEditorRef = ref({})
 const groupRefs = ref({})
 const previewImages = ref([])
@@ -372,10 +390,19 @@ const hashCommentIdInternal = ref(null)
 const hasData = ref(false)
 const isUploadingImage = ref(false)
 const pendingScroll = ref(null)
-
-
+const hasConsumedRouteNode = ref(false)
 const isNavigatingByKeyboard = ref(false)
+const isSubmitting = ref(false)
+const suppressAutoScroll = ref(false)
 
+function groupKeyOf(group) {
+  return `${group.node.id}__${group.session_index}`
+}
+
+function parseGroupKey(key) {
+  const [nodeId, session] = key.split("__")
+  return { nodeId, session_index: Number(session) }
+}
 
 const currentUser = computed(() => store.state.user)
 
@@ -392,25 +419,20 @@ const {
   handleDeleteComment
 } = useMindmapCommentMenu()
 
-
 const { setCommentRef, scrollToComment } = useCommentRefs()
-
-
 
 const { deleteComment } = useMindmapAPI({
   entityName
 })
 
 
-function setGroupRef(nodeId, el) {
+function setGroupRef(key, el) {
   if (el) {
-    groupRefs.value[nodeId] = el
+    groupRefs.value[key] = el
   } else {
-    delete groupRefs.value[nodeId]
+    delete groupRefs.value[key]
   }
 }
-
-
 
 const mindmap_comment_list = createResource({
   url: "drive.api.mindmap_comment.get_comments",
@@ -438,8 +460,15 @@ function syncHashCommentId() {
 watch(
   () => props.visible,
   async (isVisible) => {
-    if (!isVisible) return
+    // Khi ĐÓNG panel
+    if (!isVisible) {
+      // reset để lần mở sau nhận node mới từ mindmap
+      pendingScroll.value = null
+      hashCommentIdInternal.value = null
+      return
+    }
 
+    // Khi MỞ panel
     syncHashCommentId()
 
     if (!hasLoadedOnce.value) {
@@ -447,15 +476,18 @@ watch(
       hasLoadedOnce.value = true
     }
 
+    // Nếu mở panel theo #comment_id=... trong URL → ưu tiên scroll theo comment
     if (hashCommentIdInternal.value) {
       pendingScroll.value = {
         type: "comment",
-        id: hashCommentIdInternal.value
+        id: hashCommentIdInternal.value,
       }
+      return
     }
-  },
-  { immediate: true }
+    syncQueryNode()
+  }
 )
+
 
 function isEdited(c) {
   if (!c) return false
@@ -481,18 +513,39 @@ function displayTime(c) {
 // =============================
 // 1. INPUT STATE + API ACTIONS
 // =============================
+
+const activeSessionIndex = computed(() => {
+  if (!activeGroupKey.value) return null
+  const [, session] = activeGroupKey.value.split("__")
+  return Number(session)
+})
+
 const {
   inputValue,
   handleSubmit,
   handleCancel,
-  loadDraft
 } = useMindmapCommentInput({
-  activeNodeId,
+  activeGroupKey,
+  activeSessionIndex,
   entityName,
   emit,
   previewImages,
   commentEditorRef
 })
+
+async function handleSubmitSafe() {
+  isSubmitting.value = true
+  try {
+    await handleSubmit()
+  } finally {
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        isSubmitting.value = false
+      })
+    })
+  }
+}
+
 
 const {
   editingCommentId,
@@ -506,7 +559,7 @@ const {
   onEditDone() {
     inputValue.value = ""
     previewImages.value = []
-    commentEditorRef.value?.[activeNodeId.value]?.clearValues?.()
+    commentEditorRef.value?.[activeGroupKey.value]?.clearValues?.()
   }
 })
 
@@ -520,87 +573,36 @@ const activeEditingComment = computed(() => {
 // =============================
 // 2. ACTIVE NODE STATE CONTROL
 // =============================
-function resetActiveNode() {
-  if (inputValue.value.trim() || previewImages.value.length) {
-    return
-  }
-
-  activeNodeId.value = null
-}
-
-function ensureGroupVisible(id) {
-  const el = groupRefs.value[id]
-  const container = document.querySelector(".comment-scroll-container")
-
-  if (!el || !container) return
-
-  const rect = el.getBoundingClientRect()
-  const containerRect = container.getBoundingClientRect()
-
-  const elTop = rect.top
-  const elBottom = rect.bottom
-
-  const containerTop = containerRect.top
-  const containerBottom = containerRect.bottom
-
-  // ✅ đã nằm gọn trong viewport → không làm gì
-  if (elTop >= containerTop && elBottom <= containerBottom) {
-    return
-  }
-
-  // ✅ tính target theo công thức bạn dùng
-  const target =
-    rect.top - containerRect.top + container.scrollTop
-
-  container.scrollTo({
-    top: target,
-    behavior: "auto",
-  })
-}
-
-
-
 watch(
   () => props.node?.id,
   (newId) => {
-    if (!newId || activeNodeId.value === newId) return
+    if (!newId) return
+    if (!props.visible) return
+    if (isNavigatingByKeyboard.value) return
+    if (pendingScroll.value) return
 
-    activeNodeId.value = newId
-    loadDraft(newId)
-
-    ensureGroupVisible(newId)
-
-    if (!hasData.value) {
-      pendingScroll.value = { type: "node", id: newId }
+    pendingScroll.value = {
+      type: "node",
+      id: newId
     }
-  },
-  { flush: "post" }
+  }
 )
 
-
 watch(
-  hasData,
-  async (ready) => {
-    if (!ready) return
-    if (!pendingScroll.value) return
+  () => props.node,
+  (node) => {
+    if (!node) return
 
-    // đợi DOM render thật
-    await nextTick()
-    await nextTick()
+    // nếu chưa có group nào của node này
+    const hasGroup = mergedGroupsFinal.value.some(
+      g => g.node.id === node.id
+    )
 
-    const task = pendingScroll.value
-
-    if (task.type === "comment") {
-      scrollToComment(task.id)
+    if (!hasGroup) {
+      activeGroupKey.value = `${node.id}__1`
     }
-
-    if (task.type === "node") {
-      scrollToActiveNode(task.id)
-    }
-
-    pendingScroll.value = null
   },
-  { flush: "post" }
+  { immediate: true }
 )
 
 watch(
@@ -611,36 +613,42 @@ watch(
   { flush: "post" }
 )
 
-
 // =============================
 // 3. FOCUS + CLICK INTERACTION
 // =============================
-
-function handleClickGroup(nodeId, e) {
+function handleClickGroup(group, e) {
+  // 1. đang bôi đen text → không xử lý
   const selection = window.getSelection()
-
   if (selection && selection.toString().length > 0) {
     return
   }
+
+  // 2. các element cần bỏ qua click
   if (e.target.closest("a")) return
-  if (!nodeId) return
   if (e.target.closest("[comment-add-form-cancel]")) return
   if (e.target.closest("[comment-add-form-submit]")) return
   if (e.target.closest("[data-mention-item]")) return
   if (e.target.closest("[data-image-comment]")) return
   if (e.target.closest("[data-upload-image-to-comment]")) return
 
+  // 3. validate group
+  if (!group || !group.node?.id) return
 
-  // Click lại chính node đang active → chỉ focus input
-  if (props.node?.id === nodeId) {
+  const groupKey = groupKeyOf(group)
+
+  if (activeGroupKey.value === groupKey) {
     return
   }
+  // 5. set active group
+  activeGroupKey.value = groupKey
 
-  const node = nodeMap.value[nodeId] || { id: nodeId }
-  emit("update:node", node)
+  nextTick(() => {
+    scrollToActiveNode(groupKey)
+  })
+
+  emit("update:node", group.node)
 
 }
-
 
 // =============================
 // 4. SCROLL HANDLER
@@ -661,7 +669,7 @@ const {
 } = useMindmapCommentData({
   comments,
   mindmap: computed(() => props.mindmap),
-  activeNodeId
+  activeGroupKey
 })
 
 // =============================
@@ -695,12 +703,27 @@ const {
   selectNextGroup,
   selectPrevGroup
 } = useMindmapCommentNavigation({
-  activeNodeId,
+  activeGroupKey,
   mergedGroupsFinal,
   nodeMap,
   emit,
-  galleryVisible
+  galleryVisible,
+  groupKeyOf
 })
+
+watch(
+  activeGroupKey,
+  async (key, prevKey) => {
+    if (!key) return
+    if (key === prevKey) return
+    if (pendingScroll.value) return
+    if (suppressAutoScroll.value) return
+
+    await nextTick()
+    scrollToActiveNode(key)
+  },
+  { flush: "post" }
+)
 
 // =============================
 // 8. UI DIRECTIVES
@@ -713,15 +736,15 @@ const groups = computed(() => mergedGroupsFinal.value)
 function handleNavigate(direction) {
   isNavigatingByKeyboard.value = true
 
-  const currentId = activeNodeId.value
+  const currentId = activeGroupKey.value
   commentEditorRef.value?.[currentId]?.blur?.()
 
-  if (direction === "next" && hasNextGroup(activeNodeId.value)) {
-    selectNextGroup(activeNodeId.value)
+  if (direction === "next" && hasNextGroup(activeGroupKey.value)) {
+    selectNextGroup(activeGroupKey.value)
   }
 
-  if (direction === "prev" && hasPrevGroup(activeNodeId.value)) {
-    selectPrevGroup(activeNodeId.value)
+  if (direction === "prev" && hasPrevGroup(activeGroupKey.value)) {
+    selectPrevGroup(activeGroupKey.value)
   }
 
   // reset flag sau khi DOM ổn định
@@ -813,10 +836,227 @@ watch(galleryVisible, (v) => {
 })
 
 useClickOutsideToResetActiveNode({
-  activeNodeId,
+  activeGroupKey,
   inputValue,
   previewImages,
 })
+
+
+function insertReplyMention({ id, label }) {
+  const nodeId = activeGroupKey.value
+  if (!nodeId) return
+
+  const editor = commentEditorRef.value?.value?.[nodeId]
+  if (!editor) return
+
+  // Chèn mention vào đầu nội dung (không phá nội dung cũ)
+  editor.insertMention({
+    id,
+    label,
+  })
+}
+
+
+function handleReply(c) {
+  if (activeGroupKey.value !== c.node_id) {
+    const replyKey = `${c.node_id}__${c.session_index}`
+    activeGroupKey.value = replyKey
+  }
+
+  nextTick(() => {
+    insertReplyMention({
+      id: c.user.email,
+      label: c.user.full_name,
+    })
+  })
+}
+
+function focusEditorOf(group) {
+  const key = groupKeyOf(group)
+  nextTick(() => {
+    const editor = commentEditorRef.value?.value?.[key]
+    editor?.focus?.()
+  })
+}
+
+async function handleEditAndFocus() {
+  handleEditComment(startEdit)
+
+  const c = activeEditingComment.value
+  if (!c) return
+
+  const groupKey = `${c.node_id}__${c.session_index}`
+  activeGroupKey.value = groupKey
+
+  await nextTick()
+
+  const key = "edit-" + c.name
+  const wrapper = commentEditorRef.value?.value?.[key]
+
+  if (!wrapper) return
+
+  const editor = wrapper.editor
+  if (!editor) return
+
+  await nextTick()
+
+  const { doc } = editor.state
+  const endPos = doc.content.size
+
+  editor.commands.focus()
+  editor.commands.setTextSelection(endPos)
+}
+
+
+const activeNode = computed(() => {
+  if (!activeGroupKey.value) return null
+  const { nodeId } = parseGroupKey(activeGroupKey.value)
+  return nodeMap.value?.[nodeId] || null
+})
+
+const { resolveNode } = useResolvedNode({ activeNode, comments, entityName, activeSessionIndex })
+
+watch(
+  [pendingScroll, hasData, mergedGroupsFinal, () => props.visible],
+  async ([task, ready, _groups, visible]) => {
+    if (!task) return
+    if (!ready) return
+    if (!visible) return
+
+    await nextTick()
+
+    // COMMENT
+    if (task.type === "comment") {
+      // 1. tìm comment
+      const comment = comments.value.find(c => c.name === task.id)
+      if (!comment) return
+
+      // 2. set đúng groupKey của comment
+      const key = `${comment.node_id}__${comment.session_index}`
+
+      // set activeGroupKey TRƯỚC
+      activeGroupKey.value = key
+
+      // chờ DOM render group đó
+      let retry = 20
+      while (retry-- > 0 && !groupRefs.value[key]) {
+        await nextTick()
+      }
+
+      // 3. scroll đến comment
+      await new Promise(r => setTimeout(r, 200))
+      const ok = scrollToComment(task.id)
+
+      if (ok !== false) {
+        pendingScroll.value = null
+        hasConsumedRouteNode.value = true
+      }
+
+      return
+    }
+
+
+    if (task.type === "group") {
+      const key = task.key
+
+      let retry = 20
+      while (retry-- > 0 && !groupRefs.value[key]) {
+        await nextTick()
+      }
+
+      if (groupRefs.value[key]) {
+        scrollToActiveNode(key)
+        pendingScroll.value = null
+      }
+
+      return
+    }
+
+
+
+    // NODE / GROUP
+    if (task.type === "node") {
+      const groupsOfNode = mergedGroupsFinal.value
+        .filter(g => g.node.id === task.id)
+
+      if (!groupsOfNode.length) return
+
+      let targetGroup = null
+
+      if (!activeGroupKey.value) {
+        targetGroup = groupsOfNode
+          .sort((a, b) => b.session_index - a.session_index)[0]
+      } else {
+        const { session_index } = parseGroupKey(activeGroupKey.value)
+
+        targetGroup =
+          groupsOfNode.find(g => g.session_index === session_index) ||
+          groupsOfNode.sort((a, b) => b.session_index - a.session_index)[0]
+      }
+
+
+      const key = groupKeyOf(targetGroup)
+
+      let retry = 20
+      while (retry-- > 0 && !groupRefs.value[key]) {
+        await nextTick()
+      }
+
+      if (groupRefs.value[key]) {
+        activeGroupKey.value = key
+        scrollToActiveNode(key)
+        pendingScroll.value = null
+      }
+    }
+
+
+  },
+  { flush: "post" }
+)
+
+
+function syncQueryNode() {
+  if (hashCommentIdInternal.value) return
+  if (pendingScroll.value) return
+  if (hasConsumedRouteNode.value) return
+
+  const nodeId = route.query?.node
+  if (!nodeId) return
+
+  pendingScroll.value = {
+    type: "node",
+    id: nodeId
+  }
+
+  hasConsumedRouteNode.value = true
+}
+
+watch(
+  mergedGroupsFinal,
+  (groups) => {
+    if (!activeGroupKey.value) return
+
+    const exists = groups.some(
+      g => g.groupKey === activeGroupKey.value
+    )
+
+    // activeGroupKey trỏ vào group đã bị remove
+    if (!exists) {
+      // ưu tiên: group cùng node (nếu còn)
+      const { nodeId } = parseGroupKey(activeGroupKey.value)
+
+      const fallback =
+        groups.find(g => g.node.id === nodeId) ||
+        groups[0] || null
+
+      activeGroupKey.value = fallback
+        ? fallback.groupKey
+        : null
+    }
+  },
+  { flush: "post" }
+)
+
 
 </script>
 

@@ -11,55 +11,166 @@ ALLOWED_ATTRS = {
     "span": ["id", "label", "data-mention"],
 }
 
+def get_notify_users_from_shared(entity, exclude_user=None):
+    from drive.api.permissions import get_shared_with_list
+
+    users = get_shared_with_list(entity)
+
+    result = []
+    for u in users:
+        user = u.get("user")
+        if not user:
+            continue
+        if exclude_user and user == exclude_user:
+            continue
+        result.append(user)
+
+    return result
+
+
 
 @frappe.whitelist()
 def get_comments(mindmap_id: str):
     if not mindmap_id:
         frappe.throw(_("Missing mindmap_id"))
 
-    comments = frappe.get_all(
+    # 1) Lấy toàn bộ session đang mở của mindmap đó
+    open_sessions = frappe.get_all(
+        "Drive Mindmap Comment Session",
+        filters={
+            "mindmap_id": mindmap_id,
+            "is_closed": 0
+        },
+        fields=["node_id", "session_index"]
+    )
+
+    # Map: node_id → [session_index mở]
+    open_map = {}
+    for s in open_sessions:
+        open_map.setdefault(s.node_id, set()).add(s.session_index)
+
+    # 2) Lấy toàn bộ comment và lọc ở Python
+    raw_comments = frappe.get_all(
         "Drive Mindmap Comment",
         filters={"mindmap_id": mindmap_id},
-        fields=["name", "comment", "owner", "creation", "modified", "node_id"],
+        fields=["name", "comment", "owner", "creation",
+                "modified", "node_id", "session_index"],
         order_by="creation asc",
     )
 
-    return comments
+    filtered_comments = []
+
+    for c in raw_comments:
+        node_sessions = open_map.get(c.node_id, set())
+
+        # Nếu session_index của comment KHÔNG nằm trong session đang mở → bỏ qua
+        if c.session_index not in node_sessions:
+            continue
+
+        filtered_comments.append(c)
+
+    return filtered_comments
 
 
 @frappe.whitelist()
-def add_comment(mindmap_id: str, node_id: str, comment: str):
+def add_comment(mindmap_id: str, node_id: str, session_index: int | None, comment: str):
     if not mindmap_id or not node_id or not comment:
-        frappe.throw(_("Invalid parameters"))
+        frappe.throw("Missing params")
 
-    try:
-        comment_data = json.loads(comment)
-    except Exception:
-        frappe.throw(_("Comment must be valid JSON"))
+    now = frappe.utils.now_datetime()
+    comment_data = json.loads(comment)
 
-    doc = frappe.get_doc(
-        {
-            "doctype": "Drive Mindmap Comment",
+    # xác định session hợp lệ
+    session = None
+
+    if session_index:
+        session = frappe.db.get_value(
+            "Drive Mindmap Comment Session",
+            {
+                "mindmap_id": mindmap_id,
+                "node_id": node_id,
+                "session_index": session_index,
+                "is_closed": 0
+            },
+            ["name", "session_index", "comment_count"],
+            as_dict=True
+        )
+
+    # nếu không có session hợp lệ → tìm session open
+    if not session:
+        session = frappe.db.get_value(
+            "Drive Mindmap Comment Session",
+            {
+                "mindmap_id": mindmap_id,
+                "node_id": node_id,
+                "is_closed": 0
+            },
+            ["name", "session_index", "comment_count"],
+            as_dict=True
+        )
+
+    # nếu vẫn không có → tạo session mới
+    if not session:
+        last_index = frappe.db.get_value(
+            "Drive Mindmap Comment Session",
+            {"mindmap_id": mindmap_id, "node_id": node_id},
+            "session_index",
+            order_by="session_index desc"
+        ) or 0
+
+        session_index = last_index + 1
+
+        session_doc = frappe.get_doc({
+            "doctype": "Drive Mindmap Comment Session",
             "mindmap_id": mindmap_id,
             "node_id": node_id,
-            "comment": comment_data,
-            "owner": frappe.session.user,
+            "session_index": session_index,
+            "opened_at": now,
+            "comment_count": 0,
+            "is_closed": 0,
+        })
+        session_doc.insert(ignore_permissions=True)
+        session = {
+            "name": session_doc.name,
+            "session_index": session_index,
+            "comment_count": 0
         }
+
+    # tạo comment SAU KHI đã có session
+    comment_doc = frappe.get_doc({
+        "doctype": "Drive Mindmap Comment",
+        "mindmap_id": mindmap_id,
+        "node_id": node_id,
+        "session_index": session["session_index"],
+        "comment": comment_data,
+        "owner": frappe.session.user,
+    })
+    comment_doc.insert(ignore_permissions=True)
+
+    # update count
+    frappe.db.set_value(
+        "Drive Mindmap Comment Session",
+        session["name"],
+        "comment_count",
+        (session["comment_count"] or 0) + 1
     )
 
-    doc.insert(ignore_permissions=True)
-
-    # API vẫn lo realtime
+    # realtime
     frappe.publish_realtime(
         event="drive_mindmap:new_comment",
         message={
-            "mindmap_id": mindmap_id,
             "node_id": node_id,
-            "comment": doc.as_dict(),
+            "mindmap_id": mindmap_id,
+            "session_index": session["session_index"],
+            "comment": comment_doc.as_dict(),
         },
     )
 
-    return {"status": "ok", "comment": doc.as_dict()}
+    return {
+        "ok": True,
+        "session_index": session["session_index"],
+        "comment": comment_doc.as_dict()
+    }
 
 
 @frappe.whitelist()
@@ -154,7 +265,7 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
     if not mindmap_id or not node_ids:
         frappe.throw(_("Missing mindmap_id or node_ids"))
 
-    # node_ids có thể truyền từ frontend lên dạng JSON string
+    # node_ids có thể là JSON string từ frontend
     if isinstance(node_ids, str):
         try:
             node_ids = json.loads(node_ids)
@@ -164,22 +275,67 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
     if not isinstance(node_ids, list):
         frappe.throw(_("node_ids must be a list"))
 
-    # Lấy danh sách comment cần xóa
+    if not node_ids:
+        return {"status": "ok", "deleted": 0}
+
+    # 1. Lấy toàn bộ comment cần xoá (kèm session_index)
     comments = frappe.get_all(
         "Drive Mindmap Comment",
-        filters={"mindmap_id": mindmap_id, "node_id": ["in", node_ids]},
-        pluck="name",
+        filters={
+            "mindmap_id": mindmap_id,
+            "node_id": ["in", node_ids],
+        },
+        fields=["name", "node_id", "session_index"],
     )
 
-    deleted = 0
+    if not comments:
+        return {"status": "ok", "deleted": 0}
 
-    for name in comments:
+    # 2. Gom số comment bị xoá theo session
+    # key: (node_id, session_index) → count
+    session_counter = {}
+
+    for c in comments:
+        key = (c.node_id, c.session_index)
+        session_counter[key] = session_counter.get(key, 0) + 1
+
+    # 3. Xoá toàn bộ comment
+    for c in comments:
         frappe.delete_doc(
-            "Drive Mindmap Comment", name, ignore_permissions=True, force=True
+            "Drive Mindmap Comment",
+            c.name,
+            ignore_permissions=True,
+            force=True,
         )
-        deleted += 1
 
-    # Realtime sync cho các client khác
+    deleted = len(comments)
+
+    # 4. Giảm comment_count cho từng session đang mở
+    for (node_id, session_index), count in session_counter.items():
+        session_name = frappe.db.get_value(
+            "Drive Mindmap Comment Session",
+            {
+                "mindmap_id": mindmap_id,
+                "node_id": node_id,
+                "session_index": session_index,
+                "is_closed": 0,
+            },
+            "name",
+        )
+
+        if not session_name:
+            continue
+
+        frappe.db.sql(
+            """
+            UPDATE `tabDrive Mindmap Comment Session`
+            SET comment_count = GREATEST(comment_count - %s, 0)
+            WHERE name = %s
+            """,
+            (count, session_name),
+        )
+
+    # 5. Realtime sync cho client khác
     frappe.publish_realtime(
         event="drive_mindmap:multiple_comments_deleted",
         message={
@@ -189,7 +345,11 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
         },
     )
 
-    return {"status": "ok", "deleted": deleted}
+    return {
+        "status": "ok",
+        "deleted": deleted,
+        "node_ids": node_ids,
+    }
 
 
 @frappe.whitelist()
@@ -199,15 +359,14 @@ def delete_comment_by_id(mindmap_id: str, comment_id: str):
 
     current_user = frappe.session.user
 
-    # Lấy comment cần xóa
+    # 1. Lấy comment cần xoá
     doc = frappe.get_doc("Drive Mindmap Comment", comment_id)
 
-    # Check đúng mindmap
+    # 2. Check đúng mindmap
     if doc.mindmap_id != mindmap_id:
         frappe.throw(_("Comment does not belong to this mindmap"))
 
-    # Check quyền XOÁ: chỉ owner mới được xoá
-    # Nếu bạn dùng field khác owner thì đổi lại tại đây
+    # 3. Check quyền xoá (chỉ owner)
     if doc.owner != current_user:
         frappe.throw(
             _("You do not have permission to delete this comment"),
@@ -215,23 +374,57 @@ def delete_comment_by_id(mindmap_id: str, comment_id: str):
         )
 
     node_id = doc.node_id
+    session_index = doc.session_index
 
-    # Xóa cứng
-    frappe.delete_doc(
-        "Drive Mindmap Comment", comment_id, ignore_permissions=True, force=True
+    # 4. Lấy session đang mở tương ứng (nếu còn)
+    session_name = frappe.db.get_value(
+        "Drive Mindmap Comment Session",
+        {
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "session_index": session_index,
+            "is_closed": 0,
+        },
+        "name"
     )
 
-    # Realtime sync cho các client khác
+    # 5. Xoá comment (xoá cứng)
+    frappe.delete_doc(
+        "Drive Mindmap Comment",
+        comment_id,
+        ignore_permissions=True,
+        force=True,
+    )
+
+    # 6. Giảm comment_count của session (nếu session còn mở)
+    if session_name:
+        frappe.db.sql(
+            """
+            UPDATE `tabDrive Mindmap Comment Session`
+            SET comment_count = GREATEST(comment_count - 1, 0)
+            WHERE name = %s
+            """,
+            (session_name,),
+        )
+
+    # 7. Realtime sync cho client khác
     frappe.publish_realtime(
         event="drive_mindmap:comment_deleted",
         message={
             "mindmap_id": mindmap_id,
             "node_id": node_id,
+            "session_index": session_index,
             "comment_id": comment_id,
         },
     )
 
-    return {"status": "ok", "deleted": 1, "comment_id": comment_id}
+    return {
+        "status": "ok",
+        "deleted": 1,
+        "comment_id": comment_id,
+        "node_id": node_id,
+        "session_index": session_index,
+    }
 
 
 @frappe.whitelist()
@@ -280,6 +473,10 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
 def notify_mentions(comment_name):
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
+    shared_users = set(
+        get_notify_users_from_shared(doc.mindmap_id)
+    )    
+
     drive_file = frappe.get_value(
         "Drive File",
         doc.mindmap_id,
@@ -311,7 +508,9 @@ def notify_mentions(comment_name):
         return
 
     mentioned_users = {
-        m.get("id") for m in mentions if isinstance(m, dict) and m.get("id")
+        m.get("id")
+        for m in mentions
+        if m.get("id") in shared_users
     }
 
     # Không notify chính mình
@@ -361,6 +560,10 @@ def notify_mentions(comment_name):
 def notify_comment(comment_name):
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
+    notify_users = get_notify_users_from_shared(
+        entity=doc.mindmap_id
+    )
+
     drive_file = frappe.get_value(
         "Drive File",
         doc.mindmap_id,
@@ -383,18 +586,11 @@ def notify_comment(comment_name):
 
     actor_full_name = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
 
-    # 1️⃣ Lấy user trong team (tuỳ bạn: Drive Team Member / Workspace member)
-    team_members = frappe.get_all(
-        "Drive Team Member",
-        filters={"parent": team},
-        pluck="user",
-    )
-
-    if not team_members:
+    if not notify_users:
         return
 
-    for user in team_members:
-        # ❌ không notify chính mình
+    for user in notify_users:
+        # không notify chính mình
         if user == doc.owner:
             continue
 
@@ -420,3 +616,59 @@ def notify_comment(comment_name):
             ),
         )
     return {"status": "ok", "comment": doc.as_dict()}
+
+
+@frappe.whitelist()
+def resolve_node(entity_name: str, node_id: str, session_index: int):
+    if not entity_name or not node_id or session_index is None:
+        frappe.throw("Missing parameters")
+
+    doc_drive = frappe.get_doc("Drive File", entity_name)
+    if not frappe.has_permission("Drive File", "write", doc_drive):
+        frappe.throw("No permission to resolve")
+
+    now = frappe.utils.now_datetime()
+
+    # tìm đúng session đang mở theo index
+    session = frappe.db.get_value(
+        "Drive Mindmap Comment Session",
+        {
+            "mindmap_id": entity_name,
+            "node_id": node_id,
+            "session_index": session_index,
+            "is_closed": 0,
+        },
+        ["name"],
+        as_dict=True
+    )
+
+    if not session:
+        return {
+            "ok": True,
+            "already_closed": True,
+            "session_index": session_index
+        }
+
+    frappe.db.set_value(
+        "Drive Mindmap Comment Session",
+        session.name,
+        {
+            "is_closed": 1,
+            "closed_at": now
+        }
+    )
+
+    frappe.publish_realtime(
+        event="drive_mindmap:node_resolved",
+        message={
+            "mindmap_id": entity_name,
+            "node_id": node_id,
+            "session_index": session_index,
+        },
+    )
+
+    return {
+        "ok": True,
+        "resolved": True,
+        "session_index": session_index
+    }

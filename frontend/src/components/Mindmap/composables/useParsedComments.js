@@ -5,8 +5,8 @@ export function useParsedComments(groups) {
     const parser = new DOMParser()
     const doc = parser.parseFromString(html || "", "text/html")
 
-    const images = [...doc.querySelectorAll("img")].map(img => img.src)
-    doc.querySelectorAll("img").forEach(img => img.remove())
+    const images = [...doc.querySelectorAll("img")].map((img) => img.src)
+    doc.querySelectorAll("img").forEach((img) => img.remove())
 
     return {
       text: doc.body.innerHTML.trim(),
@@ -25,22 +25,20 @@ export function useParsedComments(groups) {
   }
 
   const parsedGroups = computed(() =>
-    groups.value.map(group => ({
+    groups.value.map((group) => ({
       ...group,
-      comments: group.comments.map(c => {
+      comments: group.comments.map((c) => {
         const { text, images } = parseCommentHTML(
           c.parsed?.safe_html || c.parsed?.text
         )
 
-        return {
-          ...c,
+        return Object.assign(c, {
           parsedText: normalizeText(text),
           parsedImages: images,
-        }
+        })
       }),
     }))
   )
-
   return {
     parsedGroups,
   }

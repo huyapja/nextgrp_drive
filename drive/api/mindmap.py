@@ -41,22 +41,22 @@ def get_mindmap_data(entity_name):
                 mindmap_data = None
         
         if mindmap_data and mindmap_data.get("nodes"):
-            comment_data = frappe.db.sql("""
-                SELECT node_id, COUNT(name) AS total
-                FROM `tabDrive Mindmap Comment`
-                WHERE mindmap_id = %s
-                GROUP BY node_id
-            """, doc_drive.name, as_dict=True)
-
-            comment_map = {
-                row.node_id: row.total
-                for row in comment_data
-            }
-
-            # GÁN count VÀO TỪNG NODE
             for node in mindmap_data.get("nodes", []):
                 node_id = node.get("id")
-                node["count"] = comment_map.get(node_id, 0)            
+                open_sessions = frappe.get_all(
+                    "Drive Mindmap Comment Session",
+                    filters={
+                        "mindmap_id": doc_drive.name,
+                        "node_id": node_id,
+                        "is_closed": 0
+                    },
+                    fields=["comment_count"]
+                )
+
+                total = sum(s.get("comment_count", 0) for s in open_sessions)
+
+                node["count"] = total
+       
 
         return {
             "name": doc.name,

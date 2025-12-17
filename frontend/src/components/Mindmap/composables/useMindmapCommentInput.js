@@ -5,28 +5,31 @@ import { call } from "frappe-ui"
 function isEmptyHTML(html) {
   if (!html) return true
 
-  // Parse HTML
   const div = document.createElement("div")
   div.innerHTML = html
 
-  // 1. Lấy text thuần
   const text = div.textContent?.replace(/\u00A0/g, "").trim()
-
-  // 2. Kiểm tra có ảnh không
   const hasImage = div.querySelector("img")
 
-  // rỗng nếu: không text + không img
   return !text && !hasImage
 }
 
+function parseGroupKey(groupKey) {
+  if (!groupKey) return {}
+  const [nodeId, sessionIndex] = groupKey.split("__")
+  return { nodeId, sessionIndex: Number(sessionIndex) }
+}
+
 export function useMindmapCommentInput({
-  activeNodeId,
+  activeGroupKey,
   entityName,
   emit,
   previewImages,
   commentEditorRef,
 }) {
   const inputValue = ref("")
+
+  // cache theo groupKey
   const commentCache = ref(
     JSON.parse(localStorage.getItem("mindmap_comment_cache") || "{}")
   )
@@ -38,23 +41,33 @@ export function useMindmapCommentInput({
     )
   }
 
-  // FIX BUG: watch phải watch đúng ref
+  // =========================
+  // SAVE DRAFT THEO GROUP
+  // =========================
   watch(inputValue, (val) => {
-    if (activeNodeId.value) {
-      commentCache.value[activeNodeId.value] = val
-      saveCache()
+    if (!activeGroupKey.value) return
+
+    if (isEmptyHTML(val)) {
+      delete commentCache.value[activeGroupKey.value]
+    } else {
+      commentCache.value[activeGroupKey.value] = val
     }
-    // emit("update:input", val)
+
+    saveCache()
   })
 
+  // =========================
+  // SUBMIT
+  // =========================
   async function handleSubmit() {
-    if (!activeNodeId.value) return
+    if (!activeGroupKey.value) return
 
     const finalHTML = inputValue.value
+    if (isEmptyHTML(finalHTML) && !previewImages.value.length) return
 
-    if (isEmptyHTML(finalHTML) && !previewImages.value.length) {
-      return
-    }
+    const { nodeId, sessionIndex } = parseGroupKey(activeGroupKey.value)
+    if (!nodeId || !sessionIndex) return
+
     const payload = {
       text: finalHTML,
       created_at: new Date().toISOString(),
@@ -62,37 +75,42 @@ export function useMindmapCommentInput({
 
     const res = await call("drive.api.mindmap_comment.add_comment", {
       mindmap_id: entityName,
-      node_id: activeNodeId.value,
+      node_id: nodeId,
+      session_index: sessionIndex,
       comment: JSON.stringify(payload),
     })
 
     // RESET SAU KHI GỬI
     inputValue.value = ""
-    commentCache.value[activeNodeId.value] = ""
-    commentEditorRef.value[activeNodeId]?.clearValues()
+    previewImages.value = []
+
+    commentCache.value[activeGroupKey.value] = ""
+    commentEditorRef.value?.[activeGroupKey.value]?.clearValues?.()
     saveCache()
 
     emit("submit", res.comment)
   }
 
+  // =========================
+  // CANCEL
+  // =========================
   function handleCancel() {
-    if (activeNodeId.value) {
-      commentCache.value[activeNodeId.value] = ""
+    if (activeGroupKey.value) {
+      commentCache.value[activeGroupKey.value] = ""
     }
 
     inputValue.value = ""
     previewImages.value = []
-
     saveCache()
 
-    activeNodeId.value = null
-
-    emit("update:node", null)
     emit("cancel")
   }
 
-  function loadDraft(nodeId) {
-    inputValue.value = commentCache.value[nodeId] || ""
+  // =========================
+  // LOAD DRAFT
+  // =========================
+  function loadDraft(groupKey) {
+    inputValue.value = commentCache.value[groupKey] || ""
   }
 
   return {
