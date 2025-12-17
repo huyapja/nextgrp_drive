@@ -148,9 +148,101 @@ function createUploadImageOnPasteExtension(uploadImageFn) {
                         loading: 'true',
                       })
                       
-                      const pos = view.state.selection.from
-                      const tr = view.state.tr.replaceSelectionWith(placeholderNode)
+                      // ⚠️ FIX: Tìm vị trí chèn ảnh phù hợp - không chèn vào giữa text của title
+                      const { selection } = view.state
+                      const { from, $from } = selection
+                      let insertPos = from
+                      
+                      // Kiểm tra xem cursor có đang ở trong title paragraph không (không phải blockquote)
+                      let isInTitle = false
+                      
+                      // Kiểm tra depth để xem có đang trong blockquote không
+                      for (let i = $from.depth; i > 0; i--) {
+                        const nodeAtDepth = $from.node(i)
+                        if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                          // Đang trong blockquote (description) - có thể chèn tại vị trí cursor
+                          break
+                        }
+                        
+                        // Nếu đang ở paragraph và không phải blockquote, đó là title
+                        if (nodeAtDepth && nodeAtDepth.type.name === 'paragraph' && i === $from.depth) {
+                          isInTitle = true
+                          break
+                        }
+                      }
+                      
+                      // Nếu đang ở trong title paragraph, tìm vị trí sau tất cả title paragraphs và ảnh
+                      if (isInTitle) {
+                        const { doc } = view.state
+                        let lastTitleEndPos = null
+                        let lastImageEndPos = null
+                        
+                        // Tìm tất cả title paragraphs (paragraphs không phải blockquote)
+                        doc.descendants((node, pos) => {
+                          // Kiểm tra xem node có phải là paragraph không
+                          if (node.type.name === 'paragraph') {
+                            // Kiểm tra xem paragraph này có nằm trong blockquote không
+                            const resolvedPos = doc.resolve(pos)
+                            let inBlockquote = false
+                            
+                            for (let i = resolvedPos.depth; i > 0; i--) {
+                              const nodeAtDepth = resolvedPos.node(i)
+                              if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                                inBlockquote = true
+                                break
+                              }
+                            }
+                            
+                            // Nếu không phải blockquote, đó là title paragraph
+                            if (!inBlockquote) {
+                              const paragraphEnd = pos + node.nodeSize
+                              if (lastTitleEndPos === null || paragraphEnd > lastTitleEndPos) {
+                                lastTitleEndPos = paragraphEnd
+                              }
+                            }
+                          }
+                          
+                          // Tìm ảnh sau title paragraphs (không phải blockquote)
+                          if (node.type.name === 'image') {
+                            const resolvedPos = doc.resolve(pos)
+                            let inBlockquote = false
+                            
+                            for (let i = resolvedPos.depth; i > 0; i--) {
+                              const nodeAtDepth = resolvedPos.node(i)
+                              if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                                inBlockquote = true
+                                break
+                              }
+                            }
+                            
+                            // Nếu không phải blockquote, đó là ảnh sau title
+                            if (!inBlockquote) {
+                              const imageEnd = pos + node.nodeSize
+                              if (lastImageEndPos === null || imageEnd > lastImageEndPos) {
+                                lastImageEndPos = imageEnd
+                              }
+                            }
+                          }
+                        })
+                        
+                        // Chèn ảnh sau title paragraph cuối cùng và sau tất cả ảnh đã có
+                        if (lastImageEndPos !== null) {
+                          // Có ảnh đã tồn tại, chèn sau ảnh cuối cùng
+                          insertPos = lastImageEndPos
+                        } else if (lastTitleEndPos !== null) {
+                          // Không có ảnh, chèn sau title paragraph cuối cùng
+                          insertPos = lastTitleEndPos
+                        }
+                      } else {
+                        // Không phải title paragraph hoặc đang trong blockquote - chèn tại vị trí cursor
+                        insertPos = from
+                      }
+                      
+                      const tr = view.state.tr.insert(insertPos, placeholderNode)
                       view.dispatch(tr)
+                      
+                      // Lưu vị trí đã chèn để tìm placeholder sau
+                      const savedInsertPos = insertPos
                       
                       // Upload ảnh
                       uploadImageFn(imageFile).then((imageUrl) => {
@@ -159,12 +251,16 @@ function createUploadImageOnPasteExtension(uploadImageFn) {
                           const { state } = view
                           const { doc } = state
                           
-                          // Tìm placeholder node
+                          // Tìm placeholder node tại vị trí đã chèn
                           let placeholderPos = null
                           doc.descendants((node, nodePos) => {
-                            if (node.type.name === 'image' && node.attrs.loading === 'true' && nodePos === pos) {
-                              placeholderPos = nodePos
-                              return false
+                            if (node.type.name === 'image' && node.attrs.loading === 'true') {
+                              // Kiểm tra xem có phải placeholder tại vị trí đã chèn không
+                              // Cho phép một chút sai số do có thể có thay đổi trong doc
+                              if (Math.abs(nodePos - savedInsertPos) < 10) {
+                                placeholderPos = nodePos
+                                return false
+                              }
                             }
                           })
                           
@@ -370,19 +466,28 @@ function updateImageLayout(view) {
   
   let newWidth = '100%'
   let newGap = '0px'
+  let newHeight = 'auto'
   
   if (count === 2) {
     newWidth = 'calc(50% - 12px)'
     newGap = '12px'
+    newHeight = '150px'
   } else if (count >= 3) {
     newWidth = 'calc(33.333% - 8px)'
     newGap = '12px'
+    newHeight = '100px'
   }
   
   allImages.forEach((wrapper, index) => {
     wrapper.style.width = newWidth
     // Ảnh cuối mỗi hàng (index 2, 5, 8, ...) không có margin-right
     wrapper.style.marginRight = ((index + 1) % 3 === 0 || count === 1) ? '0' : newGap
+    
+    // Cập nhật height cho img bên trong
+    const img = wrapper.querySelector('img')
+    if (img) {
+      img.style.setProperty('height', newHeight, 'important')
+    }
   })
   
   // ⚠️ CRITICAL FIX: Force reflow để đảm bảo width mới được áp dụng NGAY
@@ -445,6 +550,14 @@ const ImageWithMenuExtension = Extension.create({
                 gap = '12px'
               }
               
+              // Tính height: 1 ảnh = auto, 2 ảnh = 150px, 3+ ảnh = 100px
+              let imageHeight = 'auto'
+              if (totalImages === 2) {
+                imageHeight = '150px'
+              } else if (totalImages >= 3) {
+                imageHeight = '100px'
+              }
+              
               dom.style.cssText = `
                 position: relative;
                 display: inline-block;
@@ -467,7 +580,7 @@ const ImageWithMenuExtension = Extension.create({
               img.style.cssText = `
                 display: block;
                 width: 100%;
-                height: auto;
+                height: ${imageHeight} !important;
                 object-fit: cover;
                 border-radius: 5px;
                 cursor: zoom-in;
@@ -676,11 +789,42 @@ const ImageWithMenuExtension = Extension.create({
                   menu.appendChild(menuItem)
                 })
                 
+                // Tính toán vị trí menu - đảm bảo luôn hiển thị đầy đủ
                 const rect = menuButton.getBoundingClientRect()
-                menu.style.top = `${rect.bottom + 4}px`
-                menu.style.left = `${rect.left}px`
-                
                 document.body.appendChild(menu)
+                
+                // Đợi menu được render để lấy kích thước
+                const menuRect = menu.getBoundingClientRect()
+                
+                // Vị trí mặc định: dưới button, căn trái
+                let finalTop = rect.bottom + window.scrollY + 4
+                let finalLeft = rect.left + window.scrollX
+                
+                // Đảm bảo menu không bị tràn ra ngoài viewport
+                const viewportWidth = window.innerWidth
+                const viewportHeight = window.innerHeight
+                
+                // Nếu menu bị tràn bên phải, đặt ở bên trái button
+                if (finalLeft + menuRect.width > viewportWidth) {
+                  finalLeft = rect.right + window.scrollX - menuRect.width
+                  // Đảm bảo không bị tràn bên trái
+                  if (finalLeft < 8) {
+                    finalLeft = 8
+                  }
+                }
+                
+                // Nếu menu bị tràn bên dưới, đặt ở trên button
+                if (finalTop + menuRect.height > viewportHeight + window.scrollY) {
+                  finalTop = rect.top + window.scrollY - menuRect.height - 4
+                  // Đảm bảo không bị tràn bên trên
+                  if (finalTop < window.scrollY + 8) {
+                    finalTop = window.scrollY + 8
+                  }
+                }
+                
+                menu.style.top = `${finalTop}px`
+                menu.style.left = `${finalLeft}px`
+                menu.style.position = 'fixed' // Dùng fixed để tính toán chính xác với viewport
                 
                 const closeMenu = (e) => {
                   // Không đóng nếu click vào menu, menu button, hoặc menu item
@@ -862,36 +1006,42 @@ const ImageClickExtension = Extension.create({
               menu.appendChild(menuItem)
             })
             
-            // Tính toán vị trí menu - hiển thị ở góc trên bên phải của ảnh
+            // Tính toán vị trí menu - đảm bảo luôn hiển thị đầy đủ
             const imgRect = imgElement.getBoundingClientRect()
             document.body.appendChild(menu)
             
             // Đợi menu được render để lấy kích thước
             const menuRect = menu.getBoundingClientRect()
             
-            // Tính toán vị trí: góc trên bên phải của ảnh
-            const menuTop = imgRect.top + window.scrollY + 8
-            const menuLeft = imgRect.right + window.scrollX - menuRect.width - 8
+            // Vị trí mặc định: góc trên bên phải của ảnh
+            let finalTop = imgRect.top + window.scrollY + 8
+            let finalLeft = imgRect.right + window.scrollX - menuRect.width - 8
             
             // Đảm bảo menu không bị tràn ra ngoài viewport
             const viewportWidth = window.innerWidth
             const viewportHeight = window.innerHeight
             
-            let finalLeft = menuLeft
-            let finalTop = menuTop
-            
             // Nếu menu bị tràn bên phải, đặt ở bên trái ảnh
-            if (menuLeft + menuRect.width > viewportWidth) {
+            if (finalLeft + menuRect.width > viewportWidth) {
               finalLeft = imgRect.left + window.scrollX - menuRect.width - 8
+              // Đảm bảo không bị tràn bên trái
+              if (finalLeft < 8) {
+                finalLeft = 8
+              }
             }
             
             // Nếu menu bị tràn bên dưới, đặt ở trên ảnh
-            if (menuTop + menuRect.height > viewportHeight + window.scrollY) {
+            if (finalTop + menuRect.height > viewportHeight + window.scrollY) {
               finalTop = imgRect.bottom + window.scrollY - menuRect.height - 8
+              // Đảm bảo không bị tràn bên trên
+              if (finalTop < window.scrollY + 8) {
+                finalTop = window.scrollY + 8
+              }
             }
             
             menu.style.top = `${finalTop}px`
             menu.style.left = `${finalLeft}px`
+            menu.style.position = 'fixed' // Dùng fixed để tính toán chính xác với viewport
             
             activeMenu = menu
             
@@ -1796,25 +1946,7 @@ export default {
             const currentWidth = hasImages ? maxWidth : (parseFloat(proseElement.style.width) || 368)
             const foWidth = currentWidth - borderOffset
             
-            // ⚠️ CRITICAL: Đảm bảo wrapper và container có overflow visible và height auto
-            const wrapperElement = proseElement.closest('.node-content-wrapper')
-            const containerElement = proseElement.closest('.node-editor-container')
-            
-            if (wrapperElement) {
-              wrapperElement.style.overflow = 'visible'
-              wrapperElement.style.height = 'auto'
-              wrapperElement.style.minHeight = '0'
-              wrapperElement.style.maxHeight = 'none'
-            }
-            
-            if (containerElement) {
-              containerElement.style.overflow = 'visible'
-              containerElement.style.height = 'auto'
-              containerElement.style.minHeight = '0'
-              containerElement.style.maxHeight = 'none'
-            }
-            
-            // ⚠️ CRITICAL: Set overflow: visible TRƯỚC để scrollHeight tính đúng ảnh và badge
+            // ⚠️ CRITICAL: Set overflow: visible TRƯỚC để scrollHeight tính đúng ảnh
             proseElement.style.overflow = 'visible'
             proseElement.style.boxSizing = 'border-box'
             proseElement.style.width = `${foWidth}px`
@@ -1829,7 +1961,7 @@ export default {
             void proseElement.offsetHeight
             void proseElement.scrollHeight
             
-            // ⚠️ CRITICAL: Đảm bảo overflow là visible để scrollHeight tính đúng ảnh và badge
+            // ⚠️ CRITICAL: Đảm bảo overflow là visible để scrollHeight tính đúng ảnh
             proseElement.style.overflow = 'visible'
             
             // Force reflow lại sau khi set overflow
@@ -1837,88 +1969,129 @@ export default {
             void proseElement.offsetHeight
             void proseElement.scrollHeight
             
-            // Đo height thực tế từ DOM - dùng scrollHeight để lấy chiều cao đầy đủ
-            // ⚠️ CRITICAL: Đảm bảo đo height bao gồm cả ảnh
-            // Có thể cần đo từ image-wrapper-node nếu có
-            let scrollHeight = proseElement.scrollHeight
-            let offsetHeight = proseElement.offsetHeight
+            // Đo height thực tế từ DOM - chỉ đo đến phần tử cuối cùng có nội dung
+            // ⚠️ CRITICAL: Đảm bảo đo height chính xác, không đo phần trống thừa
+            const paddingTop = parseFloat(window.getComputedStyle(proseElement).paddingTop) || 0
+            const paddingBottom = parseFloat(window.getComputedStyle(proseElement).paddingBottom) || 0
+            const proseRect = proseElement.getBoundingClientRect()
             
-            // Kiểm tra xem có ảnh không và đo height bao gồm cả ảnh
-            const images = proseElement.querySelectorAll('img')
+            // Tìm phần tử cuối cùng có nội dung thực tế
+            let lastElementBottom = 0
+            
+            // Tìm tất cả các phần tử có nội dung thực tế
+            const allElements = []
+            
+            // Thêm image wrappers
             const imageWrappers = proseElement.querySelectorAll('.image-wrapper-node')
+            imageWrappers.forEach((wrapper) => {
+              allElements.push(wrapper)
+            })
             
-            // ⚠️ NEW: Kiểm tra xem có badge "Liên kết công việc" không
-            const taskLinkSections = proseElement.querySelectorAll('.node-task-link-section, section[data-node-section="task-link"]')
-            
-            // Dùng offsetTop + offsetHeight để đo vị trí cuối cùng của element
-            let maxBottom = scrollHeight
-            
-            if (images.length > 0 || imageWrappers.length > 0) {
-              // Có ảnh - đo height từ phần tử cuối cùng (có thể là ảnh)
-              
-              // Đo từ tất cả image wrappers (bao gồm margin)
-              imageWrappers.forEach((wrapper) => {
-                const wrapperStyle = window.getComputedStyle(wrapper)
-                const wrapperMarginTop = parseFloat(wrapperStyle.marginTop) || 0
-                const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
-                const wrapperBottom = wrapper.offsetTop + wrapper.offsetHeight + wrapperMarginBottom
-                maxBottom = Math.max(maxBottom, wrapperBottom)
-                
-              })
-              
-              // Đo từ tất cả ảnh (nếu không có wrapper)
+            // Thêm images (nếu không có wrapper)
+            if (imageWrappers.length === 0) {
+              const images = proseElement.querySelectorAll('img')
               images.forEach((img) => {
-                const imgStyle = window.getComputedStyle(img)
-                const imgMarginTop = parseFloat(imgStyle.marginTop) || 0
-                const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
-                const imgBottom = img.offsetTop + img.offsetHeight + imgMarginBottom
-                maxBottom = Math.max(maxBottom, imgBottom)
-                
+                allElements.push(img)
               })
+            }
+            
+            // ⚠️ CRITICAL: Thêm task link sections (Liên kết công việc)
+            const taskLinkSections = proseElement.querySelectorAll('.node-task-link-section, [data-node-section="task-link"]')
+            taskLinkSections.forEach((section) => {
+              allElements.push(section)
+            })
+            
+            // Thêm các phần tử text (paragraphs, blockquotes, headings, etc)
+            const textElements = Array.from(proseElement.children).filter((child) => {
+              // Bỏ qua các phần tử rỗng hoặc chỉ chứa whitespace
+              const hasText = child.textContent.trim().length > 0
+              const hasImage = child.querySelector('img') || child.querySelector('.image-wrapper-node')
+              const hasTaskLink = child.querySelector('.node-task-link-section') || child.querySelector('[data-node-section="task-link"]')
+              return hasText || hasImage || hasTaskLink
+            })
+            allElements.push(...textElements)
+            
+            // ⚠️ CRITICAL: Sắp xếp các phần tử theo vị trí bottom để tìm phần tử cuối cùng thực sự có nội dung
+            const elementsWithPosition = []
+            
+            allElements.forEach((element) => {
+              // Kiểm tra xem phần tử có nội dung thực tế không
+              const hasRealContent = () => {
+                // Nếu là image wrapper hoặc image, luôn có nội dung
+                if (element.classList.contains('image-wrapper-node') || element.tagName === 'IMG') {
+                  return true
+                }
+                // ⚠️ CRITICAL: Nếu là task link section, luôn có nội dung
+                if (element.classList.contains('node-task-link-section') || 
+                    element.getAttribute('data-node-section') === 'task-link' ||
+                    element.querySelector('.node-task-link-section') ||
+                    element.querySelector('[data-node-section="task-link"]') ||
+                    element.querySelector('.node-task-badge')) {
+                  return true
+                }
+                // Kiểm tra text content (bỏ qua whitespace)
+                const text = element.textContent?.trim() || ''
+                if (text.length > 0) {
+                  return true
+                }
+                // Kiểm tra xem có chứa image không
+                if (element.querySelector('img') || element.querySelector('.image-wrapper-node')) {
+                  return true
+                }
+                return false
+              }
               
-              images.forEach((img, idx) => {
-                
+              if (!hasRealContent()) {
+                return // Bỏ qua phần tử không có nội dung
+              }
+              
+              const elementRect = element.getBoundingClientRect()
+              // Tính bottom relative to top của proseElement
+              const elementBottom = elementRect.bottom - proseRect.top
+              const elementStyle = window.getComputedStyle(element)
+              const elementMarginBottom = parseFloat(elementStyle.marginBottom) || 0
+              const totalBottom = elementBottom + elementMarginBottom
+              
+              elementsWithPosition.push({
+                element,
+                bottom: totalBottom
               })
-            }
-            
-            // ⚠️ NEW: Đo height từ badge "Liên kết công việc" (nếu có)
-            console.log('[DEBUG Task Link] measureHeightInternal - taskLinkSections found:', taskLinkSections.length)
-            taskLinkSections.forEach((section, idx) => {
-              const sectionStyle = window.getComputedStyle(section)
-              const sectionMarginTop = parseFloat(sectionStyle.marginTop) || 0
-              const sectionMarginBottom = parseFloat(sectionStyle.marginBottom) || 0
-              const sectionBottom = section.offsetTop + section.offsetHeight + sectionMarginBottom
-              console.log(`[DEBUG Task Link] Badge section ${idx}:`, {
-                offsetTop: section.offsetTop,
-                offsetHeight: section.offsetHeight,
-                marginTop: sectionMarginTop,
-                marginBottom: sectionMarginBottom,
-                sectionBottom: sectionBottom
-              })
-              maxBottom = Math.max(maxBottom, sectionBottom)
             })
             
-            // Dùng maxBottom nếu lớn hơn scrollHeight
-            if (maxBottom > scrollHeight) {
-              console.log('[DEBUG Task Link] maxBottom > scrollHeight:', maxBottom, '>', scrollHeight)
-              scrollHeight = maxBottom
+            // Sắp xếp theo bottom (từ lớn đến nhỏ) và lấy phần tử cuối cùng
+            if (elementsWithPosition.length > 0) {
+              elementsWithPosition.sort((a, b) => b.bottom - a.bottom)
+              // Lấy phần tử cuối cùng (có bottom lớn nhất)
+              lastElementBottom = elementsWithPosition[0].bottom
+            }
+            
+            // Tính height: lastElementBottom đã là khoảng cách từ top của proseElement đến bottom của phần tử cuối
+            let contentHeight = 0
+            if (lastElementBottom > paddingTop) {
+              // Có nội dung thực tế: lastElementBottom đã tính từ top của proseElement
+              // Chỉ cần cộng thêm padding bottom
+              contentHeight = lastElementBottom + paddingBottom
             } else {
-              console.log('[DEBUG Task Link] scrollHeight >= maxBottom:', scrollHeight, '>=', maxBottom)
+              // Không có nội dung thực tế hoặc chỉ có padding
+              // Dùng min height hợp lý
+              contentHeight = paddingTop + paddingBottom + 27 // 27px cho text tối thiểu
             }
             
-            // scrollHeight đã bao gồm padding rồi, không cần thêm
-            const contentHeight = Math.max(
-              scrollHeight || offsetHeight || 0,
-              43 // min height
-            )
+            // ⚠️ CRITICAL: Đảm bảo không có khoảng trống thừa
+            // Nếu tính được height quá lớn so với scrollHeight thực tế, dùng scrollHeight
+            const scrollHeight = proseElement.scrollHeight
+            const offsetHeight = proseElement.offsetHeight
             
-            console.log('[DEBUG Task Link] measureHeightInternal - Final measurements:', {
-              scrollHeight,
-              offsetHeight,
-              maxBottom,
-              contentHeight,
-              taskLinkSectionsCount: taskLinkSections.length
-            })
+            // Nếu contentHeight lớn hơn scrollHeight đáng kể (> 20px), có thể có vấn đề
+            // Ưu tiên dùng giá trị nhỏ hơn để tránh khoảng trống thừa
+            if (contentHeight > scrollHeight + 20) {
+              // Có khoảng trống thừa, dùng scrollHeight
+              contentHeight = scrollHeight
+            }
+            
+            // Đảm bảo height tối thiểu nhưng không quá lớn
+            contentHeight = Math.max(contentHeight, 43) // min height
+            contentHeight = Math.min(contentHeight, scrollHeight || contentHeight) // không lớn hơn scrollHeight
             
             
             
@@ -1936,69 +2109,11 @@ export default {
                   if (rect && fo) {
                     const borderOffset = 4
                     const currentWidth = parseFloat(rect.getAttribute('width')) || 400
-                    const oldHeight = parseFloat(rect.getAttribute('height')) || 0
                     const newHeight = Math.max(contentHeight, 43) // min height
-                    
-                    console.log('[DEBUG Task Link] Updating node height:', {
-                      nodeId,
-                      oldHeight,
-                      newHeight,
-                      contentHeight,
-                      difference: newHeight - oldHeight
-                    })
                     
                     // Cập nhật height trực tiếp
                     rect.setAttribute('height', newHeight)
                     fo.setAttribute('height', Math.max(0, newHeight - borderOffset))
-                    
-                    console.log('[DEBUG Task Link] Node height updated - rect:', newHeight, 'fo:', Math.max(0, newHeight - borderOffset))
-                    
-                    // ⚠️ NEW: Đảm bảo wrapper và container vẫn có overflow visible sau khi cập nhật height
-                    const wrapperEl = editorContainer.querySelector('.node-content-wrapper')
-                    if (wrapperEl) {
-                      wrapperEl.style.overflow = 'visible'
-                      wrapperEl.style.height = 'auto'
-                      wrapperEl.style.maxHeight = 'none'
-                      wrapperEl.style.minHeight = '0'
-                    }
-                    editorContainer.style.overflow = 'visible'
-                    editorContainer.style.height = 'auto'
-                    editorContainer.style.maxHeight = 'none'
-                    editorContainer.style.minHeight = '0'
-                    
-                    // Đảm bảo prose element vẫn có overflow visible
-                    proseElement.style.overflow = 'visible'
-                    proseElement.style.height = 'auto'
-                    proseElement.style.maxHeight = 'none'
-                    
-                    // ⚠️ FIX: Nếu có task link badge, đảm bảo white-space không phải nowrap để cho phép wrap
-                    if (taskLinkSections.length > 0) {
-                      proseElement.style.whiteSpace = 'pre-wrap'
-                      proseElement.style.overflowWrap = 'break-word'
-                    }
-                    
-                    // ⚠️ NEW: Cập nhật cache ngay lập tức
-                    // Tìm renderer từ window hoặc từ nodeGroup
-                    const nodeGroupEl = nodeGroup?.closest('svg')?.parentElement
-                    let rendererInstance = null
-                    
-                    // Thử tìm renderer từ các cách khác nhau
-                    if (window.d3Renderer) {
-                      rendererInstance = window.d3Renderer
-                    } else if (nodeGroupEl && nodeGroupEl.__renderer) {
-                      rendererInstance = nodeGroupEl.__renderer
-                    }
-                    
-                    if (rendererInstance && rendererInstance.nodeSizeCache) {
-                      // ⚠️ CRITICAL: Cập nhật cache ngay lập tức với height mới
-                      rendererInstance.nodeSizeCache.set(nodeId, { width: currentWidth, height: newHeight })
-                      console.log('[DEBUG Task Link] Cache updated immediately:', { nodeId, width: currentWidth, height: newHeight })
-                      
-                      // Layout recalculation sẽ được trigger từ MindMap.vue sau khi đảm bảo DOM đã update
-                      // Không trigger ở đây để tránh race condition
-                    } else {
-                      console.warn('[DEBUG Task Link] Renderer instance not found, cannot update cache')
-                    }
                   }
                 }
               }
@@ -2506,9 +2621,96 @@ export default {
                   height: displayHeight,
                 })
                 
-                // Insert ảnh tại vị trí cursor
-                const { from } = selection
-                const transaction = state.tr.insert(from, imageNode)
+                // ⚠️ FIX: Tìm vị trí chèn ảnh phù hợp - không chèn vào giữa text của title
+                const { from, $from } = selection
+                let insertPos = from
+                
+                // Kiểm tra xem cursor có đang ở trong title paragraph không (không phải blockquote)
+                let isInTitle = false
+                
+                // Kiểm tra depth để xem có đang trong blockquote không
+                for (let i = $from.depth; i > 0; i--) {
+                  const nodeAtDepth = $from.node(i)
+                  if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                    // Đang trong blockquote (description) - có thể chèn tại vị trí cursor
+                    break
+                  }
+                  
+                  // Nếu đang ở paragraph và không phải blockquote, đó là title
+                  if (nodeAtDepth && nodeAtDepth.type.name === 'paragraph' && i === $from.depth) {
+                    isInTitle = true
+                    break
+                  }
+                }
+                
+                // Nếu đang ở trong title paragraph, tìm vị trí sau tất cả title paragraphs và ảnh
+                if (isInTitle) {
+                  const { doc } = state
+                  let lastTitleEndPos = null
+                  let lastImageEndPos = null
+                  
+                  // Tìm tất cả title paragraphs (paragraphs không phải blockquote)
+                  doc.descendants((node, pos) => {
+                    // Kiểm tra xem node có phải là paragraph không
+                    if (node.type.name === 'paragraph') {
+                      // Kiểm tra xem paragraph này có nằm trong blockquote không
+                      const resolvedPos = doc.resolve(pos)
+                      let inBlockquote = false
+                      
+                      for (let i = resolvedPos.depth; i > 0; i--) {
+                        const nodeAtDepth = resolvedPos.node(i)
+                        if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                          inBlockquote = true
+                          break
+                        }
+                      }
+                      
+                      // Nếu không phải blockquote, đó là title paragraph
+                      if (!inBlockquote) {
+                        const paragraphEnd = pos + node.nodeSize
+                        if (lastTitleEndPos === null || paragraphEnd > lastTitleEndPos) {
+                          lastTitleEndPos = paragraphEnd
+                        }
+                      }
+                    }
+                    
+                    // Tìm ảnh sau title paragraphs (không phải blockquote)
+                    if (node.type.name === 'image') {
+                      const resolvedPos = doc.resolve(pos)
+                      let inBlockquote = false
+                      
+                      for (let i = resolvedPos.depth; i > 0; i--) {
+                        const nodeAtDepth = resolvedPos.node(i)
+                        if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                          inBlockquote = true
+                          break
+                        }
+                      }
+                      
+                      // Nếu không phải blockquote, đó là ảnh sau title
+                      if (!inBlockquote) {
+                        const imageEnd = pos + node.nodeSize
+                        if (lastImageEndPos === null || imageEnd > lastImageEndPos) {
+                          lastImageEndPos = imageEnd
+                        }
+                      }
+                    }
+                  })
+                  
+                  // Chèn ảnh sau title paragraph cuối cùng và sau tất cả ảnh đã có
+                  if (lastImageEndPos !== null) {
+                    // Có ảnh đã tồn tại, chèn sau ảnh cuối cùng
+                    insertPos = lastImageEndPos
+                  } else if (lastTitleEndPos !== null) {
+                    // Không có ảnh, chèn sau title paragraph cuối cùng
+                    insertPos = lastTitleEndPos
+                  }
+                } else {
+                  // Không phải title paragraph hoặc đang trong blockquote - chèn tại vị trí cursor
+                  insertPos = from
+                }
+                
+                const transaction = state.tr.insert(insertPos, imageNode)
                 dispatch(transaction)
                 
                 // Nếu là cut operation, xóa clipboard sau khi paste
@@ -3281,19 +3483,8 @@ export default {
   /* ⚠️ NEW: Không có margin-bottom khi edit */
 }
 
-/* Khi có ảnh trong node: hiển thị đầy đủ mô tả */
-:deep(.mindmap-editor-prose:has(.image-group-wrapper) blockquote),
-:deep(.mindmap-editor-prose:has(.image-wrapper) blockquote),
-:deep(.mindmap-editor-prose:has(img) blockquote) {
-  display: block !important;
-  -webkit-line-clamp: unset !important;
-  -webkit-box-orient: unset !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
-  white-space: normal !important;
-  margin-bottom: 4px !important;
-  /* Đảm bảo có khoảng cách dưới mô tả */
-}
+/* ⚠️ REMOVED: Khi có ảnh trong node, mô tả vẫn chỉ hiển thị 1 dòng như bình thường */
+/* Rule này đã được xóa để mô tả luôn chỉ hiển thị 1 dòng, ngay cả khi có ảnh */
 
 :deep(.mindmap-editor-prose blockquote p) {
   margin: 0 !important;

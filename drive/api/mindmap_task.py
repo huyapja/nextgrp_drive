@@ -1,222 +1,235 @@
 import frappe
 from frappe import _
-from functools import reduce
-from pypika import Order, functions as fn
-from frappe.query_builder import DocType
-
-
-def _first_existing_field(meta, candidates):
-    """Return the first field that exists on the DocType."""
-    for field in candidates:
-        if field == "owner" or meta.has_field(field):
-            return field
-    return None
-
-
-def _is_project_admin(user, project=None):
-    """Check if user can see all tasks of a project."""
-    privileged_roles = {
-        "Administrator",
-        "System Manager",
-        "Projects Manager",
-        "Project Manager",
-        "Project Admin",
-    }
-    roles = set(frappe.get_roles(user))
-    if roles.intersection(privileged_roles):
-        return True
-
-    if not project:
-        return False
-
-    try:
-        if not frappe.db.exists("Project", project):
-            return False
-
-        project_meta = frappe.get_meta("Project")
-        project_fields = ["owner"]
-        for f in ["project_manager", "project_owner"]:
-            if project_meta.has_field(f):
-                project_fields.append(f)
-
-        proj = frappe.db.get_value("Project", project, project_fields, as_dict=True)
-        return bool(proj and user in proj.values())
-    except Exception:
-        return False
-
-
-def _build_involvement_conditions(task_dt, task_meta, user):
-    """Build OR conditions to find tasks where the user is involved."""
-    field_groups = {
-        "assignee": [
-            "assignee",
-            "task_assignee",
-            "assigned_to",
-            "assign_to",
-            "responsible",
-            "responsible_user",
-        ],
-        "approver": [
-            "approver",
-            "task_approver",
-            "approved_by",
-            "reviewer",
-        ],
-        "coordinator": [
-            "coordinator",
-            "task_coordinator",
-            "collaborator",
-            "collaborators",
-            "participant",
-            "participants",
-        ],
-    }
-
-    conditions = []
-    for fields in field_groups.values():
-        for field in fields:
-            if task_meta.has_field(field):
-                conditions.append(task_dt[field] == user)
-
-    # Always include document owner as a fallback
-    conditions.append(task_dt.owner == user)
-
-    # Include ToDo assignments (standard Frappe assignment) via subquery
-    ToDo = frappe.qb.DocType("ToDo")
-    todo_subquery = (
-        frappe.qb.from_(ToDo)
-        .select(ToDo.reference_name)
-        .where(
-            (ToDo.reference_type == "Task")
-            & (ToDo.reference_name == task_dt.name)
-            & (ToDo.allocated_to == user)
-            & (ToDo.status != "Cancelled")
-        )
-    )
-    conditions.append(task_dt.name.isin(todo_subquery))
-    return conditions
 
 
 @frappe.whitelist()
-def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=None):
+def get_my_tasks(project=None, page=1, page_size=10, search=None):
     """
     Lấy danh sách công việc tôi liên quan.
 
-    - Tôi là người thực hiện / phê duyệt / phối hợp, hoặc chủ dự án/quản trị dự án thì thấy tất cả.
-    - Lọc theo dự án (project) nếu truyền vào.
-    - Order by ngày tạo (mới nhất trước).
-    - Phân trang, mỗi trang 10 item.
-    - Nếu có node_owner, sử dụng node_owner thay vì frappe.session.user.
+    Flow mới:
+    1. Lấy tất cả các projects mà user tham gia từ Project User
+    2. Lặp qua từng project và kiểm tra position
+    3. Với mỗi project:
+       - Nếu position là "Thành Viên": chỉ lấy tasks mà user là assign_to hoặc collaborator (trừ To Do và Cancelled)
+       - Nếu position là "Chủ Dự Án" hoặc "Quản Trị Dự Án": lấy tất cả tasks (trừ To Do và Cancelled)
+    4. Kết hợp tất cả tasks lại
     """
     try:
         task_meta = frappe.get_meta("Task")
     except Exception:
         frappe.throw(_("Task DocType is not available"))
 
-    # Sử dụng node_owner nếu có, nếu không thì dùng frappe.session.user
-    user = node_owner if node_owner else frappe.session.user
+    user = frappe.session.user
     try:
         page = max(1, int(page or 1))
     except Exception:
         page = 1
 
-    # Yêu cầu mỗi trang 10 item (override input để đảm bảo cố định)
     page_size = 10
     offset = (page - 1) * page_size
 
-    Task = frappe.qb.DocType("Task")
-    filters = []
+    # Lấy Officer từ user
+    officer = frappe.db.get_value("Officer", {"user": user}, "name")
+    if not officer:
+        return {
+            "data": [],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": 0,
+                "total_pages": 0,
+            },
+            "project": project,
+        }
 
-    # Project filter
-    if project and task_meta.has_field("project"):
-        filters.append(Task.project == project)
+    # Bước 1: Lấy tất cả các projects mà user tham gia từ Project User
+    project_users = frappe.db.get_all(
+        "Project User",
+        filters={"user": officer},
+        fields=["parent", "position"],
+        order_by="parent",
+    )
 
-    # Permission: if not project admin, restrict to tasks where user is involved
-    if not _is_project_admin(user, project):
-        involvement_conditions = _build_involvement_conditions(Task, task_meta, user)
-        combined = reduce(lambda a, b: a | b, involvement_conditions)
-        filters.append(combined)
+    # DEBUG: Log project_users
+    print(
+        f"[DEBUG get_my_tasks] user={user}, officer={officer}, project_users={project_users}",
+        "get_my_tasks_debug",
+    )
+
+    if not project_users:
+        # Nếu user không tham gia project nào, không trả về task nào
+        return {
+            "data": [],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": 0,
+                "total_pages": 0,
+            },
+            "project": project,
+        }
+
+    # Bước 2: Lặp qua từng project và build điều kiện SQL
+    task_conditions = []
+
+    for pu in project_users:
+        project_id = pu.get("parent")
+        position = pu.get("position")
+
+        # Nếu có project filter, chỉ xử lý project đó
+        if project and project_id != project:
+            continue
+
+        # DEBUG: Log project và position
+        print(
+            f"[DEBUG get_my_tasks] Processing project={project_id}, position={position}",
+            "get_my_tasks_debug",
+        )
+
+        if position == "Thành Viên":
+            # Với "Thành Viên": chỉ lấy tasks mà user là assign_to hoặc collaborator
+            member_conditions = []
+
+            # Task mà user là assign_to
+            member_conditions.append(
+                f"(`tabTask`.`project` = {frappe.db.escape(project_id)} AND `tabTask`.`assign_to` = {frappe.db.escape(officer)})"
+            )
+
+            # Task mà user là collaborator
+            collab_task_ids = frappe.db.get_all(
+                "Task Collaboration",
+                filters={
+                    "officer": officer,
+                    "parenttype": "Task",
+                    "parentfield": "collaborator",
+                },
+                pluck="parent",
+                distinct=True,
+            )
+            if collab_task_ids:
+                # Lọc chỉ lấy tasks trong project này
+                project_task_ids = frappe.db.get_all(
+                    "Task",
+                    filters={"project": project_id, "name": ["in", collab_task_ids]},
+                    pluck="name",
+                )
+                if project_task_ids:
+                    ids_str = ",".join(
+                        [frappe.db.escape(tid) for tid in project_task_ids]
+                    )
+                    member_conditions.append(
+                        f"(`tabTask`.`project` = {frappe.db.escape(project_id)} AND `tabTask`.`name` IN ({ids_str}))"
+                    )
+
+            if member_conditions:
+                task_conditions.append("(" + " OR ".join(member_conditions) + ")")
+
+        elif position in ["Chủ Dự Án", "Quản Trị Dự Án"]:
+            # Với "Chủ Dự Án" và "Quản Trị Dự Án": lấy tất cả tasks trong project
+            task_conditions.append(
+                f"`tabTask`.`project` = {frappe.db.escape(project_id)}"
+            )
+
+    # Bước 3: Build SQL query với tất cả các điều kiện
+    if not task_conditions:
+        # Nếu không có điều kiện nào, không trả về task nào
+        return {
+            "data": [],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": 0,
+                "total_pages": 0,
+            },
+            "project": project,
+        }
+
+    # Build WHERE clause
+    where_conditions = []
+
+    # Kết hợp tất cả các điều kiện từ các projects
+    where_conditions.append("(" + " OR ".join(task_conditions) + ")")
+
+    # Status filter - loại trừ To Do và Cancelled
+    where_conditions.append("`tabTask`.`status` NOT IN ('To Do', 'Cancelled')")
+
+    # Project filter (nếu có)
+    if project:
+        where_conditions.append(f"`tabTask`.`project` = {frappe.db.escape(project)}")
 
     # Search filter
     if search:
         keyword = f"%{search.strip()}%"
-        search_fields = [Task.name]
-        title_field = _first_existing_field(task_meta, ["subject", "task_name"])
-        assignee_field = _first_existing_field(
-            task_meta,
-            ["assignee", "task_assignee", "assigned_to", "assign_to", "responsible", "owner"],
+        # Tìm kiếm trong task_name và officer_name (người thực hiện)
+        # Sử dụng COALESCE để xử lý NULL values từ LEFT JOIN
+        search_conditions = [
+            f"`tabTask`.`task_name` LIKE {frappe.db.escape(keyword)}",
+            f"COALESCE(`tabOfficer`.`officer_name`, '') LIKE {frappe.db.escape(keyword)}",
+        ]
+        where_conditions.append("(" + " OR ".join(search_conditions) + ")")
+
+        # DEBUG: Log search conditions
+        print(
+            f"[DEBUG get_my_tasks] search={search}, search_conditions={search_conditions}",
+            "get_my_tasks_debug",
         )
-        status_field = _first_existing_field(task_meta, ["status"])
 
-        if title_field:
-            search_fields.append(Task[title_field])
-        if assignee_field:
-            search_fields.append(Task[assignee_field if assignee_field != "owner" else "owner"])
-        if status_field:
-            search_fields.append(Task[status_field])
+    where_clause = " AND ".join(where_conditions)
 
-        search_conditions = [field.like(keyword) for field in search_fields]
-        search_combined = reduce(lambda a, b: a | b, search_conditions)
-        filters.append(search_combined)
+    # DEBUG: Log where_clause
+    print(f"[DEBUG get_my_tasks] where_clause={where_clause}", "get_my_tasks_debug")
 
-    # Select fields with fallbacks
-    title_field = _first_existing_field(task_meta, ["subject", "task_name"])
-    assignee_field = _first_existing_field(
-        task_meta,
-        ["assignee", "task_assignee", "assigned_to", "assign_to", "responsible", "owner"],
-    )
-    status_field = _first_existing_field(task_meta, ["status"])
-    project_name_field = _first_existing_field(task_meta, ["project_name"])
-    # Loại trừ các trạng thái không cần hiển thị
-    excluded_statuses = {"To Do", "Paused"}
+    # Build SELECT fields
+    select_fields = [
+        "`tabTask`.`name` AS `id`",
+        "`tabTask`.`creation`",
+        "`tabTask`.`task_name` AS `task_name`",
+        "`tabTask`.`assign_to` AS `assignee`",
+        "`tabTask`.`status` AS `status`",
+        "`tabTask`.`project` AS `project`",
+        "`tabTask`.`project_name` AS `project_name`",
+    ]
 
-    select_fields = [Task.name.as_("id"), Task.creation]
-    select_fields.append(Task[title_field].as_("task_name") if title_field else Task.name.as_("task_name"))
-    select_fields.append(
-        Task[assignee_field].as_("assignee") if assignee_field != "owner" else Task.owner.as_("assignee")
-    )
-    if status_field:
-        select_fields.append(Task[status_field].as_("status"))
-        filters.append(Task[status_field].notin(excluded_statuses))
-    if task_meta.has_field("project"):
-        select_fields.append(Task.project.as_("project"))
-    if project_name_field:
-        select_fields.append(Task[project_name_field].as_("project_name"))
-
-    joins = []
-    if assignee_field:
-        Officer = frappe.qb.DocType("Officer")
-        joins.append((Officer, Task[assignee_field] == Officer.name))
-        select_fields.append(Officer.officer_name.as_("office_name"))
+    # Join với Officer để lấy office_name từ assign_to
+    join_clause = """
+        LEFT JOIN `tabOfficer` ON `tabTask`.`assign_to` = `tabOfficer`.`name`
+    """
+    select_fields.append("`tabOfficer`.`officer_name` AS `office_name`")
 
     # Count query
-    count_q = frappe.qb.from_(Task).select(fn.Count("*"))
-    for f in filters:
-        count_q = count_q.where(f)
-    total = count_q.run()[0][0] if count_q else 0
-
+    count_sql = f"""
+        SELECT COUNT(*) 
+        FROM `tabTask`
+        {join_clause}
+        WHERE {where_clause}
+    """
+    total = frappe.db.sql(count_sql, as_dict=False)[0][0] or 0
     total_pages = max(1, (total + page_size - 1) // page_size)
 
     # Data query
-    data_q = frappe.qb.from_(Task).select(*select_fields)
-    for join_dt, join_cond in joins:
-        data_q = data_q.left_join(join_dt).on(join_cond)
-    for f in filters:
-        data_q = data_q.where(f)
-    data_q = data_q.orderby(Task.creation, order=Order.desc).limit(page_size).offset(offset)
+    select_clause = ", ".join(select_fields)
+    data_sql = f"""
+        SELECT {select_clause}
+        FROM `tabTask`
+        {join_clause}
+        WHERE {where_clause}
+        ORDER BY `tabTask`.`creation` DESC
+        LIMIT {page_size} OFFSET {offset}
+    """
 
-    tasks = data_q.run(as_dict=True)
+    tasks = frappe.db.sql(data_sql, as_dict=True)
 
-    # Map trạng thái sang tiếng Việt (nếu có)
+    # Map trạng thái sang tiếng Việt
     status_map = {
         "In Progress": "Thực hiện",
         "Pending": "Đang chờ",
         "Pending Approval": "Chờ phê duyệt",
         "Completed": "Hoàn thành",
         "Closed": "Đóng",
-        "Cancelled": "Hủy",
+        "Cancel": "Hủy",
         "Paused": "Tạm dừng",
-        "To Do": "Được tạo"
+        "To Do": "Được tạo",
     }
     for t in tasks:
         if t.get("status"):
@@ -235,67 +248,63 @@ def get_my_tasks(project=None, page=1, page_size=10, search=None, node_owner=Non
 
 
 @frappe.whitelist()
-def get_my_projects(node_owner=None):
+def get_my_projects():
     """
     Lấy danh sách dự án mà user có quyền truy cập.
-    
-    - Nếu có node_owner, sử dụng node_owner thay vì frappe.session.user
+
     - Trả về danh sách projects mà user là owner/approver/thành viên
     """
     try:
-        # Sử dụng node_owner nếu có, nếu không thì dùng frappe.session.user
-        user = node_owner if node_owner else frappe.session.user
-        
+        user = frappe.session.user
+
         # Lấy Officer từ user
         officer = frappe.db.get_value("Officer", {"user": user}, "name")
         if not officer:
             return {
                 "data": [],
             }
-        
-        Project = DocType("Project")
-        ProjectUser = DocType("Project User")
-        
-        # Điều kiện: user là project_owner, approver, hoặc thành viên
-        cond = (
-            (Project.project_owner == officer)
-            | (Project.approver == officer)
-            | (ProjectUser.user == officer)
-        )
-        
-        # Query để lấy danh sách projects
-        qb = (
-            frappe.qb.from_(Project)
-            .left_join(ProjectUser)
-            .on(Project.name == ProjectUser.parent)
-            .where(cond)
-        )
-        
-        # Lấy tất cả projects (không limit để có đầy đủ options)
-        rows = (
-            qb.select(
-                Project.name,
-                Project.project_name,
-                Project.project_code,
-            )
-            .groupby(Project.name)
-            .orderby(Project.modified, order=Order.desc)
-        ).run(as_dict=True)
-        
-        # Format kết quả
+
+        # SQL query để lấy danh sách projects, bao gồm end_date và need_approve
+        sql = f"""
+            SELECT DISTINCT
+                `tabProject`.`name`,
+                `tabProject`.`project_name`,
+                `tabProject`.`project_code`,
+                `tabProject`.`end_date`,
+                `tabProject`.`need_approve`
+            FROM `tabProject`
+            LEFT JOIN `tabProject User` ON `tabProject`.`name` = `tabProject User`.`parent`
+            WHERE 
+                `tabProject`.`project_owner` = {frappe.db.escape(officer)}
+                OR `tabProject`.`approver` = {frappe.db.escape(officer)}
+                OR `tabProject User`.`user` = {frappe.db.escape(officer)}
+            ORDER BY `tabProject`.`modified` DESC
+        """
+
+        rows = frappe.db.sql(sql, as_dict=True)
+
+        # Format kết quả - trả về đầy đủ thông tin để tránh phải call API thêm
         projects = []
         for row in rows:
-            projects.append({
-                "name": row.get("name"),
-                "project_name": row.get("project_name") or row.get("name"),
-                "project_code": row.get("project_code") or "",
-            })
-        
+            projects.append(
+                {
+                    "name": row.get("name"),
+                    "project_name": row.get("project_name") or row.get("name"),
+                    "project_code": row.get("project_code") or "",
+                    "end_date": row.get(
+                        "end_date"
+                    ),  # Thêm end_date để giới hạn thời hạn công việc
+                    "need_approve": row.get(
+                        "need_approve"
+                    ),  # Thêm need_approve để validate form
+                }
+            )
+
         return {
             "data": projects,
         }
     except Exception as e:
-        frappe.log_error(f"Error in get_my_projects: {str(e)}")
+        print(f"Error in get_my_projects: {str(e)}")
         return {
             "data": [],
         }

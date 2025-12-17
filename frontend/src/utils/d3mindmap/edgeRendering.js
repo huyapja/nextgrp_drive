@@ -3,8 +3,8 @@
  */
 
 import * as d3 from 'd3'
-import { isNodeHidden } from './utils.js'
 import { estimateNodeSize } from './nodeSize.js'
+import { isNodeHidden } from './utils.js'
 
 /**
  * Render edges between nodes

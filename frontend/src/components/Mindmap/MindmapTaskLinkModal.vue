@@ -33,7 +33,7 @@
                 v-model="searchModel"
                 class="task-link-search"
                 type="text"
-                placeholder="Tìm tên công việc..."
+                placeholder="Tìm tên công việc hoặc người thực hiện..."
               />
               <div class="task-project-select" ref="projectSelectRef">
                 <button type="button" class="project-select-trigger" @click="toggleProjectDropdown">
@@ -267,9 +267,12 @@
                     v-model="newTaskFormData.duration"
                     type="date"
                     class="task-new-form-input"
-                    :min="minDate"
                     :max="maxDate"
-                  />
+                    @change="validateDuration"
+                    />
+                    <!-- :min="minDate" -->
+                  
+                  
                 </div>
 
                 <!-- Người phê duyệt -->
@@ -629,7 +632,7 @@
                         v-for="user in filteredCollaboratorOptions"
                         :key="user.value"
                         class="task-new-collaborator-option"
-                        @click="addCollaborator(user)"
+                        @click.stop="addCollaborator(user)"
                       >
                         <div class="task-new-collaborator-option-avatar">
                           <img v-if="user.avatar" :src="user.avatar" :alt="user.label" />
@@ -685,7 +688,7 @@
 
 <script setup>
 import { call } from 'frappe-ui'
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   visible: Boolean,
@@ -854,13 +857,15 @@ onBeforeUnmount(() => {
 
 const getStatusClass = (status) => {
   const statusLower = (status || '').toLowerCase()
+  console.log('statusLower', statusLower);
+  
   if (statusLower.includes('hoàn thành') || statusLower.includes('completed')) {
     return 'status-green'
   } else if (statusLower.includes('thực hiện') || statusLower.includes('in progress')) {
     return 'status-blue'
   } else if (statusLower.includes('tạm dừng') || statusLower.includes('paused')) {
     return 'status-yellow'
-  } else if (statusLower.includes('huỷ') || statusLower.includes('cancel')) {
+  } else if (statusLower.includes('huỷ') || statusLower.includes('hủy') || statusLower.includes('huy') || statusLower.includes('cancel')) {
     return 'status-red'
   } else if (statusLower.includes('chờ phê duyệt') || statusLower.includes('pending approval')) {
     return 'status-purple'
@@ -886,6 +891,7 @@ const newTaskFormData = ref({
 
 const formErrors = ref({})
 const maxLengthError = ref('')
+const durationError = ref('')
 
 // New Task Project Selector
 const newTaskProjectOpen = ref(false)
@@ -918,11 +924,20 @@ const collaboratorSearch = ref('')
 const userOptions = ref([])
 const loadingUserOptions = ref(false)
 
+// Cache để tránh gọi API nhiều lần cho cùng một owner
+const ownerInfoCache = ref({})
+
 // Fetch owner info from email (must be declared before addOwnerToUserOptions)
 const fetchOwnerInfo = async (ownerEmail) => {
   if (!ownerEmail) {
     console.log('fetchOwnerInfo: No ownerEmail provided')
     return null
+  }
+  
+  // Kiểm tra cache trước
+  if (ownerInfoCache.value[ownerEmail]) {
+    console.log('fetchOwnerInfo: Using cached data for:', ownerEmail)
+    return ownerInfoCache.value[ownerEmail]
   }
   
   try {
@@ -939,7 +954,7 @@ const fetchOwnerInfo = async (ownerEmail) => {
     if (!user) {
       console.warn('fetchOwnerInfo: User not found for:', ownerEmail)
       // Return basic info even if User not found
-      return {
+      const fallback = {
         user: ownerEmail,
         full_name: ownerEmail,
         user_image: '',
@@ -947,6 +962,8 @@ const fetchOwnerInfo = async (ownerEmail) => {
         mobile_no: '',
         id: ownerEmail
       }
+      ownerInfoCache.value[ownerEmail] = fallback
+      return fallback
     }
     
     console.log('fetchOwnerInfo: User found:', user)
@@ -980,7 +997,9 @@ const fetchOwnerInfo = async (ownerEmail) => {
       id: officerId || user.mobile_no || user.name || ownerEmail // Fallback chain
     }
     
-    console.log('fetchOwnerInfo: Returning result:', result)
+    // Lưu vào cache
+    ownerInfoCache.value[ownerEmail] = result
+    console.log('fetchOwnerInfo: Returning result and cached:', result)
     return result
   } catch (error) {
     console.error('Failed to fetch owner info:', error)
@@ -993,7 +1012,9 @@ const fetchOwnerInfo = async (ownerEmail) => {
       mobile_no: '',
       id: ownerEmail
     }
-    console.log('fetchOwnerInfo: Returning fallback:', fallback)
+    // Lưu fallback vào cache để không gọi lại API
+    ownerInfoCache.value[ownerEmail] = fallback
+    console.log('fetchOwnerInfo: Returning fallback and cached:', fallback)
     return fallback
   }
 }
@@ -1054,11 +1075,11 @@ const approverOptions = computed(() => {
 const priorityOptions = ref([
   { label: 'Thấp', value: 'Low' },
   { label: 'Trung bình', value: 'Medium' },
-  { label: 'Cao', value: 'High' },
-  { label: 'Khẩn cấp', value: 'Critical' }
+  { label: 'Cao', value: 'High' }
+  // { label: 'Khẩn cấp', value: 'Critical' } // Đã bỏ option này
 ])
 const sectionOptions = ref([
-  { label: 'Không phân nhóm', value: '_empty' }
+  { label: 'Chưa phân nhóm', value: '_empty' }
 ])
 const loadingSectionOptions = ref(false)
 
@@ -1175,7 +1196,7 @@ const fetchUserOptions = async (projectId) => {
 // Fetch section options from API
 const fetchSectionOptions = async (projectId) => {
   if (!projectId) {
-    sectionOptions.value = [{ label: 'Không phân nhóm', value: '_empty' }]
+    sectionOptions.value = [{ label: 'Chưa phân nhóm', value: '_empty' }]
     return
   }
   
@@ -1206,12 +1227,12 @@ const fetchSectionOptions = async (projectId) => {
       value: section.name || section.value || ''
     })).filter(option => option.label && option.value) // Filter out invalid entries
     
-    formattedOptions.unshift({ label: 'Không phân nhóm', value: '_empty' })
+    formattedOptions.unshift({ label: 'Chưa phân nhóm', value: '_empty' })
     sectionOptions.value = formattedOptions
     console.log('fetchSectionOptions formattedOptions:', formattedOptions)
   } catch (error) {
     console.error('Failed to fetch section options:', error)
-    sectionOptions.value = [{ label: 'Không phân nhóm', value: '_empty' }]
+    sectionOptions.value = [{ label: 'Chưa phân nhóm', value: '_empty' }]
   } finally {
     loadingSectionOptions.value = false
   }
@@ -1226,9 +1247,9 @@ watch(() => newTaskFormData.value.project, (newProject, oldProject) => {
     }
     fetchSectionOptions(newProject.value)
     
-    // Set default section_title to "Không phân nhóm" if not set
+    // Set default section_title to "Chưa phân nhóm" if not set
     if (!newTaskFormData.value.section_title) {
-      newTaskFormData.value.section_title = { label: 'Không phân nhóm', value: '_empty' }
+      newTaskFormData.value.section_title = { label: 'Chưa phân nhóm', value: '_empty' }
     }
   } else {
     // If no project, use props userOptions or clear
@@ -1237,10 +1258,10 @@ watch(() => newTaskFormData.value.project, (newProject, oldProject) => {
     } else {
       userOptions.value = []
     }
-    sectionOptions.value = [{ label: 'Không phân nhóm', value: '_empty' }]
-    // Set default section_title to "Không phân nhóm" when no project
+    sectionOptions.value = [{ label: 'Chưa phân nhóm', value: '_empty' }]
+    // Set default section_title to "Chưa phân nhóm" when no project
     if (props.mode === 'from-node' && !newTaskFormData.value.section_title) {
-      newTaskFormData.value.section_title = { label: 'Không phân nhóm', value: '_empty' }
+      newTaskFormData.value.section_title = { label: 'Chưa phân nhóm', value: '_empty' }
     }
   }
 }, { immediate: true })
@@ -1252,14 +1273,17 @@ const fetchProjectsByOwner = async (ownerUser) => {
   }
   
   try {
-    // First, get officer name from user email
-    const officerRes = await call('frappe.client.get_value', {
-      doctype: 'Officer',
-      filters: { user: ownerUser },
-      fieldname: 'name'
-    })
+    // Sử dụng cache ownerInfo để lấy officer_id thay vì gọi API lại
+    let officerName = null
+    if (ownerInfoCache.value[ownerUser]?.officer_id) {
+      officerName = ownerInfoCache.value[ownerUser].officer_id
+      console.log('fetchProjectsByOwner: Using cached officer:', officerName)
+    } else {
+      // Nếu chưa có trong cache, fetch ownerInfo (sẽ cache kết quả)
+      const ownerInfo = await fetchOwnerInfo(ownerUser)
+      officerName = ownerInfo?.officer_id
+    }
     
-    const officerName = officerRes?.message?.name
     if (!officerName) {
       console.warn('No officer found for user:', ownerUser)
       return []
@@ -1346,11 +1370,46 @@ const minDate = computed(() => {
 })
 
 const maxDate = computed(() => {
-  if (newTaskFormData.value.project?.end_date) {
-    return new Date(newTaskFormData.value.project.end_date).toISOString().split('T')[0]
+  const project = newTaskFormData.value.project
+  // Kiểm tra end_date không phải null, undefined, hoặc empty string
+  if (project?.end_date && project.end_date !== null && project.end_date !== '') {
+    try {
+      const endDate = new Date(project.end_date)
+      if (isNaN(endDate.getTime())) {
+        console.warn('[maxDate] Invalid end_date:', project.end_date)
+        return null
+      }
+      const formatted = endDate.toISOString().split('T')[0]
+      console.log('[maxDate] Project:', project.label, 'end_date:', project.end_date, 'formatted:', formatted)
+      return formatted
+    } catch (error) {
+      console.error('[maxDate] Error formatting date:', error)
+      return null
+    }
   }
+  console.log('[maxDate] No valid end_date for project:', project)
   return null
 })
+
+// Validate duration khi user chọn ngày
+const validateDuration = () => {
+  durationError.value = ''
+  const duration = newTaskFormData.value.duration
+  const project = newTaskFormData.value.project
+  
+  if (!duration || !project?.end_date) {
+    return
+  }
+  
+  const selectedDate = new Date(duration)
+  const maxEndDate = new Date(project.end_date)
+  
+  if (selectedDate > maxEndDate) {
+    durationError.value = `Thời hạn không được vượt quá ngày kết thúc dự án (${maxDate.value})`
+    // Clear duration nếu vượt quá
+    newTaskFormData.value.duration = null
+  }
+}
 
 // Methods
 const toggleNewTaskProject = () => {
@@ -1359,7 +1418,100 @@ const toggleNewTaskProject = () => {
 
 const selectNewTaskProject = async (project) => {
   const oldProject = newTaskFormData.value.project
-  newTaskFormData.value.project = project
+  
+  console.log('[selectNewTaskProject] Selected project:', project)
+  console.log('[selectNewTaskProject] props.projectOptions:', props.projectOptions)
+  
+  // Tìm project đầy đủ thông tin từ props.projectOptions (đã có sẵn từ API get_my_projects)
+  let projectWithFullInfo = { ...project }
+  
+  if (props.projectOptions && props.projectOptions.length > 0) {
+    const fullProject = props.projectOptions.find(p => p.value === project.value)
+    console.log('[selectNewTaskProject] Found fullProject in props:', fullProject)
+    
+    if (fullProject) {
+      // Merge thông tin từ props (có end_date, need_approve) với project được chọn
+      projectWithFullInfo = {
+        ...project,
+        end_date: fullProject.end_date || project.end_date || null,
+        need_approve: fullProject.need_approve !== undefined ? fullProject.need_approve : (project.need_approve !== undefined ? project.need_approve : false)
+      }
+      console.log('[selectNewTaskProject] Merged project with props:', projectWithFullInfo)
+      
+      // Nếu end_date là null trong props, fetch từ API để đảm bảo có giá trị đúng
+      if (!projectWithFullInfo.end_date || projectWithFullInfo.end_date === null) {
+        console.log('[selectNewTaskProject] end_date is null, fetching from API...')
+        try {
+          const projectRes = await call('frappe.client.get_value', {
+            doctype: 'Project',
+            filters: { name: project.value },
+            fieldname: ['end_date', 'need_approve']
+          })
+          if (projectRes?.message) {
+            projectWithFullInfo.end_date = projectRes.message.end_date
+            projectWithFullInfo.need_approve = projectRes.message.need_approve
+            console.log('[selectNewTaskProject] Fetched from API (message):', projectRes.message)
+          } else if (projectRes) {
+            projectWithFullInfo.end_date = projectRes.end_date
+            projectWithFullInfo.need_approve = projectRes.need_approve
+            console.log('[selectNewTaskProject] Fetched from API (direct):', projectRes)
+          }
+        } catch (error) {
+          console.error('[selectNewTaskProject] Failed to fetch from API:', error)
+        }
+      }
+    } else {
+      console.warn('[selectNewTaskProject] Full project not found in props.projectOptions for:', project.value)
+      // Nếu không tìm thấy trong props, fetch từ API
+      if (!project.end_date || project.end_date === null) {
+        try {
+          const projectRes = await call('frappe.client.get_value', {
+            doctype: 'Project',
+            filters: { name: project.value },
+            fieldname: ['end_date', 'need_approve']
+          })
+          if (projectRes?.message) {
+            projectWithFullInfo.end_date = projectRes.message.end_date
+            projectWithFullInfo.need_approve = projectRes.message.need_approve
+            console.log('[selectNewTaskProject] Fetched from API (not in props):', projectRes.message)
+          } else if (projectRes) {
+            projectWithFullInfo.end_date = projectRes.end_date
+            projectWithFullInfo.need_approve = projectRes.need_approve
+            console.log('[selectNewTaskProject] Fetched from API (not in props, direct):', projectRes)
+          }
+        } catch (error) {
+          console.error('[selectNewTaskProject] Failed to fetch from API:', error)
+        }
+      }
+    }
+  } else {
+    console.warn('[selectNewTaskProject] props.projectOptions is empty or undefined')
+    // Nếu props.projectOptions rỗng và project không có end_date, fetch từ API
+    if (!project.end_date) {
+      try {
+        const projectRes = await call('frappe.client.get_value', {
+          doctype: 'Project',
+          filters: { name: project.value },
+          fieldname: ['end_date', 'need_approve']
+        })
+        if (projectRes?.message) {
+          projectWithFullInfo.end_date = projectRes.message.end_date
+          projectWithFullInfo.need_approve = projectRes.message.need_approve
+        } else if (projectRes) {
+          projectWithFullInfo.end_date = projectRes.end_date
+          projectWithFullInfo.need_approve = projectRes.need_approve
+        }
+      } catch (error) {
+        console.error('[selectNewTaskProject] Failed to fetch from API:', error)
+      }
+    }
+  }
+  
+  // Clear thời hạn khi chọn dự án mới
+  newTaskFormData.value.duration = null
+  
+  newTaskFormData.value.project = projectWithFullInfo
+  console.log('[selectNewTaskProject] Final project set:', newTaskFormData.value.project)
   newTaskProjectOpen.value = false
   newTaskProjectSearch.value = ''
   
@@ -1374,8 +1526,8 @@ const selectNewTaskProject = async (project) => {
                                   newTaskFormData.value.name_assign_to
   
   // Reset related fields when project changes
-  // Set default section_title to "Không phân nhóm"
-  newTaskFormData.value.section_title = { label: 'Không phân nhóm', value: '_empty' }
+  // Set default section_title to "Chưa phân nhóm"
+  newTaskFormData.value.section_title = { label: 'Chưa phân nhóm', value: '_empty' }
   
   // Clear assignee and collaborators if switching to a different project
   // But preserve if this is the first project selection in from-node mode
@@ -1409,7 +1561,7 @@ const selectNewTaskProject = async (project) => {
     
     // Ensure section_title is set to default after fetching options
     if (!newTaskFormData.value.section_title || newTaskFormData.value.section_title.value !== '_empty') {
-      newTaskFormData.value.section_title = { label: 'Không phân nhóm', value: '_empty' }
+      newTaskFormData.value.section_title = { label: 'Chưa phân nhóm', value: '_empty' }
     }
     
     // After fetching user options, set owner as assignee if in from-node mode
@@ -1438,8 +1590,8 @@ const handleTaskNameInput = (e) => {
     const scrollHeight = textarea.scrollHeight
     const lineHeight = 24
     const minHeight = lineHeight * 1
-    const maxHeight = lineHeight * 6
-    const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight)
+    // Bỏ giới hạn maxHeight để cho phép hiển thị full độ dài
+    const newHeight = Math.max(scrollHeight, minHeight)
     textarea.style.height = `${newHeight}px`
   }
   
@@ -1682,6 +1834,13 @@ const handleNewTaskClickOutside = (e) => {
     return // Don't close if clicking the add button
   }
   
+  // Check if click is on collaborator dropdown or any element inside it
+  const collaboratorDropdown = e.target.closest('.task-new-collaborator-dropdown')
+  const collaboratorOption = e.target.closest('.task-new-collaborator-option')
+  if (collaboratorDropdown || collaboratorOption) {
+    return // Don't close if clicking inside the collaborator dropdown
+  }
+  
   const dropdowns = [
     { open: newTaskProjectOpen, ref: newTaskProjectRef },
     { open: assigneeSelectOpen, ref: assigneeSelectRef },
@@ -1704,6 +1863,11 @@ const validateForm = () => {
   
   if (!newTaskFormData.value.task_name?.trim()) {
     errors.task_name = 'Tên công việc là bắt buộc'
+  } else if (newTaskFormData.value.task_name.length > 500) {
+    errors.task_name = 'Tên công việc không được vượt quá 500 ký tự.'
+    maxLengthError.value = 'Tên công việc không được vượt quá 500 ký tự.'
+  } else {
+    maxLengthError.value = '' // Clear error nếu hợp lệ
   }
   
   if (!newTaskFormData.value.project) {
@@ -1718,12 +1882,33 @@ const validateForm = () => {
     errors.assigned_by = 'Người phê duyệt là bắt buộc khi dự án yêu cầu phê duyệt'
   }
   
+  // Validate duration không được vượt quá end_date của dự án
+  if (newTaskFormData.value.duration && newTaskFormData.value.project?.end_date) {
+    const selectedDate = new Date(newTaskFormData.value.duration)
+    const maxEndDate = new Date(newTaskFormData.value.project.end_date)
+    if (selectedDate > maxEndDate) {
+      errors.duration = `Thời hạn không được vượt quá ngày kết thúc dự án (${maxDate.value})`
+      durationError.value = errors.duration
+    }
+  }
+  
   formErrors.value = errors
   return Object.keys(errors).length === 0
 }
 
 // Handle create task
 const handleCreateTask = () => {
+  // Kiểm tra độ dài task_name trước khi submit - chặn không cho tạo công việc
+  if (newTaskFormData.value.task_name && newTaskFormData.value.task_name.length > 500) {
+    maxLengthError.value = 'Tên công việc không được vượt quá 500 ký tự.'
+    formErrors.value = {
+      ...formErrors.value,
+      task_name: 'Tên công việc không được vượt quá 500 ký tự.'
+    }
+    return // Chặn không cho submit
+  }
+  
+  // Validate form và chỉ submit nếu hợp lệ
   if (validateForm()) {
     emit('createTask', newTaskFormData.value)
   }
@@ -1731,8 +1916,12 @@ const handleCreateTask = () => {
 
 // Check if form is valid
 const isFormValid = computed(() => {
+  // Kiểm tra độ dài task_name không được vượt quá 500 ký tự
+  const taskNameValid = newTaskFormData.value.task_name?.trim() && 
+    newTaskFormData.value.task_name.length <= 500
+  
   return (
-    newTaskFormData.value.task_name?.trim() &&
+    taskNameValid &&
     newTaskFormData.value.project &&
     newTaskFormData.value.name_assign_to &&
     (!newTaskFormData.value.project?.need_approve || newTaskFormData.value.assigned_by)
@@ -1845,11 +2034,17 @@ watch(() => props.mode, async (newMode, oldMode) => {
     // Initialize task name from node title
     if (props.nodeTitle) {
       newTaskFormData.value.task_name = props.nodeTitle
+      // Trigger auto-resize sau khi set giá trị
+      nextTick(() => {
+        if (taskNameTextarea.value) {
+          handleTaskNameInput({ target: taskNameTextarea.value })
+        }
+      })
     }
     
-    // Set nhóm công việc mặc định là "Không phân nhóm"
+    // Set nhóm công việc mặc định là "Chưa phân nhóm"
     if (!newTaskFormData.value.section_title) {
-      newTaskFormData.value.section_title = { label: 'Không phân nhóm', value: '_empty' }
+      newTaskFormData.value.section_title = { label: 'Chưa phân nhóm', value: '_empty' }
     }
     
     // Set người thực hiện mặc định là owner của node
@@ -1866,7 +2061,7 @@ watch(() => props.mode, async (newMode, oldMode) => {
       }, 300)
     }
     
-    // Auto-fill mô tả với link: <a href="${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}">${mindmapTitle} - ${nodeTitle}</a>
+    // Auto-fill mô tả theo format mới
     const mindmapTitle = props.mindmapTitle || ''
     const nodeTitle = props.nodeTitle || ''
     const team = props.team || ''
@@ -1874,24 +2069,29 @@ watch(() => props.mode, async (newMode, oldMode) => {
     const nodeId = props.nodeId || ''
     
     let descriptionText = ''
-    if (team && mindmapId && nodeId) {
-      const origin = window.location.origin
-      const linkUrl = `${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`
-      const linkText = mindmapTitle && nodeTitle 
-        ? `${mindmapTitle} - ${nodeTitle}`
-        : mindmapTitle || nodeTitle || 'Link'
-      descriptionText = `<a href="${linkUrl}" target="_blank">${linkText}</a>`
-    } else {
-      // Fallback to old format if props not available
-      const parts = []
-      if (mindmapTitle) parts.push(mindmapTitle)
-      if (nodeTitle) parts.push(nodeTitle)
-      descriptionText = parts.join(', ')
-      if (props.nodeLink) {
-        descriptionText += ` "${props.nodeLink}"`
-      }
+    const parts = []
+    
+    // Tự động tạo từ sơ đồ tư duy: "Tên mindmap"
+    if (mindmapTitle) {
+      parts.push(`Tự động tạo từ sơ đồ tư duy: ${mindmapTitle}`)
     }
     
+    // Nhánh: "Tên nhánh"
+    if (nodeTitle) {
+      parts.push(`Nhánh: ${nodeTitle}`)
+    }
+    
+    // Liên kết: "Link của node"
+    let linkUrl = props.nodeLink || ''
+    if (!linkUrl && team && mindmapId && nodeId) {
+      const origin = window.location.origin
+      linkUrl = `${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`
+    }
+    if (linkUrl) {
+      parts.push(`Liên kết: <a href="${linkUrl}" target="_blank">${linkUrl}</a>`)
+    }
+    
+    descriptionText = parts.join('<br>')
     newTaskFormData.value.description = descriptionText
   }
 }, { immediate: true })
@@ -1907,16 +2107,33 @@ watch(() => [props.mode, props.nodeOwner], async ([mode, nodeOwner]) => {
   }
 }, { immediate: true })
 
+// Watch task_name để tự động resize textarea khi giá trị thay đổi
+watch(() => newTaskFormData.value.task_name, () => {
+  nextTick(() => {
+    if (taskNameTextarea.value) {
+      handleTaskNameInput({ target: taskNameTextarea.value })
+    }
+  })
+})
+
 // Watch for visible prop to set assignee when modal opens
 watch(() => props.visible, async (isVisible) => {
-  console.log('Visible changed:', isVisible, { mode: props.mode, nodeOwner: props.nodeOwner })
+  console.log('Visible changed:', isVisible, { mode: props.mode, nodeOwner: props.nodeOwner, nodeTitle: props.nodeTitle })
   if (isVisible && props.mode === 'from-node') {
     // Wait a bit to ensure all props are ready
     await new Promise(resolve => setTimeout(resolve, 300))
     console.log('After delay - Checking:', { 
       nodeOwner: props.nodeOwner, 
-      currentAssignee: newTaskFormData.value.name_assign_to 
+      nodeTitle: props.nodeTitle,
+      currentAssignee: newTaskFormData.value.name_assign_to,
+      currentTaskName: newTaskFormData.value.task_name
     })
+    
+    // Set task_name từ nodeTitle nếu chưa có hoặc đang rỗng
+    if (props.nodeTitle && (!newTaskFormData.value.task_name || newTaskFormData.value.task_name.trim() === '')) {
+      newTaskFormData.value.task_name = props.nodeTitle
+    }
+    
     if (props.nodeOwner) {
       // Always try to set assignee if nodeOwner is available
       if (!newTaskFormData.value.name_assign_to || 
@@ -1929,7 +2146,7 @@ watch(() => props.visible, async (isVisible) => {
 }, { immediate: true })
 
 // Watch for mindmapTitle, nodeTitle, team, mindmapId, nodeId changes to update description
-watch([() => props.mindmapTitle, () => props.nodeTitle, () => props.team, () => props.mindmapId, () => props.nodeId], () => {
+watch([() => props.mindmapTitle, () => props.nodeTitle, () => props.team, () => props.mindmapId, () => props.nodeId, () => props.nodeLink], () => {
   if (props.mode === 'from-node') {
     const mindmapTitle = props.mindmapTitle || ''
     const nodeTitle = props.nodeTitle || ''
@@ -1938,29 +2155,36 @@ watch([() => props.mindmapTitle, () => props.nodeTitle, () => props.team, () => 
     const nodeId = props.nodeId || ''
     
     let descriptionText = ''
-    if (team && mindmapId && nodeId) {
-      const origin = window.location.origin
-      const linkUrl = `${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`
-      const linkText = mindmapTitle && nodeTitle 
-        ? `${mindmapTitle} - ${nodeTitle}`
-        : mindmapTitle || nodeTitle || 'Link'
-      descriptionText = `<a href="${linkUrl}" target="_blank">${linkText}</a>`
-    } else {
-      // Fallback to old format if props not available
-      const parts = []
-      if (mindmapTitle) parts.push(mindmapTitle)
-      if (nodeTitle) parts.push(nodeTitle)
-      descriptionText = parts.join(', ')
-      if (props.nodeLink) {
-        descriptionText += ` "${props.nodeLink}"`
-      }
+    const parts = []
+    
+    // Tự động tạo từ sơ đồ tư duy: "Tên mindmap"
+    if (mindmapTitle) {
+      parts.push(`Tự động tạo từ sơ đồ tư duy: ${mindmapTitle}`)
     }
+    
+    // Nhánh: "Tên nhánh"
+    if (nodeTitle) {
+      parts.push(`Nhánh: ${nodeTitle}`)
+    }
+    
+    // Liên kết: "Link của node"
+    let linkUrl = props.nodeLink || ''
+    if (!linkUrl && team && mindmapId && nodeId) {
+      const origin = window.location.origin
+      linkUrl = `${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`
+    }
+    if (linkUrl) {
+      parts.push(`Liên kết: <a href="${linkUrl}" target="_blank">${linkUrl}</a>`)
+    }
+    
+    descriptionText = parts.join('<br>')
     
     // Only update if description is empty or matches the old format
     if (!newTaskFormData.value.description || 
         newTaskFormData.value.description === descriptionText ||
         newTaskFormData.value.description.match(/^[^"]*"[^"]*"$/) ||
-        newTaskFormData.value.description.includes('<a href')) {
+        newTaskFormData.value.description.includes('<a href') ||
+        newTaskFormData.value.description.includes('Tự động tạo từ sơ đồ tư duy')) {
       newTaskFormData.value.description = descriptionText
     }
   }
@@ -1979,6 +2203,12 @@ onMounted(async () => {
       await setOwnerAsAssignee()
     }
   }
+  
+  // Resize textarea nếu có nội dung khi component mount
+  await nextTick()
+  if (taskNameTextarea.value && newTaskFormData.value.task_name) {
+    handleTaskNameInput({ target: taskNameTextarea.value })
+  }
 })
 
 onBeforeUnmount(() => {
@@ -1992,6 +2222,13 @@ onBeforeUnmount(() => {
   font-weight: 400;
   font-size: 14px;
   color: #111827;
+  /* Giới hạn hiển thị 1 dòng với dấu ... nếu dài */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
 }
 
 .task-link-overlay {
@@ -2082,9 +2319,9 @@ onBeforeUnmount(() => {
 }
 
 .task-link-tab.active {
-  border: 1px solid #e5e7eb;
-  background: #ffffff;
-  color: #111827;
+  border: 1px solid #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
@@ -2124,6 +2361,7 @@ onBeforeUnmount(() => {
 .task-project-select {
   position: relative;
   min-width: 200px;
+  max-width: 200px;
 }
 
 .project-select-trigger {
@@ -2140,6 +2378,7 @@ onBeforeUnmount(() => {
   gap: 8px;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  min-width: 0;
 }
 
 .project-select-trigger:focus,
@@ -2154,6 +2393,7 @@ onBeforeUnmount(() => {
   color: #6b7280;
   display: inline-flex;
   transition: transform 0.15s ease;
+  flex-shrink: 0;
 }
 
 .project-select-caret.open {
@@ -2237,12 +2477,21 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   gap: 3px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .task-item-title {
   font-weight: 500;
   font-size: 14px;
   color: #111827;
+  /* Giới hạn hiển thị 1 dòng với dấu ... nếu dài */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+  min-width: 0;
 }
 
 .task-item-meta {
@@ -2257,6 +2506,14 @@ onBeforeUnmount(() => {
   font-size: 12px;
   font-weight: 600;
   color: #2563eb;
+  /* Giới hạn hiển thị 1 dòng với dấu ... nếu dài */
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .task-assignee {
@@ -2561,7 +2818,10 @@ onBeforeUnmount(() => {
   border-radius: 6px;
   padding: 8px 12px;
   min-height: 34px;
-  overflow-y: auto;
+  overflow-y: hidden; /* Ẩn scroll */
+  overflow-x: hidden; /* Ẩn scroll ngang */
+  word-wrap: break-word; /* Tự động xuống dòng */
+  white-space: pre-wrap; /* Giữ nguyên xuống dòng và wrap text */
   transition: border-color 0.15s, background-color 0.15s;
 }
 

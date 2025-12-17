@@ -467,10 +467,7 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
         },
     )
 
-    return {
-        "status": "ok",
-        "comment": doc.as_dict()
-    }
+    return {"status": "ok", "comment": doc.as_dict()}
 
 
 def notify_mentions(comment_name):
@@ -489,7 +486,7 @@ def notify_mentions(comment_name):
 
     if not drive_file or not drive_file.get("team"):
         return
-    
+
     team = drive_file["team"]
 
     link = (
@@ -538,14 +535,12 @@ def notify_mentions(comment_name):
     if not bot_docs:
         return
 
-    actor_full_name = frappe.db.get_value(
-        "User", doc.owner, "full_name"
-    ) or doc.owner
+    actor_full_name = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
 
     for user in valid_users:
         message_data = {
             "key": "mention_comment_mindmap",
-            "title": f'{actor_full_name} đã đề cập đến bạn trong sơ đồ tư duy',
+            "title": f"{actor_full_name} đã đề cập đến bạn trong sơ đồ tư duy",
             "full_name_owner": actor_full_name,
             "to_user": user,
             "comment_content": comment.get("parsed") or "",
@@ -558,11 +553,7 @@ def notify_mentions(comment_name):
         RavenBot.send_notification_to_user(
             bot_name=bot_docs,
             user_id=user,
-            message=json.dumps(
-                message_data,
-                ensure_ascii=False,
-                default=str
-            ),
+            message=json.dumps(message_data, ensure_ascii=False, default=str),
         )
 
 
@@ -584,10 +575,7 @@ def notify_comment(comment_name):
 
     team = drive_file["team"]
 
-    link = (
-        f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
-        f"?node={doc.node_id}"
-    )
+    link = f"/drive/t/{team}/mindmap/{doc.mindmap_id}" f"?node={doc.node_id}"
 
     comment = doc.comment
     if isinstance(comment, str):
@@ -596,10 +584,7 @@ def notify_comment(comment_name):
         except Exception:
             return
 
-    actor_full_name = (
-        frappe.db.get_value("User", doc.owner, "full_name")
-        or doc.owner
-    )
+    actor_full_name = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
 
     if not notify_users:
         return

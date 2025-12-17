@@ -204,25 +204,25 @@ const taskProjectOptionMap = ref({})
 const fetchProjectOptions = async () => {
   try {
     // Lấy owner của node nếu có taskLinkNode
-    let nodeOwner = null
-    if (taskLinkNode.value && mindmapEntity?.data?.owner) {
-      nodeOwner = mindmapEntity.data.owner
-    }
     
-    console.log('fetchProjectOptions - nodeOwner:', nodeOwner, 'taskLinkNode:', taskLinkNode.value)
     
-    const res = await call("drive.api.mindmap_task.get_my_projects", {
-      node_owner: nodeOwner || undefined
-    })
+    const res = await call("drive.api.mindmap_task.get_my_projects")
     
     const projects = res?.data || []
     console.log('fetchProjectOptions - projects:', projects)
     
-    // Cập nhật taskProjectOptionMap với tất cả projects
+    // Cập nhật taskProjectOptionMap với tất cả projects, bao gồm end_date
     const nextMap = { ...(taskProjectOptionMap.value || {}) }
     projects.forEach(p => {
       if (p.name) {
-        nextMap[p.name] = p.project_name || p.name
+        // Lưu object đầy đủ thông tin project bao gồm end_date
+        nextMap[p.name] = {
+          label: p.project_name || p.name,
+          project_name: p.project_name || p.name,
+          end_date: p.end_date || null, // Đảm bảo không undefined
+          need_approve: p.need_approve || false // Đảm bảo không undefined
+        }
+        console.log(`[fetchProjectOptions] Project ${p.name}: end_date=${p.end_date}, need_approve=${p.need_approve}`)
       }
     })
     taskProjectOptionMap.value = nextMap
@@ -238,21 +238,29 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
   try {
     // Lấy owner của node nếu có taskLinkNode
     // Luôn sử dụng owner từ mindmapEntity (entity owner = node owner trong mindmap)
-    let nodeOwner = null
-    if (taskLinkNode.value && mindmapEntity?.data?.owner) {
-      nodeOwner = mindmapEntity.data.owner
-    }
-    
-    console.log('fetchTaskOptions - nodeOwner:', nodeOwner, 'taskLinkMode:', taskLinkMode.value, 'taskLinkNode:', taskLinkNode.value, 'mindmapEntity:', mindmapEntity?.data)
     
     const res = await call("drive.api.mindmap_task.get_my_tasks", {
       project: taskProjectFilter.value !== 'all' ? taskProjectFilter.value : null,
       page: taskPage.value,
       page_size: TASK_PAGE_SIZE,
-      search: taskSearch.value?.trim() || undefined,
-      node_owner: nodeOwner || undefined
+      search: taskSearch.value?.trim() || undefined
     })
-    const list = res?.data || []
+    // Xử lý response: frappe-ui call() có thể trả về res.message hoặc res trực tiếp
+    // Kiểm tra cả hai trường hợp để đảm bảo tương thích
+    let list = []
+    if (res?.message?.data) {
+      // Trường hợp: { message: { data: [...] } }
+      list = res.message.data
+    } else if (res?.data) {
+      // Trường hợp: { data: [...] } (frappe-ui đã unwrap)
+      list = res.data
+    } else if (Array.isArray(res)) {
+      // Trường hợp: frappe-ui trả về array trực tiếp
+      list = res
+    }
+    console.log('[DEBUG fetchTaskOptions] res:', res)
+    console.log('[DEBUG fetchTaskOptions] list:', list)
+    
     taskOptions.value = list.map(t => ({
       id: t.id,
       // lưu cả task_name và title để tương thích UI
@@ -278,7 +286,13 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
     
     console.log('taskProjectOptionMap updated:', taskProjectOptionMap.value)
 
-    const pag = res?.pagination || {}
+    // Xử lý pagination tương tự như data
+    let pag = {}
+    if (res?.message?.pagination) {
+      pag = res.message.pagination
+    } else if (res?.pagination) {
+      pag = res.pagination
+    }
     taskPagination.value = {
       page: pag.page || taskPage.value,
       total_pages: pag.total_pages || 1,
@@ -301,21 +315,33 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
 }
 
 const taskProjectOptions = computed(() => {
-  return Object.entries(taskProjectOptionMap.value || {}).map(([value, label]) => ({
-    value,
-    label,
-  }))
+  // Lấy thông tin đầy đủ của project từ taskProjectOptionMap hoặc từ API response
+  return Object.entries(taskProjectOptionMap.value || {}).map(([value, data]) => {
+    // Nếu data là object có end_date, giữ nguyên
+    if (typeof data === 'object' && data !== null) {
+      const option = {
+        value,
+        label: data.label || data.project_name || value,
+        end_date: data.end_date || null, // Đảm bảo không undefined
+        need_approve: data.need_approve !== undefined ? data.need_approve : false
+      }
+      console.log(`[taskProjectOptions] Project ${value}: end_date=${option.end_date}, need_approve=${option.need_approve}`)
+      return option
+    }
+    // Nếu data chỉ là string (label), chỉ trả về value và label
+    return {
+      value,
+      label: data || value,
+      end_date: null,
+      need_approve: false
+    }
+  })
 })
 
 const filteredTasksRaw = computed(() => {
-  const keyword = taskSearch.value.trim().toLowerCase()
-  return taskOptions.value.filter(t => {
-    const name = (t.task_name || t.title || '').toLowerCase()
-    const matchKeyword = !keyword || name.includes(keyword) ||
-      (t.id && t.id.toLowerCase().includes(keyword)) ||
-      (t.assignee && t.assignee.toLowerCase().includes(keyword))
-    return matchKeyword
-  })
+  // Backend đã thực hiện search rồi, không cần filter lại ở frontend
+  // Chỉ trả về taskOptions.value trực tiếp
+  return taskOptions.value
 })
 
 const totalTaskPages = computed(() => taskPagination.value.total_pages || 1)
@@ -503,11 +529,16 @@ const initializeMindmap = async (data) => {
     }))
     nodeCounter = maxId + 1
 
-    // Store existing creation order
+    // ⚠️ CRITICAL: Store existing creation order từ node.data.order nếu có
+    // Nếu không có order trong node.data, dùng index làm fallback
     loadedNodes.forEach((node, index) => {
-      nodeCreationOrder.value.set(node.id, index)
+      // Ưu tiên sử dụng order từ node.data.order nếu có
+      const order = node.data?.order !== undefined ? node.data.order : index
+      nodeCreationOrder.value.set(node.id, order)
     })
-    creationOrderCounter = loadedNodes.length
+    // Tìm order lớn nhất để set creationOrderCounter
+    const maxOrder = Math.max(...Array.from(nodeCreationOrder.value.values()), loadedNodes.length - 1)
+    creationOrderCounter = maxOrder + 1
 
     
   } else {
@@ -561,6 +592,11 @@ const initD3Renderer = () => {
 
   d3Renderer.setCallbacks({
     onNodeClick: (node, event) => {
+      // Đóng context menu khi click vào node
+      if (showContextMenu.value) {
+        showContextMenu.value = false
+      }
+      
       if (event?.target?.closest?.('.comment-count-badge')) {
         // chặn click select node để click badge count -> mở comment list section
         
@@ -1263,7 +1299,8 @@ const confirmTaskLink = async () => {
 
     // Thêm badge tick xanh dưới title node (ngay sau paragraph đầu tiên, trước ảnh)
     // Wrap badge trong section riêng để dễ phân biệt và style
-    if (taskPayload.linkUrl) {
+    // Chỉ thêm badge khi người dùng đã tick checkbox "Gắn link công việc"
+    if (taskPayload.linkUrl && attachTaskLink.value) {
       const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
       if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
         // Parse HTML để chèn badge vào đúng vị trí (ngay sau title, trước ảnh)
@@ -1536,7 +1573,8 @@ const handleCreateTask = async (formData) => {
         }
 
         // Thêm badge "Liên kết công việc" vào node label (tương tự confirmTaskLink)
-        if (taskOpenLink && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
+        // Chỉ thêm badge khi người dùng đã tick checkbox "Gắn link công việc"
+        if (taskOpenLink && attachTaskLink.value && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
           const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
           try {
             const parser = new DOMParser()
@@ -1704,18 +1742,18 @@ const handleCreateTask = async (formData) => {
         })
         scheduleSave()
 
-        // Add comment link to task
-        if (fallbackLink && taskId) {
-          const nodeTitle = plainTitle || linkNode.data?.label || ''
-          const mindmapTitle = mindmap.data?.title || ''
-          await call("drive.api.mindmap_comment.add_task_link_comment", {
-            task_id: taskId,
-            node_id: linkNode.id,
-            node_title: nodeTitle,
-            mindmap_title: mindmapTitle,
-            link_url: fallbackLink
-          })
-        }
+        // Add comment link to task - Đã bỏ vì không cần tạo comment khi tạo mới công việc từ node
+        // if (fallbackLink && taskId) {
+        //   const nodeTitle = plainTitle || linkNode.data?.label || ''
+        //   const mindmapTitle = mindmap.data?.title || ''
+        //   await call("drive.api.mindmap_comment.add_task_link_comment", {
+        //     task_id: taskId,
+        //     node_id: linkNode.id,
+        //     node_title: nodeTitle,
+        //     mindmap_title: mindmapTitle,
+        //     link_url: fallbackLink
+        //   })
+        // }
       }
 
       // Show success message with link
@@ -1744,17 +1782,22 @@ const handleCreateTask = async (formData) => {
       throw new Error(errorMsg)
     }
   } catch (error) {
-    console.error('Create task failed:', error)
     // Extract error message from various possible formats
     let errorMessage = 'Có lỗi xảy ra khi tạo công việc'
-    if (error?.message?.result) {
+    
+    // Xử lý lỗi CharacterLengthExceededError và dịch sang tiếng Việt
+    const errorStr = typeof error === 'string' ? error : (error?.message || JSON.stringify(error))
+    if (errorStr.includes('CharacterLengthExceededError') || errorStr.includes('character length')) {
+      errorMessage = 'Tên công việc không được vượt quá 500 ký tự.'
+    } else if (error?.message?.result) {
       errorMessage = error.message.result
     } else if (error?.message) {
       errorMessage = typeof error.message === 'string' ? error.message : JSON.stringify(error.message)
     } else if (typeof error === 'string') {
       errorMessage = error
     }
-    toast({ title: errorMessage, indicator: "red" })
+    
+    toast(errorMessage)
   }
 }
 
@@ -2232,7 +2275,8 @@ const handleKeyDown = (event) => {
   }
   else if ((key === 'c' || key === 'C') && (event.ctrlKey || event.metaKey)) {
     // ⚠️ NEW: Ctrl+C để copy node (nếu không đang trong editor)
-    if (!isInEditor && selectedNode.value && selectedNode.value.id !== 'root') {
+    // ⚠️ CHANGED: Cho phép copy root node để có thể copy toàn bộ mindmap
+    if (!isInEditor && selectedNode.value) {
       event.preventDefault()
       event.stopPropagation()
       copyNode(selectedNode.value.id)
@@ -2311,6 +2355,7 @@ const scheduleSave = () => {
     isSaving.value = true
 
     // Get positions from D3 renderer if available
+    // ⚠️ CRITICAL: Lưu cả order từ nodeCreationOrder để giữ thứ tự các node cùng cấp
     const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
       const nodeWithPos = { ...node }
       if (d3Renderer && d3Renderer.positions) {
@@ -2318,6 +2363,14 @@ const scheduleSave = () => {
         if (pos) {
           nodeWithPos.position = { ...pos }
         }
+      }
+      // ⚠️ CRITICAL: Lưu order từ nodeCreationOrder vào node data
+      if (nodeCreationOrder.value.has(node.id)) {
+        const order = nodeCreationOrder.value.get(node.id)
+        if (!nodeWithPos.data) {
+          nodeWithPos.data = {}
+        }
+        nodeWithPos.data.order = order
       }
       return nodeWithPos
     })
@@ -2505,6 +2558,7 @@ function copyNode(nodeId) {
         fixedHeight: n.data?.fixedHeight,
         width: nodeSizes[n.id]?.width,
         height: nodeSizes[n.id]?.height,
+        completed: n.data?.completed || false, // ⚠️ CRITICAL: Copy trạng thái completed
       }
     })),
     edges: subtreeEdges.map(e => ({
@@ -2558,6 +2612,7 @@ function cutNode(nodeId) {
         fixedHeight: n.data?.fixedHeight,
         width: nodeSizes[n.id]?.width,
         height: nodeSizes[n.id]?.height,
+        completed: n.data?.completed || false, // ⚠️ CRITICAL: Copy trạng thái completed
       }
     })),
     edges: subtreeEdges.map(e => ({
@@ -2707,6 +2762,8 @@ function pasteToNode(targetNodeId) {
         data: {
           label: node.data?.label || '',
           parentId: parentId,
+          // ⚠️ CRITICAL: Copy trạng thái completed từ node gốc
+          completed: node.data?.completed || false,
           // ⚠️ FIX: Set fixedWidth/fixedHeight nếu có để node paste có kích thước chính xác
           ...(node.data?.fixedWidth && node.data?.fixedHeight ? {
             fixedWidth: node.data.fixedWidth,
@@ -2771,6 +2828,25 @@ function pasteToNode(targetNodeId) {
       
     }
 
+    // ⚠️ CRITICAL: Áp dụng strikethrough cho các node đã completed sau khi paste
+    nextTick(() => {
+      void document.body.offsetHeight
+      setTimeout(() => {
+        newNodes.forEach(newNode => {
+          const isCompleted = newNode.data?.completed || false
+          if (isCompleted) {
+            // Đợi editor được mount xong
+            setTimeout(() => {
+              const editorInstance = d3Renderer?.getEditorInstance?.(newNode.id)
+              if (editorInstance) {
+                applyStrikethroughToTitle(editorInstance, true)
+              }
+            }, 100)
+          }
+        })
+      }, 100)
+    })
+
     // Auto-focus root node's editor
     nextTick(() => {
       void document.body.offsetHeight
@@ -2798,8 +2874,12 @@ function pasteToNode(targetNodeId) {
   let newNodeFixedWidth = null
   let newNodeFixedHeight = null
 
+  let newNodeCompleted = false
+  
   if (clipboard.value.type === 'node') {
     newNodeLabel = clipboard.value.data.label || 'Nhánh mới'
+    // ⚠️ CRITICAL: Copy trạng thái completed từ node gốc
+    newNodeCompleted = clipboard.value.data.completed || false
     // ⚠️ FIX: Nếu có kích thước thực tế từ node gốc, dùng để paste chính xác
     if (clipboard.value.data.width && clipboard.value.data.height) {
       newNodeFixedWidth = clipboard.value.data.width
@@ -2814,6 +2894,7 @@ function pasteToNode(targetNodeId) {
     data: {
       label: newNodeLabel,
       parentId: targetNodeId,
+      completed: newNodeCompleted, // ⚠️ CRITICAL: Copy trạng thái completed
       // ⚠️ FIX: Set fixedWidth/fixedHeight nếu có để node paste có kích thước chính xác
       ...(newNodeFixedWidth && newNodeFixedHeight ? {
         fixedWidth: newNodeFixedWidth,
@@ -2845,7 +2926,18 @@ function pasteToNode(targetNodeId) {
     d3Renderer.selectedNode = newNodeId
   }
 
-  
+  // ⚠️ CRITICAL: Áp dụng strikethrough cho node đã completed sau khi paste
+  if (newNodeCompleted) {
+    nextTick(() => {
+      void document.body.offsetHeight
+      setTimeout(() => {
+        const editorInstance = d3Renderer?.getEditorInstance?.(newNodeId)
+        if (editorInstance) {
+          applyStrikethroughToTitle(editorInstance, true)
+        }
+      }, 100)
+    })
+  }
 
   // Auto-focus new node's editor
   nextTick(() => {
@@ -3037,6 +3129,14 @@ onBeforeUnmount(() => {
 })
 
 function handleClickOutside(e) {
+  // Đóng context menu khi click outside (trừ khi click vào context menu)
+  if (showContextMenu.value) {
+    const contextMenu = e.target.closest('.mindmap-context-menu')
+    if (!contextMenu) {
+      showContextMenu.value = false
+    }
+  }
+
   if (!showPanel.value) return
 
   const panel = commentPanelRef.value?.$el
@@ -3357,7 +3457,8 @@ async function handleInsertImage({ node }) {
   // Tạo input file element
   const input = document.createElement('input')
   input.type = 'file'
-  input.accept = 'image/*'
+  // ⚠️ FIX: Chỉ định rõ các định dạng ảnh được phép, không dùng image/* để tránh chọn "Tất cả tệp tin"
+  input.accept = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg'
   input.style.display = 'none' // Ẩn input element
 
   // Append vào body để đảm bảo dialog hiển thị đúng
@@ -3375,6 +3476,21 @@ async function handleInsertImage({ node }) {
     }
 
     if (!file) return
+
+    // ⚠️ CRITICAL: Validate file type để đảm bảo chỉ upload ảnh
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml']
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']
+    const fileName = file.name.toLowerCase()
+    const fileExtension = fileName.substring(fileName.lastIndexOf('.'))
+    const isValidType = allowedTypes.includes(file.type) || allowedExtensions.includes(fileExtension)
+    
+    if (!isValidType) {
+      toast({ 
+        title: "Chỉ được phép tải lên file ảnh (JPG, PNG, GIF, WEBP, BMP, SVG)", 
+        indicator: "red" 
+      })
+      return
+    }
 
     // ⚠️ CRITICAL: Lưu node.id và editor instance trước khi upload
     const nodeId = node.id
@@ -3461,16 +3577,20 @@ async function handleInsertImage({ node }) {
             // Tìm paragraph cuối cùng không nằm trong blockquote (title cuối cùng)
             let lastTitleParagraphOffset = null
             let lastTitleParagraphSize = 0
+            // ⚠️ FIX: Tìm ảnh cuối cùng sau title (không nằm trong blockquote)
+            let lastImageEndPos = null
 
-            doc.forEach((node, offset) => {
+            // ⚠️ FIX: Sử dụng descendants để duyệt tất cả node (bao gồm cả node con)
+            doc.descendants((node, pos) => {
+              // Tìm blockquote đầu tiên
               if (node.type.name === 'blockquote' && blockquoteOffset === null) {
-                blockquoteOffset = offset
+                blockquoteOffset = pos
               }
               
               // Tìm paragraph cuối cùng không nằm trong blockquote
               if (node.type.name === 'paragraph') {
                 // Kiểm tra xem paragraph có nằm trong blockquote không
-                const resolvedPos = state.doc.resolve(offset + 1)
+                const resolvedPos = state.doc.resolve(pos)
                 let inBlockquote = false
                 
                 for (let i = resolvedPos.depth; i > 0; i--) {
@@ -3483,8 +3603,33 @@ async function handleInsertImage({ node }) {
                 
                 // Nếu không nằm trong blockquote, đây là title paragraph
                 if (!inBlockquote) {
-                  lastTitleParagraphOffset = offset
-                  lastTitleParagraphSize = node.nodeSize
+                  const paragraphEnd = pos + node.nodeSize
+                  if (lastTitleParagraphOffset === null || paragraphEnd > (lastTitleParagraphOffset + lastTitleParagraphSize)) {
+                    lastTitleParagraphOffset = pos
+                    lastTitleParagraphSize = node.nodeSize
+                  }
+                }
+              }
+              
+              // ⚠️ FIX: Tìm ảnh sau title paragraphs (không phải blockquote)
+              if (node.type.name === 'image') {
+                const resolvedPos = state.doc.resolve(pos)
+                let inBlockquote = false
+                
+                for (let i = resolvedPos.depth; i > 0; i--) {
+                  const nodeAtDepth = resolvedPos.node(i)
+                  if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                    inBlockquote = true
+                    break
+                  }
+                }
+                
+                // Nếu không phải blockquote, đó là ảnh sau title
+                if (!inBlockquote) {
+                  const imageEnd = pos + node.nodeSize
+                  if (lastImageEndPos === null || imageEnd > lastImageEndPos) {
+                    lastImageEndPos = imageEnd
+                  }
                 }
               }
             })
@@ -3493,24 +3638,28 @@ async function handleInsertImage({ node }) {
 
             if (blockquoteOffset !== null) {
               // Có blockquote: chèn ảnh vào giữa title và blockquote
-              if (lastTitleParagraphOffset !== null) {
+              // ⚠️ FIX: Ưu tiên chèn sau ảnh cuối cùng nếu có
+              if (lastImageEndPos !== null) {
+                // Có ảnh đã tồn tại, chèn sau ảnh cuối cùng (trước blockquote)
+                insertPosition = lastImageEndPos
+              } else if (lastTitleParagraphOffset !== null) {
                 // Chèn ảnh sau paragraph cuối cùng của title (trước blockquote)
                 insertPosition = lastTitleParagraphOffset + lastTitleParagraphSize
-                
               } else {
                 // Không có title paragraph: chèn ảnh vào trước blockquote
                 insertPosition = blockquoteOffset
-                
               }
             } else {
               // Không có blockquote: chèn ảnh sau paragraph cuối cùng của title
-              if (lastTitleParagraphOffset !== null) {
+              // ⚠️ FIX: Ưu tiên chèn sau ảnh cuối cùng nếu có
+              if (lastImageEndPos !== null) {
+                // Có ảnh đã tồn tại, chèn sau ảnh cuối cùng
+                insertPosition = lastImageEndPos
+              } else if (lastTitleParagraphOffset !== null) {
                 insertPosition = lastTitleParagraphOffset + lastTitleParagraphSize
-                
               } else {
                 // Không có title paragraph: chèn ảnh vào cuối document
                 insertPosition = doc.content.size
-                
               }
             }
 

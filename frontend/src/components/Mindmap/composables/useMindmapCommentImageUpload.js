@@ -61,7 +61,8 @@ export function useMindmapCommentImageUpload({ route, isPrivate }) {
     return new Promise((resolve) => {
       const input = document.createElement("input")
       input.type = "file"
-      input.accept = "image/*"
+      // ⚠️ FIX: Chỉ định rõ các định dạng ảnh được phép, không dùng image/* để tránh chọn "Tất cả tệp tin"
+      input.accept = ".jpg,.jpeg,.png,.gif,.webp,.bmp,.svg"
       input.multiple = true
       input.setAttribute("data-upload-image-to-comment", "true")
       input.style.display = "none"
@@ -73,9 +74,26 @@ export function useMindmapCommentImageUpload({ route, isPrivate }) {
 
         if (!files.length) return resolve([])
 
+        // ⚠️ CRITICAL: Validate file types để đảm bảo chỉ upload ảnh
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml']
+        const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']
+        const validFiles = files.filter(file => {
+          const fileName = file.name.toLowerCase()
+          const fileExtension = fileName.substring(fileName.lastIndexOf('.'))
+          return allowedTypes.includes(file.type) || allowedExtensions.includes(fileExtension)
+        })
+
+        if (validFiles.length !== files.length) {
+          console.warn("Một số file không phải là ảnh đã bị loại bỏ")
+        }
+
+        if (!validFiles.length) {
+          return resolve([])
+        }
+
         const urls = []
         try {
-          for (const file of files) {
+          for (const file of validFiles) {
             const url = await uploadImageGeneric(file, entityName)
             urls.push(url)
           }
@@ -93,9 +111,20 @@ export function useMindmapCommentImageUpload({ route, isPrivate }) {
   async function uploadImageFiles(files, entityName) {
     if (!files?.length) return []
 
+    // ⚠️ CRITICAL: Validate file types để đảm bảo chỉ upload ảnh
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/svg+xml']
+    const allowedExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp', '.svg']
+    const validFiles = files.filter(file => {
+      const fileName = file.name?.toLowerCase() || ''
+      const fileExtension = fileName.substring(fileName.lastIndexOf('.'))
+      return allowedTypes.includes(file.type) || allowedExtensions.includes(fileExtension)
+    })
+
+    if (!validFiles.length) return []
+
     const urls = []
     try {
-      for (const file of files) {
+      for (const file of validFiles) {
         const url = await uploadImageGeneric(file, entityName)
         urls.push(url)
       }

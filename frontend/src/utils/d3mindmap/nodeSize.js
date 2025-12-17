@@ -481,31 +481,76 @@ export function calculateNodeHeightWithImages(options) {
 		// Đo từ scrollHeight để lấy chiều cao đầy đủ (bao gồm overflow)
 		const scrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
 		
-		// Đo từ image wrappers (nếu có) để lấy height chính xác bao gồm margin
+		// ⚠️ FIX: Đo chính xác từ image wrappers và images bằng getBoundingClientRect
 		const imageWrappers = editorContent.querySelectorAll('.image-wrapper, .image-wrapper-node')
-		let maxBottom = scrollHeight
+		const editorRect = editorContent.getBoundingClientRect()
+		let maxBottom = 0
 		
-		imageWrappers.forEach((wrapper) => {
-			const wrapperStyle = window.getComputedStyle(wrapper)
-			const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
-			const wrapperBottom = wrapper.offsetTop + wrapper.offsetHeight + wrapperMarginBottom
-			maxBottom = Math.max(maxBottom, wrapperBottom)
+		// Đo từ image wrappers (nếu có) để lấy height chính xác bao gồm margin
+		if (imageWrappers.length > 0) {
+			imageWrappers.forEach((wrapper) => {
+				const wrapperRect = wrapper.getBoundingClientRect()
+				const wrapperStyle = window.getComputedStyle(wrapper)
+				const wrapperMarginBottom = parseFloat(wrapperStyle.marginBottom) || 0
+				// Tính bottom relative to editorContent
+				const wrapperBottom = wrapperRect.bottom - editorRect.top + wrapperMarginBottom
+				maxBottom = Math.max(maxBottom, wrapperBottom)
+			})
+		} else if (images.length > 0) {
+			// Đo trực tiếp từ ảnh (nếu không có wrapper)
+			images.forEach((img) => {
+				const imgRect = img.getBoundingClientRect()
+				const imgStyle = window.getComputedStyle(img)
+				const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
+				// Tính bottom relative to editorContent
+				const imgBottom = imgRect.bottom - editorRect.top + imgMarginBottom
+				maxBottom = Math.max(maxBottom, imgBottom)
+			})
+		}
+		
+		// ⚠️ CRITICAL: Đo từ task link sections (Liên kết công việc)
+		const taskLinkSections = editorContent.querySelectorAll('.node-task-link-section, [data-node-section="task-link"]')
+		taskLinkSections.forEach((section) => {
+			const sectionRect = section.getBoundingClientRect()
+			const sectionStyle = window.getComputedStyle(section)
+			const sectionMarginBottom = parseFloat(sectionStyle.marginBottom) || 0
+			// Tính bottom relative to editorContent
+			const sectionBottom = sectionRect.bottom - editorRect.top + sectionMarginBottom
+			maxBottom = Math.max(maxBottom, sectionBottom)
 		})
 		
-		// Đo trực tiếp từ ảnh (nếu không có wrapper)
-		images.forEach((img) => {
-			const imgStyle = window.getComputedStyle(img)
-			const imgMarginBottom = parseFloat(imgStyle.marginBottom) || 0
-			const imgBottom = img.offsetTop + img.offsetHeight + imgMarginBottom
-			maxBottom = Math.max(maxBottom, imgBottom)
+		// Đo từ các phần tử text (paragraphs, blockquotes, etc)
+		const textElements = Array.from(editorContent.children).filter((child) => {
+			const hasText = child.textContent?.trim().length > 0
+			const hasImage = child.querySelector('img') || child.querySelector('.image-wrapper-node')
+			const hasTaskLink = child.querySelector('.node-task-link-section') || child.querySelector('[data-node-section="task-link"]')
+			return hasText || hasImage || hasTaskLink
+		})
+		
+		textElements.forEach((element) => {
+			const elementRect = element.getBoundingClientRect()
+			const elementStyle = window.getComputedStyle(element)
+			const elementMarginBottom = parseFloat(elementStyle.marginBottom) || 0
+			// Tính bottom relative to editorContent
+			const elementBottom = elementRect.bottom - editorRect.top + elementMarginBottom
+			maxBottom = Math.max(maxBottom, elementBottom)
 		})
 		
 		// Thêm padding bottom
 		const paddingBottom = parseFloat(window.getComputedStyle(editorContent).paddingBottom) || 0
-		maxBottom += paddingBottom
+		if (maxBottom > 0) {
+			maxBottom += paddingBottom
+		}
 		
 		// Dùng giá trị lớn nhất giữa scrollHeight, maxBottom và estimatedHeight
-		actualHeight = Math.max(scrollHeight, maxBottom, estimatedHeight)
+		// Nhưng ưu tiên dùng giá trị nhỏ hơn để tránh khoảng trống thừa
+		if (maxBottom > 0) {
+			// Có đo được từ DOM, dùng giá trị này nhưng không lớn hơn scrollHeight quá nhiều
+			actualHeight = Math.min(Math.max(scrollHeight, maxBottom), scrollHeight + 20) // Không lớn hơn scrollHeight quá 20px
+		} else {
+			// Không đo được từ DOM, dùng scrollHeight hoặc estimatedHeight
+			actualHeight = Math.min(scrollHeight, estimatedHeight + 50) // Ưu tiên scrollHeight nhưng không quá lớn
+		}
 	}
 	
 	// STEP 8: Đảm bảo height tối thiểu là singleLineHeight
