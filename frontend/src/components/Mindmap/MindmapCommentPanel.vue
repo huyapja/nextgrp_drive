@@ -7,13 +7,13 @@
   ]">
     <!-- Header -->
     <div class="flex py-4 px-3 items-center">
-      <!-- <p class="font-medium">Nhận xét ({{ totalComments }})</p>
-      <Popover dismissable ref="op" class="w-[360px] history-mindmap-popover">
+      <p class="font-medium">Nhận xét ({{ totalComments }})</p>
+      <!-- <Popover dismissable ref="op" class="w-[360px] history-mindmap-popover">
         <MindmapCommentHistory :mindmapId="entityName"/>
       </Popover> -->
       <div class="ml-auto">
-        <i @click="toggle"
-          class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" />
+        <!-- <i @click="toggle"
+          class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" /> -->
         <i class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
           @click="handleClose" />
       </div>
