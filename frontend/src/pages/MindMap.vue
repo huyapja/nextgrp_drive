@@ -114,7 +114,7 @@
 
         <MindmapCommentPanel :visible="showPanel" :node="activeCommentNode" :mindmap="realtimeMindmapNodes"
           @close="showPanel = false" ref="commentPanelRef" @update:input="commentInputValue = $event"
-          @cancel="onCancelComment" @update:node="handleSelectCommentNode">
+          @cancel="onCancelComment" @update:node="handleSelectCommentNode" :userAddComment="isFromUI">
         </MindmapCommentPanel>
 
         <!-- Mindmap Toolbar -->
@@ -486,7 +486,9 @@ const initializeMindmap = async (data) => {
       id: node.id,
       data: node.data || { label: node.label || '' },
       position: node.position,
-      count: node.count || 0
+      count: node.count || 0,
+      node_key: node.node_key ?? null, // thêm node_key và created_at để về sau còn look up history comment
+      created_at: node.created_at ?? null,
     }))
 
     const loadedEdges = data.mindmap_data.edges.map(edge => ({
@@ -818,6 +820,8 @@ const addChildToNode = async (parentId) => {
 
   const newNode = {
     id: newNodeId,
+    node_key: crypto.randomUUID(), // thêm cái này để làm history comment lookup node
+    created_at: Date.now(), 
     data: {
       label: 'Nhánh mới',
       parentId: parentId
@@ -2372,6 +2376,7 @@ onMounted(() => {
 
   socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
   socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
+  socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
   window.addEventListener("click", handleClickOutside, true)
 })
 
@@ -2402,6 +2407,7 @@ onBeforeUnmount(() => {
   }
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
   socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
+  socket.off('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
   window.removeEventListener("click", handleClickOutside, true)
 })
 
@@ -3730,7 +3736,9 @@ const realtimeMindmapNodes = computed(() => {
   return nodes.value.map(n => ({
     id: n.id,
     data: n.data,
-    position: n.position
+    position: n.position,
+    node_key: n.node_key ?? null,
+    created_at: n.created_at ?? null,
   }))
 })
 
@@ -3754,6 +3762,15 @@ function handleRealtimeDeleteOneComment(payload) {
   const node = nodes.value.find(n => n.id === payload.node_id)
   if (node && node.count > 0) {
     node.count = node.count - 1
+  }
+}
+
+function handleRealtimeResolvedComment(payload){
+    if (!payload?.node_id) return
+
+  const node = nodes.value.find(n => n.id === payload.node_id)
+  if (node && node.count > 0) {
+    node.count = node.count - payload.count
   }
 }
 
