@@ -59,6 +59,8 @@ export class D3MindmapRenderer {
     this.dragStartNodeInfo = null // Thông tin node khi bắt đầu drag (để tạo ghost sau khi di chuyển đủ)
     this.taskLinkDragConfirmed = new Set() // Set các node ID đã được confirm khi drag (có task link)
     this.taskLinkDragChecked = false // Flag để đảm bảo chỉ kiểm tra task link một lần khi bắt đầu drag
+    this.newlyCreatedNodes = new Map() // Map nodeId -> timestamp để track các node mới được tạo
+    this.nodesBeingFocused = new Set() // Set các node ID đang trong quá trình focus (để prevent blur)
     
     this.zoom = null
     this.svg = null
