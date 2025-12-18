@@ -1,6 +1,11 @@
 import { onMounted, onUnmounted } from "vue"
 
-export function useMindmapCommentRealtime({ socket, entityName, comments, activeGroupKey }) {
+export function useMindmapCommentRealtime({
+  socket,
+  entityName,
+  comments,
+  activeGroupKey,
+}) {
   function handleRealtimeNewComment(payload) {
     if (!payload) return
     if (payload.mindmap_id !== entityName) return
@@ -65,6 +70,54 @@ export function useMindmapCommentRealtime({ socket, entityName, comments, active
     }
   }
 
+  function handleRealtimeNodeUnresolved(payload) {
+    if (!payload) return
+    if (payload.mindmap_id !== entityName) return
+
+    const {
+      node_id,
+      session_index,
+      comments: snapshot,
+      node_position,
+    } = payload
+
+    if (!node_id || session_index == null) return
+    if (!Array.isArray(snapshot) || snapshot.length === 0) return
+
+    // 1. restore comments từ snapshot
+    snapshot.forEach((snap) => {
+      const existed = comments.value.find((c) => c.name === snap.id)
+      if (existed) return
+
+      comments.value.push({
+        name: snap.id,
+        owner: snap.owner,
+        creation: snap.created_at,
+        modified: snap.modified_at || snap.created_at,
+        node_id,
+        session_index,
+        comment: JSON.stringify({
+          safe_html: snap.content,
+        }),
+      })
+    })
+
+    // 2. set active group
+    const groupKey = `${node_id}__${session_index}`
+    activeGroupKey.value = groupKey
+
+    // 3. emit position cho các layer khác (optional nhưng rất nên)
+    window.dispatchEvent(
+      new CustomEvent("mindmap:node_unresolved", {
+        detail: {
+          node_id,
+          session_index,
+          node_position,
+        },
+      })
+    )
+  }
+
   onMounted(() => {
     if (socket?.on) {
       socket.on("drive_mindmap:new_comment", handleRealtimeNewComment)
@@ -75,6 +128,7 @@ export function useMindmapCommentRealtime({ socket, entityName, comments, active
       socket.on("drive_mindmap:comment_deleted", handleRealtimeDeleteOne)
       socket.on("drive_mindmap:comment_updated", handleRealtimeUpdateComment)
       socket.on("drive_mindmap:node_resolved", handleRealtimeNodeResolved)
+      socket.on("drive_mindmap:node_unresolved", handleRealtimeNodeUnresolved)
     }
   })
 
@@ -88,6 +142,7 @@ export function useMindmapCommentRealtime({ socket, entityName, comments, active
       socket.off("drive_mindmap:comment_deleted", handleRealtimeDeleteOne)
       socket.off("drive_mindmap:comment_updated", handleRealtimeUpdateComment)
       socket.off("drive_mindmap:node_resolved", handleRealtimeNodeResolved)
+      socket.off("drive_mindmap:node_unresolved", handleRealtimeNodeUnresolved)
     }
   })
 }

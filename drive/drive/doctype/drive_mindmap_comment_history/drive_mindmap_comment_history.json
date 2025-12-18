@@ -85,6 +85,12 @@
       "reqd": 1
     },
     {
+      "fieldname": "comment_ids",
+      "label": "Comment IDs",
+      "fieldtype": "Long Text",
+      "reqd": 1
+    },    
+    {
       "fieldname": "comments_snapshot",
       "label": "Comments Snapshot",
       "fieldtype": "Long Text",
