@@ -122,6 +122,10 @@ has_permission = {
 doc_events = {
     "Drive File": {"after_insert": "drive.api.notifications.notify_team_file_upload"},
     "User": {"after_insert": "drive.controllers.user.add_user_to_drive_team"},
+    "Task": {
+        "on_update": "drive.api.mindmap_task_sync.on_task_update",
+        "on_trash": "drive.api.mindmap_task_sync.on_task_delete",
+    },
 }
 
 
@@ -131,7 +135,10 @@ doc_events = {
 # ---------------
 
 scheduler_events = {
-    "daily": ["drive.api.files.auto_delete_from_trash", "drive.api.files.clear_deleted_files"],
+    "daily": [
+        "drive.api.files.auto_delete_from_trash",
+        "drive.api.files.clear_deleted_files",
+    ],
     "hourly": ["drive.api.permissions.auto_delete_expired_perms"],
 }
 
@@ -196,6 +203,9 @@ signup_form_template = "templates/signup.html"
 fixtures = [
     {
         "doctype": "Custom Field",
-        "filters": [["fieldname", "=", "onlyoffice_secret"], ["dt", "=", "Drive Settings"]],
+        "filters": [
+            ["fieldname", "=", "onlyoffice_secret"],
+            ["dt", "=", "Drive Settings"],
+        ],
     }
 ]
