@@ -3787,7 +3787,6 @@ function handleRealtimeUnresolvedComment(payload){
 
 const suppressAutoOpenFromQuery = inject("suppressAutoOpenFromQuery")
 
-
 watch(
   [nodeFromQuery, isMindmapReady],
   ([nodeId, ready]) => {

@@ -415,6 +415,10 @@ const historyScrollTarget = ref(null)
 const toast = useToast()
 
 
+const suppressAutoOpenFromQuery =
+  inject("suppressAutoOpenFromQuery", ref(null))
+
+
 const isHistoryOpen = ref(false)
 
 function toggleHistory(event) {
@@ -494,7 +498,7 @@ watch(
       await mindmap_comment_list.fetch()
       hasLoadedOnce.value = true
     }
-
+    if (suppressAutoOpenFromQuery?.value === "query") return
     syncQueryNode()
   }
 )
@@ -531,12 +535,19 @@ const activeSessionIndex = computed(() => {
   return Number(session)
 })
 
+const activeNode = computed(() => {
+  if (!activeGroupKey.value) return null
+  const { nodeId } = parseGroupKey(activeGroupKey.value)
+  return nodeMap.value?.[nodeId] || null
+})
+
 const {
   inputValue,
   handleSubmit,
   handleCancel,
 } = useMindmapCommentInput({
   activeGroupKey,
+  activeNode,
   activeSessionIndex,
   entityName,
   emit,
@@ -925,13 +936,6 @@ async function handleEditAndFocus() {
   editor.commands.setTextSelection(endPos)
 }
 
-
-const activeNode = computed(() => {
-  if (!activeGroupKey.value) return null
-  const { nodeId } = parseGroupKey(activeGroupKey.value)
-  return nodeMap.value?.[nodeId] || null
-})
-
 const { resolveNode } = useResolvedNode({ activeNode, comments, entityName, activeSessionIndex })
 
 async function handleResolveGroup(group) {
@@ -1083,6 +1087,7 @@ watch(
 
 
 function syncQueryNode() {
+  if (suppressAutoOpenFromQuery?.value === "query") return
   if (pendingScroll.value) return
   if (hasConsumedRouteNode.value) return
 
@@ -1155,9 +1160,6 @@ function clearCommentIdFromUrl() {
   historyScrollTarget.value = null
   isHistoryOpen.value = false
 }
-
-const suppressAutoOpenFromQuery = inject("suppressAutoOpenFromQuery")
-
 
 async function handleCommentIdFromUrl() {
   const hash = window.location.hash || ""

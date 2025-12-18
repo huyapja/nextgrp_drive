@@ -75,9 +75,12 @@ def get_comments(mindmap_id: str):
 
 
 @frappe.whitelist()
-def add_comment(mindmap_id: str, node_id: str, session_index: int | None, comment: str):
+def add_comment(mindmap_id: str, node_id: str, session_index: int | None, comment: str, node_key: str):
     if not mindmap_id or not node_id or not comment:
         frappe.throw("Missing params")
+
+    if not node_key:
+        frappe.throw("Missing node_key")    
 
     now = frappe.utils.now_datetime()
     comment_data = json.loads(comment)
@@ -143,6 +146,7 @@ def add_comment(mindmap_id: str, node_id: str, session_index: int | None, commen
         "doctype": "Drive Mindmap Comment",
         "mindmap_id": mindmap_id,
         "node_id": node_id,
+        "node_key": node_key,       
         "session_index": session["session_index"],
         "comment": comment_data,
         "owner": frappe.session.user,
@@ -494,11 +498,18 @@ def notify_mentions(comment_name):
     
     team = drive_file["team"]
 
+    # link = (
+    #     f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
+    #     f"?node={doc.node_id}"
+    #     f"#comment_id={doc.name}"
+    # )
     link = (
         f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
         f"?node={doc.node_id}"
+        f"&session={doc.session_index}"
+        f"&node_key={doc.node_key}"
         f"#comment_id={doc.name}"
-    )
+    )    
 
     # ---- parse comment safely ----
     comment = doc.comment
@@ -589,6 +600,9 @@ def notify_comment(comment_name):
     link = (
         f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
         f"?node={doc.node_id}"
+        f"&session={doc.session_index}"
+        f"&node_key={doc.node_key}"
+        f"#comment_id={doc.name}"
     )
 
     comment = doc.comment
