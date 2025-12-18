@@ -8,20 +8,21 @@
     <!-- Header -->
     <div class="flex py-4 px-3 items-center">
       <p class="font-medium">Nhận xét ({{ totalComments }})</p>
-      <!-- <Popover dismissable ref="op" class="w-[360px] history-mindmap-popover">
-        <MindmapCommentHistory :mindmapId="entityName"/>
-      </Popover> -->
+      <Popover @hide="clearCommentIdFromUrl" dismissable ref="op" class="w-[360px] history-mindmap-popover">
+        <MindmapCommentHistory :visible="isHistoryOpen" :mindmapId="entityName" :scrollTarget="historyScrollTarget"
+          :nodeMap="nodeMap" />
+      </Popover>
       <div class="ml-auto">
-        <!-- <i @click="toggle"
-          class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" /> -->
-        <i class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
+        <i ref="historyIconRef" @click="toggleHistory"
+          v-tooltip.top="{ value: 'Lịch sử bình luận', pt: { text: { class: ['text-[12px]'] } } }"
+          class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" />
+        <i v-tooltip.top="{ value: 'Đóng', pt: { text: { class: ['text-[12px]'] } } }"
+          class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
           @click="handleClose" />
       </div>
     </div>
 
-    <div v-if="props?.node && mergedComments.length === 0"></div>
-
-    <div v-else-if="mergedComments.length === 0" class="text-gray-400 text-sm p-3">
+    <div v-if="parsedGroups.length === 0" class="text-gray-400 text-sm p-3">
       Chưa có bình luận nào.
     </div>
 
@@ -345,7 +346,7 @@
 <script setup>
 
 import { ref, watch, computed, nextTick, inject, defineExpose, onMounted, onBeforeUnmount } from "vue"
-import { createResource } from "frappe-ui"
+import { call, createResource } from "frappe-ui"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import CustomAvatar from "../CustomAvatar.vue"
@@ -372,6 +373,8 @@ import { useResolvedNode } from "./composables/useResolvedNode"
 
 import MindmapCommentHistory from './MindmapCommentHistory.vue'
 import Popover from "primevue/popover"
+import { useToast } from "primevue/usetoast"
+
 
 import { timeAgo } from "./utils/timeAgo"
 
@@ -382,7 +385,7 @@ const props = defineProps({
   mindmap: Array,
   userAddComment: Boolean
 })
-const emit = defineEmits(["close", "cancel", "submit", "update:input", "update:node"])
+const emit = defineEmits(["close", "cancel", "submit", "update:input", "update:node", "open-history"])
 const socket = inject("socket")
 
 
@@ -407,11 +410,26 @@ const isNavigatingByKeyboard = ref(false)
 const isSubmitting = ref(false)
 const suppressAutoScroll = ref(false)
 const op = ref(null)
+const historyIconRef = ref(null)
+const historyScrollTarget = ref(null)
+const toast = useToast()
 
-function toggle(event) {
-  op.value.toggle(event)
+
+const suppressAutoOpenFromQuery =
+  inject("suppressAutoOpenFromQuery", ref(null))
+
+
+const isHistoryOpen = ref(false)
+
+function toggleHistory(event) {
+  isHistoryOpen.value = !isHistoryOpen.value
+
+  if (isHistoryOpen.value) {
+    op.value.show(event)
+  } else {
+    op.value.hide()
+  }
 }
-
 function groupKeyOf(group) {
   return `${group.node.id}__${group.session_index}`
 }
@@ -468,39 +486,19 @@ const mindmap_comment_list = createResource({
   }
 })
 
-function syncHashCommentId() {
-  const hash = window.location.hash || ""
-  const params = new URLSearchParams(hash.replace("#", ""))
-  hashCommentIdInternal.value = params.get("comment_id")
-}
-
 watch(
   () => props.visible,
   async (isVisible) => {
-    // Khi ĐÓNG panel
     if (!isVisible) {
-      // reset để lần mở sau nhận node mới từ mindmap
       pendingScroll.value = null
       hashCommentIdInternal.value = null
       return
     }
-
-    // Khi MỞ panel
-    syncHashCommentId()
-
     if (!hasLoadedOnce.value) {
       await mindmap_comment_list.fetch()
       hasLoadedOnce.value = true
     }
-
-    // Nếu mở panel theo #comment_id=... trong URL → ưu tiên scroll theo comment
-    if (hashCommentIdInternal.value) {
-      pendingScroll.value = {
-        type: "comment",
-        id: hashCommentIdInternal.value,
-      }
-      return
-    }
+    if (suppressAutoOpenFromQuery?.value === "query") return
     syncQueryNode()
   }
 )
@@ -537,12 +535,19 @@ const activeSessionIndex = computed(() => {
   return Number(session)
 })
 
+const activeNode = computed(() => {
+  if (!activeGroupKey.value) return null
+  const { nodeId } = parseGroupKey(activeGroupKey.value)
+  return nodeMap.value?.[nodeId] || null
+})
+
 const {
   inputValue,
   handleSubmit,
   handleCancel,
 } = useMindmapCommentInput({
   activeGroupKey,
+  activeNode,
   activeSessionIndex,
   entityName,
   emit,
@@ -597,10 +602,12 @@ watch(
     if (!props.visible) return
     if (isNavigatingByKeyboard.value) return
     if (pendingScroll.value) return
+    if (route.query?.node) return
 
     pendingScroll.value = {
       type: "node",
-      id: newId
+      nodeId: newId,
+      session: null
     }
   }
 )
@@ -929,13 +936,6 @@ async function handleEditAndFocus() {
   editor.commands.setTextSelection(endPos)
 }
 
-
-const activeNode = computed(() => {
-  if (!activeGroupKey.value) return null
-  const { nodeId } = parseGroupKey(activeGroupKey.value)
-  return nodeMap.value?.[nodeId] || null
-})
-
 const { resolveNode } = useResolvedNode({ activeNode, comments, entityName, activeSessionIndex })
 
 async function handleResolveGroup(group) {
@@ -1010,30 +1010,36 @@ watch(
     }
 
 
-
-    // NODE / GROUP
     if (task.type === "node") {
-      const groupsOfNode = mergedGroupsFinal.value
-        .filter(g => g.node.id === task.id)
+      const { nodeId, session } = task
 
-      if (!groupsOfNode.length) return
+      const groupsOfNode = mergedGroupsFinal.value
+        .filter(g => g.node.id === nodeId)
+
+      if (!groupsOfNode.length) {
+        pendingScroll.value = null
+        return
+      }
 
       let targetGroup = null
 
-      if (!activeGroupKey.value) {
-        targetGroup = groupsOfNode
-          .sort((a, b) => b.session_index - a.session_index)[0]
-      } else {
-        const { session_index } = parseGroupKey(activeGroupKey.value)
-
-        targetGroup =
-          groupsOfNode.find(g => g.session_index === session_index) ||
-          groupsOfNode.sort((a, b) => b.session_index - a.session_index)[0]
+      // Ưu tiên session nếu có
+      if (session != null) {
+        targetGroup = groupsOfNode.find(
+          g => Number(g.session_index) === Number(session)
+        )
       }
 
+      // fallback: session mới nhất
+      if (!targetGroup) {
+        targetGroup = groupsOfNode
+          .slice()
+          .sort((a, b) => b.session_index - a.session_index)[0]
+      }
 
       const key = groupKeyOf(targetGroup)
 
+      // chờ DOM render
       let retry = 20
       while (retry-- > 0 && !groupRefs.value[key]) {
         await nextTick()
@@ -1042,8 +1048,36 @@ watch(
       if (groupRefs.value[key]) {
         activeGroupKey.value = key
         scrollToActiveNode(key)
-        pendingScroll.value = null
       }
+
+      pendingScroll.value = null
+    }
+
+    if (task.type === "history") {
+      await nextTick()
+      await new Promise(r => setTimeout(r, 300))
+      const hash = window.location.hash || ""
+      const params = new URLSearchParams(hash.replace("#", ""))
+
+      // 1. set visible cho history
+      isHistoryOpen.value = true
+
+      // 2. set scroll target
+      historyScrollTarget.value = {
+        node_id: task.node_id,
+        session_index: task.session_index,
+        comment_id: params.get("comment_id") || null,
+      }
+
+      // 3. mở popover (CHỈ 1 LẦN)
+      if (op.value && historyIconRef.value) {
+        op.value.show({
+          currentTarget: historyIconRef.value
+        })
+      }
+
+      pendingScroll.value = null
+      return
     }
 
 
@@ -1053,20 +1087,26 @@ watch(
 
 
 function syncQueryNode() {
-  if (hashCommentIdInternal.value) return
+  if (suppressAutoOpenFromQuery?.value === "query") return
   if (pendingScroll.value) return
   if (hasConsumedRouteNode.value) return
 
   const nodeId = route.query?.node
   if (!nodeId) return
 
+  const session = route.query?.session
+    ? Number(route.query.session)
+    : null
+
   pendingScroll.value = {
     type: "node",
-    id: nodeId
+    nodeId,
+    session
   }
 
   hasConsumedRouteNode.value = true
 }
+
 
 watch(
   mergedGroupsFinal,
@@ -1094,7 +1134,138 @@ watch(
   { flush: "post" }
 )
 
+watch(
+  () => parsedGroups.value.length,
+  (len) => {
+    if (len === 0) {
+      activeGroupKey.value = null
+    }
+  }
+)
 
+function clearCommentIdFromUrl() {
+  const url = new URL(window.location.href)
+
+  // xoá toàn bộ query
+  url.search = ""
+
+  // xoá hash
+  url.hash = ""
+
+  window.history.replaceState({}, "", url.toString())
+
+  // reset state nội bộ
+  hashCommentIdInternal.value = null
+  pendingScroll.value = null
+  historyScrollTarget.value = null
+  isHistoryOpen.value = false
+}
+
+async function handleCommentIdFromUrl() {
+  const hash = window.location.hash || ""
+  if (!hash.startsWith("#comment_id=")) return
+
+  const params = new URLSearchParams(hash.replace("#", ""))
+  const commentId = params.get("comment_id")
+  if (!commentId) return
+
+  try {
+    const res = await call(
+      "drive.api.mindmap_comment.check_comment_exist",
+      { comment_id: commentId }
+    )
+
+    // comment không tồn tại
+    if (!res?.ok || !res.exists) {
+      suppressAutoOpenFromQuery.value = "query"
+      toast.add({
+        severity: "warn",
+        summary: "Bình luận không tồn tại",
+        detail: "Bình luận này không còn tồn tại.",
+        life: 3000,
+      })
+      clearCommentIdFromUrl()
+      return
+    }
+
+    // comment đã resolve → CHỈ toast
+    if (res.type === "history") {
+      suppressAutoOpenFromQuery.value = "query"
+
+      toast.add({
+        severity: "info",
+        summary: "Bình luận đã được xử lý",
+        detail: "Bình luận này hiện đang nằm trong lịch sử bình luận.",
+        life: 6000,
+        group: "comment-history",
+        data: {
+          node_id: res.node_id,
+          session_index: res.session_index,
+          comment_id: commentId,
+        }
+      })
+
+      // clearCommentIdFromUrl()
+      return
+    }
+
+    // CHỈ comment còn mở mới auto open
+    openPanelByCommentResult(res, commentId)
+
+  } catch (e) {
+    console.error("check_comment_exist failed:", e)
+  }
+}
+
+
+function openPanelByCommentResult(res, commentId) {
+  // comment còn đang mở
+  if (res.type === "comment") {
+    pendingScroll.value = {
+      type: "comment",
+      id: commentId,
+    }
+    hashCommentIdInternal.value = commentId
+    return
+  }
+
+  // comment đã resolve → mở history
+  if (res.type === "history") {
+    hashCommentIdInternal.value = commentId
+    return
+  }
+}
+
+const openHistoryByCommand = inject("openHistoryByCommand")
+
+
+onMounted(() => {
+  handleCommentIdFromUrl()
+
+  if (!openHistoryByCommand) return
+
+  openHistoryByCommand.value = ({ node_id, session_index, comment_id }) => {
+    emit("update:node", nodeMap.value?.[node_id] || null)
+    emit("open-history")
+
+    suppressAutoOpenFromQuery.value = null
+
+    hashCommentIdInternal.value = comment_id || null
+
+    pendingScroll.value = {
+      type: "history",
+      node_id,
+      session_index,
+    }
+  }
+
+})
+
+onBeforeUnmount(() => {
+  if (openHistoryByCommand) {
+    openHistoryByCommand.value = null
+  }
+})
 </script>
 
 

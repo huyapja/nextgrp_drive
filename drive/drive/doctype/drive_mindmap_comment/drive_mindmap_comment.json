@@ -40,6 +40,14 @@
       "in_list_view": 1
     },
     {
+      "fieldname": "node_key",
+      "fieldtype": "Data",
+      "label": "Node Key",
+      "reqd": 0,
+      "in_standard_filter": 1,
+      "in_list_view": 0
+    },    
+    {
       "fieldname": "comment",
       "fieldtype": "JSON",
       "label": "Comment",

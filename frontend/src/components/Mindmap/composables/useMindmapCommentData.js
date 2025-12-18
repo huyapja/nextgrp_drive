@@ -133,7 +133,7 @@ export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
   /* ---------------- totalComments ---------------- */
 
   const totalComments = computed(() => {
-    return Object.keys(commentsByNode.value).length
+    return Object.keys(commentsByNodeSession.value).length
   })
 
   /* ---------------- mergedGroups ---------------- */

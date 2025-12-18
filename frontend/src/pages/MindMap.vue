@@ -136,7 +136,7 @@
           :position="contextMenuPos" :has-clipboard="hasClipboard" :center="contextMenuCentered"
           @action="handleContextMenuAction" @close="showContextMenu = false" />
 
-        <MindmapCommentPanel :visible="showPanel" :node="activeCommentNode" :mindmap="realtimeMindmapNodes"
+        <MindmapCommentPanel @open-history="showPanel = true" :visible="showPanel" :node="activeCommentNode" :mindmap="realtimeMindmapNodes"
           @close="showPanel = false" ref="commentPanelRef" @update:input="commentInputValue = $event"
           @cancel="onCancelComment" @update:node="handleSelectCommentNode" :userAddComment="isFromUI">
         </MindmapCommentPanel>
@@ -175,7 +175,7 @@ import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 import { setBreadCrumbs } from "@/utils/files"
 import { toast } from "@/utils/toasts"
 import { call, createResource } from "frappe-ui"
-import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch, provide } from "vue"
 import { useStore } from "vuex"
 
 import { useRoute } from "vue-router"
@@ -1310,7 +1310,7 @@ const performDelete = async (nodeId) => {
 
   
 
-  const res = await call("drive.api.mindmap_comment.delete_comments_by_nodes", {
+  await call("drive.api.mindmap_comment.delete_comments_by_nodes", {
     mindmap_id: props?.entityName,
     node_ids: Array.from(nodesToDelete)
   })
@@ -2814,6 +2814,7 @@ onMounted(() => {
   // ⚠️ NEW: Lắng nghe sự kiện hashchange để scroll đến node khi hash thay đổi
   window.addEventListener('hashchange', scrollToNodeFromHash)
 
+
   // ⚠️ NEW: Đăng ký socket listeners với safety check
   if (socket) {
     console.log('🔌 Registering socket listeners, socket ID:', socket.id, 'connected:', socket.connected)
@@ -2832,6 +2833,10 @@ onMounted(() => {
   } else {
     console.warn('⚠️ Socket is not available, realtime updates will not work')
   }
+  socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
+  socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
+  socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
+  socket.on('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
   window.addEventListener("click", handleClickOutside, true)
 })
 
@@ -2862,11 +2867,13 @@ onBeforeUnmount(() => {
   }
   // ⚠️ NEW: Cleanup socket listeners với safety check
   if (socket) {
-    socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
-    socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
-    socket.off('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
     socket.off('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
   }
+  socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
+  socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
+  socket.off('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
+  socket.off('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
+
   window.removeEventListener("click", handleClickOutside, true)
 })
 
@@ -4509,9 +4516,21 @@ function handleRealtimeTaskStatusUpdate(payload) {
   }
 }
 
+function handleRealtimeUnresolvedComment(payload){
+  if (!payload?.node_id) return
+  const node = nodes.value.find(n => n.id === payload.node_id)
+  
+  if (node) {
+    node.count = node.count + payload.comment_count
+  }
+}
+
+const suppressAutoOpenFromQuery = inject("suppressAutoOpenFromQuery")
+
 watch(
   [nodeFromQuery, isMindmapReady],
   ([nodeId, ready]) => {
+    if (suppressAutoOpenFromQuery.value === "query") return
     if (isFromUI.value) return
     if (!nodeId) return
     if (nodeId === 'root') return

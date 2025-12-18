@@ -59,7 +59,8 @@ import translationPlugin from "./translation"
 import { handleResourceError } from "./utils/errorHandler"
 import { toast } from "./utils/toasts"
 import Tooltip from 'primevue/tooltip'
-
+import ToastService from "primevue/toastservice"
+import Toast from "primevue/toast"
 
 let boot
 
@@ -107,6 +108,8 @@ app.use(PrimeVue, {
     },
   },
 })
+app.use(ToastService)
+app.component("PrimeToast", Toast)
 
 app.use(FrappeUI, { socketio: false })
 const socket = initSocket()

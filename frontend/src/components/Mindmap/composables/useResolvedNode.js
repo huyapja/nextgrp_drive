@@ -1,4 +1,5 @@
 import { call } from "frappe-ui"
+import { clearHistoryCache } from "../components/cache/mindmapCommentHistoryCache"
 
 function extractTextFromP(html) {
   if (!html) return ""
@@ -9,7 +10,6 @@ function extractTextFromP(html) {
   const p = div.querySelector("p")
   return p?.textContent?.trim() || ""
 }
-
 
 export function useResolvedNode({
   activeNode,
@@ -56,11 +56,13 @@ export function useResolvedNode({
             id: c.name,
             owner: c.owner,
             created_at: c.creation,
+            modified_at: c.modified,
             content: parsed.safe_html || "",
           }
         }),
       },
     })
+    clearHistoryCache(entityName)
   }
 
   return { resolveNode }

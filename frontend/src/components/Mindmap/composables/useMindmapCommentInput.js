@@ -22,6 +22,7 @@ function parseGroupKey(groupKey) {
 
 export function useMindmapCommentInput({
   activeGroupKey,
+  activeNode,
   entityName,
   emit,
   previewImages,
@@ -68,6 +69,8 @@ export function useMindmapCommentInput({
     const { nodeId, sessionIndex } = parseGroupKey(activeGroupKey.value)
     if (!nodeId || !sessionIndex) return
 
+    const node_key = activeNode?.value?.node_key || null
+
     const payload = {
       text: finalHTML,
       created_at: new Date().toISOString(),
@@ -78,15 +81,13 @@ export function useMindmapCommentInput({
       node_id: nodeId,
       session_index: sessionIndex,
       comment: JSON.stringify(payload),
+      node_key
     })
 
-    // RESET SAU KHI GỬI
+    // reset
     inputValue.value = ""
     previewImages.value = []
-
-    commentCache.value[activeGroupKey.value] = ""
     commentEditorRef.value?.[activeGroupKey.value]?.clearValues?.()
-    saveCache()
 
     emit("submit", res.comment)
   }

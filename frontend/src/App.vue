@@ -1,47 +1,58 @@
 <template>
-  <div class="w-screen h-screen antialiased" dark> 
+  <div class="w-screen h-screen antialiased" dark>
     <!-- <div class="bg-surface-gray-7 text-ink-white text-sm text-center py-2 sm:hidden">
       Ứng dụng hoạt động tốt nhất trên máy tính để bàn.
     </div> -->
-    
+
     <div v-if="isLoggedIn || $route.meta.allowGuest" class="flex gap-4">
-      <Sidebar
-        v-if="isLoggedIn && !['Teams', 'Setup'].includes($route.name)"
-        class="hidden sm:block"
-      />
-      
-      <div
-        id="dropzone"
-        class="flex flex-col h-screen flex-grow overflow-hidden bg-surface-white rounded-[8px]"
-      >
+      <Sidebar v-if="isLoggedIn && !['Teams', 'Setup'].includes($route.name)" class="hidden sm:block" />
+
+      <div id="dropzone" class="flex flex-col h-screen flex-grow overflow-hidden bg-surface-white rounded-[8px]">
         <router-view :key="$route.fullPath" v-slot="{ Component }">
           <component :is="Component" />
         </router-view>
       </div>
 
       <!-- ✅ FIX: Thêm class bottom-bar và đảm bảo z-index cao -->
-      <BottomBar
-        v-if="isLoggedIn"
-        class="bottom-bar fixed bottom-0 left-0 right-0 w-full sm:hidden z-50 bg-surface-white border-t border-ink-gray-3"
-      />
+      <BottomBar v-if="isLoggedIn"
+        class="bottom-bar fixed bottom-0 left-0 right-0 w-full sm:hidden z-50 bg-surface-white border-t border-ink-gray-3" />
     </div>
-    
+
     <router-view v-else :key="$route.fullPath" v-slot="{ Component }">
       <component :is="Component" />
     </router-view>
   </div>
-  
+
+  <PrimeToast group="comment-history">
+    <template #container="{ message, closeCallback }">
+      <div class="flex flex-col gap-2 p-3">
+        <div class="font-medium">
+          {{ message.summary }}
+        </div>
+
+        <div class="text-sm text-gray-600">
+          {{ message.detail }}
+        </div>
+
+        <button class="text-blue-600 text-sm font-medium self-start hover:underline" @click="() => {
+          closeCallback()
+          handleOpenHistoryFromToast(message.data)
+        }">
+          Xem bình luận
+        </button>
+      </div>
+    </template>
+  </PrimeToast>
+
+
+
   <!-- Rest of the template remains the same -->
   <SearchPopup v-if="isLoggedIn && showSearchPopup" v-model="showSearchPopup" />
   <SettingsDialog v-model="showSettings" />
-  <Transition
-    enter-active-class="transition duration-[150ms] ease-[cubic-bezier(.21,1.02,.73,1)]"
-    enter-from-class="translate-y-1 opacity-0"
-    enter-to-class="translate-y-0 opacity-100"
+  <Transition enter-active-class="transition duration-[150ms] ease-[cubic-bezier(.21,1.02,.73,1)]"
+    enter-from-class="translate-y-1 opacity-0" enter-to-class="translate-y-0 opacity-100"
     leave-active-class="transition duration-[150ms] ease-[cubic-bezier(.21,1.02,.73,1)]"
-    leave-from-class="translate-y-0 opacity-100"
-    leave-to-class="translate-y-1 opacity-0"
-  >
+    leave-from-class="translate-y-0 opacity-100" leave-to-class="translate-y-1 opacity-0">
     <UploadTracker v-if="showUploadTracker" />
   </Transition>
   <Toasts />
@@ -54,7 +65,7 @@ import UploadTracker from "@/components/UploadTracker.vue"
 import emitter from "@/emitter"
 import { Toasts } from "@/utils/toasts.js"
 import { onKeyDown } from "@vueuse/core"
-import { computed, onMounted, ref } from "vue"
+import { computed, onMounted, provide, ref } from "vue"
 import { useRouter } from "vue-router"
 import { useStore } from "vuex"
 import BottomBar from "./components/BottomBar.vue"
@@ -63,6 +74,24 @@ import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import '@vue-flow/controls/dist/style.css';
 import '@vue-flow/minimap/dist/style.css';
+
+const suppressAutoOpenFromQuery = ref(null)
+const openHistoryByCommand = ref(null)
+
+provide("suppressAutoOpenFromQuery", suppressAutoOpenFromQuery)
+provide("openHistoryByCommand", openHistoryByCommand)
+
+function handleOpenHistoryFromToast(data) {
+  if (!openHistoryByCommand?.value) return
+
+  openHistoryByCommand.value({
+    node_id: data.node_id,
+    session_index: data.session_index,
+    comment_id: data.comment_id,
+  })
+}
+
+
 
 const showSettings = ref(false)
 

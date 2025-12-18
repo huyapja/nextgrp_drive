@@ -75,9 +75,12 @@ def get_comments(mindmap_id: str):
 
 
 @frappe.whitelist()
-def add_comment(mindmap_id: str, node_id: str, session_index: int | None, comment: str):
+def add_comment(mindmap_id: str, node_id: str, session_index: int | None, comment: str, node_key: str):
     if not mindmap_id or not node_id or not comment:
         frappe.throw("Missing params")
+
+    if not node_key:
+        frappe.throw("Missing node_key")    
 
     now = frappe.utils.now_datetime()
     comment_data = json.loads(comment)
@@ -143,6 +146,7 @@ def add_comment(mindmap_id: str, node_id: str, session_index: int | None, commen
         "doctype": "Drive Mindmap Comment",
         "mindmap_id": mindmap_id,
         "node_id": node_id,
+        "node_key": node_key,       
         "session_index": session["session_index"],
         "comment": comment_data,
         "owner": frappe.session.user,
@@ -491,11 +495,18 @@ def notify_mentions(comment_name):
 
     team = drive_file["team"]
 
+    # link = (
+    #     f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
+    #     f"?node={doc.node_id}"
+    #     f"#comment_id={doc.name}"
+    # )
     link = (
         f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
         f"?node={doc.node_id}"
+        f"&session={doc.session_index}"
+        f"&node_key={doc.node_key}"
         f"#comment_id={doc.name}"
-    )
+    )    
 
     # ---- parse comment safely ----
     comment = doc.comment
@@ -577,7 +588,13 @@ def notify_comment(comment_name):
 
     team = drive_file["team"]
 
-    link = f"/drive/t/{team}/mindmap/{doc.mindmap_id}" f"?node={doc.node_id}"
+    link = (
+        f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
+        f"?node={doc.node_id}"
+        f"&session={doc.session_index}"
+        f"&node_key={doc.node_key}"
+        f"#comment_id={doc.name}"
+    )
 
     comment = doc.comment
     if isinstance(comment, str):
@@ -658,20 +675,26 @@ def resolve_node(
             "session_index": session_index
         }
 
-    required_fields = [
-        "node_key",
-        "node_created_at",
-        "node_position",
-        "comments",
-    ]
-    # for f in required_fields:
-    #     if not history.get(f):
-    #         frappe.throw(f"Missing history.{f}")
+    # -------- validate history --------
+    required_fields = ["node_key", "node_created_at"]
+    for f in required_fields:
+        if not history.get(f):
+            frappe.throw(f"Missing history.{f}")
 
+    # -------- normalize datetime --------
     dt = get_datetime(history.get("node_created_at"))
     dt = convert_utc_to_system_timezone(dt)
     node_created_at = dt.replace(tzinfo=None, microsecond=0)
 
+    # -------- extract comment_ids --------
+    raw_comments = history.get("comments") or []
+    comment_ids = [
+        c.get("id")
+        for c in raw_comments
+        if isinstance(c, dict) and c.get("id")
+    ]
+
+    # -------- create history snapshot --------
     history_doc = frappe.new_doc("Drive Mindmap Comment History")
     history_doc.update({
         "mindmap_id": entity_name,
@@ -683,12 +706,15 @@ def resolve_node(
         "resolved_at": now,
         "resolved_by": frappe.session.user,
         "comment_count": session.comment_count,
+        "comment_ids": frappe.as_json(comment_ids),
         "node_position": frappe.as_json(history.get("node_position")),
-        "comments_snapshot": frappe.as_json(history.get("comments")),
+        "comments_snapshot": frappe.as_json(raw_comments),
+
         "node_deleted": 0,
     })
     history_doc.insert(ignore_permissions=True)
 
+    # -------- close session --------
     frappe.db.set_value(
         "Drive Mindmap Comment Session",
         session.name,
@@ -698,6 +724,7 @@ def resolve_node(
         }
     )
 
+    # -------- realtime --------
     frappe.publish_realtime(
         event="drive_mindmap:node_resolved",
         message={
@@ -786,4 +813,228 @@ def get_comment_history_list(
     return {
         "ok": True,
         "items": results,
+    }
+
+@frappe.whitelist()
+def unresolve_node(history_name: str):
+    if not history_name:
+        frappe.throw("Missing history_name")
+
+    history = frappe.get_doc("Drive Mindmap Comment History", history_name)
+
+    # permission
+    if not frappe.has_permission("Drive File", "write", history.mindmap_id):
+        frappe.throw("No permission to unresolve")
+
+    # tìm lại session
+    session = frappe.db.get_value(
+        "Drive Mindmap Comment Session",
+        {
+            "mindmap_id": history.mindmap_id,
+            "node_id": history.node_id,
+            "session_index": history.session_index,
+        },
+        ["name", "is_closed"],
+        as_dict=True,
+    )
+
+    # nếu session đã tồn tại và đang mở → không làm gì
+    if session and not session.is_closed:
+        return {
+            "ok": True,
+            "already_open": True,
+            "session_index": history.session_index,
+        }
+
+    # nếu session tồn tại nhưng đang đóng → mở lại
+    if session:
+        frappe.db.set_value(
+            "Drive Mindmap Comment Session",
+            session.name,
+            {
+                "is_closed": 0,
+                "closed_at": None,
+            }
+        )
+    # xoá history
+    history.delete(ignore_permissions=True)
+
+    # realtime cho UI
+    frappe.publish_realtime(
+        event="drive_mindmap:node_unresolved",
+        message={
+            "mindmap_id": history.mindmap_id,
+            "node_id": history.node_id,
+            "node_key": history.node_key,
+            "session_index": history.session_index,
+            "comment_count": history.comment_count,
+            "comments": json.loads(history.comments_snapshot or "[]"),
+            "node_position": json.loads(history.node_position or "{}"),
+        },
+    )
+
+    return {
+        "ok": True,
+        "unresolved": True,
+        "session_index": history.session_index,
+    }
+
+
+@frappe.whitelist()
+def delete_history(history_id: str):
+    if not history_id:
+        frappe.throw("Missing history_id")
+
+    history = frappe.get_doc("Drive Mindmap Comment History", history_id)
+
+    if not history:
+        frappe.throw("History not found")
+
+    # permission trên mindmap
+    if not frappe.has_permission("Drive File", "write", history.mindmap_id):
+        frappe.throw("No permission to delete history")
+
+    # -----------------------
+    # 1. Lấy comment_ids
+    # -----------------------
+    comment_ids = []
+
+    if hasattr(history, "comment_ids") and history.comment_ids:
+        try:
+            comment_ids = json.loads(history.comment_ids)
+        except Exception:
+            comment_ids = []
+    else:
+        # fallback từ snapshot (phòng khi migrate cũ)
+        try:
+            snapshot = json.loads(history.comments_snapshot or "[]")
+            comment_ids = [c.get("id") for c in snapshot if c.get("id")]
+        except Exception:
+            comment_ids = []
+
+    # -----------------------
+    # 2. Xoá comment thật
+    # -----------------------
+    if comment_ids:
+        frappe.db.delete(
+            "Drive Mindmap Comment",
+            {
+                "name": ["in", comment_ids],
+                "mindmap_id": history.mindmap_id,
+            }
+        )
+
+    # -----------------------
+    # 3. Payload realtime
+    # -----------------------
+    payload = {
+        "mindmap_id": history.mindmap_id,
+        "history_id": history.name,
+        "node_id": history.node_id,
+        "node_key": history.node_key,
+        "session_index": history.session_index,
+        "deleted_comment_ids": comment_ids,
+    }
+
+    # -----------------------
+    # 4. Xoá history
+    # -----------------------
+    history.delete(ignore_permissions=True)
+
+    # -----------------------
+    # 5. Realtime
+    # -----------------------
+    frappe.publish_realtime(
+        event="drive_mindmap:history_deleted",
+        message=payload,
+    )
+
+    return {
+        "ok": True,
+        "deleted": True,
+        "history_id": history_id,
+        "deleted_comment_count": len(comment_ids),
+    }
+
+
+@frappe.whitelist()
+def check_comment_exist(comment_id: str):
+    if not comment_id:
+        frappe.throw("Missing comment_id")
+
+    # ----------------------------------------
+    # 1. Check comment còn ở panel không
+    # ----------------------------------------
+    comment = frappe.db.get_value(
+        "Drive Mindmap Comment",
+        {"name": comment_id},
+        ["mindmap_id", "node_id", "session_index"],
+        as_dict=True,
+    )
+
+    if comment:
+        session = frappe.db.get_value(
+            "Drive Mindmap Comment Session",
+            {
+                "mindmap_id": comment.mindmap_id,
+                "node_id": comment.node_id,
+                "session_index": comment.session_index,
+            },
+            "is_closed",
+        )
+
+        is_closed = bool(session)
+
+        return {
+            "ok": True,
+            "exists": True,
+            "type": "history" if is_closed else "comment",
+            "mindmap_id": comment.mindmap_id,
+            "node_id": comment.node_id,
+            "session_index": comment.session_index,
+            "is_closed": is_closed,
+        }
+
+    # ----------------------------------------
+    # 2. Check trong HISTORY (comment_ids)
+    # ----------------------------------------
+    history = frappe.db.sql(
+        """
+        SELECT
+            name,
+            mindmap_id,
+            node_id,
+            node_key,
+            session_index,
+            node_deleted
+        FROM `tabDrive Mindmap Comment History`
+        WHERE comment_ids LIKE %s
+        ORDER BY resolved_at DESC
+        LIMIT 1
+        """,
+        (f'%"{comment_id}"%',),
+        as_dict=True,
+    )
+
+    if history:
+        h = history[0]
+        return {
+            "ok": True,
+            "exists": True,
+            "type": "history",
+            "mindmap_id": h.mindmap_id,
+            "node_id": h.node_id,
+            "node_key": h.node_key,
+            "session_index": h.session_index,
+            "node_deleted": bool(h.node_deleted),
+        }
+
+    # ----------------------------------------
+    # 3. Không tồn tại ở đâu cả
+    # ----------------------------------------
+    return {
+        "ok": True,
+        "exists": False,
+        "type": "not_found",
+        "comment_id": comment_id,
     }
