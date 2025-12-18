@@ -198,17 +198,23 @@ export function createDragFilter(renderer) {
       }
     }
     
-    // Chỉ cho phép drag với left mouse button
-    // Kiểm tra event.sourceEvent tồn tại và có button
+    // Chỉ cho phép drag với left mouse button (button === 0)
+    // Ngăn drag khi giữ con lăn chuột hoặc các button khác
     
-    // Nếu không có sourceEvent, có thể là touch event hoặc event khác, cho phép mặc định
+    // Nếu không có sourceEvent, có thể là touch event, cho phép mặc định
     if (!event.sourceEvent) {
       return true
     }
     
-    // Kiểm tra button: 0 = left mouse button
-    const allow = event.sourceEvent.button === 0 || event.sourceEvent.button === undefined
-    return allow
+    // ⚠️ CRITICAL: Chỉ cho phép drag với left mouse button (button === 0)
+    // Nếu button === undefined, có thể là wheel event hoặc event khác không phải mouse
+    // Không cho phép drag trong trường hợp này để tránh drag khi giữ con lăn chuột
+    if (event.sourceEvent.button === undefined) {
+      return false
+    }
+    
+    // Chỉ cho phép khi button === 0 (left mouse button)
+    return event.sourceEvent.button === 0
   }
 }
 
@@ -216,6 +222,23 @@ export function createDragFilter(renderer) {
  * Handle drag start event
  */
 export function handleDragStart(nodeElement, renderer, event, d) {
+  // ⚠️ CRITICAL: Chỉ cho phép drag với left mouse button (button === 0)
+  // Ngăn drag khi giữ con lăn chuột hoặc các button khác
+  if (event.sourceEvent && event.sourceEvent.button !== undefined && event.sourceEvent.button !== 0) {
+    // Không cho phép drag với middle mouse button hoặc right mouse button
+    if (event.sourceEvent) {
+      event.sourceEvent.preventDefault()
+      event.sourceEvent.stopPropagation()
+    }
+    // Disable drag handlers
+    d3.select(nodeElement).on('drag', null).on('end', null)
+    // Reset flags
+    renderer.isDragStarting = false
+    renderer.mouseUpOccurred = false
+    renderer.dragStartPosition = null
+    renderer.dragStartNodeInfo = null
+    return
+  }
   
   // Nếu đang trong delay, cancel delay và cho phép drag
   if (renderer.isDragStarting) {
@@ -409,6 +432,37 @@ function calculateTargetEdgePath(sourcePos, targetPos, sourceSize, targetSize) {
  */
 export function handleDrag(nodeElement, renderer, event, d) {
   // Khi đang drag
+  
+  // ⚠️ CRITICAL: Chỉ cho phép drag với left mouse button (button === 0)
+  // Ngăn drag khi giữ con lăn chuột hoặc các button khác
+  if (event.sourceEvent && event.sourceEvent.button !== undefined && event.sourceEvent.button !== 0) {
+    // Không cho phép drag với middle mouse button hoặc right mouse button
+    if (event.sourceEvent) {
+      event.sourceEvent.preventDefault()
+      event.sourceEvent.stopPropagation()
+    }
+    // Disable drag handlers
+    d3.select(nodeElement).on('drag', null).on('end', null)
+    // Cleanup ngay lập tức
+    if (renderer.dragGhost) {
+      renderer.dragGhost.remove()
+      renderer.dragGhost = null
+    }
+    if (renderer.dragGhostEdgesGroup) {
+      renderer.dragGhostEdgesGroup.remove()
+      renderer.dragGhostEdgesGroup = null
+    }
+    cleanupDragBranchEffects(renderer)
+    // Reset flags
+    renderer.isDragStarting = false
+    renderer.mouseUpOccurred = false
+    renderer.hasMovedEnough = false
+    renderer.dragStartPosition = null
+    renderer.dragStartTime = null
+    renderer.dragStartNodeInfo = null
+    renderer.taskLinkDragChecked = false
+    return
+  }
   
   // QUAN TRỌNG: Phân biệt click và drag ở đây (event được gọi nhiều lần khi di chuyển)
   // Cập nhật hasMovedEnough trước khi kiểm tra
