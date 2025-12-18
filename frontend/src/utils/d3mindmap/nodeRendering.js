@@ -458,9 +458,29 @@ export function renderNodes(renderer, positions) {
       
       // Click đơn giản để select node
       // Blur editor nếu đang focus (CHỈ khi không click vào toolbar)
+      // ⚠️ FIX: Không blur editor nếu node mới được tạo và vừa mới focus (trong vòng 800ms)
       const editorInstance = renderer.getEditorInstance(d.id)
       if (editorInstance && editorInstance.isFocused) {
-        editorInstance.commands.blur()
+        const newlyCreatedTime = renderer.newlyCreatedNodes?.get(d.id)
+        const now = Date.now()
+        const isNewlyCreated = newlyCreatedTime && (now - newlyCreatedTime) < 800
+        
+        if (isNewlyCreated) {
+          console.log('[DEBUG] nodeRendering click: Bỏ qua blur cho node mới', d.id, {
+            timeSinceCreation: now - newlyCreatedTime,
+            timestamp: Date.now()
+          })
+        } else {
+          console.log('[DEBUG] nodeRendering click: Blur editor cho node', d.id, {
+            isFocused: editorInstance.isFocused,
+            target: event.target,
+            targetClass: event.target?.className,
+            timestamp: Date.now(),
+            stackTrace: new Error().stack
+          })
+          editorInstance.commands.blur()
+          console.log('[DEBUG] nodeRendering click: Sau blur, isFocused =', editorInstance.isFocused)
+        }
       }
       
       // Cho phép click link trong chế độ view
@@ -1395,6 +1415,10 @@ export function renderNodes(renderer, positions) {
             },
             onBlur: () => {
               // Handle blur event - sẽ được cập nhật sau
+              console.log('[DEBUG] nodeRendering onBlur callback: Được gọi cho node', nodeData.id, {
+                timestamp: Date.now(),
+                stackTrace: new Error().stack
+              })
               handleEditorBlur(renderer, nodeData.id, nodeArray[idx], nodeData)
             },
           })

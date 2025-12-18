@@ -30,6 +30,7 @@ export function mountNodeEditor(renderer, nodeId, container, props = {}) {
 		onBlur: props.onBlur || null,
 		isRoot: props.isRoot || false,
 		uploadImage: props.uploadImage || null, // Pass uploadImage function
+		nodeId: nodeId, // ⚠️ FIX: Pass nodeId để component có thể log trong debug
 	})
 	
 	// Mount vào container
@@ -660,7 +661,26 @@ export function handleEditorStyleUpdate(renderer, nodeId, foElement, nodeData) {
  * Handler cho editor focus event
  */
 export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
+	console.log('[DEBUG] handleEditorFocus: Bắt đầu focus editor', nodeId, {
+		timestamp: Date.now(),
+		currentText: renderer.getNodeLabel(nodeData),
+		isNewlyCreated: renderer.newlyCreatedNodes?.has(nodeId)
+	})
+	
+	// ⚠️ FIX: Đánh dấu node đang trong quá trình focus để prevent blur
+	if (!renderer.nodesBeingFocused) {
+		renderer.nodesBeingFocused = new Set()
+	}
+	renderer.nodesBeingFocused.add(nodeId)
+	// Tự động xóa sau 1 giây
+	setTimeout(() => {
+		if (renderer.nodesBeingFocused) {
+			renderer.nodesBeingFocused.delete(nodeId)
+		}
+	}, 1000)
+	
 	renderer.selectNode(nodeId)
+	console.log('[DEBUG] handleEditorFocus: Sau selectNode', nodeId)
 	
 	const nodeGroup = d3.select(foElement.parentNode)
 	nodeGroup.raise()
@@ -792,16 +812,29 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
 		setTimeout(() => {
 			const editorInstance = getEditorInstance(renderer, nodeId)
 			if (editorInstance && editorInstance.view) {
+				// ⚠️ FIX: Đảm bảo editor vẫn focus trước khi select all
+				if (!editorInstance.isFocused) {
+					console.log('[DEBUG] handleEditorFocus: Editor không focus, focus lại trước khi select all', nodeId)
+					editorInstance.commands.focus('end')
+				}
+				
 				const { state } = editorInstance.view
 				const { doc } = state
 				
 				if (doc.content.size > 0) {
-					const selection = TextSelection.create(doc, 0, doc.content.size)
-					const tr = state.tr.setSelection(selection)
-					editorInstance.view.dispatch(tr)
+					try {
+						const selection = TextSelection.create(doc, 0, doc.content.size)
+						const tr = state.tr.setSelection(selection)
+						editorInstance.view.dispatch(tr)
+						console.log('[DEBUG] handleEditorFocus: Đã select all text', nodeId, {
+							isFocused: editorInstance.isFocused
+						})
+					} catch (error) {
+						console.error('[DEBUG] handleEditorFocus: Lỗi khi select all', nodeId, error)
+					}
 				}
 			}
-		}, 50)
+		}, 100) // Tăng delay lên 100ms để đảm bảo editor đã sẵn sàng
 	}
 	
 	if (renderer.callbacks.onNodeEditingStart) {
@@ -814,6 +847,33 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
  * Handler cho editor blur event
  */
 export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
+	// ⚠️ FIX: Kiểm tra xem node có đang trong quá trình focus không (node mới được tạo)
+	const isBeingFocused = renderer.nodesBeingFocused?.has(nodeId)
+	const isNewlyCreated = renderer.newlyCreatedNodes?.has(nodeId)
+	
+	if (isBeingFocused || isNewlyCreated) {
+		console.log('[DEBUG] handleEditorBlur: Bỏ qua blur cho node đang focus/mới tạo', nodeId, {
+			isBeingFocused,
+			isNewlyCreated,
+			timestamp: Date.now()
+		})
+		// Focus lại editor ngay lập tức
+		const editor = getEditorInstance(renderer, nodeId)
+		if (editor && !editor.isDestroyed) {
+			requestAnimationFrame(() => {
+				if (editor && !editor.isDestroyed) {
+					editor.commands.focus('end')
+					console.log('[DEBUG] handleEditorBlur: Đã focus lại editor', nodeId)
+				}
+			})
+		}
+		return // Không xử lý blur cho node mới được tạo
+	}
+	
+	console.log('[DEBUG] handleEditorBlur: Editor bị blur', nodeId, {
+		timestamp: Date.now(),
+		stackTrace: new Error().stack
+	})
 	// ⚠️ IMPORTANT: Xóa cache kích thước ban đầu khi blur
 	renderer.nodeSizeCache.delete(`${nodeId}_initial`)
 	

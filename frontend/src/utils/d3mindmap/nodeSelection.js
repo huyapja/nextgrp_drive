@@ -7,6 +7,11 @@ import * as d3 from 'd3'
 import { hasCompletedAncestor } from './utils.js'
 
 export function selectNode(renderer, nodeId, skipCallback = false) {
+  console.log('[DEBUG] selectNode: Được gọi', nodeId, {
+    skipCallback,
+    timestamp: Date.now(),
+    stackTrace: new Error().stack
+  })
   renderer.selectedNode = nodeId
   
   // Helper: keep opacity consistent with ancestor completion fading logic

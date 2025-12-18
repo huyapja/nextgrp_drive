@@ -1729,6 +1729,10 @@ export default {
       type: Function,
       default: null,
     },
+    nodeId: {
+      type: String,
+      default: null,
+    },
   },
   emits: ["update:modelValue", "focus", "blur", "input", "create-description"],
 
@@ -3059,6 +3063,13 @@ export default {
         }
       },
       onBlur: (event) => {
+        console.log('[DEBUG] MindmapNodeEditor onBlur: Editor blur event', {
+          nodeId: this.nodeId,
+          timestamp: Date.now(),
+          relatedTarget: event?.relatedTarget,
+          target: event?.target,
+          stackTrace: new Error().stack
+        })
         // ⚠️ CRITICAL: Kiểm tra ngay event target để prevent blur khi click vào menu
         const relatedTarget = event?.relatedTarget || event?.target || null
         
@@ -3125,9 +3136,16 @@ export default {
           }
 
           // Blur bình thường (không phải từ toolbar hoặc image menu): emit blur event
+          console.log('[DEBUG] MindmapNodeEditor onBlur: Emit blur event', {
+            nodeId: this.nodeId,
+            timestamp: Date.now()
+          })
           this.$emit("blur")
           // Gọi callback nếu có
           if (this.onBlur) {
+            console.log('[DEBUG] MindmapNodeEditor onBlur: Gọi onBlur callback', {
+              nodeId: this.nodeId
+            })
             this.onBlur()
           }
         }, 10)

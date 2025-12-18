@@ -123,6 +123,13 @@
               <path d="M3 8h10" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
             </svg>
           </button>
+          <button @click="showExportDialog = true" class="control-btn" title="Xuất sơ đồ">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round">
+              <path d="M8 2v8M5 7l3 3 3-3" />
+              <path d="M2 12h12" />
+            </svg>
+          </button>
         </div>
 
         <MindmapContextMenu @mousedown.stop @click.stop :visible="showContextMenu" :node="contextMenuNode"
@@ -142,6 +149,19 @@
 
         <!-- Image Zoom Modal - Global, chỉ 1 instance -->
         <ImageZoomModal />
+
+        <!-- Export/Import Dialog -->
+        <MindmapExportDialog
+          v-model:visible="showExportDialog"
+          :d3-renderer="d3Renderer"
+          :d3-container="d3Container"
+          :nodes="nodes"
+          :edges="edges"
+          :mindmap="mindmap.data"
+          :node-creation-order="nodeCreationOrder"
+          :entity-name="entityName"
+          @imported="handleImportComplete"
+        />
       </div>
     </div>
   </div>
@@ -164,6 +184,7 @@ import { useRoute } from "vue-router"
 import ImageZoomModal from "@/components/ImageZoomModal.vue"
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
 import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
+import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 
@@ -220,6 +241,9 @@ const taskOptions = ref([])
 const taskPagination = ref({ page: 1, total_pages: 1, total: 0 })
 const taskLoading = ref(false)
 const taskProjectOptionMap = ref({})
+
+// Export state
+const showExportDialog = ref(false)
 
 // Fetch project options separately
 const fetchProjectOptions = async () => {
@@ -927,6 +951,17 @@ const addChildToNode = async (parentId) => {
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
+    // ⚠️ FIX: Đánh dấu node mới được tạo để prevent blur
+    if (!d3Renderer.newlyCreatedNodes) {
+      d3Renderer.newlyCreatedNodes = new Map()
+    }
+    d3Renderer.newlyCreatedNodes.set(newNodeId, Date.now())
+    // Tự động xóa sau 1 giây
+    setTimeout(() => {
+      if (d3Renderer.newlyCreatedNodes) {
+        d3Renderer.newlyCreatedNodes.delete(newNodeId)
+      }
+    }, 1000)
   }
 
   
@@ -967,17 +1002,36 @@ const addChildToNode = async (parentId) => {
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
+                  console.log('[DEBUG] addChildToNode: Focus editor cho node mới', newNodeId, {
+                    editorInstance: !!editorInstance,
+                    isFocused: editorInstance.isFocused,
+                    hasView: !!editorInstance.view,
+                    hasDom: !!editorInstance.view?.dom,
+                    timestamp: Date.now()
+                  })
                   // Focus vào editor và đặt cursor ở cuối
                   editorInstance.commands.focus('end')
-                  // Gọi handleEditorFocus để setup đúng cách
-                  d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                  // ⚠️ FIX: Đợi một chút để focus được apply
+                  requestAnimationFrame(() => {
+                    console.log('[DEBUG] addChildToNode: Sau khi focus (requestAnimationFrame), isFocused =', editorInstance.isFocused)
+                    // Gọi handleEditorFocus để setup đúng cách
+                    d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                    setTimeout(() => {
+                      console.log('[DEBUG] addChildToNode: Sau handleEditorFocus (setTimeout), isFocused =', editorInstance.isFocused)
+                    }, 50)
+                  })
                 } else {
                   // Nếu editor chưa sẵn sàng, thử lại sau
                   setTimeout(() => {
                     const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
                     if (editorInstance2) {
+                      console.log('[DEBUG] addChildToNode: Retry focus editor', newNodeId, {
+                        isFocused: editorInstance2.isFocused,
+                        timestamp: Date.now()
+                      })
                       editorInstance2.commands.focus('end')
                       d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                      console.log('[DEBUG] addChildToNode: Sau retry focus, isFocused =', editorInstance2.isFocused)
                     }
                   }, 100)
                 }
@@ -1059,6 +1113,17 @@ const addSiblingToNode = async (nodeId) => {
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
+    // ⚠️ FIX: Đánh dấu node mới được tạo để prevent blur
+    if (!d3Renderer.newlyCreatedNodes) {
+      d3Renderer.newlyCreatedNodes = new Map()
+    }
+    d3Renderer.newlyCreatedNodes.set(newNodeId, Date.now())
+    // Tự động xóa sau 1 giây
+    setTimeout(() => {
+      if (d3Renderer.newlyCreatedNodes) {
+        d3Renderer.newlyCreatedNodes.delete(newNodeId)
+      }
+    }, 1000)
   }
 
   
@@ -1099,17 +1164,36 @@ const addSiblingToNode = async (nodeId) => {
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
+                  console.log('[DEBUG] addSiblingToNode: Focus editor cho node mới', newNodeId, {
+                    editorInstance: !!editorInstance,
+                    isFocused: editorInstance.isFocused,
+                    hasView: !!editorInstance.view,
+                    hasDom: !!editorInstance.view?.dom,
+                    timestamp: Date.now()
+                  })
                   // Focus vào editor và đặt cursor ở cuối
                   editorInstance.commands.focus('end')
-                  // Gọi handleEditorFocus để setup đúng cách
-                  d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                  // ⚠️ FIX: Đợi một chút để focus được apply
+                  requestAnimationFrame(() => {
+                    console.log('[DEBUG] addSiblingToNode: Sau khi focus (requestAnimationFrame), isFocused =', editorInstance.isFocused)
+                    // Gọi handleEditorFocus để setup đúng cách
+                    d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                    setTimeout(() => {
+                      console.log('[DEBUG] addSiblingToNode: Sau handleEditorFocus (setTimeout), isFocused =', editorInstance.isFocused)
+                    }, 50)
+                  })
                 } else {
                   // Nếu editor chưa sẵn sàng, thử lại sau
                   setTimeout(() => {
                     const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
                     if (editorInstance2) {
+                      console.log('[DEBUG] addSiblingToNode: Retry focus editor', newNodeId, {
+                        isFocused: editorInstance2.isFocused,
+                        timestamp: Date.now()
+                      })
                       editorInstance2.commands.focus('end')
                       d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
+                      console.log('[DEBUG] addSiblingToNode: Sau retry focus, isFocused =', editorInstance2.isFocused)
                     }
                   }, 100)
                 }
@@ -2678,6 +2762,17 @@ const scheduleSave = () => {
       layout: "horizontal"
     })
   }, SAVE_DELAY)
+}
+
+// Handle import complete event from export dialog
+const handleImportComplete = async () => {
+  // Reload mindmap data after import
+  await mindmap.fetch()
+  
+  // Reinitialize mindmap with new data
+  if (mindmap.data) {
+    await initializeMindmap(mindmap.data)
+  }
 }
 
 onMounted(() => {
