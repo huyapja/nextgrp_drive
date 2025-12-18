@@ -19,10 +19,14 @@ from drive.api.onlyoffice import revoke_editing_access
 
 class DriveFile(Document):
     def after_insert(self):
-        full_name = frappe.db.get_value("User", {"name": frappe.session.user}, ["full_name"])
+        full_name = frappe.db.get_value(
+            "User", {"name": frappe.session.user}, ["full_name"]
+        )
         message = f"{full_name} created {self.title}"
         create_new_activity_log(
-            entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
+            entity=self.name,
+            last_interaction=frappe.utils.now(),
+            user=frappe.session.user,
         )
 
     def on_trash(self):
@@ -80,7 +84,9 @@ class DriveFile(Document):
                 return frappe.get_doc("Drive File", home_folder)
             return None
 
-        print(f"Move called with new_parent={new_parent}, is_private={is_private}, team={team}")
+        print(
+            f"Move called with new_parent={new_parent}, is_private={is_private}, team={team}"
+        )
 
         if not (new_parent and new_parent.strip()):
             if team:
@@ -278,14 +284,19 @@ class DriveFile(Document):
         if is_private is not None:
             self.is_private = int(is_private)
         else:
-            self.is_private = frappe.db.get_value("Drive File", new_parent, "is_private")
+            self.is_private = frappe.db.get_value(
+                "Drive File", new_parent, "is_private"
+            )
 
         self.save()
 
         print(f"Final save: team={self.team}, parent={self.parent_entity}")
 
         result = frappe.get_value(
-            "Drive File", self.parent_entity, ["title", "team", "name", "is_private"], as_dict=True
+            "Drive File",
+            self.parent_entity,
+            ["title", "team", "name", "is_private"],
+            as_dict=True,
         )
         result["is_private"] = self.is_private
         return result
@@ -322,7 +333,9 @@ class DriveFile(Document):
                     "Cannot paste to this folder due to insufficient permissions",
                     frappe.PermissionError,
                 )
-            if self.name == new_parent or self.name in get_ancestors_of("Drive File", new_parent):
+            if self.name == new_parent or self.name in get_ancestors_of(
+                "Drive File", new_parent
+            ):
                 frappe.throw("You cannot copy a folder into itself")
 
             title = get_new_title(title, new_parent)
@@ -344,7 +357,9 @@ class DriveFile(Document):
                 child.copy(name, parent_user_directory)
 
         elif self.document is not None:
-            drive_doc_content = frappe.db.get_list("Drive Document", self.document, "content")
+            drive_doc_content = frappe.db.get_list(
+                "Drive Document", self.document, "content"
+            )
 
             new_drive_doc = frappe.new_doc("Drive Document")
             new_drive_doc.title = title
@@ -391,9 +406,9 @@ class DriveFile(Document):
             drive_entity.share(frappe.session.user, write=1, share=1)
 
         if drive_entity.mime_type:
-            if drive_entity.mime_type.startswith("image") or drive_entity.mime_type.startswith(
-                "video"
-            ):
+            if drive_entity.mime_type.startswith(
+                "image"
+            ) or drive_entity.mime_type.startswith("video"):
                 frappe.enqueue(
                     create_thumbnail,
                     queue="default",
@@ -437,12 +452,14 @@ class DriveFile(Document):
         #     )
         #     return suggested_name
         create_new_activity_log(
-            entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
+            entity=self.name,
+            last_interaction=frappe.utils.now(),
+            user=frappe.session.user,
         )
         create_new_entity_activity_log(entity=self.name, action_type="edit")
-        
+
         # Title giờ là Text, không cần cắt nữa - dùng trực tiếp new_title
-        
+
         # Retry logic để xử lý TimestampMismatchError khi có nhiều request đồng thời
         max_retries = 3
         for attempt in range(max_retries):
@@ -451,55 +468,76 @@ class DriveFile(Document):
                 self.reload()
                 self.title = new_title
                 self.save()
-                
+
                 # Nếu là mindmap, cũng update title của Drive Mindmap và node root
                 if self.mime_type == "mindmap" and self.mindmap:
                     try:
                         import json
+
                         mindmap_doc = frappe.get_doc("Drive Mindmap", self.mindmap)
                         old_mindmap_title = mindmap_doc.title
                         mindmap_doc.title = new_title
-                        
+
                         # Cập nhật label của node root trong mindmap_data
                         if mindmap_doc.mindmap_data:
                             try:
                                 mindmap_data = mindmap_doc.mindmap_data
                                 if isinstance(mindmap_data, str):
                                     mindmap_data = json.loads(mindmap_data)
-                                
+
                                 # Tìm và cập nhật node root
-                                if isinstance(mindmap_data, dict) and "nodes" in mindmap_data:
+                                if (
+                                    isinstance(mindmap_data, dict)
+                                    and "nodes" in mindmap_data
+                                ):
                                     for node in mindmap_data["nodes"]:
                                         if node.get("id") == "root":
                                             # Cập nhật label trong data
-                                            if "data" in node and isinstance(node["data"], dict):
+                                            if "data" in node and isinstance(
+                                                node["data"], dict
+                                            ):
                                                 node["data"]["label"] = new_title
                                             # Cũng cập nhật label trực tiếp nếu có (backward compatibility)
                                             if "label" in node:
                                                 node["label"] = new_title
                                             break
-                                    
+
                                     # Lưu lại mindmap_data đã cập nhật
-                                    mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
-                                    print(f"✅ Updated root node label in mindmap_data: '{new_title}'")
+                                    mindmap_doc.mindmap_data = json.dumps(
+                                        mindmap_data, ensure_ascii=False
+                                    )
+                                    print(
+                                        f"✅ Updated root node label in mindmap_data: '{new_title}'"
+                                    )
                             except Exception as e:
                                 # Log error nhưng không throw để không ảnh hưởng đến rename
-                                frappe.log_error(f"Error updating root node label: {str(e)}", "Rename Mindmap Root Node")
-                                print(f"⚠️ Warning: Could not update root node label: {str(e)}")
-                        
+                                frappe.log_error(
+                                    f"Error updating root node label: {str(e)}",
+                                    "Rename Mindmap Root Node",
+                                )
+                                print(
+                                    f"⚠️ Warning: Could not update root node label: {str(e)}"
+                                )
+
                         mindmap_doc.save(ignore_permissions=True)
                         frappe.db.commit()
-                        print(f"✅ Updated Drive Mindmap title: '{old_mindmap_title}' → '{new_title}' (mindmap: {self.mindmap})")
+                        print(
+                            f"✅ Updated Drive Mindmap title: '{old_mindmap_title}' → '{new_title}' (mindmap: {self.mindmap})"
+                        )
                     except Exception as e:
                         # Log error nhưng không throw để không ảnh hưởng đến rename Drive File
-                        frappe.log_error(f"Error updating mindmap title: {str(e)}", "Rename Mindmap Title")
+                        frappe.log_error(
+                            f"Error updating mindmap title: {str(e)}",
+                            "Rename Mindmap Title",
+                        )
                         print(f"❌ Error updating mindmap title: {str(e)}")
-                
+
                 return self
             except frappe.exceptions.TimestampMismatchError:
                 if attempt < max_retries - 1:
                     # Đợi một chút trước khi retry
                     import time
+
                     time.sleep(0.1 * (attempt + 1))
                     continue
                 else:
@@ -510,55 +548,77 @@ class DriveFile(Document):
                         self.name,
                         "title",
                         new_title,
-                        update_modified=True
+                        update_modified=True,
                     )
                     frappe.db.commit()
                     # Reload để lấy giá trị mới
                     self.reload()
-                    
+
                     # Nếu là mindmap, cũng update title của Drive Mindmap và node root
                     if self.mime_type == "mindmap" and self.mindmap:
                         try:
                             import json
+
                             mindmap_doc = frappe.get_doc("Drive Mindmap", self.mindmap)
                             old_mindmap_title = mindmap_doc.title
                             mindmap_doc.title = new_title
-                            
+
                             # Cập nhật label của node root trong mindmap_data
                             if mindmap_doc.mindmap_data:
                                 try:
                                     mindmap_data = mindmap_doc.mindmap_data
                                     if isinstance(mindmap_data, str):
                                         mindmap_data = json.loads(mindmap_data)
-                                    
+
                                     # Tìm và cập nhật node root
-                                    if isinstance(mindmap_data, dict) and "nodes" in mindmap_data:
+                                    if (
+                                        isinstance(mindmap_data, dict)
+                                        and "nodes" in mindmap_data
+                                    ):
                                         for node in mindmap_data["nodes"]:
                                             if node.get("id") == "root":
                                                 # Cập nhật label trong data
-                                                if "data" in node and isinstance(node["data"], dict):
+                                                if "data" in node and isinstance(
+                                                    node["data"], dict
+                                                ):
                                                     node["data"]["label"] = new_title
                                                 # Cũng cập nhật label trực tiếp nếu có (backward compatibility)
                                                 if "label" in node:
                                                     node["label"] = new_title
                                                 break
-                                        
+
                                         # Lưu lại mindmap_data đã cập nhật
-                                        mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
-                                        print(f"✅ Updated root node label in mindmap_data (fallback): '{new_title}'")
+                                        mindmap_doc.mindmap_data = json.dumps(
+                                            mindmap_data, ensure_ascii=False
+                                        )
+                                        print(
+                                            f"✅ Updated root node label in mindmap_data (fallback): '{new_title}'"
+                                        )
                                 except Exception as e:
                                     # Log error nhưng không throw để không ảnh hưởng đến rename
-                                    frappe.log_error(f"Error updating root node label: {str(e)}", "Rename Mindmap Root Node")
-                                    print(f"⚠️ Warning: Could not update root node label (fallback): {str(e)}")
-                            
+                                    frappe.log_error(
+                                        f"Error updating root node label: {str(e)}",
+                                        "Rename Mindmap Root Node",
+                                    )
+                                    print(
+                                        f"⚠️ Warning: Could not update root node label (fallback): {str(e)}"
+                                    )
+
                             mindmap_doc.save(ignore_permissions=True)
                             frappe.db.commit()
-                            print(f"✅ Updated Drive Mindmap title (fallback): '{old_mindmap_title}' → '{new_title}' (mindmap: {self.mindmap})")
+                            print(
+                                f"✅ Updated Drive Mindmap title (fallback): '{old_mindmap_title}' → '{new_title}' (mindmap: {self.mindmap})"
+                            )
                         except Exception as e:
                             # Log error nhưng không throw để không ảnh hưởng đến rename Drive File
-                            frappe.log_error(f"Error updating mindmap title: {str(e)}", "Rename Mindmap Title")
-                            print(f"❌ Error updating mindmap title (fallback): {str(e)}")
-                    
+                            frappe.log_error(
+                                f"Error updating mindmap title: {str(e)}",
+                                "Rename Mindmap Title",
+                            )
+                            print(
+                                f"❌ Error updating mindmap title (fallback): {str(e)}"
+                            )
+
                     return self
 
     @frappe.whitelist()
@@ -590,7 +650,9 @@ class DriveFile(Document):
         return self.name
 
     def permanent_delete(self):
-        write_access = frappe.has_permission(doctype="Drive File", doc=self, ptype="write")
+        write_access = frappe.has_permission(
+            doctype="Drive File", doc=self, ptype="write"
+        )
         parent_write_access = frappe.has_permission(
             doctype="Drive File",
             doc=frappe.get_value("Drive File", self, "parent_entity"),
@@ -607,7 +669,9 @@ class DriveFile(Document):
         self.save()
 
     @frappe.whitelist()
-    def share(self, user=None, read=None, comment=None, share=None, write=None, valid_until=""):
+    def share(
+        self, user=None, read=None, comment=None, share=None, write=None, valid_until=""
+    ):
         """
         Share this file or folder with the specified user.
         """
@@ -644,7 +708,12 @@ class DriveFile(Document):
         else:
             permission = frappe.new_doc("Drive Permission")
 
-        levels = [["read", read], ["comment", comment], ["share", share], ["write", write]]
+        levels = [
+            ["read", read],
+            ["comment", comment],
+            ["share", share],
+            ["write", write],
+        ]
         permission.update(
             {
                 "user": user,
@@ -738,10 +807,14 @@ class DriveFile(Document):
         )
 
         existing_entities = {p.entity: p.name for p in existing_permissions}
-        entities_to_insert = [name for name in child_names if name not in existing_entities]
+        entities_to_insert = [
+            name for name in child_names if name not in existing_entities
+        ]
         entities_to_update = [name for name in child_names if name in existing_entities]
 
-        print(f"DEBUG - Insert: {len(entities_to_insert)}, Update: {len(entities_to_update)}")
+        print(
+            f"DEBUG - Insert: {len(entities_to_insert)}, Update: {len(entities_to_update)}"
+        )
 
         # ✅ Bulk UPDATE existing permissions
         if entities_to_update and permission_values:
@@ -805,7 +878,8 @@ class DriveFile(Document):
                 batch = insert_values[i : i + batch_size]
 
                 placeholders = ",".join(
-                    ["(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(batch)
+                    ["(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"]
+                    * len(batch)
                 )
                 flat_values = [item for sublist in batch for item in sublist]
 
@@ -880,11 +954,17 @@ class DriveFile(Document):
                 frappe.db.commit()
 
             # remove all permissions as they are no longer valid
-            frappe.db.delete("Drive Permission", {"entity": self.name, "user": new_owner})
-            frappe.db.delete("Drive Permission", {"entity": self.name, "user": old_owner})
+            frappe.db.delete(
+                "Drive Permission", {"entity": self.name, "user": new_owner}
+            )
+            frappe.db.delete(
+                "Drive Permission", {"entity": self.name, "user": old_owner}
+            )
 
             create_new_activity_log(
-                entity=self.name, last_interaction=frappe.utils.now(), user=frappe.session.user
+                entity=self.name,
+                last_interaction=frappe.utils.now(),
+                user=frappe.session.user,
             )
 
             frappe.get_doc(
@@ -911,7 +991,11 @@ class DriveFile(Document):
                 }
             ).insert(ignore_permissions=True)
 
-            print(frappe.db.get_value("Drive File", self.name, ["owner", "is_private", "name"]))
+            print(
+                frappe.db.get_value(
+                    "Drive File", self.name, ["owner", "is_private", "name"]
+                )
+            )
 
             return {
                 "status": "success",
@@ -971,19 +1055,27 @@ class DriveFile(Document):
             ptype="read",
             user=frappe.session.user,
         ):
-            frappe.throw("You don't have permission to access this file", frappe.PermissionError)
+            frappe.throw(
+                "You don't have permission to access this file", frappe.PermissionError
+            )
 
         try:
             # Tìm shortcut của user hiện tại cho file này (chỉ lấy shortcut đang active)
             shortcut = frappe.db.get_value(
                 "Drive Shortcut",
-                {"file": self.name, "shortcut_owner": frappe.session.user, "is_active": 1},
+                {
+                    "file": self.name,
+                    "shortcut_owner": frappe.session.user,
+                    "is_active": 1,
+                },
                 ["name", "shortcut_owner", "file"],
                 as_dict=True,
             )
 
             if not shortcut:
-                frappe.throw("Active shortcut not found or you don't have permission to remove it")
+                frappe.throw(
+                    "Active shortcut not found or you don't have permission to remove it"
+                )
 
             # Soft delete shortcut bằng cách set is_active = 0
             frappe.db.set_value("Drive Shortcut", shortcut.name, "is_active", 0)
@@ -1037,7 +1129,9 @@ class DriveFile(Document):
         )
 
         if existing_shortcut:
-            frappe.throw("Shortcut already exists in this location", frappe.DuplicateEntryError)
+            frappe.throw(
+                "Shortcut already exists in this location", frappe.DuplicateEntryError
+            )
 
         # Xác định parent folder
         target_parent = parent_folder or get_home_folder(self.team).name
@@ -1098,7 +1192,9 @@ class DriveFile(Document):
                 if child.is_group:
                     child_doc._create_shortcuts_for_children(child_shortcut.name)
             except Exception as e:
-                frappe.log_error(f"Failed to create shortcut for {child.title}: {str(e)}")
+                frappe.log_error(
+                    f"Failed to create shortcut for {child.title}: {str(e)}"
+                )
 
 
 def on_doctype_update():

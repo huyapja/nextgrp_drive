@@ -730,8 +730,11 @@ const ImageWithMenuExtension = Extension.create({
               
               // Event handlers
               const showButton = () => {
-                menuButton.style.opacity = '1'
-                menuButton.style.background = 'rgba(0, 0, 0, 0.8)'
+                // ⚠️ CRITICAL: Chỉ cho phép hover vào menu tooltip khi editor đang focused
+                if (view && view.focused) {
+                  menuButton.style.opacity = '1'
+                  menuButton.style.background = 'rgba(0, 0, 0, 0.8)'
+                }
               }
               
               const hideButton = () => {
@@ -1857,8 +1860,11 @@ export default {
           
           // Thêm event listeners
           imageWrapper.addEventListener('mouseenter', () => {
-            menuButton.style.opacity = '1'
-            imageWrapper.classList.add('image-wrapper-hover')
+            // ⚠️ CRITICAL: Chỉ cho phép hover vào menu tooltip khi editor đang focused
+            if (this.editor && this.editor.view && this.editor.view.focused) {
+              menuButton.style.opacity = '1'
+              imageWrapper.classList.add('image-wrapper-hover')
+            }
           })
           imageWrapper.addEventListener('mouseleave', (e) => {
             const relatedTarget = e.relatedTarget
@@ -1870,8 +1876,11 @@ export default {
             }
           })
           menuButton.addEventListener('mouseenter', () => {
-            menuButton.style.opacity = '1'
-            imageWrapper.classList.add('image-wrapper-hover')
+            // ⚠️ CRITICAL: Chỉ cho phép hover vào menu tooltip khi editor đang focused
+            if (this.editor && this.editor.view && this.editor.view.focused) {
+              menuButton.style.opacity = '1'
+              imageWrapper.classList.add('image-wrapper-hover')
+            }
           })
           menuButton.addEventListener('mouseleave', (e) => {
             const relatedTarget = e.relatedTarget
@@ -3100,6 +3109,19 @@ export default {
             }
             // Không emit blur event để tránh đóng editor
             return
+          }
+
+          // ⚠️ CRITICAL: Ẩn tất cả menu buttons khi editor blur (không phải do click vào menu)
+          const editorDOM = this.editor?.view?.dom
+          if (editorDOM) {
+            const menuButtons = editorDOM.querySelectorAll('.image-menu-button')
+            menuButtons.forEach(btn => {
+              btn.style.opacity = '0'
+            })
+            const imageWrappers = editorDOM.querySelectorAll('.image-wrapper, .image-wrapper-node')
+            imageWrappers.forEach(wrapper => {
+              wrapper.classList.remove('image-wrapper-hover')
+            })
           }
 
           // Blur bình thường (không phải từ toolbar hoặc image menu): emit blur event

@@ -25,7 +25,9 @@ def get_mindmap_data(entity_name):
 
         # Check permission
         if not frappe.has_permission("Drive File", "read", doc_drive):
-            frappe.throw(_("No permission to access this mindmap"), frappe.PermissionError)
+            frappe.throw(
+                _("No permission to access this mindmap"), frappe.PermissionError
+            )
 
         # Get Drive Mindmap document
         doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
@@ -39,7 +41,7 @@ def get_mindmap_data(entity_name):
                 mindmap_data = json.loads(mindmap_data)
             except:
                 mindmap_data = None
-        
+
         if mindmap_data and mindmap_data.get("nodes"):
             for node in mindmap_data.get("nodes", []):
                 node_id = node.get("id")
@@ -48,15 +50,61 @@ def get_mindmap_data(entity_name):
                     filters={
                         "mindmap_id": doc_drive.name,
                         "node_id": node_id,
-                        "is_closed": 0
+                        "is_closed": 0,
                     },
-                    fields=["comment_count"]
+                    fields=["comment_count"],
                 )
 
                 total = sum(s.get("comment_count", 0) for s in open_sessions)
 
                 node["count"] = total
-       
+
+                # ⚠️ NEW: Sync trạng thái task với node nếu có taskLink
+                task_link = node.get("data", {}).get("taskLink") or node.get("taskLink")
+                if task_link and task_link.get("taskId"):
+                    try:
+                        from drive.api.mindmap_task import get_task_status
+
+                        task_status = get_task_status(task_link.get("taskId"))
+
+                        if not task_status or not task_status.get("exists"):
+                            # Task đã bị xóa - xóa taskLink khỏi node
+                            if "data" in node and "taskLink" in node["data"]:
+                                del node["data"]["taskLink"]
+                            elif "taskLink" in node:
+                                del node["taskLink"]
+                        else:
+                            # Cập nhật trạng thái task trong taskLink
+                            is_task_completed = (
+                                task_status.get("is_completed")
+                                or task_status.get("status") == "Completed"
+                            )
+
+                            # ⚠️ NEW: Sync completed status với task status
+                            # Nếu task đã hoàn thành → set completed = true
+                            # Nếu task không còn hoàn thành → set completed = false
+                            if "data" not in node:
+                                node["data"] = {}
+
+                            if is_task_completed:
+                                node["data"]["completed"] = True
+                            else:
+                                # Task không còn hoàn thành → bỏ tick done
+                                node["data"]["completed"] = False
+
+                            # Cập nhật status trong taskLink
+                            if "data" in node and "taskLink" in node["data"]:
+                                node["data"]["taskLink"]["status"] = task_status.get(
+                                    "status"
+                                )
+                            elif "taskLink" in node:
+                                node["taskLink"]["status"] = task_status.get("status")
+                    except Exception as e:
+                        # Log error nhưng không throw để không ảnh hưởng đến việc load mindmap
+                        frappe.log_error(
+                            f"Error syncing task status for node {node_id}: {str(e)}",
+                            "Sync Task Status",
+                        )
 
         return {
             "name": doc.name,
@@ -180,14 +228,28 @@ def get_mindmap_tree_with_positions(parent_mindmap=None, layout="vertical"):
             nodes_data = frappe.db.get_all(
                 "Drive Mindmap",
                 filters={"parent_mindmap": parent_mindmap},
-                fields=["name", "title", "is_group", "parent_mindmap", "color", "owner"],
+                fields=[
+                    "name",
+                    "title",
+                    "is_group",
+                    "parent_mindmap",
+                    "color",
+                    "owner",
+                ],
                 order_by="title",
             )
         else:
             nodes_data = frappe.db.get_all(
                 "Drive Mindmap",
                 filters=[["parent_mindmap", "in", ["", None]]],
-                fields=["name", "title", "is_group", "parent_mindmap", "color", "owner"],
+                fields=[
+                    "name",
+                    "title",
+                    "is_group",
+                    "parent_mindmap",
+                    "color",
+                    "owner",
+                ],
                 order_by="title",
             )
 
@@ -247,14 +309,28 @@ def get_mindmap_tree_structure(parent_mindmap=None):
             children = frappe.db.get_all(
                 "Drive Mindmap",
                 filters={"parent_mindmap": parent_mindmap},
-                fields=["name", "title", "is_group", "parent_mindmap", "color", "owner"],
+                fields=[
+                    "name",
+                    "title",
+                    "is_group",
+                    "parent_mindmap",
+                    "color",
+                    "owner",
+                ],
                 order_by="title",
             )
         else:
             children = frappe.db.get_all(
                 "Drive Mindmap",
                 filters=[["parent_mindmap", "in", ["", None]]],
-                fields=["name", "title", "is_group", "parent_mindmap", "color", "owner"],
+                fields=[
+                    "name",
+                    "title",
+                    "is_group",
+                    "parent_mindmap",
+                    "color",
+                    "owner",
+                ],
                 order_by="title",
             )
 
@@ -331,21 +407,11 @@ def create_mindmap_entity(title, personal, team, content=None, parent=None):
         # Escape HTML trong description để tránh XSS
         escaped_content = html.escape(content.strip())
         root_label += f"<blockquote><p>{escaped_content}</p></blockquote>"
-    
-    root_node = {
-        "id": "root",
-        "data": {
-            "label": root_label,
-            "isRoot": True
-        }
-    }
-    
+
+    root_node = {"id": "root", "data": {"label": root_label, "isRoot": True}}
+
     # Initialize mindmap_data với root node
-    mindmap_data = {
-        "nodes": [root_node],
-        "edges": [],
-        "layout": "custom"
-    }
+    mindmap_data = {"nodes": [root_node], "edges": [], "layout": "custom"}
     drive_mindmap.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
 
     drive_mindmap.insert()

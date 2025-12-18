@@ -745,6 +745,22 @@ const initD3Renderer = () => {
       // Dừng loading khi render xong
       isRendering.value = false
       isMindmapReady.value = true
+      
+      // ⚠️ NEW: Apply/remove strikethrough cho tất cả nodes dựa trên completed status
+      // Cần apply cho cả completed = true (add) và completed = false (remove)
+      nextTick(() => {
+        setTimeout(() => {
+          nodes.value.forEach(node => {
+            if (node.id !== 'root') {
+              const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+              if (editorInstance) {
+                const isCompleted = node.data?.completed || false
+                applyStrikethroughToTitle(editorInstance, isCompleted)
+              }
+            }
+          })
+        }, 200) // Delay để đảm bảo editor đã sẵn sàng
+      })
     },
     onNodeContextMenu: (node, pos) => {
       contextMenuNode.value = node
@@ -1849,8 +1865,8 @@ const handleCreateTask = async (formData) => {
         }
 
         // Thêm badge "Liên kết công việc" vào node label (tương tự confirmTaskLink)
-        // Chỉ thêm badge khi người dùng đã tick checkbox "Gắn link công việc"
-        if (taskOpenLink && attachTaskLink.value && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
+        // Tự động thêm badge khi tạo mới công việc từ node
+        if (taskOpenLink && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
           const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
           try {
             const parser = new DOMParser()
@@ -2016,20 +2032,24 @@ const handleCreateTask = async (formData) => {
             }, 150) // Tăng delay để đảm bảo DOM đã cập nhật
           })
         })
-        scheduleSave()
+        // Add comment link to task (giống như confirmTaskLink)
+        if (fallbackLink && taskId) {
+          const nodeTitle = plainTitle || linkNode.data?.label || ''
+          const mindmapTitle = mindmap.data?.title || ''
+          try {
+            await call("drive.api.mindmap_comment.add_task_link_comment", {
+              task_id: taskId,
+              node_title: nodeTitle,
+              mindmap_title: mindmapTitle,
+              link_url: fallbackLink
+            })
+          } catch (err) {
+            console.error('Error adding task link comment:', err)
+            // Continue even if comment creation fails
+          }
+        }
 
-        // Add comment link to task - Đã bỏ vì không cần tạo comment khi tạo mới công việc từ node
-        // if (fallbackLink && taskId) {
-        //   const nodeTitle = plainTitle || linkNode.data?.label || ''
-        //   const mindmapTitle = mindmap.data?.title || ''
-        //   await call("drive.api.mindmap_comment.add_task_link_comment", {
-        //     task_id: taskId,
-        //     node_id: linkNode.id,
-        //     node_title: nodeTitle,
-        //     mindmap_title: mindmapTitle,
-        //     link_url: fallbackLink
-        //   })
-        // }
+        scheduleSave()
       }
 
       // Show success message with link
@@ -2699,9 +2719,24 @@ onMounted(() => {
   // ⚠️ NEW: Lắng nghe sự kiện hashchange để scroll đến node khi hash thay đổi
   window.addEventListener('hashchange', scrollToNodeFromHash)
 
-  socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
-  socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
-  socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
+  // ⚠️ NEW: Đăng ký socket listeners với safety check
+  if (socket) {
+    console.log('🔌 Registering socket listeners, socket ID:', socket.id, 'connected:', socket.connected)
+    socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
+    socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
+    socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
+    socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
+    
+    // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
+    socket.on('connect', () => {
+      console.log('✅ Socket reconnected, re-registering listeners')
+      socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
+    })
+    
+    console.log('✅ Socket listeners registered for task status updates')
+  } else {
+    console.warn('⚠️ Socket is not available, realtime updates will not work')
+  }
   window.addEventListener("click", handleClickOutside, true)
 })
 
@@ -2730,9 +2765,13 @@ onBeforeUnmount(() => {
       })
     }
   }
-  socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
-  socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
-  socket.off('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
+  // ⚠️ NEW: Cleanup socket listeners với safety check
+  if (socket) {
+    socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
+    socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
+    socket.off('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
+    socket.off('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
+  }
   window.removeEventListener("click", handleClickOutside, true)
 })
 
@@ -3547,10 +3586,101 @@ function handleSelectCommentNode(node) {
 }
 
 // Handle toolbar done (toggle completed status)
-function handleToolbarDone(node) {
+async function handleToolbarDone(node) {
   if (!node || !node.id || node.id === 'root') return
 
-  // Toggle completed status
+  // ⚠️ NEW: Kiểm tra task_link nếu node có liên kết với task
+  const taskLink = node.data?.taskLink
+  if (taskLink?.taskId) {
+    try {
+      // Lấy trạng thái task từ API
+      const taskStatus = await call("drive.api.mindmap_task.get_task_status", {
+        task_id: taskLink.taskId
+      })
+      
+      if (!taskStatus || !taskStatus.exists) {
+        // Task đã bị xóa - xóa taskLink và cho phép tick done bình thường
+        const { taskLink: removedTaskLink, ...restData } = node.data
+        node.data = restData
+        
+        // Tiếp tục với logic tick done bình thường
+        const isCompleted = !node.data?.completed
+        if (!node.data) node.data = {}
+        node.data.completed = isCompleted
+        
+        // Apply strikethrough
+        const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+        if (editorInstance) {
+          applyStrikethroughToTitle(editorInstance, isCompleted)
+        }
+        
+        // Sync và save
+        if (d3Renderer) {
+          d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+          d3Renderer.render()
+        }
+        scheduleSave()
+        return
+      }
+      
+      // Kiểm tra trạng thái task
+      const isTaskCompleted = taskStatus.is_completed || taskStatus.status === "Completed" || taskStatus.status_vi === "Hoàn thành"
+      
+      if (!isTaskCompleted) {
+        // Task chưa hoàn thành - hiển thị thông báo và không cho tick done
+        toast({
+          title: "Công việc chưa hoàn thành. Nhánh sẽ tự chuyển sang Hoàn thành khi công việc được kéo sang trạng thái Hoàn thành.",
+          description: "",
+          indicator: "orange",
+          duration: 5000
+        })
+        return
+      }
+      
+      // Task đã hoàn thành
+      const currentCompleted = node.data?.completed || false
+      const newCompleted = !currentCompleted
+      
+      // ⚠️ NEW: Nếu node đã completed và task đã hoàn thành → không cho phép bỏ hoàn thành
+      if (currentCompleted && isTaskCompleted) {
+        toast({
+          title: "Không thể bỏ hoàn thành nhánh vì công việc đã hoàn thành",
+          description: "Nhánh này đã được tự động hoàn thành khi công việc hoàn thành. Để bỏ hoàn thành, vui lòng thay đổi trạng thái công việc.",
+          indicator: "orange",
+          duration: 5000
+        })
+        return
+      }
+      
+      // Task đã hoàn thành và node chưa completed → cho phép check
+      if (!node.data) node.data = {}
+      node.data.completed = newCompleted
+      
+      // Apply strikethrough
+      const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+      if (editorInstance) {
+        applyStrikethroughToTitle(editorInstance, newCompleted)
+      }
+      
+      // Sync và save
+      if (d3Renderer) {
+        d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+        d3Renderer.render()
+      }
+      scheduleSave()
+      return
+      
+    } catch (error) {
+      console.error("Error checking task status:", error)
+      // Nếu có lỗi, cho phép tick done bình thường (fallback)
+      toast({
+        title: "Không thể kiểm tra trạng thái công việc",
+        indicator: "orange"
+      })
+    }
+  }
+
+  // Node không có taskLink - tick done bình thường
   const isCompleted = !node.data?.completed
 
   // Update node - CHỈ node này được đánh dấu completed
@@ -4196,6 +4326,54 @@ function handleRealtimeResolvedComment(payload){
   const node = nodes.value.find(n => n.id === payload.node_id)
   if (node && node.count > 0) {
     node.count = node.count - payload.count
+  }
+}
+
+// ⚠️ NEW: Handle realtime task status update
+function handleRealtimeTaskStatusUpdate(payload) {
+  console.log('📥 handleRealtimeTaskStatusUpdate received:', payload)
+  if (!payload) {
+    console.warn('⚠️ handleRealtimeTaskStatusUpdate: payload is empty')
+    return
+  }
+  
+  // Chỉ xử lý nếu là mindmap hiện tại
+  if (payload.mindmap_id !== props.entityName) return
+  
+  const { node_id, completed, task_status, task_status_vi } = payload
+  
+  if (!node_id) return
+  
+  // Tìm node cần cập nhật
+  const node = nodes.value.find(n => n.id === node_id)
+  if (!node) return
+  
+  // Cập nhật completed status
+  if (!node.data) node.data = {}
+  const oldCompleted = node.data.completed || false
+  node.data.completed = completed || false
+  
+  // Cập nhật task status trong taskLink nếu có
+  if (node.data.taskLink) {
+    node.data.taskLink.status = task_status
+  }
+  
+  // Apply/remove strikethrough nếu status thay đổi
+  if (oldCompleted !== node.data.completed) {
+    nextTick(() => {
+      setTimeout(() => {
+        const editorInstance = d3Renderer?.getEditorInstance?.(node_id)
+        if (editorInstance) {
+          applyStrikethroughToTitle(editorInstance, node.data.completed)
+        }
+      }, 100)
+    })
+  }
+  
+  // Sync với renderer
+  if (d3Renderer) {
+    d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+    d3Renderer.render()
   }
 }
 

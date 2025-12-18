@@ -308,3 +308,49 @@ def get_my_projects():
         return {
             "data": [],
         }
+
+
+@frappe.whitelist()
+def get_task_status(task_id):
+    """
+    Lấy trạng thái của task từ task_id.
+    Trả về None nếu task không tồn tại (đã bị xóa).
+
+    :param task_id: Task ID
+    :return: Dict với status và status_vi, hoặc None nếu task không tồn tại
+    """
+    try:
+        if not task_id:
+            return None
+
+        # Kiểm tra task có tồn tại không
+        task = frappe.db.get_value("Task", task_id, ["status", "name"], as_dict=True)
+
+        if not task:
+            # Task không tồn tại (đã bị xóa)
+            return None
+
+        # Map trạng thái sang tiếng Việt
+        status_map = {
+            "In Progress": "Thực hiện",
+            "Pending": "Đang chờ",
+            "Pending Approval": "Chờ phê duyệt",
+            "Completed": "Hoàn thành",
+            "Closed": "Đóng",
+            "Cancel": "Hủy",
+            "Paused": "Tạm dừng",
+            "To Do": "Được tạo",
+        }
+
+        status = task.get("status")
+        status_vi = status_map.get(status, status) if status else None
+
+        return {
+            "status": status,
+            "status_vi": status_vi,
+            "is_completed": status == "Completed",
+            "exists": True,
+        }
+    except Exception as e:
+        frappe.log_error(f"Error getting task status: {str(e)}", "Get Task Status")
+        return None
