@@ -3623,6 +3623,30 @@ async function handleToolbarDone(node) {
         return
       }
       
+      // ⚠️ NEW: Kiểm tra nếu task bị hủy → cho phép tick done tự do như node bình thường
+      const isTaskCancelled = taskStatus.status === "Cancel" || taskStatus.status === "Cancelled" || taskStatus.status_vi === "Hủy"
+      
+      if (isTaskCancelled) {
+        // Task bị hủy - cho phép tick done tự do như node bình thường
+        const isCompleted = !node.data?.completed
+        if (!node.data) node.data = {}
+        node.data.completed = isCompleted
+        
+        // Apply strikethrough
+        const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+        if (editorInstance) {
+          applyStrikethroughToTitle(editorInstance, isCompleted)
+        }
+        
+        // Sync và save
+        if (d3Renderer) {
+          d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+          d3Renderer.render()
+        }
+        scheduleSave()
+        return
+      }
+      
       // Kiểm tra trạng thái task
       const isTaskCompleted = taskStatus.is_completed || taskStatus.status === "Completed" || taskStatus.status_vi === "Hoàn thành"
       
@@ -4347,6 +4371,19 @@ function handleRealtimeTaskStatusUpdate(payload) {
   // Tìm node cần cập nhật
   const node = nodes.value.find(n => n.id === node_id)
   if (!node) return
+  
+  // ⚠️ NEW: Kiểm tra nếu task bị hủy → không cập nhật completed status
+  const isTaskCancelled = task_status === "Cancel" || task_status === "Cancelled" || task_status_vi === "Hủy"
+  
+  if (isTaskCancelled) {
+    // Task bị hủy - chỉ cập nhật task status trong taskLink, không cập nhật completed
+    if (!node.data) node.data = {}
+    if (node.data.taskLink) {
+      node.data.taskLink.status = task_status
+    }
+    // Không sync completed status, node hoạt động như bình thường
+    return
+  }
   
   // Cập nhật completed status
   if (!node.data) node.data = {}

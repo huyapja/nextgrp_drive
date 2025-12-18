@@ -30,6 +30,19 @@ def sync_task_status_to_mindmap_nodes(task_id):
             remove_task_link_from_all_nodes(task_id)
             return
 
+        # ⚠️ NEW: Kiểm tra nếu task bị hủy → không sync completed status, node hoạt động như bình thường
+        is_task_cancelled = (
+            task_status.get("status") == "Cancel"
+            or task_status.get("status") == "Cancelled"
+            or task_status.get("status_vi") == "Hủy"
+        )
+
+        if is_task_cancelled:
+            print(
+                f"⚠️ Task {task_id} is cancelled, skipping sync (node will work as normal)"
+            )
+            return
+
         is_task_completed = (
             task_status.get("is_completed") or task_status.get("status") == "Completed"
         )

@@ -74,6 +74,26 @@ def get_mindmap_data(entity_name):
                             elif "taskLink" in node:
                                 del node["taskLink"]
                         else:
+                            # ⚠️ NEW: Kiểm tra nếu task bị hủy → không sync completed status
+                            is_task_cancelled = (
+                                task_status.get("status") == "Cancel"
+                                or task_status.get("status") == "Cancelled"
+                                or task_status.get("status_vi") == "Hủy"
+                            )
+
+                            if is_task_cancelled:
+                                # Task bị hủy - không sync completed status, node hoạt động như bình thường
+                                # Chỉ cập nhật status trong taskLink
+                                if "data" in node and "taskLink" in node["data"]:
+                                    node["data"]["taskLink"]["status"] = (
+                                        task_status.get("status")
+                                    )
+                                elif "taskLink" in node:
+                                    node["taskLink"]["status"] = task_status.get(
+                                        "status"
+                                    )
+                                continue
+
                             # Cập nhật trạng thái task trong taskLink
                             is_task_completed = (
                                 task_status.get("is_completed")
