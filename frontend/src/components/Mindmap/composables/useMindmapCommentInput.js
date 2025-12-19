@@ -81,7 +81,7 @@ export function useMindmapCommentInput({
       node_id: nodeId,
       session_index: sessionIndex,
       comment: JSON.stringify(payload),
-      node_key
+      node_key: node_key !== null ? node_key : crypto.randomUUID()
     })
 
     // reset

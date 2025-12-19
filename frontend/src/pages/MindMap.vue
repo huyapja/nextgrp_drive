@@ -145,7 +145,7 @@
         <MindmapToolbar ref="toolbarRef" :visible="!!selectedNode" :selected-node="selectedNode"
           :editor-instance="currentEditorInstance" :is-editing="editingNode === selectedNode?.id" :renderer="d3Renderer"
           @comments="handleToolbarComments" @done="handleToolbarDone" @insert-image="handleInsertImage"
-          @more-options="handleToolbarMoreOptions" @context-action="handleToolbarContextAction" />
+          @more-options="handleToolbarMoreOptions" @context-action="handleToolbarContextAction" :nodeActive="activeCommentNode" :showPanel="showPanel"/>
 
         <!-- Image Zoom Modal - Global, chỉ 1 instance -->
         <ImageZoomModal />
@@ -193,7 +193,6 @@ const showContextMenu = ref(false)
 const contextMenuPos = ref({ x: 0, y: 0 })
 const contextMenuNode = ref(null)
 const contextMenuCentered = ref(false) // Flag để biết có dùng center transform không
-
 
 const store = useStore()
 const emitter = inject("emitter")
@@ -666,41 +665,86 @@ const initD3Renderer = () => {
     onNodeAdd: (parentId) => {
       addChildToNode(parentId)
     },
+    // onNodeUpdate: (nodeId, updates) => {
+    //   const node = nodes.value.find(n => n.id === nodeId)
+    //   if (node) {
+    //     // Cập nhật label nếu có
+    //     if (updates.label !== undefined) {
+    //       node.data.label = updates.label
+    //     }
+    //     // Cập nhật parentId nếu có (drag-and-drop)
+    //     if (updates.parentId !== undefined) {
+    //       // Tìm và cập nhật edge
+    //       const edgeIndex = edges.value.findIndex(e => e.target === nodeId)
+    //       if (edgeIndex !== -1) {
+    //         edges.value[edgeIndex].source = updates.parentId
+    //       } else {
+    //         // Tạo edge mới nếu chưa có
+    //         edges.value.push({
+    //           id: `edge-${updates.parentId}-${nodeId}`,
+    //           source: updates.parentId,
+    //           target: nodeId
+    //         })
+    //       }
+    //       // Cập nhật layout
+    //       updateD3RendererWithDelay()
+    //     }
+
+    //     // ⚠️ NEW: Nếu là style update (skipSizeCalculation = true), không tính toán lại kích thước
+    //     if (updates.skipSizeCalculation) {
+    //       // Chỉ lưu nội dung, không update layout
+    //       scheduleSave()
+    //       return
+    //     }
+
+    //     // Chỉ lưu layout/nội dung node, không đổi tên file ở đây
+    //     scheduleSave()
+    //   }
+    // },
     onNodeUpdate: (nodeId, updates) => {
+      // sửa lại để update sort dựa trên root/ position cho bên comment panel
       const node = nodes.value.find(n => n.id === nodeId)
-      if (node) {
-        // Cập nhật label nếu có
-        if (updates.label !== undefined) {
-          node.data.label = updates.label
-        }
-        // Cập nhật parentId nếu có (drag-and-drop)
-        if (updates.parentId !== undefined) {
-          // Tìm và cập nhật edge
-          const edgeIndex = edges.value.findIndex(e => e.target === nodeId)
-          if (edgeIndex !== -1) {
-            edges.value[edgeIndex].source = updates.parentId
-          } else {
-            // Tạo edge mới nếu chưa có
-            edges.value.push({
-              id: `edge-${updates.parentId}-${nodeId}`,
-              source: updates.parentId,
-              target: nodeId
-            })
-          }
-          // Cập nhật layout
-          updateD3RendererWithDelay()
-        }
+      if (!node) return
 
-        // ⚠️ NEW: Nếu là style update (skipSizeCalculation = true), không tính toán lại kích thước
-        if (updates.skipSizeCalculation) {
-          // Chỉ lưu nội dung, không update layout
-          scheduleSave()
-          return
-        }
-
-        // Chỉ lưu layout/nội dung node, không đổi tên file ở đây
-        scheduleSave()
+      // 1. label
+      if (updates.label !== undefined) {
+        node.data.label = updates.label
       }
+
+      // 2. parentId (re-parent khi drag & drop)
+      if (updates.parentId !== undefined) {
+        // 🔴 QUAN TRỌNG: giữ data.parentId luôn sync với edges
+        node.data = node.data || {}
+        node.data.parentId = updates.parentId
+
+        // update edge parent -> child
+        const edgeIndex = edges.value.findIndex(e => e.target === nodeId)
+        if (edgeIndex !== -1) {
+          edges.value[edgeIndex] = {
+            ...edges.value[edgeIndex],
+            source: updates.parentId,
+          }
+        } else {
+          edges.value.push({
+            id: `edge-${updates.parentId}-${nodeId}`,
+            source: updates.parentId,
+            target: nodeId,
+          })
+        }
+
+        // re-layout
+        updateD3RendererWithDelay()
+        
+      }
+
+      // 3. skipSizeCalculation: chỉ lưu không tính lại size
+      if (updates.skipSizeCalculation) {
+        scheduleSave()
+        return
+      }
+
+      // 4. lưu mindmap
+      scheduleSave()
     },
     onNodeReorder: (nodeId, newOrder) => {
       // ⚠️ NEW: Cập nhật nodeCreationOrder khi reorder sibling
@@ -1085,12 +1129,14 @@ const addSiblingToNode = async (nodeId) => {
 
   const newNode = {
     id: newNodeId,
+    node_key: crypto.randomUUID(), // thêm cái này để làm history comment lookup node
+    created_at: Date.now(), 
     data: {
       label: 'Nhánh mới',
       parentId: parentId
     }
   }
-
+  
   const newEdge = {
     id: `edge-${parentId}-${newNodeId}`,
     source: parentId,
@@ -2818,7 +2864,6 @@ onMounted(() => {
   // ⚠️ NEW: Đăng ký socket listeners với safety check
   if (socket) {
     console.log('🔌 Registering socket listeners, socket ID:', socket.id, 'connected:', socket.connected)
-    socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
     socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
     socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
     socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
@@ -3464,6 +3509,26 @@ function syncElementsWithRendererPosition() {
   ]
 }
 
+
+function openCommentPanel(node) {
+  if (!node) return
+
+  isFromUI.value = true
+  syncElementsWithRendererPosition()
+
+  const syncedNode = nodes.value.find(n => n.id === node.id)
+
+  activeCommentNode.value = syncedNode || node
+  showPanel.value = true
+
+  nextTick(() => {
+    d3Renderer?.selectCommentNode(node.id, false)
+    commentPanelRef.value?.focusEditorForNode?.(node.id)
+    isFromUI.value = false
+  })
+}
+
+
 function handleContextMenuAction({ type, node }) {
   if (!node) return
 
@@ -3520,20 +3585,7 @@ function handleContextMenuAction({ type, node }) {
       break
 
     case 'add-comment': {
-      isFromUI.value = true
-      syncElementsWithRendererPosition()
-
-      const syncedNode = nodes.value.find(n => n.id === node.id)
-
-      activeCommentNode.value = syncedNode || node
-
-      showPanel.value = true
-
-      nextTick(() => {
-        d3Renderer?.selectCommentNode(node.id, false)
-        isFromUI.value = false
-      })
-
+      openCommentPanel(node)
       break
     }
 
@@ -3683,7 +3735,7 @@ function handleSelectCommentNode(node) {
   activeCommentNode.value = node
 
   // nếu muốn sync luôn highlight bên D3:
-  selectedNode.value = node
+  // selectedNode.value = node
   d3Renderer?.selectCommentNode(node.id, false)
 }
 
@@ -3886,15 +3938,22 @@ function applyStrikethroughToTitle(editor, isCompleted) {
 
 // Handle toolbar comments
 function handleToolbarComments({ node, show }) {
-  if (show) {
-    activeCommentNode.value = node
-    showPanel.value = true
-    d3Renderer?.selectCommentNode(node.id, false)
-  } else {
+  const isSameNode =
+    activeCommentNode.value &&
+    node &&
+    activeCommentNode.value.id === node.id
+
+  // Đóng panel
+  if (!show || (show === false && isSameNode)) {
     activeCommentNode.value = null
     showPanel.value = false
+    return
   }
+
+  // Mở panel (node mới hoặc chưa mở)
+  openCommentPanel(node)
 }
+
 
 // Handle toolbar more options (hover)
 function handleToolbarMoreOptions({ node }) {
@@ -4430,6 +4489,7 @@ const nodeFromQuery = computed(() => route.query.node)
 
 function handleRealtimeNewComment(newComment) {
   if (!newComment?.node_id) return
+  if(newComment.mindmap_id !== props.entityName) return
 
   const node = nodes.value.find(n => n.id === newComment.node_id)
   if (node) {
@@ -4525,12 +4585,9 @@ function handleRealtimeUnresolvedComment(payload){
   }
 }
 
-const suppressAutoOpenFromQuery = inject("suppressAutoOpenFromQuery")
-
 watch(
   [nodeFromQuery, isMindmapReady],
   ([nodeId, ready]) => {
-    if (suppressAutoOpenFromQuery.value === "query") return
     if (isFromUI.value) return
     if (!nodeId) return
     if (nodeId === 'root') return

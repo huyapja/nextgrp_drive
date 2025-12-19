@@ -561,11 +561,15 @@ def notify_mentions(comment_name):
             "mindmap_id": doc.mindmap_id,
             "node_id": doc.node_id,
             "link": link,
+            "link_doctype": "Drive Mindmap Comment",
+            "link_document": doc.name,
         }
 
         RavenBot.send_notification_to_user(
             bot_name=bot_docs,
             user_id=user,
+            link_doctype= "Drive Mindmap Comment",
+            link_document= doc.name,   
             message=json.dumps(message_data, ensure_ascii=False, default=str),
         )
 
@@ -622,7 +626,7 @@ def notify_comment(comment_name):
             "comment_id": doc.name,
             "mindmap_id": doc.mindmap_id,
             "node_id": doc.node_id,
-            "link": link,
+            "link": link,       
         }
 
         RavenBot.send_notification_to_user(
@@ -633,6 +637,8 @@ def notify_comment(comment_name):
                 ensure_ascii=False,
                 default=str,
             ),
+            link_doctype= "Drive Mindmap Comment",
+            link_document= doc.name,     
         )
     return {"status": "ok", "comment": doc.as_dict()}
 
