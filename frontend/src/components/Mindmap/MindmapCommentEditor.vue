@@ -88,6 +88,8 @@ onMounted(() => {
         content: props.modelValue || "",
         extensions: [
             StarterKit.configure({
+                orderedList: false,
+                bulletList: false,
                 paragraph: { HTMLAttributes: { class: "text-[13px] text-black" } },
             }),
             SafeImage.configure({ inline: false }),

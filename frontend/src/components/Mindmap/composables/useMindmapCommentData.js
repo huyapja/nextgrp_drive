@@ -46,57 +46,104 @@ export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
 
   /* ---------------- sort nodes (giữ nguyên logic) ---------------- */
 
-  function sortMindmapNodes(nodes) {
-    if (!Array.isArray(nodes)) return []
+function sortMindmapNodes(nodes) {
+  if (!Array.isArray(nodes)) return []
 
-    const cloned = JSON.parse(JSON.stringify(nodes))
-    const map = {}
+  const EPS = 1 // cho phép lệch float nhỏ
 
-    cloned.forEach((n) => {
-      map[n.id] = { ...n, children: [] }
-    })
+  const comparePos = (a, b) => {
+    const ay = a?.position?.y ?? 0
+    const by = b?.position?.y ?? 0
+    const dy = ay - by
 
-    cloned.forEach((n) => {
-      const parentId = n.data?.parentId
-      if (parentId && parentId !== "root" && map[parentId]) {
-        map[parentId].children.push(map[n.id])
-      }
-    })
-
-    const roots = Object.values(map).filter((n) => n.data?.parentId === "root")
-
-    function sortByPos(a, b) {
-      const ay = a?.position?.y ?? 0
-      const by = b?.position?.y ?? 0
-      if (ay !== by) return ay - by
-      return (a?.position?.x ?? 0) - (b?.position?.x ?? 0)
+    // coi như cùng hàng nếu chênh lệch rất nhỏ
+    if (Math.abs(dy) < EPS) {
+      const ax = a?.position?.x ?? 0
+      const bx = b?.position?.x ?? 0
+      return ax - bx
     }
 
-    roots.sort(sortByPos)
-
-    const result = []
-    function dfs(node) {
-      result.push(node)
-      node.children.sort(sortByPos)
-      node.children.forEach(dfs)
-    }
-
-    roots.forEach(dfs)
-    return result
+    return dy
   }
 
-  const sortedNodes = computed(() => sortMindmapNodes(mindmap.value || []))
+  // --- build map + children map ---
+  const map = {}
+  const childrenMap = {}
+
+  for (const n of nodes) {
+    map[n.id] = n
+    childrenMap[n.id] = []
+  }
+
+  for (const n of nodes) {
+    const parentId = n.data?.parentId
+    if (parentId && childrenMap[parentId]) {
+      childrenMap[parentId].push(n.id)
+    }
+  }
+
+  // --- các nhánh con trực tiếp của root ---
+  const rootChildren = nodes
+    .filter(n => n.data?.parentId === "root")
+    .slice()
+    .sort(comparePos) // sort theo position (y,x)
+
+  const visited = new Set()
+  const result = []
+
+  function collectSubtreeIds(rootId) {
+    const ids = []
+    const stack = [rootId]
+
+    while (stack.length) {
+      const id = stack.pop()
+      if (!map[id]) continue
+      if (ids.includes(id)) continue
+
+      ids.push(id)
+
+      const children = childrenMap[id] || []
+      for (const cId of children) {
+        stack.push(cId)
+      }
+    }
+
+    return ids
+  }
+
+  // --- duyệt từng nhánh: rootChild -> toàn bộ subtree của nó ---
+  for (const rootChild of rootChildren) {
+    const ids = collectSubtreeIds(rootChild.id)
+
+    const subtreeNodes = ids
+      .map(id => map[id])
+      .filter(Boolean)
+      .sort(comparePos) // trong nhánh cũng sort theo (y,x)
+
+    for (const n of subtreeNodes) {
+      if (!visited.has(n.id)) {
+        visited.add(n.id)
+        result.push(n)
+      }
+    }
+  }
+
+  // --- node lẻ, không thuộc nhánh nào (hoặc không có parent hợp lệ) ---
+  const leftovers = nodes
+    .filter(n => !visited.has(n.id) && n.id !== "root")
+    .slice()
+    .sort(comparePos)
+
+  result.push(...leftovers)
+
+  return result
+}
+
+
+const sortedNodes = computed(() => sortMindmapNodes(mindmap.value || []))
+
 
   /* ---- group comments theo node (1 lần duy nhất) ---- */
-
-  const commentsByNode = computed(() => {
-    const map = {}
-    for (const c of comments.value) {
-      if (!map[c.node_id]) map[c.node_id] = []
-      map[c.node_id].push(c)
-    }
-    return map
-  })
 
   const commentsByNodeSession = computed(() => {
     const map = {}
@@ -199,7 +246,7 @@ export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
         })
       }
 
-      // ✅ nếu node này đang active mà chưa có session nào -> add group ảo NGAY TẠI ĐÂY
+      // nếu node này đang active mà chưa có session nào -> add group ảo NGAY TẠI ĐÂY
       if (activeNodeId === node.id && sessions.length === 0) {
         out.push({
           node,

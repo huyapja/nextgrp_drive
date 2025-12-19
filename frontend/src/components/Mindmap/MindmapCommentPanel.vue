@@ -169,18 +169,7 @@
 
           <p v-if="groupKeyOf(group) !== activeGroupKey" class="pl-[50px] !text-[12px] opacity-0
                 group-hover/comment-panel:opacity-100
-                transition-opacity duration-150" data-reply-trigger @mousedown.stop @click.stop="() => {
-                  const key = groupKeyOf(group)
-                  suppressAutoScroll = true
-                  activeGroupKey = key
-                  if (activeGroupKey !== key) {
-                    activeGroupKey = key
-                  }
-                  focusEditorOf(group)
-                  // requestAnimationFrame(() => {
-                  //   suppressAutoScroll = false
-                  // })
-                }">Trả lời...</p>
+                transition-opacity duration-150" data-reply-trigger @mousedown.stop  @click.stop="handleReplyTrigger(group)">Trả lời...</p>
 
           <!-- Input -->
           <div class="mt-3 relative transition-opacity duration-150" :class="groupKeyOf(group) === activeGroupKey && !isEditing
@@ -602,7 +591,7 @@ watch(
     if (!props.visible) return
     if (isNavigatingByKeyboard.value) return
     if (pendingScroll.value) return
-    if (route.query?.node) return
+    if (route.query?.node && !hasConsumedRouteNode.value) return
 
     pendingScroll.value = {
       type: "node",
@@ -672,11 +661,31 @@ function handleClickGroup(group, e) {
 
   nextTick(() => {
     scrollToActiveNode(groupKey)
+    focusEditorOf(group)
   })
 
   emit("update:node", group.node)
 
 }
+
+function handleReplyTrigger(group) {
+  const key = groupKeyOf(group)
+
+  // 1. khóa auto scroll
+  suppressAutoScroll.value = true
+
+  // 2. active đúng group
+  activeGroupKey.value = key
+
+  // 3. focus editor của group đó
+  nextTick(() => {
+    focusEditorOf(group)
+  })
+
+  // 4. emit cho parent biết đây là hành động "reply"
+  emit("update:node", group.node)
+}
+
 
 // =============================
 // 4. SCROLL HANDLER
@@ -1075,7 +1084,7 @@ watch(
           currentTarget: historyIconRef.value
         })
       }
-
+      hasConsumedRouteNode.value = true
       pendingScroll.value = null
       return
     }
@@ -1252,6 +1261,8 @@ onMounted(() => {
 
     hashCommentIdInternal.value = comment_id || null
 
+    hasConsumedRouteNode.value = true
+
     pendingScroll.value = {
       type: "history",
       node_id,
@@ -1266,6 +1277,27 @@ onBeforeUnmount(() => {
     openHistoryByCommand.value = null
   }
 })
+
+defineExpose({
+  focusEditorForNode(nodeId) {    
+    const group = mergedGroupsFinal.value.find(
+      g => g.node.id === nodeId
+    )
+    if (!group) return
+
+    const key = groupKeyOf(group)
+    activeGroupKey.value = key
+    
+    nextTick(() => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          focusEditorOf(group)
+        })
+      })
+    })
+  }
+})
+
 </script>
 
 
