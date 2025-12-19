@@ -49,6 +49,6 @@ export default defineConfig({
   },
   optimizeDeps: {
     esbuildOptions: { target: "esnext" },
-    include: ["feather-icons", "showdown", "tailwind.config.js", "lowlight"],
+    include: ["feather-icons", "showdown", "tailwind.config.js", "lowlight", "jspdf"],
   },
 })
