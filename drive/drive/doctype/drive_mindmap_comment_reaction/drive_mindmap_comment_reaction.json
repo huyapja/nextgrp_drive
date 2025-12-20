@@ -1,0 +1,56 @@
+{
+  "doctype": "DocType",
+  "name": "Drive Mindmap Comment Reaction",
+  "module": "Drive",
+  "custom": 0,
+  "istable": 0,
+  "editable_grid": 0,
+  "track_changes": 0,
+
+  "fields": [
+    {
+      "fieldname": "comment",
+      "fieldtype": "Link",
+      "options": "Drive Mindmap Comment",
+      "label": "Comment",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "user",
+      "fieldtype": "Link",
+      "options": "User",
+      "label": "User",
+      "reqd": 1,
+      "in_list_view": 1
+    },
+    {
+      "fieldname": "emoji",
+      "fieldtype": "Data",
+      "label": "Emoji",
+      "reqd": 1,
+      "in_list_view": 1
+    }
+  ],
+
+  "indexes": [
+    {
+      "index_name": "comment_user_emoji_idx",
+      "index_fields": ["comment", "user", "emoji"]
+    },
+    {
+      "index_name": "comment_user_idx",
+      "index_fields": ["comment", "user"]
+    }
+  ],
+
+  "permissions": [
+    {
+      "role": "All",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1
+    }
+  ]
+}

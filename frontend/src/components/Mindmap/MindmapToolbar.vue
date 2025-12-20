@@ -239,8 +239,6 @@
 			<!-- Comments -->
 			<button
 				class="toolbar-btn"
-				:class="{ active: showComments }"
-				@mousedown.prevent="saveSelection"
 				@click.stop="handleComments"
 				title="Bình luận"
 			>
@@ -1650,8 +1648,8 @@ const handleContextAction = (action) => {
 
 // Handle Comments
 const handleComments = () => {
-	showComments.value = !showComments.value
-	emit('comments', { node: props.selectedNode, show: showComments.value })
+	// showComments.value = !showComments.value
+	emit('comments', { node: props.selectedNode })
 }
 
 // Expose methods để có thể gọi từ parent component

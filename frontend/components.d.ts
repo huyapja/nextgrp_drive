@@ -109,6 +109,7 @@ declare module 'vue' {
     MindmapCommentEditor: typeof import('./src/components/Mindmap/MindmapCommentEditor.vue')['default']
     MindmapCommentHistory: typeof import('./src/components/Mindmap/MindmapCommentHistory.vue')['default']
     MindmapCommentPanel: typeof import('./src/components/Mindmap/MindmapCommentPanel.vue')['default']
+    MindmapCommentQuickReaction: typeof import('./src/components/Mindmap/MindmapCommentQuickReaction.vue')['default']
     MindmapContextMenu: typeof import('./src/components/Mindmap/MindmapContextMenu.vue')['default']
     MindmapExportDialog: typeof import('./src/components/Mindmap/MindmapExportDialog.vue')['default']
     MindmapNode: typeof import('./src/components/MindmapNode.vue')['default']
