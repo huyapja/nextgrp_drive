@@ -23,7 +23,8 @@
         </span>
       </div>
 
-      <div @click="showPanel = true" class="absolute cursor-pointer top-[60px] right-0 z-10 text-sm
+      <Teleport to="body">
+        <div @click="showPanel = true" class="absolute cursor-pointer top-[120px] right-0 z-10 text-sm
               border border-gray-300 border-r-0
               rounded-tl-[20px] rounded-bl-[20px]
               bg-white pl-3 py-3 flex
@@ -33,6 +34,7 @@
           <i class="pi pi-comment !text-[16px]"></i>
         </span>
       </div>
+      </Teleport>
 
 
 
@@ -3944,9 +3946,8 @@ function handleToolbarComments({ node, show }) {
     activeCommentNode.value.id === node.id
 
   // Đóng panel
-  if (!show || (show === false && isSameNode)) {
+  if (isSameNode) {
     activeCommentNode.value = null
-    showPanel.value = false
     return
   }
 

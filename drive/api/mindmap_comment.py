@@ -1044,3 +1044,119 @@ def check_comment_exist(comment_id: str):
         "type": "not_found",
         "comment_id": comment_id,
     }
+
+@frappe.whitelist()
+def toggle_reaction(comment_id: str, emoji: str):
+    if not comment_id or not emoji:
+        frappe.throw(_("Missing params"))
+
+    user = frappe.session.user
+
+    if not frappe.db.exists("Drive Mindmap Comment", comment_id):
+        frappe.throw(_("Comment not found"))
+
+    existing = frappe.db.exists(
+        "Drive Mindmap Comment Reaction",
+        {
+            "comment": comment_id,
+            "user": user,
+            "emoji": emoji,
+        }
+    )
+
+    reacted = False
+
+    if existing:
+        frappe.delete_doc(
+            "Drive Mindmap Comment Reaction",
+            existing,
+            ignore_permissions=True
+        )
+    else:
+        frappe.get_doc({
+            "doctype": "Drive Mindmap Comment Reaction",
+            "comment": comment_id,
+            "user": user,
+            "emoji": emoji,
+        }).insert(ignore_permissions=True)
+        reacted = True
+
+    frappe.publish_realtime(
+        event="drive_mindmap:comment_reaction_updated",
+        message={
+            "comment_id": comment_id,
+            "emoji": emoji,
+            "user": user,
+            "reacted": reacted,
+        },
+        after_commit=True
+    )
+
+    return {
+        "reacted": reacted,
+        "emoji": emoji
+    }
+
+@frappe.whitelist()
+def get_reaction_list_bulk(comment_ids: list[str]):
+    """
+    Bulk get ALL reactions for mindmap comments
+    Used ONLY for mindmap UI
+    """
+    if not comment_ids:
+        return {}
+
+    # 1. Lấy reactions
+    reactions = frappe.get_all(
+        "Drive Mindmap Comment Reaction",
+        filters={
+            "comment": ["in", comment_ids],
+        },
+        fields=["comment", "emoji", "user"],
+    )
+
+    if not reactions:
+        return {}
+
+    # 2. Lấy user info (1 query)
+    user_ids = list({r["user"] for r in reactions})
+
+    users = frappe.get_all(
+        "User",
+        filters={"name": ["in", user_ids]},
+        fields=["name", "full_name", "user_image"],
+    )
+
+    user_map = {
+        u["name"]: {
+            "user": u["name"],
+            "full_name": u["full_name"],
+            "avatar": u.get("user_image"),
+        }
+        for u in users
+    }
+
+    # 3. Build result
+    result: dict[str, dict] = {}
+
+    for r in reactions:
+        comment_id = r["comment"]
+        emoji = r["emoji"]
+        user_info = user_map.get(r["user"])
+
+        if not user_info:
+            continue
+
+        comment_bucket = result.setdefault(comment_id, {})
+        emoji_bucket = comment_bucket.setdefault(
+            emoji,
+            {
+                "count": 0,
+                "users": []
+            }
+        )
+
+        emoji_bucket["count"] += 1
+        emoji_bucket["users"].append(user_info)
+
+    return result

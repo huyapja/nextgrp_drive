@@ -1,40 +1,42 @@
 <template>
-  <div :class="[
-    'comment-panel-list absolute top-0 right-0 h-full w-[320px] bg-[#f5f6f7] z-[80] border-l border-b',
-    'transition-all duration-300',
-    visible ? 'translate-x-0' : 'translate-x-full',
-    closing ? 'animate-slide-out' : ''
-  ]">
-    <!-- Header -->
-    <div class="flex py-4 px-3 items-center">
-      <p class="font-medium">Nhận xét ({{ totalComments }})</p>
-      <Popover @hide="clearCommentIdFromUrl" dismissable ref="op" class="w-[360px] history-mindmap-popover">
-        <MindmapCommentHistory :visible="isHistoryOpen" :mindmapId="entityName" :scrollTarget="historyScrollTarget"
-          :nodeMap="nodeMap" />
-      </Popover>
-      <div class="ml-auto">
-        <i ref="historyIconRef" @click="toggleHistory"
-          v-tooltip.top="{ value: 'Lịch sử bình luận', pt: { text: { class: ['text-[12px]'] } } }"
-          class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" />
-        <i v-tooltip.top="{ value: 'Đóng', pt: { text: { class: ['text-[12px]'] } } }"
-          class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
-          @click="handleClose" />
-      </div>
-    </div>
+  <Teleport to="body">
 
-    <div v-if="parsedGroups.length === 0" class="text-gray-400 text-sm p-3">
-      Chưa có bình luận nào.
-    </div>
-
-    <!-- Danh sách comment -->
-    <div class="p-3 overflow-y-auto overflow-x-hidden h-[calc(100%-100px)] comment-scroll-container">
-      <div v-if="mindmap_comment_list.loading" class="text-gray-500 text-sm">
-        Đang tải bình luận...
+    <div :class="[
+      'comment-panel-list absolute right-0 w-[320px] bg-[#f5f6f7] z-[80] border-l border-b',
+      'transition-all duration-300',
+      visible ? 'translate-x-0' : 'translate-x-full',
+      closing ? 'animate-slide-out' : ''
+    ]" style="top: 70px; height: 900px;">
+      <!-- Header -->
+      <div class="flex py-4 px-3 items-center">
+        <p class="font-medium">Nhận xét ({{ totalComments }})</p>
+        <Popover @hide="clearCommentIdFromUrl" dismissable ref="op" class="w-[360px] history-mindmap-popover">
+          <MindmapCommentHistory :visible="isHistoryOpen" :mindmapId="entityName" :scrollTarget="historyScrollTarget"
+            :nodeMap="nodeMap" />
+        </Popover>
+        <div class="ml-auto">
+          <i ref="historyIconRef" @click="toggleHistory"
+            v-tooltip.top="{ value: 'Lịch sử bình luận', pt: { text: { class: ['text-[12px]'] } } }"
+            class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" />
+          <i v-tooltip.top="{ value: 'Đóng', pt: { text: { class: ['text-[12px]'] } } }"
+            class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
+            @click="handleClose" />
+        </div>
       </div>
 
-      <div v-else>
-        <div v-for="group in parsedGroups" :ref="el => setGroupRef(groupKeyOf(group), el)" :key="groupKeyOf(group)"
-          @click="handleClickGroup(group, $event)" class="
+      <div v-if="parsedGroups.length === 0" class="text-gray-400 text-sm p-3">
+        Chưa có bình luận nào.
+      </div>
+
+      <!-- Danh sách comment -->
+      <div class="p-3 overflow-y-auto overflow-x-hidden h-[calc(100%-100px)] comment-scroll-container">
+        <div v-if="mindmap_comment_list.loading" class="text-gray-500 text-sm">
+          Đang tải bình luận...
+        </div>
+
+        <div v-else>
+          <div v-for="group in parsedGroups" :ref="el => setGroupRef(groupKeyOf(group), el)" :key="groupKeyOf(group)"
+            @click="handleClickGroup(group, $event)" class="
             comment-panel
             group/comment-panel
             cursor-pointer
@@ -42,273 +44,275 @@
             mb-5 p-3 rounded bg-white border shadow-sm
             text-xs text-gray-500
           " :class="groupKeyOf(group) === activeGroupKey ? 'active' : ''"
-          style="content-visibility: auto; contain-intrinsic-size: 180px;" data-comment-panel
-          :data-node-comment="isEditing ? 'edit-' + groupKeyOf(group) : groupKeyOf(group)">
+            style="content-visibility: auto; contain-intrinsic-size: 180px;" data-comment-panel
+            :data-node-comment="isEditing ? 'edit-' + groupKeyOf(group) : groupKeyOf(group)">
 
-          <!-- Header node -->
-          <div :class="[
-            'relative flex items-center mb-2',
-            stripLabel(group.node.data.label) !== '' && 'comment-panel-header'
-          ]">
+            <!-- Header node -->
+            <div :class="[
+              'relative flex items-center mb-2',
+              stripLabel(group.node.data.label) !== '' && 'comment-panel-header'
+            ]">
 
-            <div class="comment-panel-quote relative truncate max-w-[120px] !text-[12px] text-[#646a73] pl-2"
-              :title="stripLabel(group.node.data.label)" v-html="stripLabel(group.node.data.label)" />
+              <div class="comment-panel-quote relative truncate max-w-[120px] !text-[12px] text-[#646a73] pl-2"
+                :title="stripLabel(group.node.data.label)" v-html="stripLabel(group.node.data.label)" />
 
-            <div v-if="group.comments?.length === 0" class="h-[26px] opacity-0 visibility-hidden"></div>
+              <div v-if="group.comments?.length === 0" class="h-[26px] opacity-0 visibility-hidden"></div>
 
-            <div v-if="group.comments?.length > 0" class="
+              <div v-if="group.comments?.length > 0" class="
                 ml-auto border rounded-[12px] px-[5px] py-[4px]
                 flex items-center gap-2
                 opacity-0
                 group-hover/comment-panel:opacity-100
                 transition-opacity duration-150
               ">
-              <i v-tooltip.top="hasNextGroup(groupKeyOf(group))
-                ? { value: 'Tiếp (↓)', pt: { text: { class: ['text-[12px]'] } } }
-                : null" class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(groupKeyOf(group))
+                <i v-tooltip.top="hasNextGroup(groupKeyOf(group))
+                  ? { value: 'Tiếp (↓)', pt: { text: { class: ['text-[12px]'] } } }
+                  : null" class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(groupKeyOf(group))
                   ? 'cursor-pointer hover:text-blue-500'
                   : 'cursor-not-allowed opacity-40'"
-                @click.stop="hasNextGroup(groupKeyOf(group)) && selectNextGroup(groupKeyOf(group))" />
+                  @click.stop="hasNextGroup(groupKeyOf(group)) && selectNextGroup(groupKeyOf(group))" />
 
-              <i v-tooltip.top="hasPrevGroup(groupKeyOf(group))
-                ? { value: 'Trước (↑)', pt: { text: { class: ['text-[12px]'] } } }
-                : null" class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(groupKeyOf(group))
+                <i v-tooltip.top="hasPrevGroup(groupKeyOf(group))
+                  ? { value: 'Trước (↑)', pt: { text: { class: ['text-[12px]'] } } }
+                  : null" class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(groupKeyOf(group))
                   ? 'cursor-pointer hover:text-blue-500'
                   : 'cursor-not-allowed opacity-40'"
-                @click.stop="hasPrevGroup(groupKeyOf(group)) && selectPrevGroup(groupKeyOf(group))" />
+                  @click.stop="hasPrevGroup(groupKeyOf(group)) && selectPrevGroup(groupKeyOf(group))" />
 
-              <div class="panel-separate border-l w-[1px] h-[16px]" />
+                <div class="panel-separate border-l w-[1px] h-[16px]" />
 
-              <i v-tooltip.top="{ value: 'Sao chép liên kết', pt: { text: { class: ['text-[12px]'] } } }"
-                class="pi pi-link !text-[12px] mr-2 cursor-pointer" />
-              <i data-resolved-trigger
-                v-tooltip.top="{ value: 'Giải quyết và ẩn', pt: { text: { class: ['text-[12px]'] } } }"
-                @click.stop="handleResolveGroup(group)" class="pi pi-check-circle !text-[12px] cursor-pointer" />
+                <i v-tooltip.top="{ value: 'Sao chép liên kết', pt: { text: { class: ['text-[12px]'] } } }"
+                  class="pi pi-link !text-[12px] mr-2 cursor-pointer" />
+                <i data-resolved-trigger
+                  v-tooltip.top="{ value: 'Giải quyết và ẩn', pt: { text: { class: ['text-[12px]'] } } }"
+                  @click.stop="handleResolveGroup(group)" class="pi pi-check-circle !text-[12px] cursor-pointer" />
+              </div>
             </div>
-          </div>
 
-          <div v-for="c in group.comments" :key="c.name" :data-comment-id="c.name"
-            :ref="el => setCommentRef(c.name, el)"
-            class="group/comment-item relative flex items-start py-2 px-3 gap-2 mb-3">
-            <!-- Action nổi bên phải (reaction + comment + more) -->
-            <div @click.stop :class="[
-              'absolute top-1 right-0 flex items-center gap-2 bg-white px-2 py-1 transition-all duration-150',
-              openMenuCommentId === c.name
-                ? 'opacity-100'
-                : 'opacity-0 group-hover/comment-item:opacity-100'
-            ]">
+            <div v-for="c in group.comments" :key="c.name" :data-comment-id="c.name"
+              :ref="el => setCommentRef(c.name, el)"
+              class="group/comment-item relative flex items-start py-2 px-3 gap-2 mb-3">
+              <!-- Action nổi bên phải (reaction + comment + more) -->
+              <div @click.stop :class="[
+                'absolute top-1 right-0 flex items-center gap-2 bg-white px-2 py-1 transition-all duration-150',
+                openMenuCommentId === c.name
+                  ? 'opacity-100'
+                  : 'opacity-0 group-hover/comment-item:opacity-100'
+              ]">
 
 
-              <!-- Reaction -->
-              <i class="pi pi-thumbs-up !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"></i>
+                <!-- Reaction -->
+                <!-- <i class="pi pi-thumbs-up !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"></i> -->
+                <MindmapCommentQuickReaction :comment-id="c.name" />
 
-              <!-- Reply -->
-              <i v-tooltip.top="{ value: 'Trả lời', pt: { text: { class: ['text-[12px]'] } } }"
-                class="pi pi-comment !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
-                @click="handleReply(c)" />
+                <!-- Reply -->
+                <i v-tooltip.top="{ value: 'Trả lời', pt: { text: { class: ['text-[12px]'] } } }"
+                  class="pi pi-comment !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
+                  @click="handleReply(c)" />
 
-              <!-- More -->
-              <div data-comment-more v-if="currentUser?.id === c.user?.email" class="relative">
-                <!-- Icon 3 chấm -->
-                <i class="pi pi-ellipsis-h !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
-                  @click.stop="openCommentMenu(c, $event)"></i>
+                <!-- More -->
+                <div data-comment-more v-if="currentUser?.id === c.user?.email" class="relative">
+                  <!-- Icon 3 chấm -->
+                  <i class="pi pi-ellipsis-h !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
+                    @click.stop="openCommentMenu(c, $event)"></i>
+
+                </div>
 
               </div>
 
+              <!-- Avatar -->
+              <CustomAvatar :image="c.user?.user_image" :label="c.user?.full_name?.slice(0, 1)" shape="circle"
+                size="small" />
+
+              <!-- Nội dung -->
+              <div class="w-full">
+                <div class="flex items-center gap-2">
+                  <div class="font-medium text-gray-700">
+                    {{ c.user?.full_name }}
+                  </div>
+
+                  <span :title="displayTime(c)" :class="[
+                    'text-[10px] text-gray-400 inline-block transition-all duration-150',
+                    isEdited(c)
+                      ? 'truncate max-w-[90px]'
+                      : ''
+                  ]">
+                    {{ displayTime(c) }}
+                  </span>
+
+                </div>
+
+                <div class="text-black comment-content mt-2">
+                  <div v-html="c.parsedText"></div>
+
+                  <div v-if="c.parsedImages.length" class="flex flex-wrap gap-1 mt-2">
+                    <Image v-for="(src, index) in c.parsedImages" :key="src" :src="src" data-image-comment
+                      imageClass="!w-[62px] h-[62px] object-cover cursor-zoom-in"
+                      @click="openGallery(c.parsedImages, index)" />
+
+                  </div>
+                </div>
+
+              </div>
             </div>
 
-            <!-- Avatar -->
-            <CustomAvatar :image="c.user?.user_image" :label="c.user?.full_name?.slice(0, 1)" shape="circle"
-              size="small" />
 
-            <!-- Nội dung -->
-            <div class="w-full">
-              <div class="flex items-center gap-2">
+            <!-- Empty state -->
+            <div v-if="group.comments?.length === 0 && groupKeyOf(group) === activeGroupKey"
+              class="flex items-start gap-2 my-5">
+              <CustomAvatar :image="currentUser?.imageURL" :label="currentUser?.fullName?.slice(0, 1)" shape="circle"
+                size="small" />
+
+              <div>
                 <div class="font-medium text-gray-700">
-                  {{ c.user?.full_name }}
-                </div>
-
-                <span :title="displayTime(c)" :class="[
-                  'text-[10px] text-gray-400 inline-block transition-all duration-150',
-                  isEdited(c)
-                    ? 'truncate max-w-[90px]'
-                    : ''
-                ]">
-                  {{ displayTime(c) }}
-                </span>
-
-              </div>
-
-              <div class="text-black comment-content mt-2">
-                <div v-html="c.parsedText"></div>
-
-                <div v-if="c.parsedImages.length" class="flex flex-wrap gap-1 mt-2">
-                  <Image v-for="(src, index) in c.parsedImages" :key="src" :src="src" data-image-comment
-                    imageClass="!w-[62px] h-[62px] object-cover cursor-zoom-in"
-                    @click="openGallery(c.parsedImages, index)" />
-
+                  {{ currentUser?.fullName }}
                 </div>
               </div>
-
             </div>
-          </div>
 
-
-          <!-- Empty state -->
-          <div v-if="group.comments?.length === 0 && groupKeyOf(group) === activeGroupKey"
-            class="flex items-start gap-2 my-5">
-            <CustomAvatar :image="currentUser?.imageURL" :label="currentUser?.fullName?.slice(0, 1)" shape="circle"
-              size="small" />
-
-            <div>
-              <div class="font-medium text-gray-700">
-                {{ currentUser?.fullName }}
-              </div>
-            </div>
-          </div>
-
-          <p v-if="groupKeyOf(group) !== activeGroupKey" class="pl-[50px] !text-[12px] opacity-0
+            <p v-if="groupKeyOf(group) !== activeGroupKey" class="pl-[50px] !text-[12px] opacity-0
                 group-hover/comment-panel:opacity-100
-                transition-opacity duration-150" data-reply-trigger @mousedown.stop  @click.stop="handleReplyTrigger(group)">Trả lời...</p>
+                transition-opacity duration-150" data-reply-trigger @mousedown.stop
+              @click.stop="handleReplyTrigger(group)">Trả lời...</p>
 
-          <!-- Input -->
-          <div class="mt-3 relative transition-opacity duration-150" :class="groupKeyOf(group) === activeGroupKey && !isEditing
-            ? 'opacity-100 pointer-events-auto'
-            : 'opacity-0 pointer-events-none h-0 overflow-hidden'">
+            <!-- Input -->
+            <div class="mt-3 relative transition-opacity duration-150" :class="groupKeyOf(group) === activeGroupKey && !isEditing
+              ? 'opacity-100 pointer-events-auto'
+              : 'opacity-0 pointer-events-none h-0 overflow-hidden'">
 
-            <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
-              :data-node="groupKeyOf(group)"></div>
+              <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
+                :data-node="groupKeyOf(group)"></div>
 
 
-            <div class="flex gap-2 w-full border rounded">
-              <div class="flex-1">
-                <CommentEditor :ref="el => {
-                  if (!commentEditorRef.value) {
-                    commentEditorRef.value = {}
-                  }
-                  if (groupKeyOf(group) === activeGroupKey) {
-                    commentEditorRef.value[groupKeyOf(group)] = el
-                  }
-                }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmitSafe" :members="members"
-                  @navigate="handleNavigate" :nodeId="groupKeyOf(group)" :currentUser="currentUser?.id"
-                  @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages"
-                  :placeholder="group.comments?.length === 0 ? 'Thêm nhận xét' : 'Trả lời'" />
+              <div class="flex gap-2 w-full border rounded">
+                <div class="flex-1">
+                  <CommentEditor :ref="el => {
+                    if (!commentEditorRef.value) {
+                      commentEditorRef.value = {}
+                    }
+                    if (groupKeyOf(group) === activeGroupKey) {
+                      commentEditorRef.value[groupKeyOf(group)] = el
+                    }
+                  }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmitSafe" :members="members"
+                    @navigate="handleNavigate" :nodeId="groupKeyOf(group)" :currentUser="currentUser?.id"
+                    @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages"
+                    :placeholder="group.comments?.length === 0 ? 'Thêm nhận xét' : 'Trả lời'" />
+                </div>
+
+                <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
+                  @click.stop="handleUploadCommentImage" />
+
               </div>
 
-              <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
-                @click.stop="handleUploadCommentImage" />
+              <div class="flex items-center justify-end mt-3">
 
+                <div v-if="inputValue.trim()" class="flex justify-end gap-2">
+                  <button comment-add-form-cancel class="px-3 py-2 text-xs rounded bg-gray-200"
+                    @click="handleCancel(group.comments?.length === 0)">
+                    Huỷ
+                  </button>
+                  <button comment-add-form-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
+                    @click="handleSubmitSafe">
+                    Đăng
+                  </button>
+                </div>
+              </div>
             </div>
 
-            <div class="flex items-center justify-end mt-3">
 
-              <div v-if="inputValue.trim()" class="flex justify-end gap-2">
-                <button comment-add-form-cancel class="px-3 py-2 text-xs rounded bg-gray-200"
-                  @click="handleCancel(group.comments?.length === 0)">
+            <!-- INPUT EDIT COMMENT -->
+            <div v-if="
+              isEditing &&
+              activeEditingComment &&
+              groupKeyOf(group) ===
+              `${activeEditingComment.node_id}__${activeEditingComment.session_index}`
+            " class="mt-3 transition-opacity duration-150" comment-edit-form @click.stop>
+              <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
+                :data-node="'edit-' + groupKeyOf(group)"></div>
+              <div class="flex gap-2 w-full border rounded bg-white">
+                <div class="flex-1">
+                  <CommentEditor :ref="el => {
+                    if (!commentEditorRef.value) {
+                      commentEditorRef.value = {}
+                    }
+                    if (editingCommentId === activeEditingComment?.name) {
+                      commentEditorRef.value['edit-' + editingCommentId] = el
+                    }
+                  }" v-model="editingValue" :previewImages="previewImages" @submit="submitEdit(activeEditingComment)"
+                    :members="members" @navigate="handleNavigate" :nodeId="'edit-' + groupKeyOf(group)"
+                    @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages" />
+                </div>
+
+                <!-- ICON UPLOAD (TÙY CHỌN) -->
+                <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
+                  @click.stop="handleUploadCommentImage" />
+              </div>
+
+              <div class="flex justify-end gap-2 mt-3">
+                <button comment-edit-cancel class="px-3 py-2 text-xs rounded bg-gray-200" @click.stop="cancelEdit">
                   Huỷ
                 </button>
-                <button comment-add-form-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
-                  @click="handleSubmitSafe">
-                  Đăng
+
+                <button comment-edit-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
+                  @click.stop="submitEdit(activeEditingComment)">
+                  Lưu
                 </button>
               </div>
             </div>
+
+
           </div>
+        </div>
 
 
-          <!-- INPUT EDIT COMMENT -->
-          <div v-if="
-            isEditing &&
-            activeEditingComment &&
-            groupKeyOf(group) ===
-            `${activeEditingComment.node_id}__${activeEditingComment.session_index}`
-          " class="mt-3 transition-opacity duration-150" comment-edit-form @click.stop>
-            <div class="mention-portal-add absolute bottom-0 left-0 w-full h-full pointer-events-none"
-              :data-node="'edit-' + groupKeyOf(group)"></div>
-            <div class="flex gap-2 w-full border rounded bg-white">
-              <div class="flex-1">
-                <CommentEditor :ref="el => {
-                  if (!commentEditorRef.value) {
-                    commentEditorRef.value = {}
-                  }
-                  if (editingCommentId === activeEditingComment?.name) {
-                    commentEditorRef.value['edit-' + editingCommentId] = el
-                  }
-                }" v-model="editingValue" :previewImages="previewImages" @submit="submitEdit(activeEditingComment)"
-                  :members="members" @navigate="handleNavigate" :nodeId="'edit-' + groupKeyOf(group)"
-                  @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages" />
+      </div>
+    </div>
+    <Teleport to="body">
+      <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
+        class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
+        <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2" @click="handleEditAndFocus">
+          <span>Chỉnh sửa</span>
+        </div>
+
+        <div class="px-3 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-2"
+          @click="handleDeleteComment(deleteComment)">
+          <span>Xoá</span>
+        </div>
+      </div>
+    </Teleport>
+
+    <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header"
+      contentClass="!p-0">
+      <Galleria :value="galleryItems" v-model:activeIndex="galleryIndex" :responsiveOptions="[
+        { breakpoint: '1400px', numVisible: 5 },
+        { breakpoint: '1024px', numVisible: 4 },
+        { breakpoint: '768px', numVisible: 3 },
+        { breakpoint: '560px', numVisible: 2 }
+      ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false" containerStyle="width: 100%; height: 100%;"
+        class="w-full h-full">
+        <!-- Ảnh full -->
+        <template #item="{ item }">
+          <div class="flex items-center justify-center w-full h-full overflow-hidden">
+            <!-- ROTATE LAYER -->
+            <div class="flex items-center justify-center transition-transform duration-200" :style="{
+              transform: `rotate(${rotateDeg}deg)`
+            }">
+              <!-- SCALE LAYER -->
+              <div class="transition-transform duration-150" :style="{
+                transform: `scale(${imageScale})`,
+                transformOrigin: `${originX}% ${originY}%`
+              }" @wheel="handleImageWheel">
+                <img :src="item.itemImageSrc" draggable="false"
+                  class="max-w-full max-h-[70vh] object-contain select-none pointer-events-none" />
               </div>
-
-              <!-- ICON UPLOAD (TÙY CHỌN) -->
-              <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
-                @click.stop="handleUploadCommentImage" />
-            </div>
-
-            <div class="flex justify-end gap-2 mt-3">
-              <button comment-edit-cancel class="px-3 py-2 text-xs rounded bg-gray-200" @click.stop="cancelEdit">
-                Huỷ
-              </button>
-
-              <button comment-edit-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
-                @click.stop="submitEdit(activeEditingComment)">
-                Lưu
-              </button>
             </div>
           </div>
-
-
-        </div>
-      </div>
-
-
-    </div>
-  </div>
-  <Teleport to="body">
-    <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
-      class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
-      <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2" @click="handleEditAndFocus">
-        <span>Chỉnh sửa</span>
-      </div>
-
-      <div class="px-3 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-2"
-        @click="handleDeleteComment(deleteComment)">
-        <span>Xoá</span>
-      </div>
-    </div>
-  </Teleport>
-
-  <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header"
-    contentClass="!p-0">
-    <Galleria :value="galleryItems" v-model:activeIndex="galleryIndex" :responsiveOptions="[
-      { breakpoint: '1400px', numVisible: 5 },
-      { breakpoint: '1024px', numVisible: 4 },
-      { breakpoint: '768px', numVisible: 3 },
-      { breakpoint: '560px', numVisible: 2 }
-    ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false" containerStyle="width: 100%; height: 100%;"
-      class="w-full h-full">
-      <!-- Ảnh full -->
-      <template #item="{ item }">
-        <div class="flex items-center justify-center w-full h-full overflow-hidden">
-          <!-- ROTATE LAYER -->
-          <div class="flex items-center justify-center transition-transform duration-200" :style="{
-            transform: `rotate(${rotateDeg}deg)`
-          }">
-            <!-- SCALE LAYER -->
-            <div class="transition-transform duration-150" :style="{
-              transform: `scale(${imageScale})`,
-              transformOrigin: `${originX}% ${originY}%`
-            }" @wheel="handleImageWheel">
-              <img :src="item.itemImageSrc" draggable="false"
-                class="max-w-full max-h-[70vh] object-contain select-none pointer-events-none" />
-            </div>
-          </div>
-        </div>
-      </template>
+        </template>
 
 
 
-    </Galleria>
-    <div v-if="galleryVisible" class="
+      </Galleria>
+      <div v-if="galleryVisible" class="
   absolute top-4 right-6 z-20
   flex items-center gap-2
   px-3 py-1
@@ -317,16 +321,18 @@
   bg-black/60 text-white
   select-none
 ">
-      {{ galleryCounterText }}
+        {{ galleryCounterText }}
 
-      <div class="flex gap-2 ml-2 border-l border-white/30 pl-2">
-        <i class="pi pi-refresh cursor-pointer hover:text-blue-400" title="Xoay trái" @click="rotateLeft" />
-        <i class="pi pi-refresh cursor-pointer rotate-180 hover:text-blue-400" title="Xoay phải" @click="rotateRight" />
+        <div class="flex gap-2 ml-2 border-l border-white/30 pl-2">
+          <i class="pi pi-refresh cursor-pointer hover:text-blue-400" title="Xoay trái" @click="rotateLeft" />
+          <i class="pi pi-refresh cursor-pointer rotate-180 hover:text-blue-400" title="Xoay phải"
+            @click="rotateRight" />
+        </div>
       </div>
-    </div>
 
-  </Dialog>
+    </Dialog>
 
+  </Teleport>
 
 
 </template>
@@ -366,6 +372,7 @@ import { useToast } from "primevue/usetoast"
 
 
 import { timeAgo } from "./utils/timeAgo"
+import MindmapCommentQuickReaction from "./MindmapCommentQuickReaction.vue"
 
 // -----------------------------
 const props = defineProps({
@@ -1059,6 +1066,10 @@ watch(
         scrollToActiveNode(key)
       }
 
+      nextTick(() => {
+        focusEditorOf(targetGroup)
+      })
+
       pendingScroll.value = null
     }
 
@@ -1279,7 +1290,7 @@ onBeforeUnmount(() => {
 })
 
 defineExpose({
-  focusEditorForNode(nodeId) {    
+  focusEditorForNode(nodeId) {
     const group = mergedGroupsFinal.value.find(
       g => g.node.id === nodeId
     )
@@ -1287,7 +1298,7 @@ defineExpose({
 
     const key = groupKeyOf(group)
     activeGroupKey.value = key
-    
+
     nextTick(() => {
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
