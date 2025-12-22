@@ -474,3 +474,75 @@ def create_mindmap_entity(title, personal, team, content=None, parent=None):
         pass
 
     return drive_file.as_dict()
+
+
+@frappe.whitelist()
+def import_mindmap_nextgrp(entity_name, nextgrp_data):
+    """
+    Import mindmap từ NextGRP format
+
+    :param entity_name: Drive File entity name
+    :param nextgrp_data: NextGRP format data (dict hoặc JSON string)
+    :return: Dict với nodes_count và edges_count
+    """
+    try:
+        # Get Drive File
+        doc_drive = frappe.get_doc("Drive File", entity_name)
+
+        if not doc_drive or not doc_drive.mindmap:
+            frappe.throw(_("Mindmap not found"), frappe.DoesNotExistError)
+
+        # Check permission
+        if not frappe.has_permission("Drive File", "write", doc_drive):
+            frappe.throw(_("No permission to edit"), frappe.PermissionError)
+
+        # Parse nextgrp_data if string
+        if isinstance(nextgrp_data, str):
+            nextgrp_data = json.loads(nextgrp_data)
+
+        # Validate NextGRP format
+        if not isinstance(nextgrp_data, dict):
+            frappe.throw(_("Invalid NextGRP data format"), ValueError)
+
+        if nextgrp_data.get("format") != "nextgrp":
+            frappe.throw(_("File is not in NextGRP format"), ValueError)
+
+        if not nextgrp_data.get("mindmap"):
+            frappe.throw(_("NextGRP data missing mindmap section"), ValueError)
+
+        mindmap_section = nextgrp_data.get("mindmap", {})
+
+        if not mindmap_section.get("nodes"):
+            frappe.throw(_("NextGRP data missing nodes"), ValueError)
+
+        # Extract nodes and edges
+        imported_nodes = mindmap_section.get("nodes", [])
+        imported_edges = mindmap_section.get("edges", [])
+        layout = mindmap_section.get("layout", "horizontal")
+
+        # Get Drive Mindmap
+        mindmap_doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
+
+        # Prepare mindmap_data format
+        mindmap_data = {
+            "nodes": imported_nodes,
+            "edges": imported_edges,
+            "layout": layout,
+        }
+
+        # Save mindmap_data
+        mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
+        mindmap_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        return {
+            "nodes_count": len(imported_nodes),
+            "edges_count": len(imported_edges),
+            "message": _("Mindmap imported successfully"),
+        }
+
+    except Exception as e:
+        frappe.log_error(
+            f"Import mindmap error: {frappe.get_traceback()}", "Import Mindmap NextGRP"
+        )
+        frappe.throw(str(e))

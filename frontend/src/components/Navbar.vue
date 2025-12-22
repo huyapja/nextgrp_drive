@@ -220,10 +220,10 @@ import {
   getTrash,
 } from "@/resources/files"
 import { entitiesDownload } from "@/utils/download"
+import { toast } from "@/utils/toasts"
 import {
   Breadcrumbs,
-  Button,
-  Dropdown,
+  Button, call, Dropdown,
   LoadingIndicator
 } from "frappe-ui"
 import PrimeButton from 'primevue/button'
@@ -235,6 +235,7 @@ import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
 import LucideClock from "~icons/lucide/clock"
+import LucideFileDown from "~icons/lucide/file-down"
 import LucideFilePlus2 from "~icons/lucide/file-plus-2"
 import LucideFileUp from "~icons/lucide/file-up"
 import LucideFolderPlus from "~icons/lucide/folder-plus"
@@ -283,6 +284,9 @@ const mindMapForm = ref({
   title: '',
   description: ''
 })
+
+// Import MindMap file input
+const importMindMapInput = ref(null)
 
 // Fetch khi team thay đổi
 watch(() => route.params.team, (team) => {
@@ -533,6 +537,119 @@ const handleCreateMindMap = async () => {
   }
 }
 
+// Import MindMap handler
+const importMindMapHandler = () => {
+  // Tạo input file ẩn nếu chưa có
+  if (!importMindMapInput.value) {
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.accept = '.nextgrp,.json'
+    input.style.display = 'none'
+    input.addEventListener('change', handleImportMindMapFile)
+    document.body.appendChild(input)
+    importMindMapInput.value = input
+  }
+  importMindMapInput.value.click()
+}
+
+// Handle import mindmap file
+const handleImportMindMapFile = async (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  // Reset input
+  if (importMindMapInput.value) {
+    importMindMapInput.value.value = ''
+  }
+
+  // Validate file extension
+  const fileName = file.name.toLowerCase()
+  if (!fileName.endsWith('.nextgrp') && !fileName.endsWith('.json')) {
+    toast({ 
+      title: "File không hợp lệ. Vui lòng chọn file .nextgrp hoặc .json", 
+      indicator: "red" 
+    })
+    return
+  }
+
+  try {
+    // Read file content
+    const fileContent = await file.text()
+    let nextgrpData
+
+    try {
+      nextgrpData = JSON.parse(fileContent)
+    } catch (e) {
+      toast({ 
+        title: "File không phải định dạng JSON hợp lệ", 
+        indicator: "red" 
+      })
+      return
+    }
+
+    // Validate NextGRP format
+    if (!nextgrpData.format || nextgrpData.format !== 'nextgrp') {
+      toast({ 
+        title: "File không phải định dạng NextGRP hợp lệ", 
+        indicator: "red" 
+      })
+      return
+    }
+
+    if (!nextgrpData.mindmap || !nextgrpData.mindmap.nodes) {
+      toast({ 
+        title: "File NextGRP thiếu dữ liệu mindmap", 
+        indicator: "red" 
+      })
+      return
+    }
+
+    // Lấy tên mindmap từ file hoặc dùng tên file (bỏ extension)
+    const mindmapTitle = nextgrpData.mindmap?.title || file.name.replace(/\.(nextgrp|json)$/i, '')
+    
+    // Tạo mindmap mới
+    const createData = await createMindMap.submit({
+      title: mindmapTitle,
+      team: route.params.team,
+      personal: store.state.breadcrumbs[0].name === "Home" ? 1 : 0,
+      content: null,
+      parent: store.state.currentFolder.name,
+      type: "mindmap",
+    })
+
+    if (!createData?.name) {
+      throw new Error("Không thể tạo mindmap mới")
+    }
+
+    // Import dữ liệu vào mindmap mới
+    const response = await call("drive.api.mindmap.import_mindmap_nextgrp", {
+      entity_name: createData.name,
+      nextgrp_data: nextgrpData
+    })
+
+    if (response && response.message) {
+      toast({ 
+        title: `Import sơ đồ tư duy thành công`, 
+        indicator: "green" 
+      })
+
+      // Chuyển đến mindmap mới
+      await router.push({
+        name: "MindMap",
+        params: { team: route.params.team, entityName: createData.name },
+      })
+    } else {
+      throw new Error("Import failed")
+    }
+  } catch (error) {
+    console.error('Import error:', error)
+    toast({ 
+      title: `Lỗi khi import: ${error.message || 'Unknown error'}`, 
+      indicator: "red" 
+    })
+  }
+}
+
 // Dropdown options
 const uploadOptions = [
   {
@@ -562,6 +679,11 @@ const createOptions = [
     label: "Sơ đồ tư duy",
     icon: MindmapIcon,
     onClick: showMindMapDialogHandler,
+  },
+  {
+    label: "Import sơ đồ tư duy",
+    icon: LucideFileDown,
+    onClick: importMindMapHandler,
   },
   {
     label: "Liên kết",

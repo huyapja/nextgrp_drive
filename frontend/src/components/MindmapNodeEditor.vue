@@ -612,6 +612,8 @@ const ImageWithMenuExtension = Extension.create({
               const dom = document.createElement('div')
               dom.className = 'image-wrapper-node'
               dom.setAttribute('data-image-src', node.attrs.src)
+              dom.setAttribute('contenteditable', 'false')
+              dom.setAttribute('draggable', 'false')
               
               // ⚠️ CRITICAL: Tính width dựa trên số ảnh trong editor
               // Đếm số ảnh hiện có để xác định layout
@@ -1296,6 +1298,88 @@ const ImageClickExtension = Extension.create({
                 
                 return true
               }
+              
+              // ⚠️ CRITICAL: Ngăn chặn đặt cursor vào vùng ảnh hoàn toàn
+              // Kiểm tra xem click có liên quan đến ảnh không
+              const isImageWrapper = target.closest('.image-wrapper') || target.closest('.image-wrapper-node')
+              const isImageGroupWrapper = target.closest('.image-group-wrapper')
+              const isImage = target.tagName === 'IMG'
+              const isImageMenu = target.closest('.image-menu-button') || target.closest('.image-context-menu')
+              const isGapCursor = target.classList?.contains('ProseMirror-gapcursor')
+              
+              // ⚠️ NEW: Nếu click vào bất kỳ thành phần nào liên quan đến ảnh, ngăn chặn hoàn toàn
+              if (isImage || isImageWrapper || isImageGroupWrapper || isImageMenu || isGapCursor) {
+                event.preventDefault()
+                event.stopPropagation()
+                return true
+              }
+              
+              // Nếu click không phải vào ảnh, image wrapper, hoặc menu
+              if (!isImage && !isImageWrapper && !isImageGroupWrapper && !isImageMenu) {
+                // Lấy vị trí click trong document
+                const coords = view.posAtCoords({
+                  left: event.clientX,
+                  top: event.clientY
+                })
+                
+                if (coords) {
+                  const { state } = view
+                  const { doc } = state
+                  const clickPos = coords.pos
+                  
+                  // Tìm ảnh trước và sau vị trí click
+                  let imageBefore = null
+                  let imageAfter = null
+                  let imageBeforePos = null
+                  let imageAfterPos = null
+                  
+                  doc.descendants((node, pos) => {
+                    if (node.type.name === 'image') {
+                      const nodeEnd = pos + node.nodeSize
+                      
+                      // Ảnh trước vị trí click
+                      if (nodeEnd <= clickPos && (imageBeforePos === null || pos > imageBeforePos)) {
+                        imageBefore = node
+                        imageBeforePos = pos
+                      }
+                      
+                      // Ảnh sau vị trí click
+                      if (pos > clickPos && (imageAfterPos === null || pos < imageAfterPos)) {
+                        imageAfter = node
+                        imageAfterPos = pos
+                      }
+                    }
+                  })
+                  
+                  // Nếu có ảnh trước và sau vị trí click, và click vào khoảng trống giữa chúng
+                  if (imageBefore && imageAfter) {
+                    // Kiểm tra xem có phải khoảng trống thực sự không (không có text node)
+                    const rangeStart = imageBeforePos + imageBefore.nodeSize
+                    const rangeEnd = imageAfterPos
+                    
+                    // Kiểm tra xem trong khoảng này có text không
+                    let hasText = false
+                    doc.nodesBetween(rangeStart, rangeEnd, (node) => {
+                      if (node.isText && node.text.trim().length > 0) {
+                        hasText = true
+                        return false // Stop searching
+                      }
+                      if (node.type.name === 'paragraph' && node.textContent.trim().length > 0) {
+                        hasText = true
+                        return false // Stop searching
+                      }
+                    })
+                    
+                    // Nếu không có text trong khoảng trống giữa 2 ảnh, ngăn chặn đặt cursor
+                    if (!hasText && clickPos >= rangeStart && clickPos <= rangeEnd) {
+                      event.preventDefault()
+                      event.stopPropagation()
+                      return true // Prevent default cursor placement
+                    }
+                  }
+                }
+              }
+              
               return false
             },
           },
@@ -2565,6 +2649,25 @@ export default {
         attributes: {
           class: `mindmap-editor-prose ${this.isRoot ? 'is-root' : ''}`,
           style: this.isRoot ? 'color: #ffffff;' : '',
+        },
+        handleDOMEvents: {
+          mousedown: (view, event) => {
+            const target = event.target
+            
+            // Ngăn chặn mousedown trên ảnh và các wrapper
+            const isImageRelated = target.tagName === 'IMG' ||
+                                   target.closest('.image-wrapper-node') ||
+                                   target.closest('.image-wrapper') ||
+                                   target.closest('.image-group-wrapper') ||
+                                   target.classList?.contains('ProseMirror-gapcursor')
+            
+            if (isImageRelated) {
+              event.preventDefault()
+              return true
+            }
+            
+            return false
+          },
         },
         handleTextInput: (view, from, to, text) => {
           // Xử lý đặc biệt cho space ở cuối text
@@ -4010,6 +4113,30 @@ export default {
   max-width: 368px !important;
   box-sizing: border-box !important;
   position: relative !important;
+}
+
+/* Ngăn chặn selection và cursor trên ảnh */
+:deep(.mindmap-editor-prose .image-wrapper-node),
+:deep(.mindmap-editor-prose .image-wrapper) {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  pointer-events: auto !important;
+}
+
+/* Đảm bảo img không thể nhận focus hoặc selection */
+:deep(.mindmap-editor-prose .image-wrapper-node img),
+:deep(.mindmap-editor-prose .image-wrapper img) {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  pointer-events: auto !important;
+}
+
+/* Ẩn ProseMirror gapcursor trong vùng ảnh */
+:deep(.image-wrapper-node .ProseMirror-gapcursor),
+:deep(.image-wrapper .ProseMirror-gapcursor) {
+  display: none !important;
 }
 
 :deep(.mindmap-editor-prose .image-wrapper) {
