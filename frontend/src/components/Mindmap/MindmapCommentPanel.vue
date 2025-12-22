@@ -6,7 +6,7 @@
       'transition-all duration-300',
       visible ? 'translate-x-0' : 'translate-x-full',
       closing ? 'animate-slide-out' : ''
-    ]" style="top: 70px; height: 100%;">
+    ]" style="top: 70px; bottom: 0;">
       <!-- Header -->
       <div class="flex py-4 px-3 items-center">
         <p class="font-medium">Nhận xét ({{ totalComments }})</p>
@@ -221,7 +221,7 @@
                   }" v-model="inputValue" :previewImages="previewImages" @submit="handleSubmitSafe" :members="members"
                     @navigate="handleNavigate" :nodeId="groupKeyOf(group)" :currentUser="currentUser?.id"
                     @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages"
-                    :placeholder="group.comments?.length === 0 ? 'Thêm nhận xét' : 'Trả lời'" />
+                    :placeholder="group.comments?.length === 0 ? 'Thêm nhận xét' : 'Nhập bình luận'" />
                 </div>
 
                 <i class="pi pi-image text-gray-500 hover:text-blue-500 cursor-pointer text-base self-end mb-1 mr-2"
@@ -405,7 +405,7 @@ const props = defineProps({
   mindmap: Array,
   userAddComment: Boolean
 })
-const emit = defineEmits(["close", "cancel", "submit", "update:input", "update:node", "open-history"])
+const emit = defineEmits(["close", "cancel", "submit", "update:input", "update:node", "open-history", "highlight:node"])
 const socket = inject("socket")
 
 
@@ -678,6 +678,7 @@ function handleClickGroup(group, e) {
   if (e.target.closest("[data-image-comment]")) return
   if (e.target.closest("[data-upload-image-to-comment]")) return
   if (e.target.closest("[data-resolved-trigger]")) return
+  if (e.target.closest('[data-reply-trigger]')) return
 
   // 3. validate group
   if (!group || !group.node?.id) return
@@ -714,7 +715,7 @@ function handleReplyTrigger(group) {
   })
 
   // 4. emit cho parent biết đây là hành động "reply"
-  emit("update:node", group.node)
+  emit("highlight:node", group.node)
 }
 
 
@@ -926,30 +927,36 @@ function insertReplyMention({ id, label }) {
 }
 
 function handleReply(c) {
-  // 1. Tạo group key đúng chuẩn
   const replyKey = `${c.node_id}__${c.session_index}`
 
-  // 2. Active đúng group
+  // 🔒 khóa auto scroll
+  suppressAutoScroll.value = true
+
   activeGroupKey.value = replyKey
 
-  // 3. Focus editor → rồi mới chèn mention
+  emit("highlight:node", c)
+
   nextTick(() => {
-    const group = mergedGroupsFinal.value.find(g => groupKeyOf(g) === replyKey)
+    const group = mergedGroupsFinal.value.find(
+      g => groupKeyOf(g) === replyKey
+    )
     if (!group) return
 
-    // focus editor của group
     focusEditorOf(group)
 
-    // sau khi focus -> chèn mention
     insertReplyMention({
       id: c.user.email,
       label: c.user.full_name,
     })
-  })
 
-  // 5. emit để biết đang reply vào node đó
-  emit("update:node", { id: c.node_id })
+    // 🔓 mở lại auto scroll sau khi ổn định
+    requestAnimationFrame(() => {
+      suppressAutoScroll.value = false
+    })
+  })
 }
+
+
 
 
 function focusEditorOf(group) {
@@ -969,7 +976,11 @@ async function handleEditAndFocus() {
   const groupKey = `${c.node_id}__${c.session_index}`
   activeGroupKey.value = groupKey
 
+  suppressAutoScroll.value = true
+
   await nextTick()
+
+  emit("highlight:node", c)
 
   const key = "edit-" + c.name
   const wrapper = commentEditorRef.value?.value?.[key]
