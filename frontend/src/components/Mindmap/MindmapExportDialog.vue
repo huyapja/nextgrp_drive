@@ -14,82 +14,71 @@
       <div class="flex flex-col gap-2">
         <button
           @click="handleExport('png')"
-          class="flex items-center gap-3 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          class="flex items-center gap-3 p-4 border border-gray-300 rounded-lg hover:bg-blue-50 hover:border-blue-300 transition-all duration-200 group"
           :disabled="isExporting"
+          :class="{ 'opacity-50 cursor-not-allowed': isExporting }"
         >
-          <div class="w-10 h-10 bg-blue-100 rounded flex items-center justify-center">
-            <span class="text-blue-600 font-semibold">PNG</span>
+          <div class="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+            <LucideImage class="w-6 h-6 text-blue-600" />
           </div>
           <div class="flex-1 text-left">
-            <div class="font-medium">PNG Image</div>
+            <div class="font-semibold text-gray-900">PNG Image</div>
             <div class="text-sm text-gray-500">Xuất dưới dạng hình ảnh</div>
           </div>
           <svg v-if="isExporting && exportFormat === 'png'" class="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
+          <LucideDownload v-else class="w-5 h-5 text-gray-400 group-hover:text-blue-600 transition-colors" />
         </button>
         <button
           @click="handleExport('pdf')"
-          class="flex items-center gap-3 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          class="flex items-center gap-3 p-4 border border-gray-300 rounded-lg hover:bg-red-50 hover:border-red-300 transition-all duration-200 group"
           :disabled="isExporting"
+          :class="{ 'opacity-50 cursor-not-allowed': isExporting }"
         >
-          <div class="w-10 h-10 bg-red-100 rounded flex items-center justify-center">
-            <span class="text-red-600 font-semibold">PDF</span>
+          <div class="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center group-hover:bg-red-200 transition-colors">
+            <LucideFileText class="w-6 h-6 text-red-600" />
           </div>
           <div class="flex-1 text-left">
-            <div class="font-medium">PDF Document</div>
+            <div class="font-semibold text-gray-900">PDF Document</div>
             <div class="text-sm text-gray-500">Xuất dưới dạng tài liệu PDF</div>
           </div>
           <svg v-if="isExporting && exportFormat === 'pdf'" class="animate-spin h-5 w-5 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
+          <LucideDownload v-else class="w-5 h-5 text-gray-400 group-hover:text-red-600 transition-colors" />
         </button>
         <button
           @click="handleExport('nextgrp')"
-          class="flex items-center gap-3 p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          class="flex items-center gap-3 p-4 border border-gray-300 rounded-lg hover:bg-green-50 hover:border-green-300 transition-all duration-200 group"
           :disabled="isExporting"
+          :class="{ 'opacity-50 cursor-not-allowed': isExporting }"
         >
-          <div class="w-10 h-10 bg-green-100 rounded flex items-center justify-center">
-            <span class="text-green-600 font-semibold">NGRP</span>
+          <div class="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200 transition-colors">
+            <LucideFileCode class="w-6 h-6 text-green-600" />
           </div>
           <div class="flex-1 text-left">
-            <div class="font-medium">NextGRP Format</div>
+            <div class="font-semibold text-gray-900">NextGRP Format</div>
             <div class="text-sm text-gray-500">Xuất với đầy đủ thông tin, có thể import lại</div>
           </div>
           <svg v-if="isExporting && exportFormat === 'nextgrp'" class="animate-spin h-5 w-5 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
+          <LucideDownload v-else class="w-5 h-5 text-gray-400 group-hover:text-green-600 transition-colors" />
         </button>
       </div>
     </div>
     <template #footer>
-      <div class="flex justify-between items-center">
-        <div>
-          <input
-            ref="importFileInput"
-            type="file"
-            accept=".nextgrp,application/json"
-            style="display: none"
-            @change="handleImportNextGRP"
-          />
-          <PrimeButton
-            label="Import NextGRP"
-            severity="secondary"
-            @click="importFileInput?.click()"
-            :disabled="isExporting"
-          />
-        </div>
-        <div>
-          <PrimeButton
-            label="Đóng"
-            severity="secondary"
-            @click="$emit('update:visible', false)"
-            :disabled="isExporting"
-          />
-        </div>
+      <div class="flex justify-end items-center">
+        <PrimeButton
+          label="Đóng"
+          severity="secondary"
+          @click="$emit('update:visible', false)"
+          :disabled="isExporting"
+        />
       </div>
     </template>
   </Dialog>
@@ -97,10 +86,13 @@
 
 <script setup>
 import { toast } from '@/utils/toasts'
-import { call } from 'frappe-ui'
 import PrimeButton from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import { ref } from 'vue'
+import LucideDownload from "~icons/lucide/download"
+import LucideFileCode from "~icons/lucide/file-code"
+import LucideFileText from "~icons/lucide/file-text"
+import LucideImage from "~icons/lucide/image"
 
 const props = defineProps({
   visible: {
@@ -137,11 +129,10 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['update:visible', 'imported'])
+const emit = defineEmits(['update:visible'])
 
 const isExporting = ref(false)
 const exportFormat = ref(null)
-const importFileInput = ref(null)
 
 // Export functions
 const handleExport = async (format) => {
@@ -410,7 +401,7 @@ const exportToPNG = async (fileName) => {
     document.body.removeChild(link)
     setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
     
-    toast({ title: "✅ Đang tải xuống...", indicator: "green" })
+    toast({ title: "Đang tải xuống hình ảnh...", indicator: "green" })
     
   } catch (error) {
     console.error('Export PNG error:', error)
@@ -526,7 +517,7 @@ const exportToPDF = async (fileName) => {
     // Cleanup
     URL.revokeObjectURL(imageUrl)
     
-    toast({ title: "✅ Đang tải xuống...", indicator: "green" })
+    toast({ title: "Đang tải xuống tài liệu PDF...", indicator: "green" })
     
   } catch (error) {
     console.error('Export PDF error:', error)
@@ -579,86 +570,6 @@ const exportToNextGRP = async (fileName) => {
   link.click()
   document.body.removeChild(link)
   setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
-  toast({ title: "✅ Đang tải xuống...", indicator: "green" })
-}
-
-// Import NextGRP format
-const handleImportNextGRP = async (event) => {
-  const file = event.target.files?.[0]
-  if (!file) return
-
-  // Reset input
-  if (importFileInput.value) {
-    importFileInput.value.value = ''
-  }
-
-  // Validate file extension
-  const fileName = file.name.toLowerCase()
-  if (!fileName.endsWith('.nextgrp') && !fileName.endsWith('.json')) {
-    toast({ title: "File không hợp lệ. Vui lòng chọn file .nextgrp hoặc .json", indicator: "red" })
-    return
-  }
-
-  isExporting.value = true
-  exportFormat.value = 'import'
-
-  try {
-    // Read file content
-    const fileContent = await file.text()
-    let nextgrpData
-
-    try {
-      nextgrpData = JSON.parse(fileContent)
-    } catch (e) {
-      throw new Error("File không phải định dạng JSON hợp lệ")
-    }
-
-    // Validate NextGRP format
-    if (!nextgrpData.format || nextgrpData.format !== 'nextgrp') {
-      toast({ 
-        title: "File không phải định dạng NextGRP hợp lệ", 
-        indicator: "red" 
-      })
-      return
-    }
-
-    if (!nextgrpData.mindmap || !nextgrpData.mindmap.nodes) {
-      toast({ 
-        title: "File NextGRP thiếu dữ liệu mindmap", 
-        indicator: "red" 
-      })
-      return
-    }
-
-    // Call backend API to import
-    const response = await call("drive.api.mindmap.import_mindmap_nextgrp", {
-      entity_name: props.entityName,
-      nextgrp_data: nextgrpData
-    })
-
-    if (response && response.message) {
-      toast({ 
-        title: `✅ Import thành công! ${response.message.nodes_count} nodes, ${response.message.edges_count} edges`, 
-        indicator: "green" 
-      })
-
-      // Emit event to parent to reload mindmap
-      emit('imported')
-      
-      // Close dialog
-      emit('update:visible', false)
-    } else {
-      throw new Error("Import failed")
-    }
-  } catch (error) {
-    console.error('Import error:', error)
-    toast({ 
-      title: `Lỗi khi import: ${error.message || 'Unknown error'}`, 
-      indicator: "red" 
-    })
-  } finally {
-    isExporting.value = false
-    exportFormat.value = null
-  }
+  toast({ title: "Đang tải xuống định dạng NextGRP...", indicator: "green" })
 }
 </script>
