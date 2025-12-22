@@ -138,7 +138,7 @@
 
         <MindmapCommentPanel @open-history="showPanel = true" :visible="showPanel" :node="activeCommentNode" :mindmap="realtimeMindmapNodes"
           @close="showPanel = false" ref="commentPanelRef" @update:input="commentInputValue = $event"
-          @cancel="onCancelComment" @update:node="handleSelectCommentNode" :userAddComment="isFromUI">
+          @cancel="onCancelComment" @update:node="handleSelectCommentNode" @highlight:node="handleHighlightNode" :userAddComment="isFromUI">
         </MindmapCommentPanel>
 
         <!-- Mindmap Toolbar -->
@@ -3722,6 +3722,15 @@ function onCancelComment() {
   activeCommentNode.value = null
 }
 
+
+function handleHighlightNode(node){
+  if (!node) return
+
+  let nodeID = node.id || node.node_id
+
+  // nếu muốn sync luôn highlight bên D3:
+  d3Renderer?.selectCommentNode(nodeID, false)
+}
 
 function handleSelectCommentNode(node) {
   if (!node) return
