@@ -119,13 +119,6 @@
               </div>
             </div>
           </div>
-          <div class="task-link-body mt-2 shrink-0">
-            <label class="task-link-checkbox">
-              <input type="checkbox" :checked="attachLink" @change="$emit('update:attachLink', $event.target.checked)" />
-              <span class="text-black text-[14px]">Gắn link công việc (tuỳ chọn)</span>
-            </label>
-            <p class="text-gray-600 text-[14px]">Liên kết này sẽ được lưu kèm vào nhánh để mở nhanh công việc từ sơ đồ tư duy</p>
-          </div>
         </template>
 
         <template v-else>
@@ -711,10 +704,6 @@ const props = defineProps({
     type: String,
     default: null
   },
-  attachLink: {
-    type: Boolean,
-    default: false
-  },
   linkUrl: {
     type: String,
     default: ''
@@ -776,7 +765,6 @@ const emit = defineEmits([
   'update:mode',
   'update:search',
   'update:selectedTaskId',
-  'update:attachLink',
   'update:linkUrl',
   'update:projectFilter',
   'update:page'
@@ -2269,6 +2257,7 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   flex: 1;
   min-width: 0;
+  min-width: 0;
   text-align: left;
 }
 
@@ -2397,18 +2386,26 @@ onBeforeUnmount(() => {
   display: flex;
   gap: 10px;
   align-items: center;
+  width: 100%;
+}
+
+.task-filter-row .task-link-search {
+  margin-bottom: 0;
+  flex: 1;
+  width: 50%;
 }
 
 .task-project-select {
   position: relative;
-  min-width: 200px;
-  max-width: 200px;
+  flex: 1;
+  width: 50%;
+  min-width: 0;
 }
 
 .project-select-trigger {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: 8px;
   border: 1px solid #d1d5db;
   background: #fff;
   color: #111827;
@@ -2420,6 +2417,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
   min-width: 0;
+  overflow: hidden;
 }
 
 .project-select-trigger:focus,
@@ -2460,6 +2458,9 @@ onBeforeUnmount(() => {
   font-weight: 400;
   color: #111827;
   font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .project-select-item:hover {
@@ -2477,11 +2478,6 @@ onBeforeUnmount(() => {
   border-radius: 8px;
   border: 1px solid #e5e7eb;
   margin-bottom: 12px;
-}
-
-.task-filter-row .task-link-search {
-  margin-bottom: 0;
-  flex: 1;
 }
 
 .task-list {

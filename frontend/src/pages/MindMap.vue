@@ -82,7 +82,6 @@
         :page="taskPage"
         :total-pages="totalTaskPages"
         :selected-task-id="selectedTaskId"
-        :attach-link="attachTaskLink"
         :link-url="taskLinkUrl"
         :node-owner="mindmapEntity?.data?.owner || ''"
         :mindmap-title="mindmap?.data?.title || ''"
@@ -92,7 +91,6 @@
         @update:mode="taskLinkMode = $event"
         @update:search="taskSearchInput = $event"
         @update:selectedTaskId="selectedTaskId = $event"
-        @update:attachLink="attachTaskLink = $event"
         @update:linkUrl="taskLinkUrl = $event"
         @update:projectFilter="taskProjectFilter = $event"
         @update:page="setTaskPage($event)"
@@ -177,7 +175,7 @@ import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 import { setBreadCrumbs } from "@/utils/files"
 import { toast } from "@/utils/toasts"
 import { call, createResource } from "frappe-ui"
-import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch, provide } from "vue"
+import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 
 import { useRoute } from "vue-router"
@@ -233,7 +231,6 @@ const taskLinkMode = ref('existing') // 'existing' | 'from-node'
 const taskSearch = ref('')
 const taskSearchInput = ref('')
 const selectedTaskId = ref(null)
-const attachTaskLink = ref(false)
 const taskLinkUrl = ref('')
 const taskProjectFilter = ref('all')
 const taskPage = ref(1)
@@ -1445,7 +1442,6 @@ const openTaskLinkModal = async (node) => {
   taskLinkNode.value = resolveTaskLinkNode(node)
   taskLinkMode.value = 'existing'
   taskSearch.value = ''
-  attachTaskLink.value = false
   taskLinkUrl.value = ''
   taskPage.value = 1
   
@@ -1523,8 +1519,8 @@ const confirmTaskLink = async () => {
 
     // Thêm badge tick xanh dưới title node (ngay sau paragraph đầu tiên, trước ảnh)
     // Wrap badge trong section riêng để dễ phân biệt và style
-    // Chỉ thêm badge khi người dùng đã tick checkbox "Gắn link công việc"
-    if (taskPayload.linkUrl && attachTaskLink.value) {
+    // Tự động thêm badge khi chọn công việc có sẵn
+    if (taskPayload.linkUrl) {
       const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
       if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
         // Parse HTML để chèn badge vào đúng vị trí (ngay sau title, trước ảnh)
