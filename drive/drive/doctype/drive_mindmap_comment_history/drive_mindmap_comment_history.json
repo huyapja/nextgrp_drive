@@ -97,6 +97,12 @@
       "reqd": 1
     },
     {
+      "fieldname": "reactions_snapshot",
+      "label": "Reactions Snapshot",
+      "fieldtype": "Long Text",
+      "reqd": 0
+    },    
+    {
       "fieldname": "node_deleted",
       "label": "Node Deleted",
       "fieldtype": "Check",

@@ -304,6 +304,15 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
     for c in comments:
         key = (c.node_id, c.session_index)
         session_counter[key] = session_counter.get(key, 0) + 1
+    
+    comment_ids = [c.name for c in comments]
+    frappe.db.delete(
+        "Drive Mindmap Comment Reaction",
+        {
+            "comment": ["in", comment_ids],
+        }
+    )
+
 
     # 3. Xoá toàn bộ comment
     for c in comments:
@@ -393,6 +402,12 @@ def delete_comment_by_id(mindmap_id: str, comment_id: str):
         },
         "name"
     )
+    frappe.db.delete(
+        "Drive Mindmap Comment Reaction",
+        {
+            "comment": comment_id,
+        }
+    )    
 
     # 5. Xoá comment (xoá cứng)
     frappe.delete_doc(
@@ -700,6 +715,54 @@ def resolve_node(
         if isinstance(c, dict) and c.get("id")
     ]
 
+
+    # -------- snapshot reactions --------
+    reactions = frappe.get_all(
+        "Drive Mindmap Comment Reaction",
+        filters={
+            "comment": ["in", comment_ids],
+        },
+        fields=["comment", "emoji", "user"],
+    )
+
+    # build user map
+    user_ids = list({r["user"] for r in reactions})
+    users = frappe.get_all(
+        "User",
+        filters={"name": ["in", user_ids]},
+        fields=["name", "full_name", "user_image", "email"],
+    )
+
+    user_map = {
+        u["name"]: {
+            "user": u["name"],
+            "full_name": u["full_name"],
+            "avatar": u.get("user_image"),
+            "email": u.get("email"),
+        }
+        for u in users
+    }
+
+    # build reaction snapshot
+    reaction_snapshot = {}
+
+    for r in reactions:
+        cid = r["comment"]
+        emoji = r["emoji"]
+        user_info = user_map.get(r["user"])
+        if not user_info:
+            continue
+
+        c_bucket = reaction_snapshot.setdefault(cid, {})
+        e_bucket = c_bucket.setdefault(
+            emoji,
+            {"count": 0, "users": []}
+        )
+        e_bucket["count"] += 1
+        e_bucket["users"].append(user_info)
+
+
+
     # -------- create history snapshot --------
     history_doc = frappe.new_doc("Drive Mindmap Comment History")
     history_doc.update({
@@ -715,7 +778,7 @@ def resolve_node(
         "comment_ids": frappe.as_json(comment_ids),
         "node_position": frappe.as_json(history.get("node_position")),
         "comments_snapshot": frappe.as_json(raw_comments),
-
+        "reactions_snapshot": frappe.as_json(reaction_snapshot),
         "node_deleted": 0,
     })
     history_doc.insert(ignore_permissions=True)
@@ -784,6 +847,7 @@ def get_comment_history_list(
             "node_deleted",
             "node_position",
             "comments_snapshot",
+            "reactions_snapshot"
         ],
         order_by="resolved_at desc",
     )
@@ -800,6 +864,11 @@ def get_comment_history_list(
             comments = json.loads(row.comments_snapshot or "[]")
         except Exception:
             comments = []
+        
+        try:
+            reactions = json.loads(row.reactions_snapshot or "{}")
+        except Exception:
+            reactions = {}        
 
         results.append({
             "name": row.name,
@@ -814,6 +883,7 @@ def get_comment_history_list(
             "node_deleted": row.node_deleted,
             "node_position": node_position,
             "comments": comments,
+            "reactions": reactions,
         })
 
     return {
@@ -865,6 +935,11 @@ def unresolve_node(history_name: str):
     # xoá history
     history.delete(ignore_permissions=True)
 
+    try:
+        reactions = json.loads(history.reactions_snapshot or "{}")
+    except Exception:
+        reactions = {}
+
     # realtime cho UI
     frappe.publish_realtime(
         event="drive_mindmap:node_unresolved",
@@ -876,6 +951,7 @@ def unresolve_node(history_name: str):
             "comment_count": history.comment_count,
             "comments": json.loads(history.comments_snapshot or "[]"),
             "node_position": json.loads(history.node_position or "{}"),
+            "reactions": reactions,
         },
     )
 
@@ -921,6 +997,14 @@ def delete_history(history_id: str):
     # -----------------------
     # 2. Xoá comment thật
     # -----------------------
+    if comment_ids:
+        frappe.db.delete(
+            "Drive Mindmap Comment Reaction",
+            {
+                "comment": ["in", comment_ids],
+            }
+        )    
+
     if comment_ids:
         frappe.db.delete(
             "Drive Mindmap Comment",
@@ -1045,57 +1129,71 @@ def check_comment_exist(comment_id: str):
         "comment_id": comment_id,
     }
 
+def escape_emoji(emoji: str) -> str:
+    return emoji.encode("unicode-escape").decode("utf-8").replace("\\u", "")
+
+
 @frappe.whitelist()
 def toggle_reaction(comment_id: str, emoji: str):
-    if not comment_id or not emoji:
-        frappe.throw(_("Missing params"))
-
     user = frappe.session.user
+    emoji_escaped = escape_emoji(emoji)
+    doc = frappe.get_doc("Drive Mindmap Comment", comment_id)
 
-    if not frappe.db.exists("Drive Mindmap Comment", comment_id):
-        frappe.throw(_("Comment not found"))
 
-    existing = frappe.db.exists(
-        "Drive Mindmap Comment Reaction",
-        {
-            "comment": comment_id,
-            "user": user,
-            "emoji": emoji,
-        }
-    )
-
-    reacted = False
-
-    if existing:
-        frappe.delete_doc(
-            "Drive Mindmap Comment Reaction",
-            existing,
-            ignore_permissions=True
-        )
-    else:
+    try:
+        # Insert → nghĩa là react LẦN ĐẦU
         frappe.get_doc({
             "doctype": "Drive Mindmap Comment Reaction",
             "comment": comment_id,
             "user": user,
             "emoji": emoji,
+            "emoji_escaped": emoji_escaped,
         }).insert(ignore_permissions=True)
+
         reacted = True
 
+    except frappe.UniqueValidationError:
+        # Nếu trùng → unreact
+        frappe.db.delete(
+            "Drive Mindmap Comment Reaction",
+            {
+                "comment": comment_id,
+                "user": user,
+                "emoji_escaped": emoji_escaped,
+            }
+        )
+        reacted = False
+
+    # -------- realtime update UI --------
+    user_doc = frappe.get_doc("User", user)
+
     frappe.publish_realtime(
-        event="drive_mindmap:comment_reaction_updated",
-        message={
+        "drive_mindmap:comment_reaction_updated",
+        {
             "comment_id": comment_id,
             "emoji": emoji,
-            "user": user,
+            "emoji_escaped": emoji_escaped,
+            "user": user_doc.name,
+            "full_name": user_doc.full_name,
+            "avatar": user_doc.user_image,
+            "email": user_doc.email,
             "reacted": reacted,
         },
         after_commit=True
     )
 
-    return {
-        "reacted": reacted,
-        "emoji": emoji
-    }
+    # -------- NOTIFY ONLY IF reacted=True --------
+    if reacted and doc.owner != user:
+        frappe.enqueue(
+            "drive.api.mindmap_comment.send_reaction_notification",
+            comment_id=comment_id,
+            emoji=emoji,
+            actor=user,
+            queue="short"
+        )
+
+    return {"reacted": reacted, "emoji": emoji}
+
 
 @frappe.whitelist()
 def get_reaction_list_bulk(comment_ids: list[str]):
@@ -1124,7 +1222,7 @@ def get_reaction_list_bulk(comment_ids: list[str]):
     users = frappe.get_all(
         "User",
         filters={"name": ["in", user_ids]},
-        fields=["name", "full_name", "user_image"],
+        fields=["name", "full_name", "user_image", "email"],
     )
 
     user_map = {
@@ -1132,6 +1230,7 @@ def get_reaction_list_bulk(comment_ids: list[str]):
             "user": u["name"],
             "full_name": u["full_name"],
             "avatar": u.get("user_image"),
+            "email": u.get("email"),
         }
         for u in users
     }
@@ -1160,3 +1259,57 @@ def get_reaction_list_bulk(comment_ids: list[str]):
         emoji_bucket["users"].append(user_info)
 
     return result
+
+
+def send_reaction_notification(comment_id: str, emoji: str, actor: str):
+    doc = frappe.get_doc("Drive Mindmap Comment", comment_id)
+
+    # Không notify chính mình
+    if doc.owner == actor:
+        return
+
+    # Lấy full_name
+    actor_full_name = frappe.db.get_value("User", actor, "full_name") or actor
+
+    # Lấy snippet comment
+    comment_json = doc.comment
+    if isinstance(comment_json, str):
+        try:
+            comment_json = json.loads(comment_json)
+        except:
+            comment_json = {}
+
+    text_preview = (comment_json.get("parsed") or "").strip()
+    if len(text_preview) > 80:
+        text_preview = text_preview[:77] + "..."
+
+    # Lấy team
+    team = frappe.db.get_value("Drive File", doc.mindmap_id, "team")
+    if not team:
+        return
+
+    # Build link
+    link = (
+        f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
+        f"?node={doc.node_id}"
+        f"&session={doc.session_index}"
+        f"&node_key={doc.node_key}"
+        f"#comment_id={doc.name}"
+    )
+
+    # Gửi raven bot
+    RavenBot.send_notification_to_user(
+        bot_name=frappe.conf.get("bot_docs"),
+        user_id=doc.owner,
+        message=json.dumps({
+            "key": "comment_reaction_mindmap",
+            "title": f"{actor_full_name} đã gửi {emoji} vào bình luận của bạn",
+            "full_name_owner": actor_full_name,
+            "emoji": emoji,
+            "comment_preview": text_preview,
+            "comment_id": doc.name,
+            "mindmap_id": doc.mindmap_id,
+            "node_id": doc.node_id,
+            "link": link,
+        }, ensure_ascii=False),
+    )
