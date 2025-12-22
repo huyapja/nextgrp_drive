@@ -2,11 +2,11 @@
   <Teleport to="body">
 
     <div :class="[
-      'comment-panel-list absolute right-0 w-[320px] bg-[#f5f6f7] z-[80] border-l border-b',
+      'comment-panel-list absolute right-0 w-[320px] bg-[#f5f6f7] z-[80] border-l',
       'transition-all duration-300',
       visible ? 'translate-x-0' : 'translate-x-full',
       closing ? 'animate-slide-out' : ''
-    ]" style="top: 70px; height: 900px;">
+    ]" style="top: 70px; height: 100%;">
       <!-- Header -->
       <div class="flex py-4 px-3 items-center">
         <p class="font-medium">Nhận xét ({{ totalComments }})</p>
@@ -68,15 +68,15 @@
                 <i v-tooltip.top="hasNextGroup(groupKeyOf(group))
                   ? { value: 'Tiếp (↓)', pt: { text: { class: ['text-[12px]'] } } }
                   : null" class="pi pi-angle-down !text-[13px]" :class="hasNextGroup(groupKeyOf(group))
-                  ? 'cursor-pointer hover:text-blue-500'
-                  : 'cursor-not-allowed opacity-40'"
+                    ? 'cursor-pointer hover:text-blue-500'
+                    : 'cursor-not-allowed opacity-40'"
                   @click.stop="hasNextGroup(groupKeyOf(group)) && selectNextGroup(groupKeyOf(group))" />
 
                 <i v-tooltip.top="hasPrevGroup(groupKeyOf(group))
                   ? { value: 'Trước (↑)', pt: { text: { class: ['text-[12px]'] } } }
                   : null" class="pi pi-angle-up !text-[13px] mr-2" :class="hasPrevGroup(groupKeyOf(group))
-                  ? 'cursor-pointer hover:text-blue-500'
-                  : 'cursor-not-allowed opacity-40'"
+                    ? 'cursor-pointer hover:text-blue-500'
+                    : 'cursor-not-allowed opacity-40'"
                   @click.stop="hasPrevGroup(groupKeyOf(group)) && selectPrevGroup(groupKeyOf(group))" />
 
                 <div class="panel-separate border-l w-[1px] h-[16px]" />
@@ -102,8 +102,8 @@
 
 
                 <!-- Reaction -->
-                <!-- <i class="pi pi-thumbs-up !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"></i> -->
-                <MindmapCommentQuickReaction :comment-id="c.name" />
+                <MindmapCommentQuickReaction :comment-id="c.name" :is-pending="isPending"
+                  :has-user-reacted="hasUserReacted" @react="emoji => toggleReaction(c.name, emoji)" />
 
                 <!-- Reply -->
                 <i v-tooltip.top="{ value: 'Trả lời', pt: { text: { class: ['text-[12px]'] } } }"
@@ -115,7 +115,9 @@
                   <!-- Icon 3 chấm -->
                   <i class="pi pi-ellipsis-h !text-[12px] text-gray-500 hover:text-blue-500 cursor-pointer"
                     @click.stop="openCommentMenu(c, $event)"></i>
+                </div>
 
+                <div v-if="currentUser?.id !== c.user?.email" class="relative">
                 </div>
 
               </div>
@@ -152,6 +154,29 @@
 
                   </div>
                 </div>
+
+                <!-- Reaction bar -->
+                <div v-if="getReactions(c.name)?.length" class="mt-2 flex items-center gap-1 flex-wrap">
+                  <button v-for="r in getReactions(c.name)" :key="r.emoji" v-tooltip.top="{
+                    value: reactionTooltip(r, r.emoji),
+                    pt: { text: { class: 'text-[11px] leading-tight' } }
+                  }" class="px-2 py-[2px] rounded-full border text-[11px]
+         flex items-center gap-1 transition
+         hover:bg-gray-100
+         disabled:opacity-50
+         disabled:cursor-not-allowed" :class="hasUserReacted(c.name, r.emoji)
+          ? 'border-[#3b82f6] bg-[#eff6ff] text-[#3b82f6]'
+          : 'border-gray-300 text-gray-600'" :disabled="isPending(c.name, r.emoji)"
+                    @click.stop="toggleReaction(c.name, r.emoji)">
+                    <span>{{ r.emoji }}</span>
+                    <span>{{ r.count }}</span>
+                  </button>
+
+
+
+                </div>
+
+
 
               </div>
             </div>
@@ -263,8 +288,6 @@
 
           </div>
         </div>
-
-
       </div>
     </div>
     <Teleport to="body">
@@ -288,8 +311,8 @@
         { breakpoint: '1024px', numVisible: 4 },
         { breakpoint: '768px', numVisible: 3 },
         { breakpoint: '560px', numVisible: 2 }
-      ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false" containerStyle="width: 100%; height: 100%;"
-        class="w-full h-full">
+      ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false"
+        containerStyle="width: 100%; height: 100%;" class="w-full h-full">
         <!-- Ảnh full -->
         <template #item="{ item }">
           <div class="flex items-center justify-center w-full h-full overflow-hidden">
@@ -334,7 +357,6 @@
 
   </Teleport>
 
-
 </template>
 
 
@@ -365,6 +387,8 @@ import { useParsedComments } from "./composables/useParsedComments"
 import { usePanelClose } from "./composables/usePanelClose"
 import { useClickOutsideToResetActiveNode } from "./composables/useClickOutsideToResetActiveNode"
 import { useResolvedNode } from "./composables/useResolvedNode"
+import { useMindmapCommentReactions } from './composables/useMindmapCommentReactions'
+
 
 import MindmapCommentHistory from './MindmapCommentHistory.vue'
 import Popover from "primevue/popover"
@@ -901,20 +925,32 @@ function insertReplyMention({ id, label }) {
   })
 }
 
-
 function handleReply(c) {
-  if (activeGroupKey.value !== c.node_id) {
-    const replyKey = `${c.node_id}__${c.session_index}`
-    activeGroupKey.value = replyKey
-  }
+  // 1. Tạo group key đúng chuẩn
+  const replyKey = `${c.node_id}__${c.session_index}`
 
+  // 2. Active đúng group
+  activeGroupKey.value = replyKey
+
+  // 3. Focus editor → rồi mới chèn mention
   nextTick(() => {
+    const group = mergedGroupsFinal.value.find(g => groupKeyOf(g) === replyKey)
+    if (!group) return
+
+    // focus editor của group
+    focusEditorOf(group)
+
+    // sau khi focus -> chèn mention
     insertReplyMention({
       id: c.user.email,
       label: c.user.full_name,
     })
   })
+
+  // 5. emit để biết đang reply vào node đó
+  emit("update:node", { id: c.node_id })
 }
+
 
 function focusEditorOf(group) {
   const key = groupKeyOf(group)
@@ -1308,6 +1344,24 @@ defineExpose({
     })
   }
 })
+
+const {
+  fetchReactions,
+  toggleReaction,
+  getReactions,
+  hasUserReacted,
+  reactionTooltip,
+  isPending
+} = useMindmapCommentReactions({ socket })
+
+watch(
+  () => comments.value,
+  (list) => {
+    if (!list?.length) return
+    fetchReactions(list.map(c => c.name))
+  },
+  { once: true }
+)
 
 </script>
 

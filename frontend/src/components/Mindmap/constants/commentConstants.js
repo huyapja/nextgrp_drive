@@ -65,6 +65,6 @@ export const COMMENT_CONSTANTS = {
       ],
     },
   ],
-  QUICK_REACTION_EMOJIS: ['👍', '❤️', '😄', '🙌', '✅'],
+  QUICK_REACTION_EMOJIS: ['👍', '❤️', '😄', '👏', '✅'],
 };
 

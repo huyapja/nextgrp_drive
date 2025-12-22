@@ -151,6 +151,7 @@ declare module 'vue' {
     ShortcutsDialog: typeof import('./src/components/ShortcutsDialog.vue')['default']
     Sidebar: typeof import('./src/components/Sidebar.vue')['default']
     SidebarItem: typeof import('./src/components/SidebarItem.vue')['default']
+    SmilePlusIcon: typeof import('./src/components/Mindmap/utils/SmilePlusIcon.vue')['default']
     SnapshotPreviewDialog: typeof import('./src/components/DocEditor/components/SnapshotPreviewDialog.vue')['default']
     Spreadsheet: typeof import('./src/components/MimeIcons/Spreadsheet.vue')['default']
     StorageBar: typeof import('./src/components/StorageBar.vue')['default']

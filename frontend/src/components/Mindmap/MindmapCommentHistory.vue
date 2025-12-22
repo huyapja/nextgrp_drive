@@ -31,10 +31,11 @@
 
 
                     <div class="flex items-center gap-3 text-blue-600">
-                        <button  v-if="isNodeStillExist(h)" @click="handleUnresolve(h)" class="hover:underline text-xs">
+                        <button v-if="isNodeStillExist(h)" @click="handleUnresolve(h)" class="hover:underline text-xs">
                             Mở lại
                         </button>
-                        <i v-tooltip.top="{ value: 'Xóa bình luận', pt: { text: { class: ['text-[12px]'] } } }" @click="handleDeleteHistory(h)"
+                        <i v-tooltip.top="{ value: 'Xóa bình luận', pt: { text: { class: ['text-[12px]'] } } }"
+                            @click="handleDeleteHistory(h)"
                             class="pi pi-trash cursor-pointer text-gray-400 hover:text-red-500" />
                     </div>
                 </div>
@@ -81,6 +82,32 @@
                             </div>
 
                             <div class="max-w-none !text-[12px] mt-2" v-html="c.content" />
+
+                            <!-- Reactions (history - read only) -->
+                            <div v-if="h.reactions && h.reactions[c.id]" class="mt-2 flex flex-wrap gap-1">
+                                <span v-for="(data, emoji) in h.reactions[c.id]" :key="emoji" v-tooltip.top="{
+                                    value: buildReactionTooltip(data.users),
+                                    pt: { text: { class: 'text-[11px] leading-tight' } }
+                                }" class="
+      inline-flex items-center gap-2
+      px-2 py-[2px]
+      text-[12px]
+      bg-gray-200
+      rounded-full
+      text-gray-700
+      select-none
+      cursor-default
+    ">
+                                    <span class="leading-none">
+                                        {{ emoji }}
+                                    </span>
+                                    <span class="text-[11px]">
+                                        {{ data.count }}
+                                    </span>
+                                </span>
+                            </div>
+
+
                         </div>
                     </div>
                 </div>
@@ -125,28 +152,32 @@ const scrollContainer = ref(null)
 
 
 function scrollIntoContainer(container, el) {
-  if (!container || !el) return
+    if (!container || !el) return
 
-  const containerRect = container.getBoundingClientRect()
-  const elRect = el.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+    const elRect = el.getBoundingClientRect()
 
-  const offset =
-    elRect.top -
-    containerRect.top +
-    container.scrollTop -
-    container.clientHeight / 2 +
-    elRect.height / 2
+    const offset =
+        elRect.top -
+        containerRect.top +
+        container.scrollTop -
+        container.clientHeight / 2 +
+        elRect.height / 2
 
-  container.scrollTo({
-    top: offset,
-    behavior: "smooth",
-  })
+    container.scrollTo({
+        top: offset,
+        behavior: "smooth",
+    })
 }
 
 
 function setCommentRef(c, el) {
     if (!el) return
     commentRefs.value[c.id] = el
+}
+
+function normalizeEmoji(emoji) {
+    return emoji
 }
 
 const memberMap = computed(() => {
@@ -247,6 +278,22 @@ function handleRealtimeHistoryDeleted(payload) {
     )
 }
 
+function handleRealtimeNodeUnresolved(payload) {
+    if (!payload) return
+    if (payload.mindmap_id !== props.mindmapId) return
+
+    clearHistoryCache(props.mindmapId)
+
+    histories.value = histories.value.filter(
+        h =>
+            !(
+                h.node_id === payload.node_id &&
+                h.session_index === payload.session_index
+            )
+    )
+}
+
+
 const nodeKeyMap = computed(() => {
     const map = {}
 
@@ -264,47 +311,47 @@ function isNodeStillExist(h) {
 }
 
 watch(
-  () => [
-    props.visible,
-    props.scrollTarget,
-    histories.value.length,
-    loading.value
-  ],
-  async ([visible, target, len, loading]) => {
-    if (!visible) return
-    if (!target) return
-    if (loading) return
-    if (len === 0) return
+    () => [
+        props.visible,
+        props.scrollTarget,
+        histories.value.length,
+        loading.value
+    ],
+    async ([visible, target, len, loading]) => {
+        if (!visible) return
+        if (!target) return
+        if (loading) return
+        if (len === 0) return
 
-    // 🟢 ĐỢI POPUP RENDER XONG
-    await nextTick()
-    await nextTick()
-    await new Promise(r => setTimeout(r, 120))
+        // 🟢 ĐỢI POPUP RENDER XONG
+        await nextTick()
+        await nextTick()
+        await new Promise(r => setTimeout(r, 120))
 
-    const container = scrollContainer.value
-    if (!container) return
+        const container = scrollContainer.value
+        if (!container) return
 
-    const historyEl = container.querySelector(
-      `[data-node-id="${target.node_id}"][data-session-index="${target.session_index}"]`
-    )
+        const historyEl = container.querySelector(
+            `[data-node-id="${target.node_id}"][data-session-index="${target.session_index}"]`
+        )
 
-    if (!historyEl) return
+        if (!historyEl) return
 
-    // ✅ SCROLL ĐÚNG CONTAINER
-    scrollIntoContainer(container, historyEl)
+        // ✅ SCROLL ĐÚNG CONTAINER
+        scrollIntoContainer(container, historyEl)
 
-    // highlight comment nếu có
-    if (target.comment_id) {
-      const commentEl = commentRefs.value[target.comment_id]
-      if (!commentEl) return
+        // highlight comment nếu có
+        if (target.comment_id) {
+            const commentEl = commentRefs.value[target.comment_id]
+            if (!commentEl) return
 
-      commentEl.classList.add("highlight-history")
-      setTimeout(() => {
-        commentEl.classList.remove("highlight-history")
-      }, 2000)
-    }
-  },
-  { immediate: true }
+            commentEl.classList.add("highlight-history")
+            setTimeout(() => {
+                commentEl.classList.remove("highlight-history")
+            }, 2000)
+        }
+    },
+    { immediate: true }
 )
 
 
@@ -314,6 +361,10 @@ onMounted(() => {
         "drive_mindmap:history_deleted",
         handleRealtimeHistoryDeleted
     )
+    socket?.on(
+        "drive_mindmap:node_unresolved",
+        handleRealtimeNodeUnresolved
+    )
 })
 
 onUnmounted(() => {
@@ -321,7 +372,49 @@ onUnmounted(() => {
         "drive_mindmap:history_deleted",
         handleRealtimeHistoryDeleted
     )
+    socket?.off(
+        "drive_mindmap:node_unresolved",
+        handleRealtimeNodeUnresolved
+    )
 })
+
+const getCookie = (name) => {
+    const value = `; ${document.cookie}`
+    const parts = value.split(`; ${name}=`)
+
+    if (parts.length === 2) {
+        return parts.pop().split(";").shift()
+    }
+
+    return null
+}
+
+const userIdFromCookie = computed(() =>
+    decodeURIComponent(getCookie("user_id") || "")
+)
+
+
+function buildReactionTooltip(users = []) {
+    if (!users.length) return ""
+
+    const names = users.map(u => {
+        if (u.email === userIdFromCookie.value) {
+            return "Bạn"
+        }
+        return u.full_name || u.email
+    })
+
+    if (names.length === 1) {
+        return `${names[0]} đã thả cảm xúc`
+    }
+
+    if (names.length === 2) {
+        return `${names[0]} và ${names[1]} đã thả cảm xúc`
+    }
+
+    return `${names.slice(0, 2).join(", ")} và ${names.length - 2} người khác đã thả cảm xúc`
+}
+
 </script>
 
 <style scoped>

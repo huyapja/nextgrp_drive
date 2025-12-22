@@ -30,6 +30,13 @@
       "label": "Emoji",
       "reqd": 1,
       "in_list_view": 1
+    },
+    {
+      "fieldname": "emoji_escaped",
+      "fieldtype": "Data",
+      "label": "Emoji Escaped",
+      "reqd": 1,
+      "in_list_view": 0
     }
   ],
 
@@ -41,6 +48,11 @@
     {
       "index_name": "comment_user_idx",
       "index_fields": ["comment", "user"]
+    },
+    {
+      "index_name": "unique_comment_reaction",
+      "index_fields": ["comment", "user", "emoji_escaped"],
+      "unique": 1
     }
   ],
 
