@@ -267,6 +267,9 @@ export function handleDragStart(nodeElement, renderer, event, d) {
     renderer.isDragStarting = false
   }
   
+  // ✅ FIX: Reset task link drag check flag khi bắt đầu drag mới
+  renderer.taskLinkDragChecked = false
+  
   const isRoot = d.data?.isRoot || d.id === 'root'
   const isEditing = renderer.editingNode === d.id
   
@@ -505,11 +508,26 @@ export function handleDrag(nodeElement, renderer, event, d) {
   // Chỉ kiểm tra một lần khi phát hiện movement đầu tiên
   if (renderer.hasMovedEnough && !renderer.taskLinkDragChecked && renderer.draggedNode === d.id) {
     const nodeLabel = d.data?.label || ''
-    const hasTaskLink = d.data?.taskLink || 
-      nodeLabel.includes('node-task-link-section') || 
-      nodeLabel.includes('node-task-badge') || 
-      nodeLabel.includes('data-node-section="task-link"') ||
-      nodeLabel.includes('Liên kết công việc')
+    
+    // ✅ FIX: Kiểm tra task-link đúng cách
+    // 1. Kiểm tra data property
+    const hasTaskLinkData = !!(d.data?.taskLink && d.data.taskLink.taskId)
+    
+    // 2. Kiểm tra task-link section có CONTENT thật sự (không phải div rỗng)
+    const taskLinkMatch = nodeLabel.match(/<div[^>]*data-node-section="task-link"[^>]*>(.*?)<\/div>/s)
+    const taskLinkContent = taskLinkMatch ? taskLinkMatch[1].trim() : ''
+    const hasTaskLinkInHTML = taskLinkContent.length > 0 && 
+      taskLinkContent !== '' &&
+      !taskLinkContent.match(/^<\/?div[^>]*>$/) // Không phải chỉ có thẻ div rỗng
+    
+    const hasTaskLink = hasTaskLinkData || hasTaskLinkInHTML
+    
+    console.log('[DRAG DEBUG] Task link check:', {
+      hasTaskLinkData,
+      hasTaskLinkInHTML,
+      taskLinkContent: taskLinkContent.substring(0, 100),
+      hasTaskLink
+    })
     
     // Đánh dấu đã kiểm tra để không kiểm tra lại
     renderer.taskLinkDragChecked = true

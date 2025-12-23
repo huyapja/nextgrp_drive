@@ -1430,122 +1430,234 @@ const executeListAction = (editorInstance) => {
 	setTimeout(() => {
 		if (!editorInstance || !editorInstance.view) return
 		
-		const { state } = editorInstance.view
-		const { doc } = state
+		// Cho phép refresh state/doc sau khi insert
+		let state = editorInstance.view.state
+		let doc = state.doc
+		const refreshDocState = () => {
+			state = editorInstance.view.state
+			doc = state.doc
+		}
 		
-		// Tìm blockquote đầu tiên
-		let blockquoteOffset = null
-		doc.forEach((node, offset) => {
-			if (node.type.name === 'blockquote' && blockquoteOffset === null) {
-				blockquoteOffset = offset
-			}
-		})
+		// Tìm node-description section trước, sau đó tìm blockquote bên trong
+		let descriptionSectionPos = null
+		let descriptionSectionNode = null
+		let blockquotePos = null
+		let blockquoteNode = null
 		
-		if (blockquoteOffset !== null) {
+		const findDescriptionSection = () => {
+			descriptionSectionPos = null
+			descriptionSectionNode = null
+			doc.descendants((node, pos) => {
+				if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+					descriptionSectionPos = pos
+					descriptionSectionNode = node
+					return false
+				}
+			})
+		}
+		
+		findDescriptionSection()
+		
+		// Nếu node cũ chưa có description section, tạo mới section rỗng
+		if (!descriptionSectionNode) {
+			const insertPos = doc.content.size
+			editorInstance.chain()
+				.setTextSelection(insertPos)
+				.focus()
+				.insertContent('<div class="node-description" data-node-section="description"></div>')
+				.run()
+
+			refreshDocState()
+			findDescriptionSection()
+		}
+		
+		if (descriptionSectionNode) {
+			// Tìm blockquote là con trực tiếp của description section
+			descriptionSectionNode.forEach((child, offset) => {
+				if (child.type.name === 'blockquote' && blockquotePos === null) {
+					blockquotePos = descriptionSectionPos + 1 + offset
+					blockquoteNode = child
+				}
+			})
+		}
+		
+		if (blockquotePos !== null && blockquoteNode) {
 			// Đã có blockquote: focus vào cuối blockquote
 			try {
-				// Tìm blockquote node
-				const blockquoteNode = state.doc.nodeAt(blockquoteOffset)
-				if (blockquoteNode) {
-					// Tìm vị trí cuối cùng của text trong blockquote
-					// Tính phạm vi của blockquote trong document
-					const blockquoteStart = blockquoteOffset + 1
-					const blockquoteEnd = blockquoteOffset + blockquoteNode.nodeSize - 1
-					
-					// Duyệt qua toàn bộ document để tìm text nodes trong blockquote
-					let lastTextPos = null
-					
-					doc.descendants((node, pos) => {
-						// Kiểm tra xem node có nằm trong blockquote không
-						// pos là vị trí bắt đầu của node, pos + node.nodeSize là vị trí cuối
-						if (pos >= blockquoteStart && pos < blockquoteEnd && node.isText) {
-							// Tính vị trí sau text node (cuối text content)
-							// Đối với text node, sử dụng text.length để đảm bảo chính xác
-							const textEndPos = pos + node.text.length
-							// Đảm bảo vị trí không vượt quá blockquote
-							if (textEndPos <= blockquoteEnd + 1) {
-								lastTextPos = textEndPos
-							}
-						}
-					})
-					
-					if (lastTextPos !== null) {
-						// Có text: focus vào cuối text
-						// Sử dụng resolve để đảm bảo vị trí hợp lệ
-						try {
-							const resolvedPos = state.doc.resolve(lastTextPos)
-							editorInstance.chain()
-								.setTextSelection(resolvedPos.pos)
-								.focus()
-								.run()
-						} catch (e) {
-							// Fallback: sử dụng vị trí trực tiếp
-							editorInstance.chain()
-								.setTextSelection(lastTextPos)
-								.focus()
-								.run()
-						}
-					} else {
-						// Không có text: tìm paragraph cuối cùng trong blockquote và focus vào trong đó
-						let lastParagraphPos = null
-						blockquoteNode.forEach((child, childOffset) => {
-							if (child.type.name === 'paragraph') {
-								// Vị trí bắt đầu của paragraph trong document
-								const paragraphStart = blockquoteOffset + 1 + childOffset + 1
-								lastParagraphPos = paragraphStart
-							}
-						})
-						
-						if (lastParagraphPos !== null) {
-							// Focus vào đầu paragraph cuối cùng
-							editorInstance.chain()
-								.setTextSelection(lastParagraphPos)
-								.focus()
-								.run()
-						} else {
-							// Fallback: focus vào cuối blockquote
-							const blockquoteEndPos = blockquoteOffset + blockquoteNode.nodeSize - 1
-							try {
-								const resolvedPos = state.doc.resolve(blockquoteEndPos - 1)
-								editorInstance.chain()
-									.setTextSelection(resolvedPos.pos)
-									.focus()
-									.run()
-							} catch (e) {
-								editorInstance.chain()
-									.setTextSelection(blockquoteEndPos - 1)
-									.focus()
-									.run()
-							}
-						}
+				// Tìm paragraph đầu tiên trong blockquote
+				let firstParagraphPos = null
+				console.log('[TOOLBAR DEBUG] Blockquote content:', blockquoteNode.content)
+				console.log('[TOOLBAR DEBUG] Blockquote nodeSize:', blockquoteNode.nodeSize)
+				blockquoteNode.descendants((child, childPos) => {
+					console.log('[TOOLBAR DEBUG] Blockquote child at offset', childPos, ':', child.type.name, 'size:', child.nodeSize)
+					if (child.type.name === 'paragraph' && firstParagraphPos === null) {
+						// Vị trí của paragraph trong document = vị trí blockquote + 1 (blockquote start) + childPos
+						firstParagraphPos = blockquotePos + 1 + childPos
+						console.log('[TOOLBAR DEBUG] Found paragraph at pos:', firstParagraphPos)
+						return false
 					}
-				} else {
-					// Fallback: focus vào cuối document
-					editorInstance.commands.focus('end')
-				}
-			} catch (e) {
+				})
+				console.log('[TOOLBAR DEBUG] Paragraph search complete. Found:', firstParagraphPos !== null)
 				
-				// Fallback: focus vào cuối document
-				editorInstance.commands.focus('end')
+				if (firstParagraphPos !== null) {
+					// Tìm vị trí cuối cùng của text trong paragraph
+					const paragraphNode = doc.nodeAt(firstParagraphPos)
+					if (paragraphNode && paragraphNode.type.name === 'paragraph') {
+						// Tính vị trí cuối paragraph (sau tất cả text)
+						const paragraphEnd = firstParagraphPos + paragraphNode.nodeSize - 1
+						
+					// Focus vào cuối paragraph
+					editorInstance.chain()
+						.setTextSelection(paragraphEnd)
+						.focus()
+						.run()
+					
+					// Trigger resize node sau khi focus
+					setTimeout(() => {
+						emit('list-action', props.selectedNode)
+					}, 50)
+				} else {
+					// Fallback: focus vào đầu paragraph
+					editorInstance.chain()
+						.setTextSelection(firstParagraphPos + 1)
+						.focus()
+						.run()
+					
+					// Trigger resize node sau khi focus
+					setTimeout(() => {
+						emit('list-action', props.selectedNode)
+					}, 50)
+				}
+			} else {
+				// ✅ FIX: Không tìm thấy paragraph trong blockquote
+				// → Insert <p> vào bên trong blockquote bằng transaction manual
+				console.log('[TOOLBAR DEBUG] No paragraph found, inserting <p> into blockquote')
+				
+				const insideBlockquotePos = blockquotePos + 1
+				const { state, view } = editorInstance
+				const { paragraph } = state.schema.nodes
+				
+				if (paragraph) {
+					// ⚠️ CRITICAL: Tạo paragraph với text để tránh bị CleanEmptyParagraphsExtension xóa
+					const textNode = state.schema.text('\u200B') // Zero-width space
+					const para = paragraph.create(null, textNode)
+					
+					// Xóa content cũ và insert paragraph bằng transaction
+					const tr = state.tr
+						.delete(insideBlockquotePos, insideBlockquotePos + blockquoteNode.content.size)
+						.insert(insideBlockquotePos, para)
+					
+					view.dispatch(tr)
+					console.log('[TOOLBAR DEBUG] Inserted <p> with placeholder text at pos:', insideBlockquotePos)
+					
+					// Focus vào paragraph
+					setTimeout(() => {
+						editorInstance.chain()
+							.setTextSelection(insideBlockquotePos + 1) // +1 để vào bên trong paragraph
+							.focus()
+							.run()
+						
+						console.log('[TOOLBAR DEBUG] Focused into paragraph')
+						
+						// Trigger resize node
+						setTimeout(() => {
+							emit('list-action', props.selectedNode)
+						}, 50)
+					}, 50)
+				}
 			}
-		} else {
-			// Chưa có blockquote: tạo blockquote mới
-			// Tìm vị trí chèn: sau tất cả paragraphs và images
-			let insertPosition = null
-			
-			// Tìm node cuối cùng không phải blockquote (paragraph hoặc image)
-			doc.forEach((node, offset) => {
-				if (node.type.name !== 'blockquote') {
-					// Tính vị trí sau node này (offset + nodeSize)
-					const nodeEnd = offset + node.nodeSize
-					if (insertPosition === null || nodeEnd > insertPosition) {
-						insertPosition = nodeEnd
+		} catch (e) {
+			console.warn('Error focusing blockquote:', e)
+			// Fallback: focus vào cuối document
+			editorInstance.commands.focus('end')
+		}
+	} else if (descriptionSectionNode && descriptionSectionPos !== null) {
+		// Không tìm thấy blockquote trong description section
+		console.log('[TOOLBAR DEBUG] No blockquote found, creating new one')
+		console.log('[TOOLBAR DEBUG] Description section content size:', descriptionSectionNode.content.size)
+		
+		// ✅ FIX: Dùng insertContentAt() để chèn chính xác vào vị trí trong description section
+		const insertPos = descriptionSectionPos + 1 + descriptionSectionNode.content.size
+		console.log('[TOOLBAR DEBUG] Insert position:', insertPos)
+		
+		// Chèn blockquote TRỰC TIẾP vào vị trí đã tính, không bị ảnh hưởng bởi cursor hiện tại
+		editorInstance.chain()
+			.insertContentAt(insertPos, '<blockquote><p></p></blockquote>')
+			.run()
+		
+		console.log('[TOOLBAR DEBUG] Blockquote inserted at pos:', insertPos)
+		
+		// Focus vào blockquote sau khi insert
+		setTimeout(() => {
+			if (editorInstance && editorInstance.view) {
+				refreshDocState()
+				
+				// Tìm blockquote vừa tạo trong description section
+				let newBlockquotePos = null
+				doc.descendants((node, pos) => {
+					if (node.type.name === 'blockquote' && newBlockquotePos === null) {
+						const $pos = doc.resolve(pos)
+						for (let i = $pos.depth; i > 0; i--) {
+							const parentNode = $pos.node(i)
+							if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+								if (parentNode.attrs.sectionType === 'description') {
+									newBlockquotePos = pos
+									return false
+								}
+								break
+							}
+						}
 					}
+				})
+				
+				if (newBlockquotePos !== null) {
+					// Focus vào trong blockquote (vị trí của paragraph bên trong)
+					const paragraphStartPos = newBlockquotePos + 2 // +1 cho blockquote start, +1 cho paragraph start
+					editorInstance.chain()
+						.setTextSelection(paragraphStartPos)
+						.focus()
+						.run()
+					
+					console.log('[TOOLBAR DEBUG] Focused into blockquote at pos:', paragraphStartPos)
+					
+					// Trigger resize node
+					setTimeout(() => {
+						emit('list-action', props.selectedNode)
+					}, 50)
+				}
+			}
+		}, 50)
+	} else {
+		// Fallback: focus vào cuối document
+		editorInstance.commands.focus('end')
+	}
+		
+		/*
+		// ⚠️ REMOVED: Không cho phép tạo blockquote mới
+		// Blockquote đã được tạo sẵn trong createDefaultNodeLabel
+		else {
+			// Chưa có blockquote: tạo blockquote mới trong section node-description
+			let descriptionSectionPos = null
+			let descriptionSectionNode = null
+			
+			// Tìm section node-description trong document (sử dụng descendants thay vì forEach)
+			doc.descendants((node, pos) => {
+				if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+					descriptionSectionPos = pos
+					descriptionSectionNode = node
+					return false // Stop searching
 				}
 			})
 			
-			// Nếu không tìm thấy, dùng cuối document
-			if (insertPosition === null) {
+			let insertPosition = null
+			
+			if (descriptionSectionPos !== null && descriptionSectionNode) {
+				// Tìm vị trí chèn trong description section: sau tất cả content hiện có
+				// descriptionSectionPos là vị trí của wrapper, +1 để vào trong wrapper, + content.size để đến cuối
+				insertPosition = descriptionSectionPos + 1 + descriptionSectionNode.content.size
+			} else {
+				// Không tìm thấy description section: chèn vào cuối document
+				// (Logic di chuyển sẽ tự động di chuyển blockquote vào description section)
 				insertPosition = doc.content.size
 			}
 			
@@ -1562,16 +1674,28 @@ const executeListAction = (editorInstance) => {
 					const { state } = editorInstance.view
 					const { doc: newDoc } = state
 					
-					// Tìm blockquote vừa tạo
-					let newBlockquoteOffset = null
-					newDoc.forEach((node, offset) => {
-						if (node.type.name === 'blockquote' && newBlockquoteOffset === null) {
-							newBlockquoteOffset = offset
+					// Tìm blockquote vừa tạo trong description section
+					let newBlockquotePos = null
+					newDoc.descendants((node, pos) => {
+						if (node.type.name === 'blockquote' && newBlockquotePos === null) {
+							// Kiểm tra xem blockquote có nằm trong description section không
+							const $pos = newDoc.resolve(pos)
+							for (let i = $pos.depth; i > 0; i--) {
+								const parentNode = $pos.node(i)
+								if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+									if (parentNode.attrs.sectionType === 'description') {
+										newBlockquotePos = pos
+										return false
+									}
+									break
+								}
+							}
 						}
 					})
 					
-					if (newBlockquoteOffset !== null) {
-						const paragraphStartPos = newBlockquoteOffset + 1 + 1
+					if (newBlockquotePos !== null) {
+						// Focus vào trong blockquote (vị trí của paragraph bên trong)
+						const paragraphStartPos = newBlockquotePos + 2 // +1 cho blockquote start, +1 cho paragraph start
 						editorInstance.chain()
 							.setTextSelection(paragraphStartPos)
 							.focus()
@@ -1582,6 +1706,7 @@ const executeListAction = (editorInstance) => {
 				}
 			}, 50)
 		}
+		*/
 	}, 50)
 	
 	emit('list-action', props.selectedNode)

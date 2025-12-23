@@ -967,7 +967,7 @@ const addChildToNode = async (parentId) => {
     node_key: crypto.randomUUID(), // thêm cái này để làm history comment lookup node
     created_at: Date.now(), 
     data: {
-      label: 'Nhánh mới',
+      label: createDefaultNodeLabel('Nhánh mới'),
       parentId: parentId
     }
   }
@@ -1089,6 +1089,13 @@ const addChildToNode = async (parentId) => {
   scheduleSave()
 }
 
+// Helper: Create default node structure with 4 sections (title, task-link, image, description)
+const createDefaultNodeLabel = (title = 'Nhánh mới') => {
+  // Tạo cấu trúc HTML với 4 phần được định nghĩa sẵn, mỗi phần được wrap trong div với class tương ứng
+  // ⚠️ IMPORTANT: blockquote PHẢI có paragraph bên trong (KHÔNG có div wrapper) để focus được
+  return `<div class="node-title" data-node-section="title"><p>${title}</p></div><div class="node-task-link" data-node-section="task-link"></div><div class="node-image" data-node-section="image"></div><div class="node-description" data-node-section="description"><blockquote><p></p></blockquote></div>`
+}
+
 // Helper: Extract plain title from node label (ignore blockquote/description)
 const extractTitleFromLabel = (label) => {
   const raw = (label || '').trim()
@@ -1131,7 +1138,7 @@ const addSiblingToNode = async (nodeId) => {
     node_key: crypto.randomUUID(), // thêm cái này để làm history comment lookup node
     created_at: Date.now(), 
     data: {
-      label: 'Nhánh mới',
+      label: createDefaultNodeLabel('Nhánh mới'),
       parentId: parentId
     }
   }
@@ -1517,13 +1524,12 @@ const confirmTaskLink = async () => {
       })
     }
 
-    // Thêm badge tick xanh dưới title node (ngay sau paragraph đầu tiên, trước ảnh)
-    // Wrap badge trong section riêng để dễ phân biệt và style
+    // Thêm badge tick xanh vào section node-task-link
     // Tự động thêm badge khi chọn công việc có sẵn
     if (taskPayload.linkUrl) {
       const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
       if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
-        // Parse HTML để chèn badge vào đúng vị trí (ngay sau title, trước ảnh)
+        // Parse HTML để chèn badge vào đúng section node-task-link
         try {
           const parser = new DOMParser()
           const doc = parser.parseFromString(targetNode.data.label, 'text/html')
@@ -1545,79 +1551,58 @@ const confirmTaskLink = async () => {
           const menuButtons = body.querySelectorAll('.image-menu-button, button[aria-label="Image options"]')
           menuButtons.forEach(btn => btn.remove())
           
-          // Tìm paragraph đầu tiên có nội dung (title) và thêm class để phân biệt
-          const firstParagraph = body.querySelector('p')
-          
-          if (firstParagraph) {
-            // Thêm class để phân biệt title
-            firstParagraph.classList.add('node-title-section')
-            firstParagraph.setAttribute('data-node-section', 'title')
-            
-            // Tạo badge element
-            const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
-            
-            // Tìm ảnh đầu tiên trong toàn bộ body (có thể là img hoặc trong wrapper)
-            const firstImage = body.querySelector('img, .image-wrapper-node, .image-wrapper')
-            
-            if (firstImage) {
-              // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong paragraph đầu tiên không
-              const imageWrapper = firstImage.closest('.image-wrapper-node, .image-wrapper')
-              const imageContainer = imageWrapper || firstImage
-              const imageParent = imageContainer.parentElement
-              
-              // Thêm class và attribute để phân biệt phần ảnh
-              let finalImageContainer = imageContainer
-              if (imageContainer.classList.contains('image-wrapper-node') || imageContainer.classList.contains('image-wrapper')) {
-                // Đã có wrapper - thêm class vào wrapper
-                imageContainer.classList.add('node-image-section')
-                imageContainer.setAttribute('data-node-section', 'image')
-              } else if (imageContainer.tagName === 'IMG') {
-                // Ảnh không có wrapper - wrap trong section
-                const imageSection = doc.createElement('section')
-                imageSection.classList.add('node-image-section')
-                imageSection.setAttribute('data-node-section', 'image')
-                imageContainer.parentElement.insertBefore(imageSection, imageContainer)
-                imageSection.appendChild(imageContainer)
-                finalImageContainer = imageSection
-              } else {
-                // Element khác - thêm class trực tiếp
-                imageContainer.classList.add('node-image-section')
-                imageContainer.setAttribute('data-node-section', 'image')
-              }
-              
-              // Cập nhật lại imageParent sau khi có thể đã wrap
-              const updatedImageParent = finalImageContainer.parentElement
-              
-              if (updatedImageParent === firstParagraph) {
-                // Ảnh/wrapper nằm trong paragraph đầu tiên - tách ra và chèn badge
-                const imageClone = finalImageContainer.cloneNode(true)
-                finalImageContainer.remove()
-                // Chèn badge sau paragraph đầu tiên
-                body.insertBefore(badgeElement, firstParagraph.nextSibling)
-                // Chèn ảnh sau badge
-                body.insertBefore(imageClone, badgeElement.nextSibling)
-              } else {
-                // Ảnh ở element khác - chèn badge trước container của ảnh
-                finalImageContainer.parentElement.insertBefore(badgeElement, finalImageContainer)
-              }
-            } else {
-              // Không có ảnh - chèn badge ngay sau paragraph đầu tiên
-              if (firstParagraph.nextSibling) {
-                body.insertBefore(badgeElement, firstParagraph.nextSibling)
-              } else {
-                body.appendChild(badgeElement)
+          // Tìm và xóa các paragraph chứa task link ở root level hoặc trong section khác
+          const paragraphsWithTaskLink = body.querySelectorAll('p')
+          paragraphsWithTaskLink.forEach(p => {
+            const text = p.textContent?.trim() || ''
+            const hasTaskLink = text.includes('Liên kết công việc') || p.querySelector('a[href*="task_id"]') || p.querySelector('a[href*="/mtp/project/"]')
+            if (hasTaskLink) {
+              // Kiểm tra xem paragraph có nằm trong node-task-link div không
+              const taskLinkParent = p.closest('.node-task-link, div[data-node-section="task-link"]')
+              if (!taskLinkParent) {
+                // Không nằm trong node-task-link, xóa paragraph này
+                p.remove()
               }
             }
+          })
+          
+          // Tìm div node-task-link
+          let taskLinkDiv = body.querySelector('.node-task-link, div[data-node-section="task-link"]')
+          
+          if (taskLinkDiv) {
+            // Tìm section node-task-link-section bên trong div (nếu có)
+            const existingSection = taskLinkDiv.querySelector('.node-task-link-section, section[data-node-section="task-link"]')
             
-            // Thêm class cho các paragraph còn lại (mô tả) để phân biệt
-            const remainingParagraphs = body.querySelectorAll('p:not(.node-title-section)')
-            remainingParagraphs.forEach(p => {
-              if (!p.classList.contains('node-description-section')) {
-                p.classList.add('node-description-section')
-                p.setAttribute('data-node-section', 'description')
-              }
-            })
+            if (existingSection) {
+              // Thay thế section cũ bằng section mới
+              const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+              existingSection.replaceWith(badgeElement)
+            } else {
+              // Chưa có section, thêm section mới vào div
+              const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+              taskLinkDiv.appendChild(badgeElement)
+            }
+          } else {
+            // Chưa có div node-task-link, tạo mới và chèn vào đúng vị trí
+            taskLinkDiv = doc.createElement('div')
+            taskLinkDiv.className = 'node-task-link'
+            taskLinkDiv.setAttribute('data-node-section', 'task-link')
             
+            const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+            taskLinkDiv.appendChild(badgeElement)
+            
+            // Tìm div node-title để chèn sau nó
+            const titleDiv = body.querySelector('.node-title, div[data-node-section="title"]')
+            if (titleDiv && titleDiv.nextSibling) {
+              body.insertBefore(taskLinkDiv, titleDiv.nextSibling)
+            } else if (titleDiv) {
+              body.appendChild(taskLinkDiv)
+            } else {
+              // Không có title div, chèn vào đầu
+              body.insertBefore(taskLinkDiv, body.firstChild)
+            }
+          }
+          
         // Serialize lại HTML và cleanup thêm một lần nữa để đảm bảo xóa hết <p>⋮</p>
         let cleanedHtml = body.innerHTML
         // Xóa tất cả paragraph chỉ chứa ⋮
@@ -1627,17 +1612,6 @@ const confirmTaskLink = async () => {
         cleanedHtml = cleanedHtml.replace(/⋮/g, '')
         
         targetNode.data.label = cleanedHtml
-          } else {
-            // Không có paragraph - tạo paragraph mới cho title và chèn badge
-            const titleParagraph = doc.createElement('p')
-            titleParagraph.textContent = plainTitle || 'Nhánh mới'
-            body.appendChild(titleParagraph)
-            
-            const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
-            body.appendChild(badgeElement)
-            
-            targetNode.data.label = body.innerHTML
-          }
         } catch (err) {
           // Fallback: chèn vào cuối nếu parse lỗi
           console.error('Error parsing HTML for badge insertion:', err)
@@ -1992,7 +1966,7 @@ const handleCreateTask = async (formData) => {
           }
         }
 
-        // Thêm badge "Liên kết công việc" vào node label (tương tự confirmTaskLink)
+        // Thêm badge "Liên kết công việc" vào section node-task-link
         // Tự động thêm badge khi tạo mới công việc từ node
         if (taskOpenLink && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
           const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
@@ -2017,92 +1991,60 @@ const handleCreateTask = async (formData) => {
             const menuButtons = body.querySelectorAll('.image-menu-button, button[aria-label="Image options"]')
             menuButtons.forEach(btn => btn.remove())
             
-            // Tìm paragraph đầu tiên có nội dung (title) và thêm class để phân biệt
-            const firstParagraph = body.querySelector('p')
-            
-            if (firstParagraph) {
-              // Thêm class để phân biệt title
-              firstParagraph.classList.add('node-title-section')
-              firstParagraph.setAttribute('data-node-section', 'title')
-              
-              // Tạo badge element
-              const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
-              
-              // Tìm ảnh đầu tiên trong toàn bộ body (có thể là img hoặc trong wrapper)
-              const firstImage = body.querySelector('img, .image-wrapper-node, .image-wrapper')
-              
-              if (firstImage) {
-                // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong paragraph đầu tiên không
-                const imageWrapper = firstImage.closest('.image-wrapper-node, .image-wrapper')
-                const imageContainer = imageWrapper || firstImage
-                const imageParent = imageContainer.parentElement
-                
-                // Thêm class và attribute để phân biệt phần ảnh
-                let finalImageContainer = imageContainer
-                if (imageContainer.classList.contains('image-wrapper-node') || imageContainer.classList.contains('image-wrapper')) {
-                  // Đã có wrapper - thêm class vào wrapper
-                  imageContainer.classList.add('node-image-section')
-                  imageContainer.setAttribute('data-node-section', 'image')
-                } else if (imageContainer.tagName === 'IMG') {
-                  // Ảnh không có wrapper - wrap trong section
-                  const imageSection = doc.createElement('section')
-                  imageSection.classList.add('node-image-section')
-                  imageSection.setAttribute('data-node-section', 'image')
-                  imageContainer.parentElement.insertBefore(imageSection, imageContainer)
-                  imageSection.appendChild(imageContainer)
-                  finalImageContainer = imageSection
-                } else {
-                  // Element khác - thêm class trực tiếp
-                  imageContainer.classList.add('node-image-section')
-                  imageContainer.setAttribute('data-node-section', 'image')
-                }
-                
-                // Cập nhật lại imageParent sau khi có thể đã wrap
-                const updatedImageParent = finalImageContainer.parentElement
-                
-                if (updatedImageParent === firstParagraph) {
-                  // Ảnh/wrapper nằm trong paragraph đầu tiên - tách ra và chèn badge
-                  const imageClone = finalImageContainer.cloneNode(true)
-                  finalImageContainer.remove()
-                  // Chèn badge sau paragraph đầu tiên
-                  body.insertBefore(badgeElement, firstParagraph.nextSibling)
-                  // Chèn ảnh sau badge
-                  body.insertBefore(imageClone, badgeElement.nextSibling)
-                } else {
-                  // Ảnh ở element khác - chèn badge trước container của ảnh
-                  finalImageContainer.parentElement.insertBefore(badgeElement, finalImageContainer)
-                }
-              } else {
-                // Không có ảnh - chèn badge ngay sau paragraph đầu tiên
-                if (firstParagraph.nextSibling) {
-                  body.insertBefore(badgeElement, firstParagraph.nextSibling)
-                } else {
-                  body.appendChild(badgeElement)
+            // Tìm và xóa các paragraph chứa task link ở root level hoặc trong section khác
+            const paragraphsWithTaskLink = body.querySelectorAll('p')
+            paragraphsWithTaskLink.forEach(p => {
+              const text = p.textContent?.trim() || ''
+              const hasTaskLink = text.includes('Liên kết công việc') || p.querySelector('a[href*="task_id"]') || p.querySelector('a[href*="/mtp/project/"]')
+              if (hasTaskLink) {
+                // Kiểm tra xem paragraph có nằm trong node-task-link div không
+                const taskLinkParent = p.closest('.node-task-link, div[data-node-section="task-link"]')
+                if (!taskLinkParent) {
+                  // Không nằm trong node-task-link, xóa paragraph này
+                  p.remove()
                 }
               }
+            })
+            
+            // Tìm div node-task-link
+            let taskLinkDiv = body.querySelector('.node-task-link, div[data-node-section="task-link"]')
+            
+            if (taskLinkDiv) {
+              // Tìm section node-task-link-section bên trong div (nếu có)
+              const existingSection = taskLinkDiv.querySelector('.node-task-link-section, section[data-node-section="task-link"]')
               
-              // Thêm class cho các paragraph còn lại (mô tả) để phân biệt
-              const remainingParagraphs = body.querySelectorAll('p:not(.node-title-section)')
-              remainingParagraphs.forEach(p => {
-                if (!p.classList.contains('node-description-section')) {
-                  p.classList.add('node-description-section')
-                  p.setAttribute('data-node-section', 'description')
-                }
-              })
+              if (existingSection) {
+                // Thay thế section cũ bằng section mới
+                const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+                existingSection.replaceWith(badgeElement)
+              } else {
+                // Chưa có section, thêm section mới vào div
+                const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+                taskLinkDiv.appendChild(badgeElement)
+              }
+            } else {
+              // Chưa có div node-task-link, tạo mới và chèn vào đúng vị trí
+              taskLinkDiv = doc.createElement('div')
+              taskLinkDiv.className = 'node-task-link'
+              taskLinkDiv.setAttribute('data-node-section', 'task-link')
+              
+              const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
+              taskLinkDiv.appendChild(badgeElement)
+              
+              // Tìm div node-title để chèn sau nó
+              const titleDiv = body.querySelector('.node-title, div[data-node-section="title"]')
+              if (titleDiv && titleDiv.nextSibling) {
+                body.insertBefore(taskLinkDiv, titleDiv.nextSibling)
+              } else if (titleDiv) {
+                body.appendChild(taskLinkDiv)
+              } else {
+                // Không có title div, chèn vào đầu
+                body.insertBefore(taskLinkDiv, body.firstChild)
+              }
+            }
               
               // Serialize lại HTML
               linkNode.data.label = body.innerHTML
-            } else {
-              // Không có paragraph - tạo paragraph mới cho title và chèn badge
-              const titleParagraph = doc.createElement('p')
-              titleParagraph.textContent = plainTitle || 'Nhánh mới'
-              body.appendChild(titleParagraph)
-              
-              const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
-              body.appendChild(badgeElement)
-              
-              linkNode.data.label = body.innerHTML
-            }
           } catch (err) {
             // Fallback: chèn vào cuối nếu parse lỗi
             console.error('Error parsing HTML for badge insertion:', err)
@@ -2420,12 +2362,20 @@ const handleKeyDown = (event) => {
     event.stopPropagation()
 
     if (selectedNode.value && selectedNode.value.id !== 'root') {
-      // Nếu đang trong editor, cho phép editor xử lý Shift+Enter
-      if (isInEditor || editingNode.value) {
-        return
-      }
+      // ✅ DEBUG: Log để xem tại sao không chạy
+      console.log('[DEBUG] Shift+Enter handler:', {
+        isInEditor,
+        editingNode: editingNode.value,
+        selectedNode: selectedNode.value?.id
+      })
+      
+      // ⚠️ REMOVED: Không check isInEditor nữa, luôn tạo mô tả
+      // Nếu đang edit, MindmapNodeEditor.vue sẽ xử lý (và return false)
+      // if (isInEditor || editingNode.value) {
+      //   return
+      // }
 
-      // Nếu không đang trong editor, focus vào editor và blockquote
+      // 🔥 COPY TOÀN BỘ TỪ TOOLBAR (hoạt động đúng)
       const editorInstance = d3Renderer?.getEditorInstance?.(selectedNode.value.id)
       if (editorInstance) {
         // Focus vào editor trước
@@ -2433,126 +2383,268 @@ const handleKeyDown = (event) => {
 
         // Đợi editor focus xong, sau đó focus vào blockquote
         setTimeout(() => {
-          const { state } = editorInstance.view
-          const { doc } = state
+          if (!editorInstance || !editorInstance.view) return
+          
+          // Cho phép refresh state/doc sau khi insert
+          let state = editorInstance.view.state
+          let doc = state.doc
+          const refreshDocState = () => {
+            state = editorInstance.view.state
+            doc = state.doc
+          }
 
-          // Tìm blockquote đầu tiên
-          let blockquoteOffset = null
-          doc.forEach((node, offset) => {
-            if (node.type.name === 'blockquote' && blockquoteOffset === null) {
-              blockquoteOffset = offset
-            }
-          })
+          // Tìm node-description section trước, sau đó tìm blockquote bên trong
+          let descriptionSectionPos = null
+          let descriptionSectionNode = null
+          let blockquotePos = null
+          let blockquoteNode = null
+          
+          const findDescriptionSection = () => {
+            descriptionSectionPos = null
+            descriptionSectionNode = null
+            doc.descendants((node, pos) => {
+              if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+                descriptionSectionPos = pos
+                descriptionSectionNode = node
+                return false
+              }
+            })
+          }
+          
+          findDescriptionSection()
+          
+          // Nếu node cũ chưa có description section, tạo mới section rỗng
+          if (!descriptionSectionNode) {
+            const insertPos = doc.content.size
+            editorInstance.chain()
+              .setTextSelection(insertPos)
+              .focus()
+              .insertContent('<div class="node-description" data-node-section="description"></div>')
+              .run()
 
-          if (blockquoteOffset !== null) {
+            refreshDocState()
+            findDescriptionSection()
+          }
+          
+          if (descriptionSectionNode) {
+            // Tìm blockquote là con trực tiếp của description section
+            descriptionSectionNode.forEach((child, offset) => {
+              if (child.type.name === 'blockquote' && blockquotePos === null) {
+                blockquotePos = descriptionSectionPos + 1 + offset
+                blockquoteNode = child
+              }
+            })
+          }
+
+          if (blockquotePos !== null && blockquoteNode) {
             // Đã có blockquote: focus vào cuối blockquote
             try {
-              // Tìm blockquote node
-              const blockquoteNode = state.doc.nodeAt(blockquoteOffset)
-              if (blockquoteNode) {
-                // Tìm vị trí cuối cùng của text trong blockquote
-                // Tính phạm vi của blockquote trong document
-                const blockquoteStart = blockquoteOffset + 1
-                const blockquoteEnd = blockquoteOffset + blockquoteNode.nodeSize - 1
-
-                // Duyệt qua toàn bộ document để tìm text nodes trong blockquote
-                let lastTextPos = null
-
-                doc.descendants((node, pos) => {
-                  // Kiểm tra xem node có nằm trong blockquote không
-                  // pos là vị trí bắt đầu của node, pos + node.nodeSize là vị trí cuối
-                  if (pos >= blockquoteStart && pos < blockquoteEnd && node.isText) {
-                    // Tính vị trí sau text node (cuối text content)
-                    // Đối với text node, sử dụng text.length để đảm bảo chính xác
-                    const textEndPos = pos + node.text.length
-                    // Đảm bảo vị trí không vượt quá blockquote
-                    if (textEndPos <= blockquoteEnd + 1) {
-                      lastTextPos = textEndPos
+              // Tìm paragraph đầu tiên trong blockquote
+              let firstParagraphPos = null
+              console.log('[DEBUG] Blockquote content:', blockquoteNode.content)
+              console.log('[DEBUG] Blockquote nodeSize:', blockquoteNode.nodeSize)
+              blockquoteNode.descendants((child, childPos) => {
+                console.log('[DEBUG] Blockquote child at offset', childPos, ':', child.type.name, 'size:', child.nodeSize)
+                if (child.type.name === 'paragraph' && firstParagraphPos === null) {
+                  // Vị trí của paragraph trong document = vị trí blockquote + 1 (blockquote start) + childPos
+                  firstParagraphPos = blockquotePos + 1 + childPos
+                  console.log('[DEBUG] Found paragraph at pos:', firstParagraphPos)
+                  return false
+                }
+              })
+              console.log('[DEBUG] Paragraph search complete. Found:', firstParagraphPos !== null)
+              
+              if (firstParagraphPos !== null) {
+                // Tìm vị trí cuối cùng của text trong paragraph
+                const paragraphNode = doc.nodeAt(firstParagraphPos)
+                if (paragraphNode && paragraphNode.type.name === 'paragraph') {
+                  // Tính vị trí cuối paragraph (sau tất cả text)
+                  const paragraphEnd = firstParagraphPos + paragraphNode.nodeSize - 1
+                  
+                  // Focus vào cuối paragraph
+                  editorInstance.chain()
+                    .setTextSelection(paragraphEnd)
+                    .focus()
+                    .run()
+                  
+                  // Trigger resize node sau khi focus
+                  setTimeout(() => {
+                    if (d3Renderer && selectedNode.value) {
+                      const vueAppEntry = d3Renderer?.vueApps?.get(selectedNode.value.id)
+                      if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                        vueAppEntry.instance.updateNodeHeight()
+                      }
                     }
-                  }
-                })
-
-                if (lastTextPos !== null) {
-                  // Có text: focus vào cuối text
-                  // Sử dụng resolve để đảm bảo vị trí hợp lệ
-                  try {
-                    const resolvedPos = state.doc.resolve(lastTextPos)
-                    editorInstance.chain()
-                      .setTextSelection(resolvedPos.pos)
-                      .focus()
-                      .run()
-                  } catch (e) {
-                    // Fallback: sử dụng vị trí trực tiếp
-                    editorInstance.chain()
-                      .setTextSelection(lastTextPos)
-                      .focus()
-                      .run()
-                  }
+                  }, 50)
                 } else {
-                  // Không có text: tìm paragraph cuối cùng trong blockquote và focus vào trong đó
-                  let lastParagraphPos = null
-                  blockquoteNode.forEach((child, childOffset) => {
-                    if (child.type.name === 'paragraph') {
-                      // Vị trí bắt đầu của paragraph trong document
-                      const paragraphStart = blockquoteOffset + 1 + childOffset + 1
-                      lastParagraphPos = paragraphStart
+                  // Fallback: focus vào đầu paragraph
+                  editorInstance.chain()
+                    .setTextSelection(firstParagraphPos + 1)
+                    .focus()
+                    .run()
+                  
+                  // Trigger resize node sau khi focus
+                  setTimeout(() => {
+                    if (d3Renderer && selectedNode.value) {
+                      const vueAppEntry = d3Renderer?.vueApps?.get(selectedNode.value.id)
+                      if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                        vueAppEntry.instance.updateNodeHeight()
+                      }
                     }
-                  })
-
-                  if (lastParagraphPos !== null) {
-                    // Focus vào đầu paragraph cuối cùng
-                    editorInstance.chain()
-                      .setTextSelection(lastParagraphPos)
-                      .focus()
-                      .run()
-                  } else {
-                    // Fallback: focus vào cuối blockquote
-                    const blockquoteEndPos = blockquoteOffset + blockquoteNode.nodeSize - 1
-                    try {
-                      const resolvedPos = state.doc.resolve(blockquoteEndPos - 1)
-                      editorInstance.chain()
-                        .setTextSelection(resolvedPos.pos)
-                        .focus()
-                        .run()
-                    } catch (e) {
-                      editorInstance.chain()
-                        .setTextSelection(blockquoteEndPos - 1)
-                        .focus()
-                        .run()
-                    }
-                  }
+                  }, 50)
                 }
               } else {
-                // Fallback: focus vào cuối document
-                editorInstance.commands.focus('end')
+                // ✅ FIX: Không tìm thấy paragraph trong blockquote  
+                // → Insert <p> vào bên trong blockquote bằng transaction manual
+                console.log('[DEBUG] No paragraph found, inserting <p> into blockquote')
+                
+                const insideBlockquotePos = blockquotePos + 1
+                const { state, view } = editorInstance
+                const { paragraph } = state.schema.nodes
+                
+                if (paragraph) {
+                  // ⚠️ CRITICAL: Tạo paragraph với text để tránh bị CleanEmptyParagraphsExtension xóa
+                  const textNode = state.schema.text('\u200B') // Zero-width space
+                  const para = paragraph.create(null, textNode)
+                  
+                  // Xóa content cũ và insert paragraph bằng transaction
+                  const tr = state.tr
+                    .delete(insideBlockquotePos, insideBlockquotePos + blockquoteNode.content.size)
+                    .insert(insideBlockquotePos, para)
+                  
+                  view.dispatch(tr)
+                  console.log('[DEBUG] Inserted <p> with placeholder text at pos:', insideBlockquotePos)
+                  
+                  // Focus vào paragraph
+                  setTimeout(() => {
+                    editorInstance.chain()
+                      .setTextSelection(insideBlockquotePos + 1) // +1 để vào bên trong paragraph
+                      .focus()
+                      .run()
+                    
+                    console.log('[DEBUG] Focused into paragraph')
+                    
+                    // Trigger resize node
+                    setTimeout(() => {
+                      if (d3Renderer && selectedNode.value) {
+                        const vueAppEntry = d3Renderer?.vueApps?.get(selectedNode.value.id)
+                        if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                          vueAppEntry.instance.updateNodeHeight()
+                        }
+                      }
+                    }, 50)
+                  }, 50)
+                }
               }
             } catch (e) {
-              
+              console.warn('Error focusing blockquote:', e)
               // Fallback: focus vào cuối document
               editorInstance.commands.focus('end')
             }
           } else {
-            // Chưa có blockquote: tạo blockquote mới
-            // Tìm vị trí chèn: sau tất cả paragraphs và images
-            let insertPosition = null
-
-            // Tìm node cuối cùng không phải blockquote (paragraph hoặc image)
-            doc.forEach((node, offset) => {
-              if (node.type.name !== 'blockquote') {
-                // Tính vị trí sau node này (offset + nodeSize)
-                const nodeEnd = offset + node.nodeSize
-                if (insertPosition === null || nodeEnd > insertPosition) {
-                  insertPosition = nodeEnd
-                }
+            // Không tìm thấy blockquote trong description section
+            console.log('[DEBUG] No blockquote found in description, creating new one')
+            // Tìm description section và tạo blockquote nếu chưa có
+            let descriptionSectionPos = null
+            let descriptionSectionNode = null
+            doc.descendants((node, pos) => {
+              if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+                descriptionSectionPos = pos
+                descriptionSectionNode = node
+                console.log('[DEBUG] Found description section at pos:', pos, 'content size:', node.content.size)
+                return false
               }
             })
-
-            // Nếu không tìm thấy, dùng cuối document
-            if (insertPosition === null) {
+            
+            if (descriptionSectionPos !== null && descriptionSectionNode) {
+              console.log('[DEBUG] Creating blockquote at pos:', descriptionSectionPos + 1 + descriptionSectionNode.content.size)
+              // Tính vị trí chèn blockquote vào cuối description section
+              const insertPos = descriptionSectionPos + 1 + descriptionSectionNode.content.size
+              
+              // ✅ FIX: Dùng insertContentAt() để chèn chính xác vào vị trí, không bị ảnh hưởng bởi cursor hiện tại
+              console.log('[DEBUG] Inserting blockquote at pos:', insertPos)
+              editorInstance.chain()
+                .insertContentAt(insertPos, '<blockquote><p></p></blockquote>')
+                .run()
+              
+              console.log('[DEBUG] Blockquote inserted, waiting to focus...')
+              
+              // Focus vào paragraph trong blockquote vừa tạo
+              setTimeout(() => {
+                if (editorInstance && editorInstance.view) {
+                  const { state } = editorInstance.view
+                  const { doc: newDoc } = state
+                  
+                  // Tìm blockquote vừa tạo trong description section
+                  let newBlockquotePos = null
+                  newDoc.descendants((node, pos) => {
+                    if (node.type.name === 'blockquote' && newBlockquotePos === null) {
+                      const $pos = newDoc.resolve(pos)
+                      for (let i = $pos.depth; i > 0; i--) {
+                        const parentNode = $pos.node(i)
+                        if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                          if (parentNode.attrs.sectionType === 'description') {
+                            newBlockquotePos = pos
+                            return false
+                          }
+                          break
+                        }
+                      }
+                    }
+                  })
+                  
+                  if (newBlockquotePos !== null) {
+                    // Focus vào trong blockquote (vị trí của paragraph bên trong)
+                    const paragraphStartPos = newBlockquotePos + 2 // +1 cho blockquote start, +1 cho paragraph start
+                    editorInstance.chain()
+                      .setTextSelection(paragraphStartPos)
+                      .focus()
+                      .run()
+                    
+                    // Trigger resize node
+                    setTimeout(() => {
+                      if (d3Renderer && selectedNode.value) {
+                        const vueAppEntry = d3Renderer?.vueApps?.get(selectedNode.value.id)
+                        if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                          vueAppEntry.instance.updateNodeHeight()
+                        }
+                      }
+                    }, 100)
+                  }
+                }
+              }, 50)
+            } else {
+              // Fallback: focus vào cuối document
+              editorInstance.commands.focus('end')
+            }
+          }
+          
+          /*
+          // ⚠️ REMOVED: Không cho phép tạo blockquote mới
+          // Blockquote đã được tạo sẵn trong createDefaultNodeLabel
+          else {
+            // Chưa có blockquote: tạo blockquote mới trong section node-description
+            let descriptionSectionPos = null
+            let descriptionSectionNode = null
+            
+            // Tìm section node-description trong document (sử dụng descendants)
+            doc.descendants((node, pos) => {
+              if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+                descriptionSectionPos = pos
+                descriptionSectionNode = node
+                return false // Stop searching
+              }
+            })
+            
+            let insertPosition = null
+            
+            if (descriptionSectionPos !== null && descriptionSectionNode) {
+              // Tìm vị trí chèn trong description section: sau tất cả content hiện có
+              insertPosition = descriptionSectionPos + 1 + descriptionSectionNode.content.size
+            } else {
+              // Không tìm thấy description section: chèn vào cuối document
               insertPosition = doc.content.size
             }
-
-            
 
             // Chèn blockquote tại vị trí đã tính
             editorInstance.chain()
@@ -2566,32 +2658,39 @@ const handleKeyDown = (event) => {
                 const { state } = editorInstance.view
                 const { doc: newDoc } = state
 
-                // Tìm blockquote vừa tạo
-                let newBlockquoteOffset = null
-                newDoc.forEach((node, offset) => {
-                  if (node.type.name === 'blockquote' && newBlockquoteOffset === null) {
-                    newBlockquoteOffset = offset
+                // Tìm blockquote vừa tạo trong description section
+                let newBlockquotePos = null
+                newDoc.descendants((node, pos) => {
+                  if (node.type.name === 'blockquote' && newBlockquotePos === null) {
+                    // Kiểm tra xem blockquote có nằm trong description section không
+                    const $pos = newDoc.resolve(pos)
+                    for (let i = $pos.depth; i > 0; i--) {
+                      const parentNode = $pos.node(i)
+                      if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                        if (parentNode.attrs.sectionType === 'description') {
+                          newBlockquotePos = pos
+                          return false
+                        }
+                        break
+                      }
+                    }
                   }
                 })
 
-                if (newBlockquoteOffset !== null) {
-                  const newBlockquoteNode = state.doc.nodeAt(newBlockquoteOffset)
-                  if (newBlockquoteNode) {
-                    // Focus vào đầu paragraph trong blockquote
-                    const paragraphStartPos = newBlockquoteOffset + 1 + 1 // blockquote + paragraph opening
-                    editorInstance.chain()
-                      .setTextSelection(paragraphStartPos)
-                      .focus()
-                      .run()
-                  } else {
-                    editorInstance.commands.focus('end')
-                  }
+                if (newBlockquotePos !== null) {
+                  // Focus vào trong blockquote (vị trí của paragraph bên trong)
+                  const paragraphStartPos = newBlockquotePos + 2 // +1 cho blockquote start, +1 cho paragraph start
+                  editorInstance.chain()
+                    .setTextSelection(paragraphStartPos)
+                    .focus()
+                    .run()
                 } else {
                   editorInstance.commands.focus('end')
                 }
               }
             }, 50)
           }
+          */
         }, 50)
       }
     }

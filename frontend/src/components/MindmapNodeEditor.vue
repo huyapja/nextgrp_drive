@@ -12,7 +12,7 @@ import { Paragraph } from "@/components/DocEditor/extensions/paragraph"
 import { Placeholder } from "@/components/DocEditor/extensions/placeholder"
 import { Text } from "@/components/DocEditor/extensions/text"
 import { Underline } from "@/components/DocEditor/extensions/underline"
-import { Extension } from "@tiptap/core"
+import { Extension, Node } from "@tiptap/core"
 import Bold from "@tiptap/extension-bold"
 import Code from "@tiptap/extension-code"
 import Italic from "@tiptap/extension-italic"
@@ -20,7 +20,7 @@ import Link from "@tiptap/extension-link"
 import TextStyle from "@tiptap/extension-text-style"
 import Typography from "@tiptap/extension-typography"
 import { Fragment, Slice } from '@tiptap/pm/model'
-import { Plugin } from "@tiptap/pm/state"
+import { Plugin, PluginKey } from "@tiptap/pm/state"
 import StarterKit from "@tiptap/starter-kit"
 import { Editor, EditorContent } from "@tiptap/vue-3"
 
@@ -99,6 +99,744 @@ const PreserveTrailingSpaces = Extension.create({
   name: 'preserveTrailingSpaces',
 })
 
+// Extension để định nghĩa các node type cho div wrapper (node-title, node-task-link, node-image, node-description)
+// Sử dụng content model cụ thể để tránh vòng lặp vô hạn
+const NodeSectionWrapperExtension = Node.create({
+  name: 'nodeSectionWrapper',
+  
+  priority: 1000, // Ưu tiên cao để parse trước các extension khác
+  
+  group: 'block',
+  
+  // Chỉ định rõ content model theo từng section:
+  // - title: chỉ paragraph
+  // - task-link: chỉ paragraph và image (không có blockquote)
+  // - image: chỉ image (không có blockquote)
+  // - description: paragraph và blockquote
+  content: '(paragraph | blockquote | image)*',
+  
+  // Không cho phép nodeSectionWrapper chứa chính nó
+  isolating: true,
+  
+  addAttributes() {
+    return {
+      sectionType: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-node-section') || element.className.match(/node-(title|task-link|image|description)/)?.[1] || null,
+        renderHTML: (attributes) => {
+          if (!attributes.sectionType) {
+            return {}
+          }
+          return {
+            'data-node-section': attributes.sectionType,
+            class: `node-${attributes.sectionType}`,
+          }
+        },
+      },
+      placeholder: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-placeholder') || null,
+        renderHTML: (attributes) => {
+          if (!attributes.placeholder) {
+            return {}
+          }
+          return {
+            'data-placeholder': attributes.placeholder,
+          }
+        },
+      },
+    }
+  },
+  
+  parseHTML() {
+    return [
+      {
+        tag: 'div.node-title',
+        getAttrs: () => ({ sectionType: 'title' }),
+        priority: 100, // Ưu tiên cao hơn để parse trước
+      },
+      {
+        tag: 'div.node-task-link',
+        getAttrs: () => ({ sectionType: 'task-link' }),
+        priority: 100,
+      },
+      {
+        tag: 'div.node-image',
+        getAttrs: () => ({ sectionType: 'image' }),
+        priority: 100,
+      },
+      {
+        tag: 'div.node-description',
+        getAttrs: () => ({ sectionType: 'description' }),
+        priority: 100,
+      },
+      {
+        tag: 'div[data-node-section]',
+        getAttrs: (element) => {
+          const dataSection = element.getAttribute('data-node-section')
+          if (dataSection && ['title', 'task-link', 'image', 'description'].includes(dataSection)) {
+            return { sectionType: dataSection }
+          }
+          return false
+        },
+        priority: 100,
+      },
+    ]
+  },
+  
+  renderHTML({ node, HTMLAttributes }) {
+    const sectionType = node.attrs.sectionType
+    if (!sectionType) {
+      return ['div', HTMLAttributes, 0]
+    }
+    const attrs = {
+      ...HTMLAttributes,
+      class: `node-${sectionType}`,
+      'data-node-section': sectionType,
+    }
+    if (node.attrs.placeholder) {
+      attrs['data-placeholder'] = node.attrs.placeholder
+    }
+    
+    // Nếu section rỗng (không có content), render div rỗng
+    if (node.content.size === 0) {
+      return ['div', attrs]
+    }
+    
+    return ['div', attrs, 0]
+  },
+})
+
+// Extension để loại bỏ paragraph rỗng với trailing break và thêm placeholder cho title
+const CleanEmptyParagraphsExtension = Extension.create({
+  name: 'cleanEmptyParagraphs',
+  
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('cleanEmptyParagraphs'),
+        props: {
+          // Loại bỏ các paragraph rỗng với trailing break khi parse HTML
+          transformPastedHTML: (html) => {
+            // Xóa các paragraph chỉ chứa trailing break (trong tất cả các section)
+            let cleaned = html
+              .replace(/<p[^>]*>\s*<br[^>]*class="ProseMirror-trailingBreak"[^>]*>\s*<\/p>/gi, '')
+              .replace(/<p[^>]*>\s*<\/p>/gi, '')
+              // Xóa paragraph rỗng trong blockquote của description
+              .replace(/<blockquote[^>]*>\s*<div[^>]*>\s*<p[^>]*>\s*<br[^>]*class="ProseMirror-trailingBreak"[^>]*>\s*<\/p>\s*<\/div>\s*<\/blockquote>/gi, '<blockquote></blockquote>')
+              .replace(/<blockquote[^>]*>\s*<p[^>]*>\s*<br[^>]*class="ProseMirror-trailingBreak"[^>]*>\s*<\/p>\s*<\/blockquote>/gi, '<blockquote></blockquote>')
+            
+            // Xóa paragraph rỗng ở root level (trước các section)
+            // Pattern: <p><br class="ProseMirror-trailingBreak"></p> ngay trước <div data-node-section
+            cleaned = cleaned.replace(/<p[^>]*>\s*<br[^>]*class="ProseMirror-trailingBreak"[^>]*>\s*<\/p>\s*(?=<div[^>]*data-node-section)/gi, '')
+            cleaned = cleaned.replace(/<p[^>]*>\s*<\/p>\s*(?=<div[^>]*data-node-section)/gi, '')
+            
+            return cleaned
+          },
+          // Xóa paragraph rỗng khi setContent
+          transformPasted: (slice) => {
+            const fragment = slice.content
+            const nodes = []
+            
+            fragment.forEach((node) => {
+              // Bỏ qua paragraph chỉ chứa hardBreak
+              if (node.type.name === 'paragraph') {
+                const isEmpty = node.content.size === 0 || 
+                  (node.content.size === 1 && 
+                   node.content.firstChild?.type.name === 'hardBreak')
+                if (!isEmpty) {
+                  nodes.push(node)
+                }
+              } else {
+                nodes.push(node)
+              }
+            })
+            
+            return new Slice(Fragment.from(nodes), slice.openStart, slice.openEnd)
+          },
+        },
+        // Plugin để xóa paragraph rỗng liên tục
+        appendTransaction: (transactions, oldState, newState) => {
+          // Luôn xử lý để đảm bảo xóa paragraph rỗng ngay cả khi setContent
+          // Chỉ skip nếu document không thay đổi và không có transaction nào
+          if (transactions.length === 0 && oldState.doc.eq(newState.doc)) {
+            return null
+          }
+          
+          const tr = newState.tr
+          let modified = false
+          
+          // Thu thập tất cả các thay đổi cần thiết trước
+          const changes = []
+          
+          // Helper function để kiểm tra paragraph có rỗng không
+          const isParagraphEmpty = (paragraphNode) => {
+            if (!paragraphNode || paragraphNode.type.name !== 'paragraph') {
+              return false
+            }
+            // Kiểm tra content size
+            if (paragraphNode.content.size === 0) {
+              return true
+            }
+            // Kiểm tra chỉ chứa hardBreak
+            if (paragraphNode.content.size === 1 && 
+                paragraphNode.content.firstChild?.type.name === 'hardBreak') {
+              return true
+            }
+            // Kiểm tra text content thực tế (chỉ whitespace/zero-width space)
+            let hasRealContent = false
+            paragraphNode.content.forEach((child) => {
+              if (child.type.name === 'text') {
+                const text = child.text || ''
+                const trimmedText = text.replace(/\u200B/g, '').trim() // Loại bỏ zero-width space và trim
+                if (trimmedText.length > 0) {
+                  hasRealContent = true
+                }
+              } else if (child.type.name !== 'hardBreak') {
+                // Có node khác ngoài text và hardBreak
+                hasRealContent = true
+              }
+            })
+            return !hasRealContent
+          }
+          
+          // Helper function để kiểm tra title section có rỗng không
+          const isTitleSectionEmpty = (titleNode) => {
+            if (!titleNode || titleNode.type.name !== 'nodeSectionWrapper' || 
+                titleNode.attrs.sectionType !== 'title') {
+              return false
+            }
+            // Không có content
+            if (titleNode.content.size === 0) {
+              return true
+            }
+            // Kiểm tra tất cả paragraphs bên trong
+            let hasRealContent = false
+            titleNode.forEach((child) => {
+              if (child.type.name === 'paragraph') {
+                if (!isParagraphEmpty(child)) {
+                  hasRealContent = true
+                }
+              } else {
+                // Có node khác ngoài paragraph
+                hasRealContent = true
+              }
+            })
+            return !hasRealContent
+          }
+          
+          newState.doc.descendants((node, pos) => {
+            // Xử lý nodeSectionWrapper với sectionType là title
+            if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'title') {
+              // Kiểm tra xem title có rỗng không (sử dụng helper function)
+              const isEmpty = isTitleSectionEmpty(node)
+              
+              // ✅ Đảm bảo luôn có ít nhất 1 paragraph trong title section
+              let hasParagraph = false
+              node.forEach((child) => {
+                if (child.type.name === 'paragraph') {
+                  hasParagraph = true
+                }
+              })
+              
+              // Nếu không có paragraph nào, tạo một paragraph rỗng
+              if (!hasParagraph) {
+                const { paragraph } = newState.schema.nodes
+                if (paragraph) {
+                  const emptyParagraph = paragraph.create()
+                  // ✅ Sử dụng resolve để tính toán vị trí chính xác
+                  const $pos = newState.doc.resolve(pos)
+                  const insertPos = $pos.pos + 1 // +1 để vào bên trong wrapper
+                  changes.push({
+                    type: 'insert',
+                    pos: insertPos,
+                    node: emptyParagraph
+                  })
+                  modified = true
+                }
+              }
+              
+              // ✅ Làm sạch paragraphs chỉ chứa whitespace/zero-width space trong title
+              node.forEach((child, offset) => {
+                if (child.type.name === 'paragraph') {
+                  let hasRealContent = false
+                  child.content.forEach((textNode) => {
+                    if (textNode.type.name === 'text') {
+                      const text = textNode.text || ''
+                      const trimmedText = text.replace(/\u200B/g, '').trim()
+                      if (trimmedText.length > 0) {
+                        hasRealContent = true
+                      }
+                    } else if (textNode.type.name !== 'hardBreak') {
+                      hasRealContent = true
+                    }
+                  })
+                  
+                  // Nếu paragraph chỉ chứa whitespace/zero-width space, làm rỗng nó
+                  if (!hasRealContent && child.content.size > 0) {
+                    const childPos = pos + 1 + offset
+                    const { paragraph } = newState.schema.nodes
+                    if (paragraph) {
+                      const emptyParagraph = paragraph.create()
+                      changes.push({
+                        type: 'replace',
+                        from: childPos,
+                        to: childPos + child.nodeSize,
+                        node: emptyParagraph
+                      })
+                      modified = true
+                    }
+                  }
+                }
+              })
+              
+              // Thêm placeholder cho title rỗng
+              if (isEmpty && !node.attrs.placeholder) {
+                changes.push({
+                  type: 'setMarkup',
+                  pos,
+                  attrs: {
+                    ...node.attrs,
+                    placeholder: 'Nhập...'
+                  }
+                })
+                modified = true
+              } else if (!isEmpty && node.attrs.placeholder) {
+                // Xóa placeholder nếu title không còn rỗng
+                const { placeholder: _, ...restAttrs } = node.attrs
+                changes.push({
+                  type: 'setMarkup',
+                  pos,
+                  attrs: restAttrs
+                })
+                modified = true
+              }
+            }
+            
+            // Xóa paragraph chỉ chứa trailing break hoặc rỗng
+            if (node.type.name === 'paragraph') {
+              // Kiểm tra xem paragraph có rỗng không (chỉ chứa hardBreak hoặc rỗng hoàn toàn)
+              const isEmpty = isParagraphEmpty(node)
+              
+              if (isEmpty) {
+                // Kiểm tra xem paragraph có nằm trong section nào
+                let sectionType = null
+                const $pos = newState.doc.resolve(pos)
+                for (let i = $pos.depth; i > 0; i--) {
+                  const parentNode = $pos.node(i)
+                  if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                    sectionType = parentNode.attrs.sectionType
+                    break
+                  }
+                }
+                
+                // Xử lý theo từng loại section
+                if (sectionType === 'title') {
+                  // Với title: chỉ xóa nếu không phải là paragraph duy nhất
+                  const $pos = newState.doc.resolve(pos)
+                  for (let i = $pos.depth; i > 0; i--) {
+                    const parentNode = $pos.node(i)
+                    if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                      const siblings = []
+                      parentNode.forEach((child) => {
+                        if (child.type.name === 'paragraph') {
+                          siblings.push(child)
+                        }
+                      })
+                      // Chỉ xóa nếu có nhiều hơn 1 paragraph
+                      if (siblings.length > 1) {
+                        changes.push({
+                          type: 'delete',
+                          from: pos,
+                          to: pos + node.nodeSize
+                        })
+                        modified = true
+                      }
+                      break
+                    }
+                  }
+                } else if (sectionType === 'task-link' || sectionType === 'image' || sectionType === 'description') {
+                  // Với task-link, image, description: luôn xóa paragraph rỗng
+                  changes.push({
+                    type: 'delete',
+                    from: pos,
+                    to: pos + node.nodeSize
+                  })
+                  modified = true
+                } else if (sectionType === null) {
+                  // Không nằm trong section nào (ở root level): xóa luôn
+                  // Đây là paragraph thừa ở root level, không nằm trong bất kỳ section nào
+                  changes.push({
+                    type: 'delete',
+                    from: pos,
+                    to: pos + node.nodeSize
+                  })
+                  modified = true
+                } else {
+                  // Trường hợp khác: xóa luôn
+                  changes.push({
+                    type: 'delete',
+                    from: pos,
+                    to: pos + node.nodeSize
+                  })
+                  modified = true
+                }
+              }
+            }
+            
+            // Xóa paragraph rỗng trong blockquote của description section
+            // NHƯNG giữ lại ít nhất 1 paragraph để có thể focus
+            if (node.type.name === 'blockquote') {
+              const $pos = newState.doc.resolve(pos)
+              let inDescriptionSection = false
+              for (let i = $pos.depth; i > 0; i--) {
+                const parentNode = $pos.node(i)
+                if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                  if (parentNode.attrs.sectionType === 'description') {
+                    inDescriptionSection = true
+                  }
+                  break
+                }
+              }
+              
+              if (inDescriptionSection) {
+                // Đếm số paragraph trong blockquote
+                let paragraphCount = 0
+                node.forEach((child) => {
+                  if (child.type.name === 'paragraph') {
+                    paragraphCount++
+                  }
+                })
+                
+                // Chỉ xóa paragraph rỗng nếu có nhiều hơn 1 paragraph
+                if (paragraphCount > 1) {
+                  let childOffset = 1 // +1 để bỏ qua blockquote start
+                  node.forEach((child) => {
+                    if (isParagraphEmpty(child)) {
+                      const childPos = pos + childOffset
+                      changes.push({
+                        type: 'delete',
+                        from: childPos,
+                        to: childPos + child.nodeSize
+                      })
+                      modified = true
+                    }
+                    childOffset += child.nodeSize
+                  })
+                }
+                // Nếu chỉ có 1 paragraph, giữ lại để có thể focus
+              }
+            }
+            
+            // Xóa paragraph rỗng trong nodeSectionWrapper (task-link, image, description)
+            if (node.type.name === 'nodeSectionWrapper') {
+              const sectionType = node.attrs.sectionType
+              if (sectionType === 'task-link' || sectionType === 'image' || sectionType === 'description') {
+                // Xóa tất cả paragraph rỗng trong section này
+                // Sử dụng $pos để tính toán vị trí chính xác
+                const $pos = newState.doc.resolve(pos)
+                let childPos = pos + 1 // +1 để bỏ qua wrapper start
+                node.forEach((child) => {
+                  if (isParagraphEmpty(child)) {
+                    changes.push({
+                      type: 'delete',
+                      from: childPos,
+                      to: childPos + child.nodeSize
+                    })
+                    modified = true
+                  }
+                  childPos += child.nodeSize
+                })
+              }
+            }
+            
+            // Di chuyển ảnh vào đúng section node-image nếu đang ở sai vị trí
+            if (node.type.name === 'image') {
+              const $pos = newState.doc.resolve(pos)
+              let currentSectionType = null
+              
+              // Tìm section wrapper chứa ảnh
+              for (let i = $pos.depth; i > 0; i--) {
+                const parentNode = $pos.node(i)
+                if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                  currentSectionType = parentNode.attrs.sectionType
+                  break
+                }
+              }
+              
+              // Nếu ảnh không nằm trong node-image section, di chuyển vào đúng section
+              if (currentSectionType !== 'image') {
+                // Tìm node-image section trong document
+                let imageSectionPos = null
+                let imageSectionNode = null
+                newState.doc.descendants((n, p) => {
+                  if (n.type.name === 'nodeSectionWrapper' && n.attrs.sectionType === 'image') {
+                    imageSectionPos = p
+                    imageSectionNode = n
+                    return false // Stop searching
+                  }
+                })
+                
+                if (imageSectionPos !== null && imageSectionNode) {
+                  // Di chuyển ảnh vào node-image section
+                  // Tính toán vị trí chèn vào cuối section (sau tất cả content hiện có)
+                  // imageSectionPos là vị trí của wrapper, +1 để vào trong wrapper, + content.size để đến cuối
+                  const insertPos = imageSectionPos + 1 + imageSectionNode.content.size
+                  
+                  // Xóa ảnh từ vị trí hiện tại và chèn vào vị trí mới
+                  changes.push({
+                    type: 'moveImage',
+                    from: pos,
+                    to: pos + node.nodeSize,
+                    insertPos: insertPos,
+                    node: node
+                  })
+                  modified = true
+                }
+              }
+            }
+            
+            // Xóa blockquote khỏi các section không phải description
+            // Logic di chuyển blockquote đã được xử lý trong PreventBlockquoteInWrongSectionExtension
+            // Ở đây chỉ xử lý các trường hợp đặc biệt khác
+          })
+          
+          // Áp dụng các thay đổi theo thứ tự đặc biệt
+          if (modified && changes.length > 0) {
+            // Tách các thay đổi thành các loại khác nhau
+            const moveImageChanges = changes.filter(c => c.type === 'moveImage')
+            const otherChanges = changes.filter(c => c.type !== 'moveImage')
+            
+            // Sắp xếp các thay đổi khác theo thứ tự ngược lại (từ cuối lên đầu)
+            otherChanges.sort((a, b) => {
+              const aPos = a.type === 'delete' ? a.from : a.pos
+              const bPos = b.type === 'delete' ? b.from : b.pos
+              return bPos - aPos // Sắp xếp từ cuối lên đầu
+            })
+            
+            // Áp dụng moveImage trước (vì chúng cần xóa và chèn)
+            moveImageChanges.forEach(change => {
+              try {
+                const currentDoc = tr.doc
+                if (change.from >= 0 && change.to <= currentDoc.content.size && 
+                    change.insertPos >= 0 && change.insertPos <= currentDoc.content.size &&
+                    change.from < change.to && change.node) {
+                  const nodeAtFrom = currentDoc.nodeAt(change.from)
+                  if (nodeAtFrom && nodeAtFrom.type.name === 'image') {
+                    // Xóa ảnh từ vị trí cũ
+                    tr.delete(change.from, change.to)
+                    // Tính lại vị trí insertPos sau khi xóa
+                    const adjustedInsertPos = change.insertPos > change.from 
+                      ? change.insertPos - (change.to - change.from)
+                      : change.insertPos
+                    // Chèn vào vị trí mới
+                    if (adjustedInsertPos >= 0 && adjustedInsertPos <= tr.doc.content.size) {
+                      tr.insert(adjustedInsertPos, change.node)
+                    }
+                  }
+                }
+              } catch (error) {
+                console.warn('CleanEmptyParagraphsExtension: Error moving image', error, change)
+              }
+            })
+            
+            // Áp dụng các thay đổi khác sau
+            otherChanges.forEach(change => {
+              try {
+                // Kiểm tra lại document hiện tại trong transaction
+                const currentDoc = tr.doc
+                
+                if (change.type === 'setMarkup') {
+                  // Kiểm tra vị trí hợp lệ trước khi set
+                  if (change.pos >= 0 && change.pos < currentDoc.content.size) {
+                    const nodeAtPos = currentDoc.nodeAt(change.pos)
+                    if (nodeAtPos && nodeAtPos.type.name === 'nodeSectionWrapper') {
+                      tr.setNodeMarkup(change.pos, null, change.attrs)
+                    }
+                  }
+                } else if (change.type === 'delete') {
+                  // Kiểm tra vị trí hợp lệ trước khi xóa
+                  if (change.from >= 0 && change.to <= currentDoc.content.size && change.from < change.to) {
+                    const nodeAtFrom = currentDoc.nodeAt(change.from)
+                    // Xóa nếu node tại vị trí đó là paragraph
+                    if (nodeAtFrom && nodeAtFrom.type.name === 'paragraph') {
+                      tr.delete(change.from, change.to)
+                    }
+                  }
+                } else if (change.type === 'insert') {
+                  // Chèn node vào vị trí mới
+                  if (change.pos >= 0 && change.pos <= currentDoc.content.size && change.node) {
+                    try {
+                      tr.insert(change.pos, change.node)
+                    } catch (error) {
+                      console.warn('CleanEmptyParagraphsExtension: Error inserting node', error, change)
+                    }
+                  }
+                } else if (change.type === 'replace') {
+                  // Thay thế node tại vị trí
+                  if (change.from >= 0 && change.to <= currentDoc.content.size && 
+                      change.from < change.to && change.node) {
+                    try {
+                      const nodeAtFrom = currentDoc.nodeAt(change.from)
+                      if (nodeAtFrom && nodeAtFrom.type.name === change.node.type.name) {
+                        tr.replaceWith(change.from, change.to, change.node)
+                      }
+                    } catch (error) {
+                      console.warn('CleanEmptyParagraphsExtension: Error replacing node', error, change)
+                    }
+                  }
+                }
+              } catch (error) {
+                // Bỏ qua lỗi nếu vị trí không hợp lệ (có thể đã bị thay đổi bởi thao tác trước)
+                console.warn('CleanEmptyParagraphsExtension: Error applying change', error, change)
+              }
+            })
+            
+            // Nếu transaction đã được sửa đổi, return nó
+            if (tr.steps.length > 0) {
+              return tr
+            }
+          }
+          
+          return null
+        },
+      }),
+    ]
+  },
+})
+
+// Extension để ngăn chặn blockquote được tạo ở các section khác ngoài description
+// và đảm bảo chỉ có duy nhất 1 blockquote trong description section
+const PreventBlockquoteInWrongSectionExtension = Extension.create({
+  name: 'preventBlockquoteInWrongSection',
+  
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('preventBlockquoteInWrongSection'),
+        appendTransaction: (transactions, oldState, newState) => {
+          // ⚠️ DISABLED TEMPORARILY: Để test việc insert blockquote
+          // TODO: Re-enable sau khi fix được insert blockquote
+          return null
+          
+          // Chỉ chạy nếu có thay đổi trong document
+          if (transactions.every(tr => !tr.docChanged)) {
+            return null
+          }
+          
+          const tr = newState.tr
+          let modified = false
+          const blockquotesToMove = []
+          const blockquotesToDelete = []
+          
+          // Tìm node-description section trong document
+          let descriptionSectionPos = null
+          let descriptionSectionNode = null
+          newState.doc.descendants((n, p) => {
+            if (n.type.name === 'nodeSectionWrapper' && n.attrs.sectionType === 'description') {
+              descriptionSectionPos = p
+              descriptionSectionNode = n
+              return false // Stop searching
+            }
+          })
+          
+          if (descriptionSectionPos === null) {
+            // Không có description section, không thể di chuyển blockquote
+            console.warn('PreventBlockquoteInWrongSectionExtension: No description section found')
+            return null
+          }
+          
+          // Đếm số blockquote trong description section
+          let blockquotesInDescription = []
+          
+          // Kiểm tra tất cả các blockquote trong document
+          newState.doc.descendants((node, pos) => {
+            if (node.type.name === 'blockquote') {
+              const $pos = newState.doc.resolve(pos)
+              let currentSectionType = null
+              
+              // Tìm section wrapper chứa blockquote
+              for (let i = $pos.depth; i > 0; i--) {
+                const parentNode = $pos.node(i)
+                if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                  currentSectionType = parentNode.attrs.sectionType
+                  break
+                }
+              }
+              
+              // Nếu blockquote không nằm trong description section, đánh dấu để xóa
+              if (currentSectionType && currentSectionType !== 'description') {
+                // console.log('PreventBlockquoteInWrongSectionExtension: Found blockquote in wrong section:', currentSectionType, 'at pos:', pos)
+                blockquotesToMove.push({ 
+                  from: pos, 
+                  to: pos + node.nodeSize,
+                  node: node
+                })
+                modified = true
+              } else if (currentSectionType === 'description') {
+                // Đếm blockquote trong description section
+                blockquotesInDescription.push({ from: pos, to: pos + node.nodeSize, node: node })
+              }
+            }
+          })
+          
+          // Nếu có nhiều hơn 1 blockquote trong description section, xóa các blockquote thừa (giữ lại cái đầu tiên)
+          if (blockquotesInDescription.length > 1) {
+            console.log('PreventBlockquoteInWrongSectionExtension: Found', blockquotesInDescription.length, 'blockquotes in description section, keeping only the first one')
+            for (let i = 1; i < blockquotesInDescription.length; i++) {
+              blockquotesToDelete.push(blockquotesInDescription[i])
+              modified = true
+            }
+          }
+          
+          // Xóa các blockquote thừa trong description section (theo thứ tự ngược lại để tránh lỗi vị trí)
+          if (blockquotesToDelete.length > 0) {
+            console.log('PreventBlockquoteInWrongSectionExtension: Deleting', blockquotesToDelete.length, 'extra blockquotes from description section')
+            blockquotesToDelete.sort((a, b) => b.from - a.from) // Sắp xếp từ cuối lên đầu
+            
+            blockquotesToDelete.forEach(({ from, to }) => {
+              try {
+                if (from >= 0 && to <= tr.doc.content.size && from < to) {
+                  const nodeAtFrom = tr.doc.nodeAt(from)
+                  if (nodeAtFrom && nodeAtFrom.type.name === 'blockquote') {
+                    tr.delete(from, to)
+                    console.log('PreventBlockquoteInWrongSectionExtension: Deleted extra blockquote at', from)
+                  }
+                }
+              } catch (error) {
+                console.warn('PreventBlockquoteInWrongSectionExtension: Error deleting blockquote', error)
+              }
+            })
+          }
+          
+          // Xóa các blockquote ở sai section (theo thứ tự ngược lại để tránh lỗi vị trí)
+          if (blockquotesToMove.length > 0) {
+            // console.log('PreventBlockquoteInWrongSectionExtension: Deleting', blockquotesToMove.length, 'blockquotes from wrong sections')
+            blockquotesToMove.sort((a, b) => b.from - a.from) // Sắp xếp từ cuối lên đầu
+            
+            blockquotesToMove.forEach(({ from, to }) => {
+              try {
+                if (from >= 0 && to <= tr.doc.content.size && from < to) {
+                  const nodeAtFrom = tr.doc.nodeAt(from)
+                  if (nodeAtFrom && nodeAtFrom.type.name === 'blockquote') {
+                    // Xóa blockquote từ section sai
+                    tr.delete(from, to)
+                    // console.log('PreventBlockquoteInWrongSectionExtension: Deleted blockquote from wrong section at', from)
+                  }
+                }
+              } catch (error) {
+                console.warn('PreventBlockquoteInWrongSectionExtension: Error deleting blockquote', error)
+              }
+            })
+          }
+          
+          return modified && tr.steps.length > 0 ? tr : null
+        },
+      }),
+    ]
+  },
+})
+
 // Extension để ngăn xóa task link sections trong edit mode
 const PreventTaskLinkDeletionExtension = Extension.create({
   name: 'preventTaskLinkDeletion',
@@ -136,8 +874,10 @@ const PreventTaskLinkDeletionExtension = Extension.create({
                 while (currentElement && currentElement !== view.dom) {
                   if (currentElement.classList?.contains('node-task-link-section') ||
                       currentElement.getAttribute?.('data-node-section') === 'task-link' ||
+                      currentElement.classList?.contains('node-task-link') ||
                       currentElement.querySelector?.('.node-task-link-section') ||
                       currentElement.querySelector?.('[data-node-section="task-link"]') ||
+                      currentElement.querySelector?.('.node-task-link') ||
                       currentElement.textContent?.includes('Liên kết công việc')) {
                     hasTaskLinkInSelection = true
                     break
@@ -2604,6 +3344,8 @@ export default {
       extensions: [
         FilterMenuTextExtension, // ⚠️ CRITICAL: Phải là extension đầu tiên
         PreventTaskLinkDeletionExtension, // Ngăn xóa task link sections
+        PreventBlockquoteInWrongSectionExtension, // Ngăn blockquote được tạo ở các section khác ngoài description
+        NodeSectionWrapperExtension, // Extension để định nghĩa div wrapper cho các section
         Document,
         Paragraph,
         Text,
@@ -2641,6 +3383,7 @@ export default {
           },
         }),
         Typography,
+        CleanEmptyParagraphsExtension, // Extension để loại bỏ paragraph rỗng
         Placeholder.configure({
           placeholder: this.placeholder,
         }),
@@ -2700,8 +3443,29 @@ export default {
 
           // Xử lý Shift + Enter để chuyển focus giữa title và description
           if (event.key === 'Enter' && event.shiftKey) {
+            console.log('[EDITOR DEBUG] Shift+Enter detected, isEditMode:', this.isEditMode)
+            
+            // ⚠️ LUÔN preventDefault trước để ngăn soft break!
             event.preventDefault()
             event.stopPropagation()
+            
+            // ✅ CRITICAL FIX: Kiểm tra editor có đang focus không
+            // Nếu editor đang focus → Xử lý ở đây
+            // Nếu không → Để MindMap.vue xử lý
+            const isEditorFocused = this.editor && this.editor.isFocused
+            
+            console.log('[EDITOR DEBUG] Checking editor state:', {
+              isEditMode: this.isEditMode,
+              isEditorFocused,
+              hasEditor: !!this.editor
+            })
+            
+            if (!isEditorFocused) {
+              console.log('[EDITOR DEBUG] Editor not focused, letting MindMap.vue handle')
+              return false // Để event bubble lên MindMap.vue
+            }
+            
+            console.log('[EDITOR DEBUG] Editor focused, handling here')
 
             const { state } = view
             const { doc, selection } = state
@@ -2717,106 +3481,183 @@ export default {
               }
             }
 
+            console.log('[EDITOR DEBUG] isInBlockquote:', isInBlockquote)
+
             if (isInBlockquote) {
+              console.log('[EDITOR DEBUG] Already in blockquote, focusing to start')
               // Đang ở trong blockquote: focus lên title (paragraph đầu tiên)
               // Đơn giản: di chuyển lên đầu document
               this.editor.chain()
                 .focus('start')
                 .run()
             } else {
-              // Đang ở paragraph (title): kiểm tra xem đã có blockquote chưa
-              let hasBlockquote = false
+              console.log('[EDITOR DEBUG] Not in blockquote, checking description section')
+              // Đang ở paragraph (title): kiểm tra xem đã có blockquote trong DESCRIPTION chưa
+              // ✅ CRITICAL FIX: CHỈ check blockquote trong description section
+              // Không check toàn bộ document để tránh tạo blockquote lồng nhau trong title!
+              let hasBlockquoteInDescription = false
+              let blockquoteOffset = null
 
-              // Tìm blockquote đầu tiên
-              doc.forEach((node) => {
-                if (node.type.name === 'blockquote' && !hasBlockquote) {
-                  hasBlockquote = true
+              // Tìm description section và check blockquote bên trong
+              doc.descendants((node, pos) => {
+                if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+                  // Tìm blockquote trong description section
+                  node.forEach((child, offset) => {
+                    if (child.type.name === 'blockquote' && !hasBlockquoteInDescription) {
+                      hasBlockquoteInDescription = true
+                      blockquoteOffset = pos + 1 + offset
+                    }
+                  })
+                  return false
                 }
               })
 
-              if (hasBlockquote) {
-                // Đã có blockquote: focus vào blockquote (di chuyển xuống cuối và tìm blockquote)
-                // Tìm vị trí blockquote đầu tiên
-                let blockquoteOffset = null
-                doc.forEach((node, offset) => {
-                  if (node.type.name === 'blockquote' && blockquoteOffset === null) {
-                    blockquoteOffset = offset
-                  }
-                })
+              console.log('[EDITOR DEBUG] hasBlockquoteInDescription:', hasBlockquoteInDescription, 'blockquoteOffset:', blockquoteOffset)
 
-                if (blockquoteOffset !== null) {
-                  // Focus vào đầu blockquote
-                  try {
-                    const resolvedPos = state.doc.resolve(blockquoteOffset + 1)
-                    this.editor.chain()
-                      .setTextSelection(resolvedPos.pos)
-                      .focus()
-                      .run()
-                  } catch (e) {
-                    // Fallback: focus vào cuối
-                    this.editor.chain()
-                      .focus('end')
-                      .run()
+              if (hasBlockquoteInDescription && blockquoteOffset !== null) {
+                console.log('[EDITOR DEBUG] Found blockquote in description, checking for paragraph')
+                // ✅ FIX: Đã có blockquote → Kiểm tra có <p> bên trong không
+                // Nếu không có, insert <p> vào đó
+                const blockquoteNode = doc.nodeAt(blockquoteOffset)
+                
+                if (blockquoteNode) {
+                  // Tìm paragraph trong blockquote
+                  let hasParagraph = false
+                  blockquoteNode.descendants((child) => {
+                    if (child.type.name === 'paragraph') {
+                      hasParagraph = true
+                      return false
+                    }
+                  })
+                  
+                  if (!hasParagraph) {
+                    // Không có paragraph → Insert <p> vào blockquote
+                    console.log('[EDITOR DEBUG] No paragraph in blockquote, inserting <p>')
+                    const insideBlockquotePos = blockquoteOffset + 1
+                    const { paragraph } = state.schema.nodes
+                    
+                    if (paragraph) {
+                      const textNode = state.schema.text('\u200B') // Zero-width space
+                      const para = paragraph.create(null, textNode)
+                      
+                      const tr = state.tr
+                        .delete(insideBlockquotePos, insideBlockquotePos + blockquoteNode.content.size)
+                        .insert(insideBlockquotePos, para)
+                      
+                      view.dispatch(tr)
+                      console.log('[EDITOR DEBUG] Inserted <p> into blockquote')
+                      
+                      // Focus vào paragraph
+                      setTimeout(() => {
+                        this.editor.chain()
+                          .setTextSelection(insideBlockquotePos + 1)
+                          .focus()
+                          .run()
+                      }, 50)
+                    }
+                  } else {
+                    // Đã có paragraph → Focus vào đó
+                    console.log('[EDITOR DEBUG] Paragraph exists, focusing')
+                    try {
+                      const resolvedPos = state.doc.resolve(blockquoteOffset + 1)
+                      this.editor.chain()
+                        .setTextSelection(resolvedPos.pos)
+                        .focus()
+                        .run()
+                    } catch (e) {
+                      this.editor.chain()
+                        .focus('end')
+                        .run()
+                    }
                   }
                 }
               } else {
-                // Chưa có blockquote: tạo blockquote mới
-                // Tìm vị trí chèn: sau tất cả paragraphs và images
-                let insertPosition = null
-
-                // Tìm node cuối cùng không phải blockquote (paragraph hoặc image)
-                doc.forEach((node, offset) => {
-                  if (node.type.name !== 'blockquote') {
-                    // Tính vị trí sau node này (offset + nodeSize)
-                    const nodeEnd = offset + node.nodeSize
-                    if (insertPosition === null || nodeEnd > insertPosition) {
-                      insertPosition = nodeEnd
-                    }
-                  }
-                })
-
-                // Nếu không tìm thấy, dùng cuối document
-                if (insertPosition === null) {
-                  insertPosition = doc.content.size
-                }
-
-                
-
-                // Chèn blockquote tại vị trí đã tính
-                this.editor.chain()
-                  .setTextSelection(insertPosition)
-                  .focus()
-                  .insertContent('<blockquote><p></p></blockquote>')
-                  .run()
-
-                // Focus vào paragraph trong blockquote vừa tạo
-                this.$nextTick(() => {
-                  const { state } = this.editor.view
-                  const { doc: newDoc } = state
-
-                  // Tìm blockquote vừa tạo
-                  let newBlockquoteOffset = null
-                  newDoc.forEach((node, offset) => {
-                    if (node.type.name === 'blockquote' && newBlockquoteOffset === null) {
-                      newBlockquoteOffset = offset
+                  console.log('[EDITOR DEBUG] No blockquote in description, creating new one')
+                  // ✅ FIX: Chưa có blockquote trong description → Tạo trong description section
+                  // Tìm description section
+                  let descriptionSectionPos = null
+                  let descriptionSectionNode = null
+                  
+                  doc.descendants((node, pos) => {
+                    if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+                      descriptionSectionPos = pos
+                      descriptionSectionNode = node
+                      return false
                     }
                   })
-
-                  if (newBlockquoteOffset !== null) {
-                    const paragraphStartPos = newBlockquoteOffset + 1 + 1
+                  
+                  console.log('[EDITOR DEBUG] Found description section:', !!descriptionSectionNode, 'at pos:', descriptionSectionPos)
+                  
+                  // Nếu chưa có description section, tạo mới
+                  if (!descriptionSectionNode) {
+                    console.log('[EDITOR DEBUG] Creating description section')
+                    const insertPos = doc.content.size
                     this.editor.chain()
-                      .setTextSelection(paragraphStartPos)
-                      .focus()
+                      .setTextSelection(insertPos)
+                      .insertContent('<div class="node-description" data-node-section="description"></div>')
                       .run()
-                  } else {
-                    this.editor.commands.focus('end')
+                    
+                    // Refresh state
+                    const newState = this.editor.view.state
+                    const newDoc = newState.doc
+                    newDoc.descendants((node, pos) => {
+                      if (node.type.name === 'nodeSectionWrapper' && node.attrs.sectionType === 'description') {
+                        descriptionSectionPos = pos
+                        descriptionSectionNode = node
+                        return false
+                      }
+                    })
                   }
-                })
+                  
+                  if (descriptionSectionNode && descriptionSectionPos !== null) {
+                    // Insert blockquote vào description section
+                    const insertPos = descriptionSectionPos + 1 + descriptionSectionNode.content.size
+                    
+                    console.log('[EDITOR DEBUG] Inserting blockquote at pos:', insertPos)
+                    
+                    this.editor.chain()
+                      .insertContentAt(insertPos, '<blockquote><p></p></blockquote>')
+                      .run()
+                    
+                    console.log('[EDITOR DEBUG] Blockquote inserted')
+                    
+                    // Focus vào paragraph trong blockquote vừa tạo
+                    setTimeout(() => {
+                      const { state: newState } = this.editor.view
+                      const { doc: newDoc } = newState
+                      
+                      // Tìm blockquote vừa tạo trong description section
+                      let newBlockquotePos = null
+                      newDoc.descendants((node, pos) => {
+                        if (node.type.name === 'blockquote' && newBlockquotePos === null) {
+                          const $pos = newDoc.resolve(pos)
+                          for (let i = $pos.depth; i > 0; i--) {
+                            const parentNode = $pos.node(i)
+                            if (parentNode && parentNode.type.name === 'nodeSectionWrapper') {
+                              if (parentNode.attrs.sectionType === 'description') {
+                                newBlockquotePos = pos
+                                return false
+                              }
+                              break
+                            }
+                          }
+                        }
+                      })
+                      
+                      if (newBlockquotePos !== null) {
+                        const paragraphStartPos = newBlockquotePos + 2
+                        this.editor.chain()
+                          .setTextSelection(paragraphStartPos)
+                          .focus()
+                          .run()
+                      } else {
+                        this.editor.commands.focus('end')
+                      }
+                    }, 50)
+                  }
+                }
               }
-            }
 
-            // Emit event để parent component xử lý (nếu cần)
-            this.$emit('create-description')
             return true
           }
 
@@ -3423,7 +4264,7 @@ export default {
       }
       this.editor = null
     }
-  },
+  }
 }
 </script>
 
@@ -4222,6 +5063,96 @@ export default {
   height: 16px !important;
   color: white !important;
   fill: white !important;
+}
+
+/* Ẩn các section rỗng (node-task-link, node-image, node-description) */
+:deep(.mindmap-editor-prose .node-task-link:empty),
+:deep(.mindmap-editor-prose .node-task-link:not(:has(*))),
+:deep(.mindmap-editor-prose .node-task-link:has(p:only-child:empty)),
+:deep(.mindmap-editor-prose .node-task-link:has(p:only-child:has(br.ProseMirror-trailingBreak:only-child))) {
+  display: none !important;
+}
+
+:deep(.mindmap-editor-prose .node-image:empty),
+:deep(.mindmap-editor-prose .node-image:not(:has(*))),
+:deep(.mindmap-editor-prose .node-image:has(p:only-child:empty)),
+:deep(.mindmap-editor-prose .node-image:has(p:only-child:has(br.ProseMirror-trailingBreak:only-child))) {
+  display: none !important;
+}
+
+/* Ẩn node-description khi rỗng, NHƯNG không ẩn khi đang focus */
+:deep(.mindmap-editor-prose:not(:focus-within) .node-description:empty),
+:deep(.mindmap-editor-prose:not(:focus-within) .node-description:not(:has(*))),
+:deep(.mindmap-editor-prose:not(:focus-within) .node-description:has(blockquote:only-child:has(p:only-child:empty))),
+:deep(.mindmap-editor-prose:not(:focus-within) .node-description:has(blockquote:only-child:has(p:only-child:has(br.ProseMirror-trailingBreak:only-child)))) {
+  display: none !important;
+}
+
+/* Khi đang focus, luôn hiển thị node-description để người dùng có thể nhập */
+:deep(.mindmap-editor-prose:focus-within .node-description) {
+  display: block !important;
+}
+
+/* ✅ Giới hạn description hiển thị 2 dòng với ellipsis */
+/* Áp dụng cho blockquote bên trong node-description, không phải cho node-description chính */
+:deep(.mindmap-editor-prose:not(:focus-within) .node-description blockquote) {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Khi đang focus, hiển thị đầy đủ description */
+:deep(.mindmap-editor-prose:focus-within .node-description blockquote) {
+  display: block !important;
+  -webkit-line-clamp: unset;
+  line-clamp: unset;
+  -webkit-box-orient: unset;
+  overflow: visible;
+  text-overflow: unset;
+}
+
+/* Placeholder cho title section khi rỗng */
+:deep(.mindmap-editor-prose .node-title[data-placeholder] p.is-empty::before),
+:deep(.mindmap-editor-prose .node-title[data-placeholder]:has(p:only-child.is-empty) p::before),
+:deep(.mindmap-editor-prose .node-title[data-placeholder] p:empty::before),
+:deep(.mindmap-editor-prose .node-title[data-placeholder]:has(p:only-child:empty) p::before),
+:deep(.mindmap-editor-prose .node-title[data-placeholder] p:only-child:empty::before),
+/* ✅ Fallback: Hiển thị placeholder khi node-title có data-placeholder và paragraph rỗng hoặc chỉ có whitespace */
+:deep(.mindmap-editor-prose .node-title[data-placeholder] p:first-child::before) {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ✅ Ẩn placeholder khi paragraph có nội dung thực sự */
+:deep(.mindmap-editor-prose .node-title[data-placeholder] p:not(:empty):not(.is-empty)::before) {
+  content: none;
+}
+
+/* ✅ Đảm bảo placeholder hiển thị khi title section rỗng hoàn toàn (không có paragraph) */
+:deep(.mindmap-editor-prose .node-title[data-placeholder]:empty::before),
+:deep(.mindmap-editor-prose .node-title[data-placeholder].is-empty::before),
+:deep(.mindmap-editor-prose .node-title[data-placeholder].is-editor-empty::before),
+:deep(.mindmap-editor-prose .node-title[data-placeholder]:not(:has(p))::before),
+/* ✅ Fallback: Hiển thị placeholder trên bất kỳ div nào có data-placeholder và is-empty */
+:deep(.mindmap-editor-prose div[data-placeholder].is-empty::before),
+:deep(.mindmap-editor-prose div[data-placeholder].is-editor-empty::before),
+:deep(.mindmap-editor-prose div[data-placeholder]:empty::before) {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+  pointer-events: none;
+  display: block;
+  height: auto;
+  line-height: 1.4;
+  padding: 0;
+  margin: 0;
 }
 
 :deep(.mindmap-editor-prose .image-wrapper .image-menu-button) {
