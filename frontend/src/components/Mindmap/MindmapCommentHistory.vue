@@ -81,7 +81,7 @@
 
                             </div>
 
-                            <div class="max-w-none !text-[12px] mt-2" v-html="c.content" />
+                            <div class="max-w-none history-content !text-[12px] mt-2" v-html="c.content" :ref="el => bindImageClick(el)"/>
 
                             <!-- Reactions (history - read only) -->
                             <div v-if="h.reactions && h.reactions[c.id]" class="mt-2 flex flex-wrap gap-1">
@@ -146,6 +146,8 @@ const loading = ref(false)
 const histories = ref([])
 const error = ref(null)
 const socket = inject("socket")
+const { openGallery } = inject("mindmapGallery")
+
 
 const commentRefs = ref({})
 const scrollContainer = ref(null)
@@ -415,6 +417,26 @@ function buildReactionTooltip(users = []) {
     return `${names.slice(0, 2).join(", ")} và ${names.length - 2} người khác đã thả cảm xúc`
 }
 
+ function bindImageClick(el) {
+   if (!el) return
+
+   el.onclick = (e) => {
+     const img = e.target
+     if (img.tagName !== "IMG") return
+
+     const images = Array.from(
+       el.querySelectorAll("img")
+     ).map(i => i.src)
+
+     const index = images.indexOf(img.src)
+     if (index === -1) return
+
+     console.log(">>>>>> images:", images);
+     
+     openGallery(images, index)
+   }
+ }
+
 </script>
 
 <style scoped>
@@ -422,5 +444,30 @@ function buildReactionTooltip(users = []) {
     background-color: #fff7c2;
     border-radius: 6px;
     transition: background-color 0.2s ease;
+}
+
+/* GRID CHÍNH */
+.history-content {
+    display: grid;
+    grid-template-columns: repeat(3, 62px);
+    gap: 6px;
+    width: fit-content;
+    max-width: 100%;
+}
+
+/* TEXT → CHIẾM FULL ROW */
+.history-content :deep(p),
+.history-content :deep(div),
+.history-content :deep(span) {
+    grid-column: 1 / -1;
+}
+
+/* IMAGE → 1 Ô GRID */
+.history-content :deep(img) {
+    width: 62px;
+    height: 62px;
+    object-fit: cover;
+    border-radius: 6px;
+    cursor: zoom-in;
 }
 </style>

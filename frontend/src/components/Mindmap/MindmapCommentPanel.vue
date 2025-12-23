@@ -10,7 +10,7 @@
       <!-- Header -->
       <div class="flex py-4 px-3 items-center">
         <p class="font-medium">Nhận xét ({{ totalComments }})</p>
-        <Popover @hide="clearCommentIdFromUrl" dismissable ref="op" class="w-[360px] history-mindmap-popover">
+        <Popover @hide="clearCommentIdFromUrl" :dismissable="!galleryVisible" ref="op" class="w-[360px] history-mindmap-popover">
           <MindmapCommentHistory :visible="isHistoryOpen" :mindmapId="entityName" :scrollTarget="historyScrollTarget"
             :nodeMap="nodeMap" />
         </Popover>
@@ -362,7 +362,7 @@
 
 <script setup>
 
-import { ref, watch, computed, nextTick, inject, defineExpose, onMounted, onBeforeUnmount } from "vue"
+import { ref, watch, computed, nextTick, inject, defineExpose, onMounted, onBeforeUnmount, provide } from "vue"
 import { call, createResource } from "frappe-ui"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
@@ -757,6 +757,9 @@ useMindmapCommentRealtime({
 // =============================
 
 // gallery
+const gallery = useMindmapGallery()
+provide("mindmapGallery", gallery)
+
 const {
   galleryVisible,
   galleryIndex,
@@ -764,8 +767,7 @@ const {
   galleryCounterText,
   openGallery,
   openGalleryFromEditor
-} = useMindmapGallery()
-
+} = gallery
 
 const {
   hasNextGroup,
