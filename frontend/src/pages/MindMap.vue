@@ -109,7 +109,6 @@
           :class="{
             'bg-blue-50 border-blue-400': currentView === 'text',
           }"
-          title="Text view"
         >
           <svg
             width="16"
@@ -234,15 +233,17 @@
         </MindmapCommentPanel>      
 
         <div
-          v-show="currentView === 'text'"
+          v-if="currentView === 'text'"
           class="w-full h-[calc(100vh-84px)] flex items-center justify-center text-gray-400"
         >
           <MindmapTextModeView 
           :nodes="nodes"
           :edges="edges" 
           :version="textViewVersion"
+          :active-comment-node="activeCommentNode"
           @rename-title="renameMindmapTitle"
           @update-nodes="applyTextEdits"
+          @open-comment="onOpenComment"
           />
         </div>
     </div>
@@ -3565,20 +3566,33 @@ function syncElementsWithRendererPosition() {
 }
 
 
-function openCommentPanel(node) {
-  if (!node) return
+function openCommentPanel(input) {
+  if (!input) return
 
+  // 1. Chuẩn hoá nodeId
+  const nodeId =
+    typeof input === "string"
+      ? input
+      : typeof input === "object"
+        ? input.id
+        : null
+
+  if (!nodeId) return
+
+  // 2. Tìm node thật trong state
+  const syncedNode = nodes.value.find(n => n.id === nodeId)
+  if (!syncedNode) return
+
+  // 3. Mở panel
   isFromUI.value = true
   syncElementsWithRendererPosition()
 
-  const syncedNode = nodes.value.find(n => n.id === node.id)
-
-  activeCommentNode.value = syncedNode || node
+  activeCommentNode.value = syncedNode
   showPanel.value = true
 
   nextTick(() => {
-    d3Renderer?.selectCommentNode(node.id, false)
-    commentPanelRef.value?.focusEditorForNode?.(node.id)
+    d3Renderer?.selectCommentNode(nodeId, false)
+    commentPanelRef.value?.focusEditorForNode?.(nodeId)
     isFromUI.value = false
   })
 }
@@ -4558,6 +4572,15 @@ function handleRealtimeNewComment(newComment) {
   if (node) {
     node.count = (node.count || 0) + 1
   }
+  if (currentView.value === 'text') {
+    const li = document.querySelector(
+      `li[data-node-id="${newComment.node_id}"]`
+    )
+
+    if (li) {
+      li.setAttribute("data-has-count", "true")
+    }
+  }
 }
 
 function handleRealtimeDeleteOneComment(payload) {
@@ -4567,14 +4590,36 @@ function handleRealtimeDeleteOneComment(payload) {
   if (node && node.count > 0) {
     node.count = node.count - 1
   }
+  if(node.count === 0){
+    if (currentView.value === 'text') {
+      const li = document.querySelector(
+        `li[data-node-id="${payload.node_id}"]`
+      )
+
+      if (li) {
+        li.setAttribute("data-has-count", "false")
+      }
+    }    
+  }  
 }
 
 function handleRealtimeResolvedComment(payload){
-    if (!payload?.node_id) return
+  if (!payload?.node_id) return
 
   const node = nodes.value.find(n => n.id === payload.node_id)
   if (node && node.count > 0) {
     node.count = node.count - payload.count
+  }
+  if(node.count === 0){
+    if (currentView.value === 'text') {
+      const li = document.querySelector(
+        `li[data-node-id="${payload.node_id}"]`
+      )
+
+      if (li) {
+        li.setAttribute("data-has-count", "false")
+      }
+    }    
   }
 }
 
@@ -4692,7 +4737,9 @@ function applyTextEdits(changes) {
   }
 }
 
-
+function onOpenComment(nodeId) {
+  openCommentPanel(nodeId);
+}
 </script>
 
 <style scoped>

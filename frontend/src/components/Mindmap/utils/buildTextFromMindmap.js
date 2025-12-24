@@ -1,4 +1,3 @@
-
 /**
  * Lấy HTML inline an toàn cho heading
  * - Nếu label là <p>...</p> → lấy innerHTML của <p>
@@ -10,16 +9,71 @@ function extractInlineHTML(html) {
   const div = document.createElement("div")
   div.innerHTML = html
 
-  // nếu là <p>...</p> → đổi sang <span>
+  // 1. chỉ lấy <p> đầu tiên
   const p = div.querySelector("p")
-  if (p) {
-    const span = document.createElement("span")
-    span.innerHTML = p.innerHTML
-    return span.outerHTML
+  if (!p) return ""
+
+  // 2. xoá TOÀN BỘ cấu trúc không-inline
+  p.querySelectorAll("ul, li").forEach((el) => el.remove())
+
+  // 3. xoá các data-node-id lạc
+  p.querySelectorAll("[data-node-id]").forEach((el) => {
+    el.removeAttribute("data-node-id")
+    el.removeAttribute("data-has-count")
+  })
+
+  // 4. nếu rỗng hoặc chỉ còn <br> thì bỏ
+  const content = p.innerHTML.trim()
+  if (!content || content === "<br>") return ""
+
+  return content
+}
+
+function extractBlockHTML(html) {
+  if (!html) return ""
+
+  const div = document.createElement("div")
+  div.innerHTML = html
+
+  const blocks = []
+
+  const ps = Array.from(div.querySelectorAll("p")).slice(1)
+
+  ps.forEach(p => {
+    if (p.closest("blockquote")) return
+
+    const a = p.querySelector("a")
+    const text = p.textContent?.trim()
+
+    // ✅ CASE: task link
+    if (a) {
+      blocks.push(`
+<a
+  data-task-link="true"
+  href="${a.getAttribute("href")}"
+>
+  ${a.textContent || "Liên kết công việc"}
+</a>
+      `.trim())
+      return
+    }
+
+    // paragraph thường
+    const content = p.innerHTML.trim()
+    if (content && content !== "<br>") {
+      blocks.push(`<p>${content}</p>`)
+    }
+  })
+
+  // blockquote
+  const blockquote = div.querySelector("blockquote")
+  if (blockquote) {
+    blocks.push(blockquote.outerHTML)
   }
 
-  return div.innerHTML.trim()
+  return blocks.join("\n")
 }
+
 
 /**
  * Build HTML cho editor từ mindmap
@@ -29,19 +83,15 @@ function extractInlineHTML(html) {
 export function buildTextFromMindmap(nodes, edges) {
   if (!nodes?.length) return ""
 
-  // map nodeId → node + children
   const nodeMap = new Map()
   nodes.forEach((n) => {
     nodeMap.set(n.id, { ...n, children: [] })
   })
 
-  // build tree từ edges
   edges.forEach((e) => {
     const parent = nodeMap.get(e.source)
     const child = nodeMap.get(e.target)
-    if (parent && child) {
-      parent.children.push(child)
-    }
+    if (parent && child) parent.children.push(child)
   })
 
   const root = nodeMap.get("root")
@@ -49,52 +99,62 @@ export function buildTextFromMindmap(nodes, edges) {
 
   const html = []
 
-  /**
-   * Render 1 heading / paragraph
-   */
-  function renderNode(node, tag) {
-    const inlineHTML = extractInlineHTML(node.data?.label || "")
-    if (!inlineHTML) return
-
-    html.push(`
-<${tag}
-  data-node-id="${node.id}"
-  data-has-count="${node.id !== "root"}"
->
-  ${inlineHTML}
-</${tag}>
-`.trim())
-  }
-
-  /**
-   * DFS render tree
-   */
-  function walk(node, level) {
-    if (node.id === "root") {
-      // root: h1, không strip span
-      const inlineHTML = extractInlineHTML(node.data?.label || "")
-      if (inlineHTML) {
-        html.push(`
-<h1 data-node-id="root" class="mb-0">
-  ${inlineHTML}
+  // render root
+  const rootHTML = extractInlineHTML(root.data?.label || "")
+  if (rootHTML) {
+    html.push(
+      `
+<h1 data-node-id="root">
+  ${rootHTML}
 </h1>
-`.trim())
-      }
-    } else if (level === 1) {
-      renderNode(node, "h2")
-    } else if (level === 2) {
-      renderNode(node, "h3")
-    } else {
-      // level sâu hơn → paragraph
-      renderNode(node, "p")
-    }
-
-    node.children
-      .sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
-      .forEach((child) => walk(child, level + 1))
+`.trim()
+    )
   }
 
-  walk(root, 0)
+  function renderList(nodes) {
+    if (!nodes.length) return ""
+
+    return `
+<ul>
+  ${nodes
+    .sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
+    .map((node) => {
+      const inline = extractInlineHTML(node.data?.label || "")
+      const block = extractBlockHTML(node.data?.label || "")
+
+      if (!inline && !block) return ""
+
+      const hasCount = Number(node.count) > 0
+
+      return `
+<li
+  data-node-id="${node.id}"
+  ${hasCount ? 'data-has-count="true"' : ""}
+>
+  ${
+    inline
+      ? `
+  <p>
+    <span data-inline-root="true">
+      ${inline}
+    </span>
+  </p>
+  `.trim()
+      : ""
+  }
+
+  ${block || ""}
+
+  ${renderList(node.children)}
+</li>
+`.trim()
+    })
+    .join("\n")}
+</ul>
+`.trim()
+  }
+
+  html.push(renderList(root.children))
 
   return html.join("\n")
 }
