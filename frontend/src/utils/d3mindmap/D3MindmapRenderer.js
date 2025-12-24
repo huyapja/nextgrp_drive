@@ -1,7 +1,7 @@
 /**
  * D3.js Mindmap Renderer
  * Render mindmap trực tiếp với D3.js (thay thế VueFlow)
- * 
+ *
  * Features:
  * - SVG rendering với D3
  * - Interactive nodes
@@ -10,16 +10,34 @@
  * - Horizontal layout giống Lark
  */
 
-import * as d3 from 'd3'
-import { calculateD3MindmapLayout } from '../d3MindmapLayout'
-import { renderEdges } from './edgeRendering.js'
-import { selectCommentNode } from './nodeCommentSelection.js'
-import { getEditorInstance, handleEditorBlur, handleEditorFocus, handleEditorInput, mountNodeEditor, unmountNodeEditor } from './nodeEditor.js'
-import { renderNodes } from './nodeRendering.js'
-import { selectNode } from './nodeSelection.js'
-import { estimateNodeHeight, estimateNodeSize, estimateNodeWidth } from './nodeSize.js'
-import { cleanupDragBranchEffects, countChildren, getDescendantIds, getNodeLabel, isDescendant, isNodeHidden } from './utils.js'
-import { fitView, scrollToNode } from './viewUtils.js'
+import * as d3 from "d3"
+import { calculateD3MindmapLayout } from "../d3MindmapLayout"
+import { renderEdges } from "./edgeRendering.js"
+import { selectCommentNode } from "./nodeCommentSelection.js"
+import {
+  getEditorInstance,
+  handleEditorBlur,
+  handleEditorFocus,
+  handleEditorInput,
+  mountNodeEditor,
+  unmountNodeEditor,
+} from "./nodeEditor.js"
+import { renderNodes } from "./nodeRendering.js"
+import { selectNode } from "./nodeSelection.js"
+import {
+  estimateNodeHeight,
+  estimateNodeSize,
+  estimateNodeWidth,
+} from "./nodeSize.js"
+import {
+  cleanupDragBranchEffects,
+  countChildren,
+  getDescendantIds,
+  getNodeLabel,
+  isDescendant,
+  isNodeHidden,
+} from "./utils.js"
+import { fitView, scrollToNode } from "./viewUtils.js"
 
 export class D3MindmapRenderer {
   constructor(container, options = {}) {
@@ -30,9 +48,9 @@ export class D3MindmapRenderer {
       nodeSpacing: options.nodeSpacing || 50, // Khoảng cách dọc giữa siblings
       layerSpacing: options.layerSpacing || 180, // Khoảng cách ngang giữa layers
       padding: options.padding || 20, // Padding chung
-      ...options
+      ...options,
     }
-    
+
     this.nodes = []
     this.edges = []
     this.selectedNode = null
@@ -61,11 +79,11 @@ export class D3MindmapRenderer {
     this.taskLinkDragChecked = false // Flag để đảm bảo chỉ kiểm tra task link một lần khi bắt đầu drag
     this.newlyCreatedNodes = new Map() // Map nodeId -> timestamp để track các node mới được tạo
     this.nodesBeingFocused = new Set() // Set các node ID đang trong quá trình focus (để prevent blur)
-    
+
     this.zoom = null
     this.svg = null
     this.g = null
-    
+
     this.callbacks = {
       onNodeClick: null,
       onNodeDoubleClick: null,
@@ -77,28 +95,30 @@ export class D3MindmapRenderer {
       onNodeHover: null,
       onNodeCollapse: null,
       onRenderComplete: null, // Callback khi render hoàn tất
-      onTaskLinkDragConfirm: null // Callback để hiển thị dialog cảnh báo khi drag node có task link
+      onTaskLinkDragConfirm: null, // Callback để hiển thị dialog cảnh báo khi drag node có task link
     }
-    
+
     this.init()
   }
-  
+
   init() {
     // Clear container
-    d3.select(this.container).selectAll('*').remove()
-    
+    d3.select(this.container).selectAll("*").remove()
+
     // Create SVG
-    this.svg = d3.select(this.container)
-      .append('svg')
-      .attr('width', this.options.width)
-      .attr('height', this.options.height)
-      .style('background', '#f5f5f5')
-    
+    this.svg = d3
+      .select(this.container)
+      .append("svg")
+      .attr("width", this.options.width)
+      .attr("height", this.options.height)
+      .style("background", "#f5f5f5")
+
     // Create main group for zoom/pan
-    this.g = this.svg.append('g')
-    
+    this.g = this.svg.append("g")
+
     // Setup zoom
-    this.zoom = d3.zoom()
+    this.zoom = d3
+      .zoom()
       .scaleExtent([0.5, 2])
       .wheelDelta((event) => {
         // Điều chỉnh độ nhạy zoom - giá trị âm để zoom in khi scroll down
@@ -106,161 +126,176 @@ export class D3MindmapRenderer {
       })
       .filter((event) => {
         // Xử lý wheel events - chỉ zoom khi có Ctrl/Meta
-        if (event.type === 'wheel') {
+        if (event.type === "wheel") {
           // Luôn yêu cầu Ctrl/Meta để zoom
           return !!(event.ctrlKey || event.metaKey)
         }
-        
+
         // Cho phép middle mouse button để pan
-        if (event.type === 'mousedown') {
+        if (event.type === "mousedown") {
           return event.button === 1 // Middle mouse button
         }
-        
+
         // Chặn các events khác (không cho phép left-click drag)
         return false
       })
-      .on('zoom', (event) => {
-        this.g.attr('transform', event.transform)
+      .on("zoom", (event) => {
+        this.g.attr("transform", event.transform)
       })
-    
+
     this.svg.call(this.zoom)
-    
+
     // ⚠️ CRITICAL: Xử lý wheel event để scroll nội dung mindmap
     // Khi không có Ctrl/Meta: scroll/pan nội dung mindmap
     // Khi có Ctrl/Meta: zoom như bình thường
     const svgNode = this.svg.node()
     if (svgNode) {
-      svgNode.addEventListener('wheel', (event) => {
-        // Nếu có Ctrl/Meta: zoom (đã được xử lý bởi d3.zoom)
-        if (event.ctrlKey || event.metaKey) {
-          // Ngăn browser zoom mặc định
-          event.preventDefault()
-        } else {
-          // ⚠️ CRITICAL: Khi không có Ctrl/Meta, scroll/pan nội dung mindmap
-          event.preventDefault()
-          
-          // Lấy transform hiện tại
-          const currentTransform = d3.zoomTransform(this.g.node())
-          
-          // Tính toán delta scroll
-          const deltaX = event.deltaX || 0
-          const deltaY = event.deltaY || 0
-          
-          // Tạo transform mới với translation mới
-          const newTransform = currentTransform.translate(
-            -deltaX / currentTransform.k, // Chia cho scale để đảm bảo scroll distance không đổi khi zoom
-            -deltaY / currentTransform.k
-          )
-          
-          // Áp dụng transform mới
-          this.g.attr('transform', newTransform)
-          
-          // Cập nhật zoom transform để giữ state đồng bộ
-          this.svg.call(this.zoom.transform, newTransform)
-        }
-      }, { passive: false, capture: true })
-      
+      svgNode.addEventListener(
+        "wheel",
+        (event) => {
+          // Nếu có Ctrl/Meta: zoom (đã được xử lý bởi d3.zoom)
+          if (event.ctrlKey || event.metaKey) {
+            // Ngăn browser zoom mặc định
+            event.preventDefault()
+          } else {
+            // ⚠️ CRITICAL: Khi không có Ctrl/Meta, scroll/pan nội dung mindmap
+            event.preventDefault()
+
+            // Lấy transform hiện tại
+            const currentTransform = d3.zoomTransform(this.g.node())
+
+            // Tính toán delta scroll
+            const deltaX = event.deltaX || 0
+            const deltaY = event.deltaY || 0
+
+            // Tạo transform mới với translation mới
+            const newTransform = currentTransform.translate(
+              -deltaX / currentTransform.k, // Chia cho scale để đảm bảo scroll distance không đổi khi zoom
+              -deltaY / currentTransform.k
+            )
+
+            // Áp dụng transform mới
+            this.g.attr("transform", newTransform)
+
+            // Cập nhật zoom transform để giữ state đồng bộ
+            this.svg.call(this.zoom.transform, newTransform)
+          }
+        },
+        { passive: false, capture: true }
+      )
+
       // Xử lý click ra ngoài để deselect node và ẩn icon collapse khi hover
       // Dùng capture phase để bắt event trước khi nó đến node-group
-      svgNode.addEventListener('click', (event) => {
-        // Kiểm tra xem click có phải vào node, button, hoặc editor không
-        const target = event.target
-        const isNodeClick = target && (
-          target.closest('.node-group') ||
-          target.closest('.mindmap-node-editor') ||
-          target.closest('.mindmap-editor-content') ||
-          target.closest('.mindmap-editor-prose') ||
-          target.classList?.contains('node-group') ||
-          target.classList?.contains('add-child-btn') ||
-          target.classList?.contains('add-child-text') ||
-          target.classList?.contains('collapse-btn-number') ||
-          target.classList?.contains('collapse-text-number') ||
-          target.classList?.contains('collapse-btn-arrow') ||
-          target.classList?.contains('collapse-arrow') ||
-          target.closest('.add-child-btn') ||
-          target.closest('.add-child-text') ||
-          target.closest('.collapse-btn-number') ||
-          target.closest('.collapse-text-number') ||
-          target.closest('.collapse-btn-arrow') ||
-          target.closest('.collapse-arrow')
-        )
-        
-        // Nếu click ra ngoài node, deselect node và ẩn tất cả icon collapse
-        if (!isNodeClick) {
-          event.stopPropagation() // Ngăn event bubble lên
-          
-          // Deselect node TRƯỚC KHI ẩn buttons
-          const hadSelectedNode = !!this.selectedNode
-          if (this.selectedNode) {
-            this.selectedNode = null // Set ngay để selectNode() biết là deselect
-            this.selectNode(null)
+      svgNode.addEventListener(
+        "click",
+        (event) => {
+          // Kiểm tra xem click có phải vào node, button, hoặc editor không
+          const target = event.target
+          const isNodeClick =
+            target &&
+            (target.closest(".node-group") ||
+              target.closest(".mindmap-node-editor") ||
+              target.closest(".mindmap-editor-content") ||
+              target.closest(".mindmap-editor-prose") ||
+              target.classList?.contains("node-group") ||
+              target.classList?.contains("add-child-btn") ||
+              target.classList?.contains("add-child-text") ||
+              target.classList?.contains("collapse-btn-number") ||
+              target.classList?.contains("collapse-text-number") ||
+              target.classList?.contains("collapse-btn-arrow") ||
+              target.classList?.contains("collapse-arrow") ||
+              target.closest(".add-child-btn") ||
+              target.closest(".add-child-text") ||
+              target.closest(".collapse-btn-number") ||
+              target.closest(".collapse-text-number") ||
+              target.closest(".collapse-btn-arrow") ||
+              target.closest(".collapse-arrow"))
+
+          // Nếu click ra ngoài node, deselect node và ẩn tất cả icon collapse
+          if (!isNodeClick) {
+            event.stopPropagation() // Ngăn event bubble lên
+
+            // Deselect node TRƯỚC KHI ẩn buttons
+            const hadSelectedNode = !!this.selectedNode
+            if (this.selectedNode) {
+              this.selectedNode = null // Set ngay để selectNode() biết là deselect
+              this.selectNode(null)
+            }
+
+            this.hoveredNode = null
+
+            // Ẩn tất cả buttons ngay lập tức (không có transition) cho TẤT CẢ nodes
+            this.g.selectAll(".node-group").each(function () {
+              const nodeGroup = d3.select(this)
+              nodeGroup
+                .select(".add-child-btn")
+                .interrupt()
+                .attr("opacity", 0)
+                .style("pointer-events", "none")
+              nodeGroup
+                .select(".add-child-text")
+                .interrupt()
+                .attr("opacity", 0)
+                .style("pointer-events", "none")
+              nodeGroup
+                .select(".collapse-btn-arrow")
+                .interrupt()
+                .attr("opacity", 0)
+                .style("pointer-events", "none")
+              nodeGroup
+                .select(".collapse-arrow")
+                .interrupt()
+                .attr("opacity", 0)
+                .style("pointer-events", "none")
+            })
+
+            // Gọi callback để update state
+            if (this.callbacks.onNodeHover) {
+              this.callbacks.onNodeHover(null, false)
+            }
           }
-          
-          this.hoveredNode = null
-          
-          // Ẩn tất cả buttons ngay lập tức (không có transition) cho TẤT CẢ nodes
-          this.g.selectAll('.node-group').each(function() {
-            const nodeGroup = d3.select(this)
-            nodeGroup.select('.add-child-btn')
-              .interrupt()
-              .attr('opacity', 0)
-              .style('pointer-events', 'none')
-            nodeGroup.select('.add-child-text')
-              .interrupt()
-              .attr('opacity', 0)
-              .style('pointer-events', 'none')
-            nodeGroup.select('.collapse-btn-arrow')
-              .interrupt()
-              .attr('opacity', 0)
-              .style('pointer-events', 'none')
-            nodeGroup.select('.collapse-arrow')
-              .interrupt()
-              .attr('opacity', 0)
-              .style('pointer-events', 'none')
-          })
-          
-          // Gọi callback để update state
-          if (this.callbacks.onNodeHover) {
-            this.callbacks.onNodeHover(null, false)
-          }
-        }
-      }, true) // Dùng capture phase để bắt event trước
+        },
+        true
+      ) // Dùng capture phase để bắt event trước
     }
-    
+
     // Add background grid
     this.addGrid()
   }
-  
+
   addGrid() {
     const dotSize = 20
     const dotRadius = 1
-    
-    const pattern = this.svg.append('defs')
-      .append('pattern')
-      .attr('id', 'grid')
-      .attr('width', dotSize)
-      .attr('height', dotSize)
-      .attr('patternUnits', 'userSpaceOnUse') // Dùng userSpaceOnUse để pattern không scale theo zoom, tạo cảm giác vô cực
-    
+
+    const pattern = this.svg
+      .append("defs")
+      .append("pattern")
+      .attr("id", "grid")
+      .attr("width", dotSize)
+      .attr("height", dotSize)
+      .attr("patternUnits", "userSpaceOnUse") // Dùng userSpaceOnUse để pattern không scale theo zoom, tạo cảm giác vô cực
+
     // Tạo chấm bi tại góc trên bên trái của pattern
-    pattern.append('circle')
-      .attr('cx', dotRadius)
-      .attr('cy', dotRadius)
-      .attr('r', dotRadius)
-      .attr('fill', '#ddd')
-    
+    pattern
+      .append("circle")
+      .attr("cx", dotRadius)
+      .attr("cy", dotRadius)
+      .attr("r", dotRadius)
+      .attr("fill", "#ddd")
+
     // Tạo background rect với kích thước lớn hơn viewport để đảm bảo hiển thị vô cực khi pan/zoom
     // Dùng kích thước rất lớn để có thể pan/zoom nhiều
     const largeSize = 100000
-    this.g.append('rect')
-      .attr('x', -largeSize / 2)
-      .attr('y', -largeSize / 2)
-      .attr('width', largeSize)
-      .attr('height', largeSize)
-      .attr('fill', 'url(#grid)')
+    this.g
+      .append("rect")
+      .attr("x", -largeSize / 2)
+      .attr("y", -largeSize / 2)
+      .attr("width", largeSize)
+      .attr("height", largeSize)
+      .attr("fill", "url(#grid)")
       .lower() // Đặt background ở dưới cùng
   }
-  
+
   setCallbacks(callbacks) {
     this.callbacks = { ...this.callbacks, ...callbacks }
   }
@@ -269,29 +304,29 @@ export class D3MindmapRenderer {
   getNodeLabel(node) {
     return getNodeLabel(node)
   }
-  
+
   adjustTextareaHeight(textarea, minHeight = null) {
     if (!textarea) return 0
-    
+
     // Chiều cao 1 dòng = font-size * line-height + padding
-    const singleLineHeight = minHeight || (Math.ceil(19 * 1.4) + 16) // ~43px
-    
+    const singleLineHeight = minHeight || Math.ceil(19 * 1.4) + 16 // ~43px
+
     // Set height về minHeight trước để đo chính xác
     textarea.style.height = `${singleLineHeight}px`
-    
+
     // Force reflow
     void textarea.offsetHeight
-    
+
     // Lấy scrollHeight thực tế (sau khi đã set minHeight)
     const scrollHeight = textarea.scrollHeight
-    
+
     // Đảm bảo chiều cao tối thiểu là 1 dòng
     const targetHeight = Math.max(scrollHeight, singleLineHeight)
-    
+
     // Áp dụng chiều cao
     textarea.style.height = `${targetHeight}px`
     textarea.style.minHeight = `${singleLineHeight}px`
-    
+
     return targetHeight
   }
 
@@ -324,7 +359,7 @@ export class D3MindmapRenderer {
   handleEditorBlur(nodeId, foElement, nodeData) {
     return handleEditorBlur(this, nodeId, foElement, nodeData)
   }
-  
+
   setData(nodes, edges, nodeCreationOrder = null) {
     this.nodes = nodes
     this.edges = edges
@@ -334,23 +369,23 @@ export class D3MindmapRenderer {
     }
     this.render(true) // isInitialRender = true
   }
-  
+
   // In render method, around line 750-800
   async render(isInitialRender = false) {
     if (this.nodes.length === 0) return
-    
+
     void document.body.offsetHeight
-    
+
     // ⚠️ FIX: Tính toán node sizes - XÓA cache root node để tính lại
     const nodeSizes = new Map()
-    
+
     // ⚠️ NEW: Đợi TẤT CẢ Vue editors mount xong trước khi tính sizes
-    await new Promise(resolve => requestAnimationFrame(resolve))
-    await new Promise(resolve => setTimeout(resolve, 100)) // Đợi thêm 100ms
-    
-    this.nodes.forEach(node => {
-      const isRootNode = node.data?.isRoot || node.id === 'root'
-      
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+    await new Promise((resolve) => setTimeout(resolve, 100)) // Đợi thêm 100ms
+
+    this.nodes.forEach((node) => {
+      const isRootNode = node.data?.isRoot || node.id === "root"
+
       if (this.editingNode === node.id && this.nodeSizeCache.has(node.id)) {
         // Node đang edit: giữ nguyên cache
         const cachedSize = this.nodeSizeCache.get(node.id)
@@ -378,11 +413,11 @@ export class D3MindmapRenderer {
           nodeSizes.set(node.id, size)
           this.nodeSizeCache.set(node.id, size)
         }
-        
+
         nodeSizes.set(node.id, size)
       }
     })
-    
+
     // Calculate layout
     const positions = calculateD3MindmapLayout(this.nodes, this.edges, {
       nodeSizes: nodeSizes,
@@ -391,30 +426,30 @@ export class D3MindmapRenderer {
       padding: this.options.padding,
       viewportHeight: this.options.height,
       nodeCreationOrder: this.options.nodeCreationOrder || new Map(),
-      collapsedNodes: this.collapsedNodes
+      collapsedNodes: this.collapsedNodes,
     })
-    
+
     this.positions = positions
-    
+
     // ⚠️ FIX: Render nodes trước
     this.renderNodes(positions)
-    
+
     // ⚠️ FIX: Đợi DOM update trước khi render edges
-    await new Promise(resolve => requestAnimationFrame(resolve))
-    
+    await new Promise((resolve) => requestAnimationFrame(resolve))
+
     // Render edges sau
     this.renderEdges(positions)
-    
+
     // ⚠️ CRITICAL: Sau khi render edges, raise tất cả node-group lên trên edge
     // để đảm bảo các nút collapse button không bị edge đè lên
-    this.g.selectAll('.node-group').raise()
-    
+    this.g.selectAll(".node-group").raise()
+
     // ⚠️ Nếu đây là lần render đầu tiên và không có root node cần setTimeout
     // thì gọi callback ngay (vì không có transition)
     if (isInitialRender) {
-      const rootNode = this.nodes.find(n => n.data?.isRoot || n.id === 'root')
+      const rootNode = this.nodes.find((n) => n.data?.isRoot || n.id === "root")
       const cachedSize = rootNode ? this.nodeSizeCache.get(rootNode.id) : null
-      
+
       if (!rootNode || (cachedSize && cachedSize.height < 200)) {
         // Không có root node hoặc root node đã có cache hợp lý
         // => Không có setTimeout => gọi callback ngay
@@ -427,41 +462,41 @@ export class D3MindmapRenderer {
       // Nếu có setTimeout cho root node, callback sẽ được gọi trong setTimeout
     }
   }
-  
+
   // Helper: Check if a node is hidden due to collapsed ancestor
   isNodeHidden(nodeId) {
     return isNodeHidden(nodeId, this.edges, this.collapsedNodes)
   }
-  
+
   // Helper: Get all descendant node IDs
   getDescendantIds(nodeId) {
     return getDescendantIds(nodeId, this.edges)
   }
-  
+
   // Helper: Check if a node is a descendant of another node
   isDescendant(ancestorId, nodeId) {
     return isDescendant(ancestorId, nodeId, this.edges)
   }
-  
+
   // Helper: Cleanup drag branch effects (restore opacity, remove border, etc.)
   cleanupDragBranchEffects() {
     cleanupDragBranchEffects(this)
   }
-  
+
   // Helper: Count all descendants (children + cháu + ... ) của một node
   // Dùng cho nút hiển thị tổng số nhánh con khi một node bị thu gọn.
   countChildren(nodeId) {
     return countChildren(nodeId, this.edges)
   }
-  
+
   renderEdges(positions) {
     renderEdges(this, positions)
   }
-  
+
   renderNodes(positions) {
     renderNodes(this, positions)
   }
-  
+
   selectNode(nodeId, skipCallback = false) {
     selectNode(this, nodeId, skipCallback)
   }
@@ -469,36 +504,58 @@ export class D3MindmapRenderer {
   selectCommentNode(nodeId, skipCallback = false) {
     selectCommentNode(this, nodeId, skipCallback)
   }
-  
+
   estimateNodeWidth(node, maxWidth = 400) {
     return estimateNodeWidth(node, maxWidth, getNodeLabel)
   }
-  
+
   estimateNodeHeight(node, nodeWidth = null) {
-    return estimateNodeHeight(node, nodeWidth, getNodeLabel, (n, mw) => estimateNodeWidth(n, mw, getNodeLabel))
+    return estimateNodeHeight(node, nodeWidth, getNodeLabel, (n, mw) =>
+      estimateNodeWidth(n, mw, getNodeLabel)
+    )
   }
-  
+
   // Get both width and height together to avoid circular dependency
   estimateNodeSize(node) {
     return estimateNodeSize(node, this)
   }
-  
+
   setEditingNode(nodeId) {
     this.editingNode = nodeId
     // TODO: Implement inline editing
   }
-  
+
   fitView() {
     fitView(this)
   }
-  
+
   scrollToNode(nodeId) {
     scrollToNode(this, nodeId)
   }
-  
+
   destroy() {
     if (this.svg) {
       this.svg.remove()
     }
+  }
+
+  updateNodeLabelFromExternal(nodeId, label) {
+    const node = this.nodes.find((n) => n.id === nodeId)
+    if (!node) return
+
+    // 1. update data
+    node.data.label = label
+
+    // 2. clear size cache
+    this.nodeSizeCache.delete(nodeId)
+
+    // 3. nếu editor đang mount → setContent trực tiếp
+    const editor = this.getEditorInstance(nodeId)
+    if (editor) {
+      editor.commands.setContent(label, false)
+    }
+
+    // 4. re-render layout
+    this.render(false)
   }
 }

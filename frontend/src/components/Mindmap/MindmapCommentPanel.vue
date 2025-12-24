@@ -1,16 +1,25 @@
 <template>
   <Teleport to="body">
 
-    <div :class="[
-      'comment-panel-list absolute right-0 w-[320px] bg-[#f5f6f7] z-[80] border-l',
-      'transition-all duration-300',
-      visible ? 'translate-x-0' : 'translate-x-full',
-      closing ? 'animate-slide-out' : ''
-    ]" style="top: 70px; bottom: 0;">
+    <div
+      :class="[
+        'comment-panel-list absolute w-[320px] bg-[#f5f6f7] z-[80] border-l',
+
+        panelPositionClass,
+
+        enableSlideAnimation && 'transition-all duration-300',
+        enableSlideAnimation
+          ? (visible ? 'translate-x-0' : 'translate-x-full')
+          : 'translate-x-0',
+
+        enableSlideAnimation && closing && 'animate-slide-out'
+      ]"
+    >
       <!-- Header -->
       <div class="flex py-4 px-3 items-center">
-        <p class="font-medium">Nhận xét ({{ totalComments }})</p>
-        <Popover @hide="clearCommentIdFromUrl" :dismissable="!galleryVisible" ref="op" class="w-[360px] history-mindmap-popover">
+        <p v-if="enableSlideAnimation"  class="font-medium">Nhận xét ({{ totalComments }})</p>
+        <Popover @hide="clearCommentIdFromUrl" :dismissable="!galleryVisible" ref="op"
+          class="w-[360px] history-mindmap-popover">
           <MindmapCommentHistory :visible="isHistoryOpen" :mindmapId="entityName" :scrollTarget="historyScrollTarget"
             :nodeMap="nodeMap" />
         </Popover>
@@ -18,7 +27,7 @@
           <i ref="historyIconRef" @click="toggleHistory"
             v-tooltip.top="{ value: 'Lịch sử bình luận', pt: { text: { class: ['text-[12px]'] } } }"
             class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" />
-          <i v-tooltip.top="{ value: 'Đóng', pt: { text: { class: ['text-[12px]'] } } }"
+          <i v-if="enableSlideAnimation" v-tooltip.top="{ value: 'Đóng', pt: { text: { class: ['text-[12px]'] } } }"
             class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
             @click="handleClose" />
         </div>
@@ -29,7 +38,7 @@
       </div>
 
       <!-- Danh sách comment -->
-      <div class="p-3 overflow-y-auto overflow-x-hidden h-[calc(100%-100px)] comment-scroll-container">
+      <div class="p-3 pt-0 overflow-y-auto overflow-x-hidden h-[calc(100%-100px)] comment-scroll-container">
         <div v-if="mindmap_comment_list.loading" class="text-gray-500 text-sm">
           Đang tải bình luận...
         </div>
@@ -403,7 +412,11 @@ const props = defineProps({
   visible: Boolean,
   node: Object,
   mindmap: Array,
-  userAddComment: Boolean
+  userAddComment: Boolean,
+  currentView: {
+    type: String,
+    default: "visual",
+  },
 })
 const emit = defineEmits(["close", "cancel", "submit", "update:input", "update:node", "open-history", "highlight:node"])
 const socket = inject("socket")
@@ -434,6 +447,16 @@ const historyIconRef = ref(null)
 const historyScrollTarget = ref(null)
 const toast = useToast()
 
+
+const enableSlideAnimation = computed(() => {
+  return props.currentView === "visual"
+})
+
+const panelPositionClass = computed(() => {
+  return enableSlideAnimation.value
+    ? 'right-0 top-[70px] bottom-[0px]'
+    : 'right-5 top-[70px] bottom-[0px]'
+})
 
 const suppressAutoOpenFromQuery =
   inject("suppressAutoOpenFromQuery", ref(null))
