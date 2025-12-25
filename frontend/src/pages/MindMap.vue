@@ -244,6 +244,7 @@
           @rename-title="renameMindmapTitle"
           @update-nodes="applyTextEdits"
           @open-comment="onOpenComment"
+          @add-child-node="addChildToNodeTextMode"
           />
         </div>
     </div>
@@ -272,6 +273,7 @@ import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 import { provide } from "vue"
+import { computeInsertAfterAnchor } from "../components/Mindmap/components/engine/nodeOrderEngine"
 
 
 const showContextMenu = ref(false)
@@ -4751,6 +4753,44 @@ function applyTextEdits(changes) {
 function onOpenComment(payload) {
   const { nodeId, options = {} } = payload
   openCommentPanel(nodeId, options);
+}
+
+function addChildToNodeTextMode(anchorNodeId) {
+  const anchorNode = nodes.value.find(n => n.id === anchorNodeId)
+  if (!anchorNode) return
+
+  const parentId = anchorNode.data.parentId
+  if (!parentId) return
+
+  const newOrder = computeInsertAfterAnchor({
+    nodes: nodes.value,
+    anchorNodeId,
+    parentId,
+    orderStore: nodeCreationOrder.value,
+  })
+
+  if (newOrder == null) return
+
+  const newNodeId = crypto.randomUUID()
+  nodeCreationOrder.value.set(newNodeId, newOrder)
+
+  nodes.value.push({
+    id: newNodeId,
+    data: {
+      parentId,
+      label: `<p>Nhánh mới</p>`,
+      order: newOrder,
+    },
+  })
+
+  edges.value.push({
+    id: `edge-${parentId}-${newNodeId}`,
+    source: parentId,
+    target: newNodeId,
+  })
+
+  d3Renderer.render()
+  scheduleSave()
 }
 
 </script>

@@ -22,6 +22,8 @@ import { InlineRoot } from "./components/extensions/InlineRoot"
 import { TaskLink } from "./components/extensions/TaskLink"
 import Image from "@tiptap/extension-image"
 import { ImageZoomClickExtension } from "./components/extensions/ImageZoomClickExtension"
+import { TextSelection } from "@tiptap/pm/state"
+
 
 function hasMmNode(html) {
   if (!html) return false
@@ -53,6 +55,7 @@ const emit = defineEmits([
   "rename-title",
   "update-nodes",
   "open-comment",
+  "add-child-node",
 ])
 
 const canEdit = hasMmNode(props.initialContent)
@@ -286,6 +289,50 @@ function syncFromEditorDebounced(editor) {
   }, 300)
 }
 
+function insertTempChildNode(editor) {
+  const { state, view } = editor
+  const { selection, schema } = state
+
+  const { $from } = selection
+  let found = null
+
+  for (let d = $from.depth; d > 0; d--) {
+    const node = $from.node(d)
+    if (node.type === schema.nodes.listItem) {
+      found = {
+        node,
+        pos: $from.before(d),
+      }
+      break
+    }
+  }
+
+  if (!found) return
+
+  const insertPos = found.pos + found.node.nodeSize
+
+  const text = schema.text('Nhánh mới')
+  const p = schema.nodes.paragraph.create({}, text)
+  const li = schema.nodes.listItem.create({}, p)
+
+  let tr = state.tr.insert(insertPos, li)
+
+  // 3️⃣ tính vị trí caret: bên trong paragraph mới
+  const caretPos =
+    insertPos + 1 /* <li> */ +
+    1 /* <p> */ +
+    text.nodeSize
+
+  tr = tr.setSelection(
+    TextSelection.create(tr.doc, caretPos)
+  )
+
+  view.dispatch(tr)
+  view.focus()
+}
+
+
+
 /* ================================
  * Editor
  * ================================ */
@@ -296,11 +343,14 @@ onMounted(() => {
     content: props.initialContent,
     editable: canEdit,
     autofocus: "start",
-    onOpenComment(nodeId, options = {}) {      
+    onOpenComment(nodeId, options = {}) {
       emit("open-comment", {
         nodeId,
         options,
       })
+    },
+    onAddChildNode(nodeId) {
+      emit("add-child-node", nodeId)
     },
     extensions: [
       StarterKit.configure({
@@ -336,6 +386,84 @@ onMounted(() => {
     editorProps: {
       attributes: {
         class: "min-h-[60vh]",
+      },
+
+      handleKeyDown(view, event) {
+        const { state } = view
+        const { selection } = state
+
+        // ==============================
+        // ENTER → ADD CHILD NODE
+        // ==============================
+        if (event.key === 'Enter') {
+          return
+          if (!selection.empty) return false
+
+          const { $from } = selection
+          const isAtEnd = $from.parentOffset === $from.parent.content.size
+          if (!isAtEnd) return false
+
+          // tìm nodeId mindmap
+          let nodeId = null
+          for (let d = $from.depth; d > 0; d--) {
+            const node = $from.node(d)
+            if (node?.attrs?.nodeId) {
+              nodeId = node.attrs.nodeId
+              break
+            }
+          }
+          if (!nodeId) return false
+
+          // ✅ 1. chèn ngay trong text editor
+          insertTempChildNode(editor.value)
+
+          // ✅ 2. sync sang mindmap
+          editor.value?.options?.onAddChildNode?.(nodeId)
+
+          event.preventDefault()
+          return true
+        }
+
+
+
+        if ((event.ctrlKey || event.metaKey) && event.key === "a") {
+          const { state, dispatch } = view
+          const { selection } = state
+
+          // chỉ xử lý khi đang là caret
+          if (!selection.empty) {
+            return false // để ProseMirror select-all bình thường
+          }
+
+          const { $from } = selection
+
+          // lấy block cha (paragraph / list-item / heading)
+          let depth = $from.depth
+          while (depth > 0 && !$from.node(depth).isBlock) {
+            depth--
+          }
+
+          const blockNode = $from.node(depth)
+          if (!blockNode) return false
+
+          const start = $from.start(depth)
+          const end = start + blockNode.nodeSize
+
+          dispatch(
+            state.tr.setSelection(
+              state.selection.constructor.create(
+                state.doc,
+                start,
+                end - 1
+              )
+            )
+          )
+
+          event.preventDefault()
+          return true
+        }
+
+        return false
       },
 
       handleDOMEvents: {
@@ -381,7 +509,7 @@ watch(
   () => props.initialContent,
   (val) => {
     if (!editor.value) return
-
+    if (isEditorFocused) return
     const canEdit = hasMmNode(val)
 
     if (editor.value.isEditable !== canEdit) {
@@ -444,28 +572,9 @@ watch(
   position: relative;
 }
 
-.prose :deep(.mm-node.is-comment-hover span) {
-  position: relative;
-  z-index: 1;
+.prose :deep(.mm-node.is-comment-hover) {
+  caret-color: #000000;
 }
-
-.prose :deep(.mm-node.is-comment-hover span::before) {
-  content: "";
-  position: absolute;
-  inset: -1px -2px;
-  background-color: rgba(252, 223, 126, 0.6);
-  border-radius: 3px;
-  z-index: -1;
-  pointer-events: none;
-}
-
-
-/* đảm bảo text nằm trên overlay */
-.prose :deep(.mm-node > *) {
-  position: relative;
-  z-index: 1;
-}
-
 
 .prose :deep(.comment-icon) {
   box-sizing: border-box;

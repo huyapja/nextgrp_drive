@@ -1,6 +1,6 @@
 <template>
     <MindmapTextNodeViewEditor :initial-content="content" @rename-title="onRenameTitle" @update-nodes="onUpdateNodes"
-        @open-comment="onOpenComment" />
+        @open-comment="onOpenComment" @add-child-node="onAddChildFromText"/>
 </template>
 
 <script setup>
@@ -19,6 +19,7 @@ const emit = defineEmits([
     "rename-title",
     "update-nodes",
     "open-comment",
+    "add-child-node",
 ])
 
 const content = ref("")
@@ -40,6 +41,11 @@ function onOpenComment(payload) {
     options,
   })
 }
+
+function onAddChildFromText(parentId) {    
+  emit("add-child-node", parentId)
+}
+
 provide("activeCommentNode", toRef(props, "activeCommentNode"))
 
 watch(
