@@ -1,10 +1,10 @@
 <template>
   <div class="flex flex-col w-full">
-    <Navbar v-if="!mindmap.error" :root-resource="mindmap" />
-    <ErrorPage v-if="mindmap.error" :error="mindmap.error" />
+    <Navbar v-if="!mindmap.error && !mindmapEntity.error" :root-resource="mindmap" />
+    <ErrorPage v-if="mindmap.error || mindmapEntity.error" :error="mindmap.error || mindmapEntity.error" />
     <LoadingIndicator v-else-if="!mindmap.data && mindmap.loading" class="w-10 h-full text-neutral-100 mx-auto" />
 
-    <div v-if="mindmap.data" class="w-full relative">
+    <div v-if="mindmap.data && !mindmapEntity.error" class="w-full relative">
       <!-- Loading indicator khi đang render mindmap -->
       <div v-if="isRendering" class="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50">
         <div class="text-center">
@@ -181,6 +181,7 @@ import { useStore } from "vuex"
 import { useRoute } from "vue-router"
 
 
+import ErrorPage from "@/components/ErrorPage.vue"
 import ImageZoomModal from "@/components/ImageZoomModal.vue"
 import MindmapCommentPanel from "@/components/Mindmap/MindmapCommentPanel.vue"
 import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
@@ -1545,14 +1546,39 @@ const confirmTaskLink = async () => {
           const menuButtons = body.querySelectorAll('.image-menu-button, button[aria-label="Image options"]')
           menuButtons.forEach(btn => btn.remove())
           
-          // Tìm paragraph đầu tiên có nội dung (title) và thêm class để phân biệt
-          const firstParagraph = body.querySelector('p')
+          // ⚠️ FIX: Tìm tất cả các paragraphs có data-type="node-title" (title paragraphs)
+          // và tìm paragraph cuối cùng trong số đó để chèn badge sau
+          const allTitleParagraphs = Array.from(body.querySelectorAll('p'))
+          const titleParagraphs = []
           
-          if (firstParagraph) {
-            // Thêm class để phân biệt title
-            firstParagraph.classList.add('node-title-section')
-            firstParagraph.setAttribute('data-node-section', 'title')
+          allTitleParagraphs.forEach(p => {
+            const dataType = p.getAttribute('data-type')
+            const isInBlockquote = p.closest('blockquote') !== null
             
+            // Kiểm tra xem có phải task link không
+            const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || p.querySelector('a[href*="/mtp/project/"]')
+            const text = p.textContent?.trim() || ''
+            const hasTaskLinkText = text.includes('Liên kết công việc')
+            const isTaskLink = p.querySelector('.node-task-link-section') || 
+                              p.querySelector('[data-node-section="task-link"]') ||
+                              p.classList.contains('node-task-link-section') ||
+                              p.getAttribute('data-node-section') === 'task-link' ||
+                              (hasTaskLinkText && hasTaskLinkAnchor) ||
+                              dataType === 'node-task-link'
+            
+            // Nếu là title paragraph (không trong blockquote và không phải task-link)
+            if (!isInBlockquote && !isTaskLink) {
+              titleParagraphs.push(p)
+              // Thêm class để phân biệt title
+              p.classList.add('node-title-section')
+              p.setAttribute('data-node-section', 'title')
+            }
+          })
+          
+          // Tìm paragraph cuối cùng trong số các title paragraphs
+          const lastTitleParagraph = titleParagraphs.length > 0 ? titleParagraphs[titleParagraphs.length - 1] : null
+          
+          if (lastTitleParagraph) {
             // Tạo badge element
             const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
             
@@ -1560,10 +1586,13 @@ const confirmTaskLink = async () => {
             const firstImage = body.querySelector('img, .image-wrapper-node, .image-wrapper')
             
             if (firstImage) {
-              // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong paragraph đầu tiên không
+              // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong một title paragraph không
               const imageWrapper = firstImage.closest('.image-wrapper-node, .image-wrapper')
               const imageContainer = imageWrapper || firstImage
               const imageParent = imageContainer.parentElement
+              
+              // Kiểm tra xem imageParent có phải là một title paragraph không
+              const imageParentIsTitleParagraph = titleParagraphs.includes(imageParent)
               
               // Thêm class và attribute để phân biệt phần ảnh
               let finalImageContainer = imageContainer
@@ -1587,13 +1616,14 @@ const confirmTaskLink = async () => {
               
               // Cập nhật lại imageParent sau khi có thể đã wrap
               const updatedImageParent = finalImageContainer.parentElement
+              const updatedImageParentIsTitleParagraph = titleParagraphs.includes(updatedImageParent)
               
-              if (updatedImageParent === firstParagraph) {
-                // Ảnh/wrapper nằm trong paragraph đầu tiên - tách ra và chèn badge
+              if (updatedImageParentIsTitleParagraph) {
+                // Ảnh/wrapper nằm trong một title paragraph - tách ra và chèn badge
                 const imageClone = finalImageContainer.cloneNode(true)
                 finalImageContainer.remove()
-                // Chèn badge sau paragraph đầu tiên
-                body.insertBefore(badgeElement, firstParagraph.nextSibling)
+                // Chèn badge sau title paragraph cuối cùng
+                body.insertBefore(badgeElement, lastTitleParagraph.nextSibling)
                 // Chèn ảnh sau badge
                 body.insertBefore(imageClone, badgeElement.nextSibling)
               } else {
@@ -1601,9 +1631,9 @@ const confirmTaskLink = async () => {
                 finalImageContainer.parentElement.insertBefore(badgeElement, finalImageContainer)
               }
             } else {
-              // Không có ảnh - chèn badge ngay sau paragraph đầu tiên
-              if (firstParagraph.nextSibling) {
-                body.insertBefore(badgeElement, firstParagraph.nextSibling)
+              // Không có ảnh - chèn badge ngay sau title paragraph cuối cùng
+              if (lastTitleParagraph.nextSibling) {
+                body.insertBefore(badgeElement, lastTitleParagraph.nextSibling)
               } else {
                 body.appendChild(badgeElement)
               }
@@ -2093,14 +2123,39 @@ const handleCreateTask = async (formData) => {
             const menuButtons = body.querySelectorAll('.image-menu-button, button[aria-label="Image options"]')
             menuButtons.forEach(btn => btn.remove())
             
-            // Tìm paragraph đầu tiên có nội dung (title) và thêm class để phân biệt
-            const firstParagraph = body.querySelector('p')
+            // ⚠️ FIX: Tìm tất cả các paragraphs có data-type="node-title" (title paragraphs)
+            // và tìm paragraph cuối cùng trong số đó để chèn badge sau
+            const allParagraphsForBadge = Array.from(body.querySelectorAll('p'))
+            const titleParagraphsForBadge = []
             
-            if (firstParagraph) {
-              // Thêm class để phân biệt title
-              firstParagraph.classList.add('node-title-section')
-              firstParagraph.setAttribute('data-node-section', 'title')
+            allParagraphsForBadge.forEach(p => {
+              const dataType = p.getAttribute('data-type')
+              const isInBlockquote = p.closest('blockquote') !== null
               
+              // Kiểm tra xem có phải task link không
+              const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || p.querySelector('a[href*="/mtp/project/"]')
+              const text = p.textContent?.trim() || ''
+              const hasTaskLinkText = text.includes('Liên kết công việc')
+              const isTaskLink = p.querySelector('.node-task-link-section') || 
+                                p.querySelector('[data-node-section="task-link"]') ||
+                                p.classList.contains('node-task-link-section') ||
+                                p.getAttribute('data-node-section') === 'task-link' ||
+                                (hasTaskLinkText && hasTaskLinkAnchor) ||
+                                dataType === 'node-task-link'
+              
+              // Nếu là title paragraph (không trong blockquote và không phải task-link)
+              if (!isInBlockquote && !isTaskLink) {
+                titleParagraphsForBadge.push(p)
+                // Thêm class để phân biệt title
+                p.classList.add('node-title-section')
+                p.setAttribute('data-node-section', 'title')
+              }
+            })
+            
+            // Tìm paragraph cuối cùng trong số các title paragraphs
+            const lastTitleParagraphForBadge = titleParagraphsForBadge.length > 0 ? titleParagraphsForBadge[titleParagraphsForBadge.length - 1] : null
+            
+            if (lastTitleParagraphForBadge) {
               // Tạo badge element
               const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
               
@@ -2108,10 +2163,13 @@ const handleCreateTask = async (formData) => {
               const firstImage = body.querySelector('img, .image-wrapper-node, .image-wrapper')
               
               if (firstImage) {
-                // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong paragraph đầu tiên không
+                // Có ảnh - kiểm tra xem ảnh/wrapper có nằm trong một title paragraph không
                 const imageWrapper = firstImage.closest('.image-wrapper-node, .image-wrapper')
                 const imageContainer = imageWrapper || firstImage
                 const imageParent = imageContainer.parentElement
+                
+                // Kiểm tra xem imageParent có phải là một title paragraph không
+                const imageParentIsTitleParagraph = titleParagraphsForBadge.includes(imageParent)
                 
                 // Thêm class và attribute để phân biệt phần ảnh
                 let finalImageContainer = imageContainer
@@ -2135,13 +2193,14 @@ const handleCreateTask = async (formData) => {
                 
                 // Cập nhật lại imageParent sau khi có thể đã wrap
                 const updatedImageParent = finalImageContainer.parentElement
+                const updatedImageParentIsTitleParagraph = titleParagraphsForBadge.includes(updatedImageParent)
                 
-                if (updatedImageParent === firstParagraph) {
-                  // Ảnh/wrapper nằm trong paragraph đầu tiên - tách ra và chèn badge
+                if (updatedImageParentIsTitleParagraph) {
+                  // Ảnh/wrapper nằm trong một title paragraph - tách ra và chèn badge
                   const imageClone = finalImageContainer.cloneNode(true)
                   finalImageContainer.remove()
-                  // Chèn badge sau paragraph đầu tiên
-                  body.insertBefore(badgeElement, firstParagraph.nextSibling)
+                  // Chèn badge sau title paragraph cuối cùng
+                  body.insertBefore(badgeElement, lastTitleParagraphForBadge.nextSibling)
                   // Chèn ảnh sau badge
                   body.insertBefore(imageClone, badgeElement.nextSibling)
                 } else {
@@ -2149,36 +2208,34 @@ const handleCreateTask = async (formData) => {
                   finalImageContainer.parentElement.insertBefore(badgeElement, finalImageContainer)
                 }
               } else {
-                // Không có ảnh - chèn badge ngay sau paragraph đầu tiên
-                if (firstParagraph.nextSibling) {
-                  body.insertBefore(badgeElement, firstParagraph.nextSibling)
+                // Không có ảnh - chèn badge ngay sau title paragraph cuối cùng
+                if (lastTitleParagraphForBadge.nextSibling) {
+                  body.insertBefore(badgeElement, lastTitleParagraphForBadge.nextSibling)
                 } else {
                   body.appendChild(badgeElement)
                 }
               }
-              
-              // Thêm class cho các paragraph còn lại (mô tả) để phân biệt
-              const remainingParagraphs = body.querySelectorAll('p:not(.node-title-section)')
-              remainingParagraphs.forEach(p => {
-                if (!p.classList.contains('node-description-section')) {
-                  p.classList.add('node-description-section')
-                  p.setAttribute('data-node-section', 'description')
-                }
-              })
-              
-              // Serialize lại HTML
-              linkNode.data.label = body.innerHTML
             } else {
-              // Không có paragraph - tạo paragraph mới cho title và chèn badge
+              // Không có title paragraph - tạo paragraph mới cho title và chèn badge
               const titleParagraph = doc.createElement('p')
               titleParagraph.textContent = plainTitle || 'Nhánh mới'
               body.appendChild(titleParagraph)
               
               const badgeElement = parser.parseFromString(badgeHtml, 'text/html').body.firstChild
               body.appendChild(badgeElement)
-              
-              linkNode.data.label = body.innerHTML
             }
+            
+            // Thêm class cho các paragraph còn lại (mô tả) để phân biệt
+            const remainingParagraphs = body.querySelectorAll('p:not(.node-title-section)')
+            remainingParagraphs.forEach(p => {
+              if (!p.classList.contains('node-description-section')) {
+                p.classList.add('node-description-section')
+                p.setAttribute('data-node-section', 'description')
+              }
+            })
+            
+            // Serialize lại HTML
+            linkNode.data.label = body.innerHTML
           } catch (err) {
             // Fallback: chèn vào cuối nếu parse lỗi
             console.error('Error parsing HTML for badge insertion:', err)

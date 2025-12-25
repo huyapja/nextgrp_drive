@@ -85,7 +85,6 @@ declare module 'vue' {
     LucideChevronDown: typeof import('~icons/lucide/chevron-down')['default']
     LucideClock: typeof import('~icons/lucide/clock')['default']
     LucideFile: typeof import('~icons/lucide/file')['default']
-    LucideFileUp: typeof import('~icons/lucide/file-up')['default']
     LucideFilter: typeof import('~icons/lucide/filter')['default']
     LucideFolderClosed: typeof import('~icons/lucide/folder-closed')['default']
     LucideFolderOpenDot: typeof import('~icons/lucide/folder-open-dot')['default']

@@ -85,10 +85,10 @@
 </template>
 
 <script setup>
-import { toast } from '@/utils/toasts'
+import { toast, toastPersistent, updateToast, removeToast } from '@/utils/toasts'
 import PrimeButton from 'primevue/button'
 import Dialog from 'primevue/dialog'
-import { ref } from 'vue'
+import { ref, h } from 'vue'
 import LucideDownload from "~icons/lucide/download"
 import LucideFileCode from "~icons/lucide/file-code"
 import LucideFileText from "~icons/lucide/file-text"
@@ -133,6 +133,24 @@ const emit = defineEmits(['update:visible'])
 
 const isExporting = ref(false)
 const exportFormat = ref(null)
+let progressToastId = null
+
+// Helper function để cập nhật progress
+const updateProgress = (progress, message) => {
+  if (progressToastId) {
+    updateToast(progressToastId, {
+      title: message || `Đang xuất... ${progress}%`,
+      text: h('div', { class: 'mt-2' }, [
+        h('div', { class: 'w-full bg-gray-200 rounded-full h-2' }, [
+          h('div', {
+            class: 'bg-blue-600 h-2 rounded-full transition-all duration-300',
+            style: { width: `${progress}%` }
+          })
+        ])
+      ])
+    })
+  }
+}
 
 // Export functions
 const handleExport = async (format) => {
@@ -143,6 +161,23 @@ const handleExport = async (format) => {
 
   isExporting.value = true
   exportFormat.value = format
+  
+  // Tạo progress toast
+  const formatName = format === 'png' ? 'PNG' : format === 'pdf' ? 'PDF' : 'NextGRP'
+  progressToastId = toastPersistent({
+    title: `Đang xuất ${formatName}... 0%`,
+    icon: format === 'png' ? 'image' : format === 'pdf' ? 'file-text' : 'file-code',
+    background: 'bg-surface-white',
+    text: h('div', { class: 'mt-2' }, [
+      h('div', { class: 'w-full bg-gray-200 rounded-full h-2' }, [
+        h('div', {
+          class: 'bg-blue-600 h-2 rounded-full transition-all duration-300',
+          style: { width: '0%' }
+        })
+      ])
+    ])
+  })
+  
   emit('update:visible', false)
 
   try {
@@ -156,9 +191,42 @@ const handleExport = async (format) => {
     } else if (format === 'nextgrp') {
       await exportToNextGRP(fileName)
     }
+    
+    // Cập nhật toast thành công
+    if (progressToastId) {
+      updateToast(progressToastId, {
+        title: `Xuất ${formatName} thành công!`,
+        icon: 'check-circle',
+        background: 'bg-surface-green-3',
+        text: null,
+        timeout: 3
+      })
+      setTimeout(() => {
+        if (progressToastId) {
+          removeToast(progressToastId)
+          progressToastId = null
+        }
+      }, 3000)
+    }
   } catch (error) {
     console.error('Export error:', error)
-    toast({ title: `Lỗi khi xuất: ${error.message}`, indicator: "red" })
+    if (progressToastId) {
+      updateToast(progressToastId, {
+        title: `Lỗi khi xuất: ${error.message}`,
+        icon: 'alert-circle',
+        background: 'bg-surface-red-3',
+        text: null,
+        timeout: 5
+      })
+      setTimeout(() => {
+        if (progressToastId) {
+          removeToast(progressToastId)
+          progressToastId = null
+        }
+      }, 5000)
+    } else {
+      toast({ title: `Lỗi khi xuất: ${error.message}`, indicator: "red" })
+    }
   } finally {
     isExporting.value = false
     exportFormat.value = null
@@ -321,17 +389,21 @@ const svgString2Image = (svgString, width, height, format = 'png') => {
 // Export to PNG - Sử dụng SVG string conversion như ví dụ
 const exportToPNG = async (fileName) => {
   try {
+    updateProgress(10, 'Đang chuẩn bị xuất PNG...')
+    
     // 1. Lấy SVG element từ d3Renderer
     const svgElement = props.d3Renderer.svg.node()
     if (!svgElement) {
       throw new Error("SVG element not found")
     }
     
+    updateProgress(20, 'Đang đợi render hoàn tất...')
     // 2. Đợi Vue components render xong và đảm bảo tất cả images load xong
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => setTimeout(resolve, 500))
     
+    updateProgress(30, 'Đang tính toán kích thước...')
     // 3. Tính bounding box từ tất cả nodes (giống như fitView)
     let minX = Infinity
     let minY = Infinity
@@ -367,6 +439,7 @@ const exportToPNG = async (fileName) => {
     const width = Math.max(maxX - minX + padding * 2, 800)
     const height = Math.max(maxY - minY + padding * 2, 600)
     
+    updateProgress(40, 'Đang xử lý SVG...')
     // 4. Clone SVG để không ảnh hưởng đến SVG gốc
     const clonedSvg = svgElement.cloneNode(true)
     
@@ -376,9 +449,11 @@ const exportToPNG = async (fileName) => {
       mainGroup.removeAttribute('transform')
     }
     
+    updateProgress(50, 'Đang chuyển đổi hình ảnh...')
     // 6. Convert images trong foreignObject thành base64 data URLs
     await convertImagesToDataURLs(clonedSvg)
     
+    updateProgress(70, 'Đang tạo hình ảnh PNG...')
     // 7. Set viewBox và dimensions
     clonedSvg.setAttribute('viewBox', `${minX - padding} ${minY - padding} ${width} ${height}`)
     clonedSvg.setAttribute('width', width)
@@ -391,6 +466,7 @@ const exportToPNG = async (fileName) => {
     // 9. Convert to image blob với scale 2x cho chất lượng cao
     const blob = await svgString2Image(svgString, width * 2, height * 2, 'png')
     
+    updateProgress(90, 'Đang tải xuống...')
     // 10. Download image
     const blobUrl = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -401,7 +477,7 @@ const exportToPNG = async (fileName) => {
     document.body.removeChild(link)
     setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
     
-    toast({ title: "Đang tải xuống hình ảnh...", indicator: "green" })
+    updateProgress(100, 'Hoàn tất!')
     
   } catch (error) {
     console.error('Export PNG error:', error)
@@ -412,17 +488,21 @@ const exportToPNG = async (fileName) => {
 // Export to PDF - Sử dụng cùng logic như PNG, sau đó convert PNG sang PDF
 const exportToPDF = async (fileName) => {
   try {
+    updateProgress(10, 'Đang chuẩn bị xuất PDF...')
+    
     // 1. Lấy SVG element từ d3Renderer
     const svgElement = props.d3Renderer.svg.node()
     if (!svgElement) {
       throw new Error("SVG element not found")
     }
     
+    updateProgress(20, 'Đang đợi render hoàn tất...')
     // 2. Đợi Vue components render xong và đảm bảo tất cả images load xong
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => setTimeout(resolve, 500))
     
+    updateProgress(30, 'Đang tính toán kích thước...')
     // 3. Tính bounding box từ tất cả nodes (giống như PNG export)
     let minX = Infinity
     let minY = Infinity
@@ -458,6 +538,7 @@ const exportToPDF = async (fileName) => {
     const width = Math.max(maxX - minX + padding * 2, 800)
     const height = Math.max(maxY - minY + padding * 2, 600)
     
+    updateProgress(40, 'Đang xử lý SVG...')
     // 4. Clone SVG để không ảnh hưởng đến SVG gốc
     const clonedSvg = svgElement.cloneNode(true)
     
@@ -467,9 +548,11 @@ const exportToPDF = async (fileName) => {
       mainGroup.removeAttribute('transform')
     }
     
+    updateProgress(50, 'Đang chuyển đổi hình ảnh...')
     // 6. Convert images trong foreignObject thành base64 data URLs
     await convertImagesToDataURLs(clonedSvg)
     
+    updateProgress(60, 'Đang tạo hình ảnh PNG...')
     // 7. Set viewBox và dimensions
     clonedSvg.setAttribute('viewBox', `${minX - padding} ${minY - padding} ${width} ${height}`)
     clonedSvg.setAttribute('width', width)
@@ -482,6 +565,7 @@ const exportToPDF = async (fileName) => {
     // 9. Convert SVG to PNG blob (giống như PNG export)
     const pngBlob = await svgString2Image(svgString, width * 2, height * 2, 'png')
     
+    updateProgress(75, 'Đang tạo PDF...')
     // 10. Load PNG vào Image và vẽ lên canvas
     const image = new Image()
     const imageUrl = URL.createObjectURL(pngBlob)
@@ -511,13 +595,14 @@ const exportToPDF = async (fileName) => {
     // Thêm PNG vào PDF
     pdf.addImage(image, 'PNG', 0, 0, pdfWidth, pdfHeight)
     
+    updateProgress(90, 'Đang tải xuống...')
     // Download PDF
     pdf.save(fileName)
     
     // Cleanup
     URL.revokeObjectURL(imageUrl)
     
-    toast({ title: "Đang tải xuống tài liệu PDF...", indicator: "green" })
+    updateProgress(100, 'Hoàn tất!')
     
   } catch (error) {
     console.error('Export PDF error:', error)

@@ -25,12 +25,18 @@
           >
             {{ title }}
           </p>
-          <p
+          <component
             v-if="text"
+            :is="typeof text === 'object' ? 'div' : 'p'"
             class="text-sm text-ink-gray-5"
           >
-            {{ text }}
-          </p>
+            <template v-if="typeof text === 'object'">
+              <component :is="text" />
+            </template>
+            <template v-else>
+              {{ text }}
+            </template>
+          </component>
           <Button
             v-for="button in buttons"
             class="mt-2"
