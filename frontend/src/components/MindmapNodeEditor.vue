@@ -20,7 +20,8 @@ import Link from "@tiptap/extension-link"
 import TextStyle from "@tiptap/extension-text-style"
 import Typography from "@tiptap/extension-typography"
 import { Fragment, Slice } from '@tiptap/pm/model'
-import { Plugin } from "@tiptap/pm/state"
+import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import StarterKit from "@tiptap/starter-kit"
 import { Editor, EditorContent } from "@tiptap/vue-3"
 
@@ -86,6 +87,54 @@ const FilterMenuTextExtension = Extension.create({
             cleanHtml = cleanHtml.replace(/⋮/g, '')
             
             return cleanHtml
+          }
+        },
+        // ⚠️ CRITICAL FIX: Append transaction để xóa paragraph chứa '⋮' ngay sau mỗi transaction
+        appendTransaction: (transactions, oldState, newState) => {
+          const tr = newState.tr
+          let modified = false
+          
+          // Tìm và xóa paragraphs chỉ chứa '⋮'
+          newState.doc.descendants((node, pos) => {
+            if (node.type.name === 'paragraph' && node.textContent.trim() === '⋮') {
+              tr.delete(pos, pos + node.nodeSize)
+              modified = true
+              return false
+            }
+            
+            // Xóa text nodes chứa '⋮'
+            if (node.isText && node.text.includes('⋮')) {
+              const cleanText = node.text.replace(/⋮/g, '')
+              if (cleanText !== node.text) {
+                tr.replaceWith(pos, pos + node.nodeSize, newState.schema.text(cleanText, node.marks))
+                modified = true
+              }
+            }
+          })
+          
+          return modified ? tr : null
+        },
+        // ⚠️ CRITICAL FIX: View plugin để cleanup DOM ngay sau mỗi update
+        view: (editorView) => {
+          return {
+            update: (view, prevState) => {
+              // Cleanup paragraph chứa '⋮' trong DOM ngay sau mỗi update
+              const proseElement = view.dom.querySelector('.mindmap-editor-prose')
+              if (proseElement) {
+                const paragraphs = proseElement.querySelectorAll('p')
+                paragraphs.forEach(p => {
+                  const textContent = p.textContent.trim()
+                  const hasImage = p.querySelector('img') || p.querySelector('.image-menu-button')
+                  const hasTaskLink = p.querySelector('.node-task-link-section') || 
+                                   p.querySelector('[data-node-section="task-link"]') ||
+                                   p.getAttribute('data-type') === 'node-task-link'
+                  
+                  if (textContent === '⋮' && !hasImage && !hasTaskLink) {
+                    p.remove()
+                  }
+                })
+              }
+            }
           }
         }
       })
@@ -165,6 +214,154 @@ const PreventTaskLinkDeletionExtension = Extension.create({
               
               return false
             },
+          },
+        },
+      }),
+    ]
+  },
+})
+
+// Extension để thêm data-type="node-description" cho blockquote
+const BlockquoteWithDataTypeExtension = Extension.create({
+  name: 'blockquoteWithDataType',
+  
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['blockquote'],
+        attributes: {
+          'data-type': {
+            default: 'node-description',
+            parseHTML: () => 'node-description',
+            renderHTML: (attributes) => {
+              if (!attributes['data-type']) {
+                return {}
+              }
+              return {
+                'data-type': attributes['data-type'],
+              }
+            },
+          },
+        },
+      },
+    ]
+  },
+})
+
+// Extension để thêm data-type="node-title" cho paragraph đầu tiên
+const ParagraphWithDataTypeExtension = Extension.create({
+  name: 'paragraphWithDataType',
+  
+  addGlobalAttributes() {
+    return [
+      {
+        types: ['paragraph'],
+        attributes: {
+          'data-type': {
+            default: null,
+            parseHTML: (element) => {
+              // ⚠️ FIX: Kiểm tra xem paragraph có chứa task link không
+              const existingDataType = element.getAttribute('data-type')
+              if (existingDataType) {
+                return existingDataType
+              }
+              
+              // Kiểm tra xem paragraph có chứa link "Liên kết công việc" với task_id không
+              const hasTaskLinkAnchor = element.querySelector('a[href*="task_id"]') || 
+                element.querySelector('a[href*="/mtp/project/"]')
+              const text = element.textContent?.trim() || ''
+              const hasTaskLinkText = text.includes('Liên kết công việc')
+              
+              if (hasTaskLinkText && hasTaskLinkAnchor) {
+                console.log('[DEBUG] ParagraphWithDataTypeExtension: Detect task link, set data-type="node-task-link"')
+                return 'node-task-link'
+              }
+              
+              return null
+            },
+            renderHTML: (attributes) => {
+              if (!attributes['data-type']) {
+                return {}
+              }
+              return {
+                'data-type': attributes['data-type'],
+              }
+            },
+          },
+        },
+      },
+    ]
+  },
+})
+
+// Extension để luôn hiển thị placeholder cho node-title
+const TitlePlaceholderExtension = Extension.create({
+  name: 'titlePlaceholder',
+  
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        key: new PluginKey('titlePlaceholder'),
+        props: {
+          decorations: ({ doc, selection }) => {
+            const { view } = this.editor
+            if (!view || !view.dom) return null
+            
+            const decorations = []
+            const { anchor } = selection
+            
+            // Tìm paragraph có data-type="node-title" và luôn hiển thị placeholder nếu trống
+            doc.descendants((node, pos) => {
+              if (node.type.name === 'paragraph') {
+                // Kiểm tra data-type từ node attributes
+                const dataType = node.attrs['data-type']
+
+                // Kiểm tra từ DOM nếu attributes chưa có
+                let isNodeTitle = false
+                if (dataType === 'node-title') {
+                  isNodeTitle = true
+                } else {
+                  // Fallback: Kiểm tra từ DOM
+                  const domNode = view.nodeDOM(pos)
+                  if (domNode && domNode.nodeType === 1) {
+                    const domDataType = domNode.getAttribute('data-type')
+                    if (domDataType === 'node-title') {
+                      isNodeTitle = true
+                    }
+                  }
+                }
+
+                if (isNodeTitle) {
+                  // Kiểm tra xem paragraph có thực sự trống không
+                  // (bỏ qua ProseMirror trailingBreak)
+                  const hasRealContent = node.content.size > 0 && node.content.content.some(child => {
+                    if (child.isText && child.text.length > 0) return true
+                    if (child.type.name !== 'hard_break' || !child.attrs?.class?.includes('ProseMirror-trailingBreak')) return true
+                    return false
+                  })
+
+                  if (!hasRealContent) {
+                    // Paragraph trống, hiển thị placeholder
+                    const hasAnchor = anchor >= pos && anchor <= pos + node.nodeSize
+                    const isEmptyDoc = this.editor.isEmpty
+                    const classes = ['is-empty']
+
+                    if (isEmptyDoc) {
+                      classes.push('is-editor-empty')
+                    }
+
+                    const decoration = Decoration.node(pos, pos + node.nodeSize, {
+                      class: classes.join(' '),
+                      'data-placeholder': 'Nhập...',
+                    })
+
+                    decorations.push(decoration)
+                  }
+                }
+              }
+            })
+            
+            return DecorationSet.create(doc, decorations)
           },
         },
       }),
@@ -612,6 +809,7 @@ const ImageWithMenuExtension = Extension.create({
               const dom = document.createElement('div')
               dom.className = 'image-wrapper-node'
               dom.setAttribute('data-image-src', node.attrs.src)
+              dom.setAttribute('data-type', 'node-image')
               dom.setAttribute('contenteditable', 'false')
               dom.setAttribute('draggable', 'false')
               
@@ -704,6 +902,10 @@ const ImageWithMenuExtension = Extension.create({
               menuButton.className = 'image-menu-button'
               menuButton.setAttribute('type', 'button')
               menuButton.setAttribute('contenteditable', 'false')
+              menuButton.setAttribute('data-tiptap-ignore', 'true')
+              menuButton.setAttribute('data-pm-ignore', 'true')
+              menuButton.setAttribute('draggable', 'false')
+              menuButton.setAttribute('data-menu-button', 'true')
               menuButton.setAttribute('aria-label', 'Image options')
               // Sử dụng SVG icon thay vì text để tránh ProseMirror parse
               menuButton.appendChild(createMenuIcon())
@@ -974,9 +1176,40 @@ const ImageWithMenuExtension = Extension.create({
               dom.appendChild(img)
               dom.appendChild(menuButton)
               
+              // ⚠️ CRITICAL FIX: Cleanup paragraph chứa '⋮' ngay sau khi ảnh được tạo
+              setTimeout(() => {
+                const proseElement = view.dom.querySelector('.mindmap-editor-prose')
+                if (proseElement) {
+                  const paragraphs = proseElement.querySelectorAll('p')
+                  paragraphs.forEach(p => {
+                    const textContent = p.textContent.trim()
+                    const hasImage = p.querySelector('img') || p.querySelector('.image-menu-button')
+                    const hasTaskLink = p.querySelector('.node-task-link-section') || 
+                                     p.querySelector('[data-node-section="task-link"]') ||
+                                     p.getAttribute('data-type') === 'node-task-link'
+                    
+                    if (textContent === '⋮' && !hasImage && !hasTaskLink) {
+                      p.remove()
+                    }
+                  })
+                }
+              }, 0)
+              
               return {
                 dom,
                 contentDOM: null,
+                // ⚠️ CRITICAL FIX: Bỏ qua mutations trong button menu để ProseMirror không serialize nó
+                ignoreMutation: (mutation) => {
+                  // Bỏ qua tất cả mutations trong button menu
+                  if (mutation.target === menuButton || menuButton.contains(mutation.target)) {
+                    return true
+                  }
+                  // Bỏ qua mutations trong SVG icon
+                  if (mutation.target.closest && mutation.target.closest('.image-menu-button')) {
+                    return true
+                  }
+                  return false
+                },
                 update: (updatedNode) => {
                   if (updatedNode.type.name !== 'image') return false
                   
@@ -986,6 +1219,25 @@ const ImageWithMenuExtension = Extension.create({
                   if (updatedNode.attrs.title) img.title = updatedNode.attrs.title
                   if (updatedNode.attrs.width) img.width = updatedNode.attrs.width
                   if (updatedNode.attrs.height) img.height = updatedNode.attrs.height
+                  
+                  // ⚠️ CRITICAL FIX: Cleanup paragraph chứa '⋮' sau khi update
+                  setTimeout(() => {
+                    const proseElement = view.dom.querySelector('.mindmap-editor-prose')
+                    if (proseElement) {
+                      const paragraphs = proseElement.querySelectorAll('p')
+                      paragraphs.forEach(p => {
+                        const textContent = p.textContent.trim()
+                        const hasImage = p.querySelector('img') || p.querySelector('.image-menu-button')
+                        const hasTaskLink = p.querySelector('.node-task-link-section') || 
+                                         p.querySelector('[data-node-section="task-link"]') ||
+                                         p.getAttribute('data-type') === 'node-task-link'
+                        
+                        if (textContent === '⋮' && !hasImage && !hasTaskLink) {
+                          p.remove()
+                        }
+                      })
+                    }
+                  }, 0)
                   
                   return true
                 },
@@ -1831,6 +2083,158 @@ export default {
   },
   expose: ['editor'], // Expose editor để có thể truy cập từ bên ngoài
   methods: {
+    // Thêm data-type cho các phần tử trong node
+    setDataTypesForElements() {
+      if (!this.editor || !this.editor.view) {
+        console.log('[DEBUG] setDataTypesForElements: editor hoặc view không tồn tại')
+        return
+      }
+      
+      const { dom } = this.editor.view
+      const proseElement = dom.querySelector('.mindmap-editor-prose') || dom
+      if (!proseElement) {
+        console.log('[DEBUG] setDataTypesForElements: không tìm thấy proseElement')
+        return
+      }
+      
+      // 1. Thêm data-type="node-image" cho image wrappers (nếu chưa có)
+      const imageWrappers = proseElement.querySelectorAll('.image-wrapper-node')
+      imageWrappers.forEach((wrapper) => {
+        if (wrapper.getAttribute('data-type') !== 'node-image') {
+          wrapper.setAttribute('data-type', 'node-image')
+        }
+      })
+      
+      // 2. Thêm data-type="node-task-link" cho task link sections (nếu chưa có)
+      const taskLinkSections = proseElement.querySelectorAll('.node-task-link-section, [data-node-section="task-link"]')
+      taskLinkSections.forEach((section) => {
+        if (section.getAttribute('data-type') !== 'node-task-link') {
+          section.setAttribute('data-type', 'node-task-link')
+        }
+      })
+      
+      // ⚠️ FIX: Thêm data-type="node-task-link" cho paragraph chứa link "Liên kết công việc" với task_id
+      // (Trường hợp ProseMirror chuyển đổi <section> thành <p>)
+      const allParagraphs = proseElement.querySelectorAll('p')
+      console.log('[DEBUG] setDataTypesForElements: Kiểm tra', allParagraphs.length, 'paragraphs cho task link')
+      allParagraphs.forEach((p, index) => {
+        const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
+          p.querySelector('a[href*="/mtp/project/"]')
+        const text = p.textContent?.trim() || ''
+        const hasTaskLinkText = text.includes('Liên kết công việc')
+        const currentDataType = p.getAttribute('data-type')
+        
+        console.log(`[DEBUG] Paragraph ${index + 1}:`, {
+          textContent: text.substring(0, 50),
+          hasTaskLinkAnchor: !!hasTaskLinkAnchor,
+          hasTaskLinkText,
+          currentDataType
+        })
+        
+        if (hasTaskLinkText && hasTaskLinkAnchor) {
+          // Đây là paragraph chứa task link - thêm data-type
+          if (currentDataType !== 'node-task-link') {
+            p.setAttribute('data-type', 'node-task-link')
+            console.log('[DEBUG] Đã thêm data-type="node-task-link" cho paragraph chứa task link:', text.substring(0, 50))
+            
+            // ⚠️ FIX: Update ProseMirror document để giữ lại attribute khi serialize
+            // Sử dụng requestAnimationFrame để tránh vòng lặp
+            if (this.editor && this.editor.view && !this.isUpdatingFromModelValue) {
+              requestAnimationFrame(() => {
+                try {
+                  const { view } = this.editor
+                  const pos = view.posAtDOM(p, 0)
+                  if (pos !== null && pos !== undefined && pos >= 0) {
+                    const $pos = view.state.doc.resolve(pos)
+                    const node = $pos.parent
+                    if (node && node.type.name === 'paragraph') {
+                      // Tìm vị trí của paragraph trong document
+                      let paragraphPos = null
+                      view.state.doc.descendants((n, p) => {
+                        if (n === node) {
+                          paragraphPos = p
+                          return false
+                        }
+                      })
+                      
+                      if (paragraphPos !== null && paragraphPos >= 0) {
+                        // Update attribute trong ProseMirror document
+                        const tr = view.state.tr
+                        tr.setNodeMarkup(paragraphPos, null, {
+                          ...node.attrs,
+                          'data-type': 'node-task-link'
+                        })
+                        view.dispatch(tr)
+                        console.log('[DEBUG] Đã update ProseMirror document với data-type="node-task-link"')
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.error('[DEBUG] Lỗi khi update ProseMirror document:', err)
+                }
+              })
+            }
+          } else {
+            console.log('[DEBUG] Paragraph đã có data-type="node-task-link":', text.substring(0, 50))
+          }
+        }
+      })
+      
+      // 3. Thêm data-type="node-title" cho paragraph đầu tiên (nếu chưa có)
+      // ⚠️ FIX: Bỏ qua paragraph có data-type="node-task-link" khi set node-title
+      const paragraphs = Array.from(proseElement.querySelectorAll('p'))
+      console.log('[DEBUG] setDataTypesForElements: tìm thấy', paragraphs.length, 'paragraphs')
+      
+      let foundFirstTitle = false
+      for (const p of paragraphs) {
+        const isInBlockquote = p.closest('blockquote') !== null
+        const currentDataType = p.getAttribute('data-type')
+        
+        // ⚠️ FIX: Bỏ qua paragraph có data-type="node-task-link"
+        if (currentDataType === 'node-task-link') {
+          console.log('[DEBUG] Bỏ qua paragraph có data-type="node-task-link":', p.textContent)
+          continue
+        }
+        
+        console.log('[DEBUG] Paragraph:', p.textContent, 'isInBlockquote:', isInBlockquote, 'foundFirstTitle:', foundFirstTitle, 'currentDataType:', currentDataType)
+        
+        if (!isInBlockquote && !foundFirstTitle) {
+          const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
+            p.querySelector('a[href*="/mtp/project/"]')
+          const text = p.textContent?.trim() || ''
+          const hasTaskLinkText = text.includes('Liên kết công việc')
+          const isTaskLink = p.querySelector('.node-task-link-section') || 
+                            p.querySelector('[data-node-section="task-link"]') ||
+                            p.classList.contains('node-task-link-section') ||
+                            p.getAttribute('data-node-section') === 'task-link' ||
+                            (hasTaskLinkText && hasTaskLinkAnchor)
+          
+          console.log('[DEBUG] isTaskLink:', isTaskLink)
+          
+          if (!isTaskLink) {
+            // Xóa data-type="node-title" khỏi các paragraph khác trước
+            paragraphs.forEach((otherP) => {
+              if (otherP !== p && otherP.getAttribute('data-type') === 'node-title') {
+                otherP.removeAttribute('data-type')
+              }
+            })
+            
+            // Thêm data-type cho paragraph đầu tiên
+            console.log('[DEBUG] Setting data-type for paragraph:', p.textContent, 'current:', currentDataType)
+            if (currentDataType !== 'node-title') {
+              p.setAttribute('data-type', 'node-title')
+              console.log('[DEBUG] Đã set data-type="node-title" cho paragraph:', p.textContent)
+            }
+            foundFirstTitle = true
+            break
+          }
+        }
+      }
+      
+      if (!foundFirstTitle) {
+        console.log('[DEBUG] Không tìm thấy paragraph đầu tiên để set data-type')
+      }
+    },
     // Lấy text từ editor mà preserve trailing spaces
     getEditorTextWithTrailingSpaces() {
       if (!this.editor || !this.editor.state) return ''
@@ -2604,6 +3008,8 @@ export default {
       extensions: [
         FilterMenuTextExtension, // ⚠️ CRITICAL: Phải là extension đầu tiên
         PreventTaskLinkDeletionExtension, // Ngăn xóa task link sections
+        BlockquoteWithDataTypeExtension, // Thêm data-type="node-description" cho blockquote
+        ParagraphWithDataTypeExtension, // Thêm data-type="node-title" cho paragraph đầu tiên
         Document,
         Paragraph,
         Text,
@@ -2641,8 +3047,20 @@ export default {
           },
         }),
         Typography,
+        TitlePlaceholderExtension, // Luôn hiển thị placeholder cho node-title
         Placeholder.configure({
-          placeholder: this.placeholder,
+          placeholder: ({ node }) => {
+            // Không hiển thị placeholder cho node-title (đã được xử lý bởi TitlePlaceholderExtension)
+            if (node.type.name === 'paragraph') {
+              const dataType = node.attrs['data-type']
+              if (dataType === 'node-title') {
+                return '' // TitlePlaceholderExtension sẽ xử lý
+              }
+            }
+            // Placeholder mặc định cho các node khác
+            return ''
+          },
+          showOnlyCurrent: true, // Chỉ hiển thị cho node hiện tại (trừ node-title)
         }),
       ],
       editorProps: {
@@ -3002,8 +3420,8 @@ export default {
         // ⚠️ CRITICAL: Clean HTML trước khi set vào editor lần đầu
         const initialContent = this.modelValue || ""
         if (!initialContent) {
-          // ⚠️ NEW: Luôn có một paragraph trống ở đầu để nhập title
-          return "<p></p>"
+          // ⚠️ NEW: Luôn có một paragraph trống ở đầu để nhập title với data-type
+          return '<p data-type="node-title"></p>'
         }
         
         // Kiểm tra xem có phải HTML không
@@ -3015,16 +3433,24 @@ export default {
           cleaned = cleaned.replace(/<button[^>]*class="image-menu-button"[^>]*>.*?<\/button>/gi, '')
           cleaned = cleaned.replace(/⋮/g, '')
           
-          // ⚠️ NEW: Đảm bảo luôn có một paragraph trống ở đầu
+          // ⚠️ NEW: Đảm bảo luôn có một paragraph trống ở đầu với data-type
           // Kiểm tra xem có bắt đầu bằng paragraph không
           if (!cleaned.trim().startsWith('<p')) {
-            cleaned = '<p></p>' + cleaned
+            cleaned = '<p data-type="node-title"></p>' + cleaned
+          } else {
+            // Thêm data-type cho paragraph đầu tiên nếu chưa có
+            cleaned = cleaned.replace(/<p([^>]*)>/, (match, attrs) => {
+              if (!attrs || !attrs.includes('data-type')) {
+                return `<p data-type="node-title"${attrs ? ' ' + attrs : ''}>`
+              }
+              return match
+            })
           }
           
           return cleaned
         }
-        // Plain text: wrap trong paragraph
-        return `<p>${initialContent}</p>`
+        // Plain text: wrap trong paragraph với data-type
+        return `<p data-type="node-title">${initialContent}</p>`
       })(),
       onCreate: () => {
         // ⚠️ CRITICAL: Cleanup ngay khi editor được tạo
@@ -3039,15 +3465,24 @@ export default {
             // Kiểm tra xem node đầu tiên có phải là paragraph không
             const firstNode = doc.firstChild
             if (!firstNode || firstNode.type.name !== 'paragraph') {
-              // Không có paragraph ở đầu, thêm một paragraph trống ở đầu
+              // Không có paragraph ở đầu, thêm một paragraph trống ở đầu với data-type
               this.isUpdatingFromModelValue = true
               this.editor.chain()
-                .insertContentAt(0, '<p></p>', { updateSelection: false })
+                .insertContentAt(0, '<p data-type="node-title"></p>', { updateSelection: false })
                 .run()
               this.$nextTick(() => {
                 this.isUpdatingFromModelValue = false
+                // Đảm bảo data-type được set sau khi insert
+                this.setDataTypesForElements()
               })
             }
+            
+            // ⚠️ NEW: Đảm bảo data-type được set cho các phần tử
+            this.$nextTick(() => {
+              setTimeout(() => {
+                this.setDataTypesForElements()
+              }, 150)
+            })
           }
         })
       },
@@ -3061,8 +3496,15 @@ export default {
         // ⚠️ CRITICAL FIX: Skip nếu đang tính toán height để tránh vòng lặp
         if (this.isCalculatingHeight) return
         
-        // ⚠️ CRITICAL: Clean up menu text NGAY LẬP TỨC
+        // ⚠️ CRITICAL: Clean up menu text NGAY LẬP TỨC (đặc biệt khi ảnh được tạo)
         this.cleanupRemoveMenuText()
+        
+        // ⚠️ NEW: Thêm data-type cho các phần tử (chỉ khi cần thiết)
+        this.$nextTick(() => {
+          this.setDataTypesForElements()
+          // ⚠️ CRITICAL FIX: Cleanup lại sau khi setDataTypesForElements để xóa paragraph chứa '⋮' được tạo ra khi ảnh được tạo
+          this.cleanupRemoveMenuText()
+        })
         
         // ⚠️ NEW: Đảm bảo luôn có một paragraph trống ở đầu để nhập title
         if (this.editor) {
@@ -3072,13 +3514,15 @@ export default {
           // Kiểm tra xem node đầu tiên có phải là paragraph không
           const firstNode = doc.firstChild
           if (!firstNode || firstNode.type.name !== 'paragraph') {
-            // Không có paragraph ở đầu, thêm một paragraph trống
+            // Không có paragraph ở đầu, thêm một paragraph trống với data-type
             this.isUpdatingFromModelValue = true
             this.editor.chain()
-              .insertContentAt(0, '<p></p>', { updateSelection: false })
+              .insertContentAt(0, '<p data-type="node-title"></p>', { updateSelection: false })
               .run()
             this.$nextTick(() => {
               this.isUpdatingFromModelValue = false
+              // Đảm bảo data-type được set sau khi insert
+              this.setDataTypesForElements()
             })
           }
         }
@@ -3102,6 +3546,9 @@ export default {
             }
           }
           
+          // ⚠️ NEW: Đảm bảo data-type được set sau khi DOM render xong
+          this.setDataTypesForElements()
+          
         // Force wrap ảnh mới nếu có
         this.forceWrapImages()
         
@@ -3110,6 +3557,8 @@ export default {
         // Đợi một chút để DOM đã render xong (ảnh đã được chèn vào DOM)
         this.$nextTick(() => {
           this.updateNodeHeight()
+          // ⚠️ NEW: Set data-type lại sau khi update height
+          this.setDataTypesForElements()
         })
       })
 
@@ -3590,9 +4039,10 @@ export default {
   /* ⚠️ NEW: Match với editor line-height */
 }
 
-:deep(.mindmap-editor-prose p.is-editor-empty:first-child::before) {
+:deep(.mindmap-editor-prose p.is-editor-empty::before),
+:deep(.mindmap-editor-prose p.is-empty[data-type="node-title"]::before) {
   color: #9ca3af;
-  content: attr(data-placeholder);
+  content: "Nhập...";
   float: left;
   height: 0;
   pointer-events: none;
@@ -3666,7 +4116,7 @@ export default {
   text-decoration: underline;
 }
 
-/* Blockquote styling cho description */
+/* Blockquote styling cho description - mặc định (khi editor đóng) */
 :deep(.mindmap-editor-prose blockquote) {
   margin: 4px 0;
   margin-right: 0 !important;
@@ -3680,11 +4130,20 @@ export default {
   max-width: 100%;
   width: 100%;
   box-sizing: border-box;
-  overflow: hidden;
   word-wrap: break-word;
   overflow-wrap: break-word;
-  display: block;
   min-width: 0;
+  
+  /* ⚠️ CRITICAL: Ellipsis khi editor đóng (không focus) - hiển thị 1 dòng duy nhất */
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  white-space: normal;
+  max-height: calc(1.6em * 1); /* Giới hạn chiều cao = 1 dòng */
 }
 
 :deep(.mindmap-editor-prose blockquote p) {
@@ -3696,6 +4155,17 @@ export default {
   word-wrap: break-word;
   overflow-wrap: break-word;
   min-width: 0;
+  
+  /* ⚠️ CRITICAL: Ellipsis khi editor đóng (không focus) - hiển thị 1 dòng duy nhất */
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  white-space: normal;
+  max-height: calc(1.6em * 1); /* Giới hạn chiều cao = 1 dòng */
 }
 
 :deep(.mindmap-editor-prose blockquote p:first-child) {
@@ -3753,17 +4223,16 @@ export default {
   /* ⚠️ NEW: Match với editor line-height */
 }
 
-:deep(.mindmap-editor-prose blockquote) {
+/* ⚠️ CRITICAL: Blockquote khi editor đóng (không focus) - hiển thị 1 dòng duy nhất */
+:deep(.mindmap-editor-prose:not(:focus-within):not(.ProseMirror-focused) blockquote),
+:deep(.mindmap-editor-prose:not([contenteditable="true"]) blockquote) {
   margin: 4px 0 0 0;
-  /* ⚠️ FIX: Chỉ margin-top, không có margin-bottom */
   margin-right: 0 !important;
   margin-left: 0;
   padding-left: 6px;
   padding-right: 0 !important;
   padding-top: 0;
-  /* ⚠️ NEW: Xóa padding-top thừa */
   padding-bottom: 0;
-  /* ⚠️ NEW: Xóa padding-bottom thừa */
   border-left: 3px solid #adc6ee;
   color: #a19c9c;
   font-size: 12px;
@@ -3775,27 +4244,74 @@ export default {
   overflow-wrap: break-word;
   min-width: 0;
 
-  /* Ellipsis khi không edit */
-  display: -webkit-box;
-  -webkit-line-clamp: 1;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  word-break: break-word;
-  white-space: normal;
+  /* ⚠️ CRITICAL: Ellipsis khi editor đóng - hiển thị 1 dòng duy nhất */
+  display: -webkit-box !important;
+  -webkit-line-clamp: 1 !important;
+  line-clamp: 1 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+  max-height: calc(1.6em * 1) !important; /* Giới hạn chiều cao = 1 dòng */
+}
+
+/* ⚠️ CRITICAL FIX: Blockquote description khi editor đóng (không focus) - hiển thị 1 dòng duy nhất */
+:deep(.mindmap-editor-prose:not(:focus-within):not(.ProseMirror-focused) blockquote[data-type="node-description"]),
+:deep(.mindmap-editor-prose:not([contenteditable="true"]) blockquote[data-type="node-description"]) {
+  /* Ellipsis khi editor đóng - đảm bảo hiển thị dấu 3 chấm */
+  display: -webkit-box !important;
+  -webkit-line-clamp: 1 !important;
+  line-clamp: 1 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+  max-height: calc(1.6em * 1) !important; /* Giới hạn chiều cao = 1 dòng */
 }
 
 /* Khi đang edit: hiển thị tất cả dòng */
 :deep(.mindmap-editor-prose:focus-within blockquote),
-:deep(.mindmap-editor-prose.ProseMirror-focused blockquote) {
-  display: block;
-  -webkit-line-clamp: unset;
-  -webkit-box-orient: unset;
-  overflow: visible;
-  text-overflow: clip;
-  white-space: normal;
+:deep(.mindmap-editor-prose.ProseMirror-focused blockquote),
+:deep(.mindmap-editor-prose[contenteditable="true"] blockquote) {
+  display: block !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
   margin-bottom: 0;
   /* ⚠️ NEW: Không có margin-bottom khi edit */
+  max-height: none !important;
+}
+
+/* ⚠️ CRITICAL FIX: Khi đang edit blockquote description, hiển thị tất cả dòng */
+:deep(.mindmap-editor-prose:focus-within blockquote[data-type="node-description"]),
+:deep(.mindmap-editor-prose.ProseMirror-focused blockquote[data-type="node-description"]),
+:deep(.mindmap-editor-prose[contenteditable="true"] blockquote[data-type="node-description"]) {
+  display: block !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  max-height: none !important;
+}
+
+:deep(.mindmap-editor-prose:focus-within blockquote[data-type="node-description"] p),
+:deep(.mindmap-editor-prose.ProseMirror-focused blockquote[data-type="node-description"] p),
+:deep(.mindmap-editor-prose[contenteditable="true"] blockquote[data-type="node-description"] p) {
+  display: block !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  max-height: none !important;
 }
 
 /* ⚠️ REMOVED: Khi có ảnh trong node, mô tả vẫn chỉ hiển thị 1 dòng như bình thường */
@@ -3812,6 +4328,22 @@ export default {
   min-width: 0;
   line-height: 1.6;
   /* ⚠️ NEW: Match với blockquote line-height */
+}
+
+/* ⚠️ CRITICAL FIX: Paragraph trong blockquote description khi editor đóng (không focus) - hiển thị 1 dòng duy nhất */
+:deep(.mindmap-editor-prose:not(:focus-within):not(.ProseMirror-focused) blockquote[data-type="node-description"] p),
+:deep(.mindmap-editor-prose:not([contenteditable="true"]) blockquote[data-type="node-description"] p),
+:deep(.mindmap-editor-prose:not(:focus-within):not(.ProseMirror-focused) blockquote p),
+:deep(.mindmap-editor-prose:not([contenteditable="true"]) blockquote p) {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 1 !important;
+  line-clamp: 1 !important;
+  -webkit-box-orient: vertical !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  word-break: break-word !important;
+  white-space: normal !important;
+  max-height: calc(1.6em * 1) !important; /* Giới hạn chiều cao = 1 dòng */
 }
 
 /* Container cho images - đảm bảo chiều rộng 400px */

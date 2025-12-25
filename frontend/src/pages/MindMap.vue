@@ -1521,7 +1521,7 @@ const confirmTaskLink = async () => {
     // Wrap badge trong section riêng để dễ phân biệt và style
     // Tự động thêm badge khi chọn công việc có sẵn
     if (taskPayload.linkUrl) {
-      const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
+      const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" data-type="node-task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
       if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
         // Parse HTML để chèn badge vào đúng vị trí (ngay sau title, trước ảnh)
         try {
@@ -1723,43 +1723,71 @@ const deleteTaskLink = async (node) => {
         const doc = parser.parseFromString(targetNode.data.label, 'text/html')
         const body = doc.body
         
-        // Xóa tất cả task link sections
-        const taskLinkSections = body.querySelectorAll('.node-task-link-section, [data-node-section="task-link"]')
-        taskLinkSections.forEach(section => section.remove())
+        // ⚠️ DEBUG: Log HTML trước khi xóa
+        console.log('[deleteTaskLink] HTML trước khi xóa task link:', body.innerHTML)
         
-        // Xóa các paragraph chứa link "Liên kết công việc", link có task_id trong href, hoặc chỉ chứa ⋮
+        // ⚠️ FIX: Xóa element có data-type="node-task-link" hoặc các element cũ (node-task-link-section, data-node-section="task-link")
+        // Bao gồm cả section và paragraph có data-type="node-task-link"
+        const taskLinkSections = body.querySelectorAll('[data-type="node-task-link"], .node-task-link-section, [data-node-section="task-link"]')
+        console.log('[deleteTaskLink] Tìm thấy', taskLinkSections.length, 'task link sections/elements')
+        
+        taskLinkSections.forEach((element, index) => {
+          console.log(`[deleteTaskLink] Xóa task link element ${index + 1}:`, {
+            tagName: element.tagName,
+            outerHTML: element.outerHTML.substring(0, 200),
+            dataType: element.getAttribute('data-type'),
+            className: element.className,
+            dataNodeSection: element.getAttribute('data-node-section')
+          })
+          element.remove()
+        })
+        
+        // ⚠️ FIX: Xóa paragraph chứa link "Liên kết công việc" với task_id trong href (trường hợp task link được tạo dưới dạng paragraph và chưa có data-type)
         const paragraphs = body.querySelectorAll('p')
         paragraphs.forEach(p => {
-          const text = p.textContent?.trim() || ''
-          const hasTaskLinkText = text.includes('Liên kết công việc')
+          // Bỏ qua paragraph có data-type="node-title" hoặc nằm trong blockquote
+          const dataType = p.getAttribute('data-type')
+          const isInBlockquote = p.closest('blockquote') !== null
+          
+          if (dataType === 'node-title' || isInBlockquote) {
+            return // Không xóa title hoặc paragraph trong blockquote
+          }
+          
+          // Nếu đã có data-type="node-task-link", đã được xóa ở trên
+          if (dataType === 'node-task-link') {
+            return
+          }
+          
+          // Kiểm tra xem paragraph có chứa link "Liên kết công việc" với task_id không
           const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
             p.querySelector('a[href*="/mtp/project/"]')
-          const hasMenuDots = text === '⋮' || text.includes('⋮')
+          const text = p.textContent?.trim() || ''
+          const hasTaskLinkText = text.includes('Liên kết công việc')
           
-          // Xóa nếu paragraph chứa text "Liên kết công việc", có link với task_id, hoặc chỉ chứa ⋮
-          if (hasTaskLinkText || hasTaskLinkAnchor || hasMenuDots) {
+          if (hasTaskLinkText && hasTaskLinkAnchor) {
+            console.log('[deleteTaskLink] Xóa paragraph chứa task link (chưa có data-type):', {
+              outerHTML: p.outerHTML.substring(0, 200),
+              textContent: text
+            })
             p.remove()
           }
         })
         
-        // Xóa các link trực tiếp (không nằm trong paragraph) có task_id
-        const taskLinks = body.querySelectorAll('a[href*="task_id"], a[href*="/mtp/project/"]')
-        taskLinks.forEach(link => {
-          const linkText = link.textContent?.trim() || ''
-          if (linkText.includes('Liên kết công việc') || link.getAttribute('href')?.includes('task_id')) {
-            // Xóa parent element nếu là paragraph, hoặc xóa link nếu không có parent quan trọng
-            const parent = link.parentElement
-            if (parent && parent.tagName === 'P') {
-              parent.remove()
-            } else {
-              link.remove()
-            }
-          }
-        })
+        // ⚠️ DEBUG: Log HTML sau khi xóa task link section
+        console.log('[deleteTaskLink] HTML sau khi xóa task link section:', body.innerHTML)
         
         // Cleanup: Xóa các paragraph rỗng hoặc chỉ chứa whitespace sau khi xóa task link
+        // ⚠️ FIX: Không xóa paragraph có data-type="node-title" hoặc nằm trong blockquote
         const remainingParagraphs = body.querySelectorAll('p')
         remainingParagraphs.forEach(p => {
+          // Bỏ qua paragraph có data-type="node-title" hoặc nằm trong blockquote
+          const dataType = p.getAttribute('data-type')
+          const isInBlockquote = p.closest('blockquote') !== null
+          
+          if (dataType === 'node-title' || isInBlockquote) {
+            return // Không xóa title hoặc paragraph trong blockquote
+          }
+          
           const text = p.textContent?.trim() || ''
           const hasOnlyBr = p.querySelectorAll('br').length === p.childNodes.length && p.childNodes.length > 0
           const isEmpty = p.classList.contains('is-empty') || (text === '' && hasOnlyBr)
@@ -1769,34 +1797,78 @@ const deleteTaskLink = async (node) => {
           }
         })
         
-        // Serialize lại HTML và cleanup thêm một lần nữa để đảm bảo xóa hết <p>⋮</p>
+        // ⚠️ FIX: Đảm bảo luôn có ít nhất một paragraph title
+        const hasTitleParagraph = body.querySelector('p[data-type="node-title"]') !== null
+        if (!hasTitleParagraph) {
+          // Nếu không có title paragraph, tạo một paragraph trống với data-type="node-title"
+          const titleP = doc.createElement('p')
+          titleP.setAttribute('data-type', 'node-title')
+          // Chèn vào đầu body
+          if (body.firstChild) {
+            body.insertBefore(titleP, body.firstChild)
+          } else {
+            body.appendChild(titleP)
+          }
+        }
+        
+        // Serialize lại HTML
         let cleanedHtml = body.innerHTML
-        // Xóa tất cả paragraph chỉ chứa ⋮
-        cleanedHtml = cleanedHtml.replace(/<p[^>]*>\s*⋮\s*<\/p>/gi, '')
-        cleanedHtml = cleanedHtml.replace(/<p[^>]*>.*?⋮.*?<\/p>/gi, '')
-        // Xóa tất cả ký tự ⋮ còn lại (không nằm trong button)
-        cleanedHtml = cleanedHtml.replace(/(?<!<button[^>]*>.*?)⋮(?![^<]*<\/button>)/g, '')
+        
+        // ⚠️ DEBUG: Log HTML trước khi kiểm tra rỗng
+        console.log('[deleteTaskLink] HTML trước khi kiểm tra rỗng:', cleanedHtml)
+        
+        // ⚠️ FIX: Đảm bảo HTML không rỗng
+        if (!cleanedHtml || cleanedHtml.trim() === '') {
+          console.warn('[deleteTaskLink] HTML rỗng, tạo title paragraph mặc định')
+          cleanedHtml = '<p data-type="node-title"></p>'
+        }
+        
+        // ⚠️ DEBUG: Log HTML cuối cùng
+        console.log('[deleteTaskLink] HTML cuối cùng:', cleanedHtml)
         
         targetNode.data.label = cleanedHtml
       } catch (err) {
         console.error('Error parsing HTML for task link removal:', err)
-        // Fallback: xóa bằng regex - xóa cả section và paragraph chứa task link
-        let cleanedLabel = targetNode.data.label
-          // Xóa section wrapper
-          .replace(/<section[^>]*class="node-task-link-section"[^>]*>.*?<\/section>/gi, '')
-          .replace(/<section[^>]*data-node-section="task-link"[^>]*>.*?<\/section>/gi, '')
-          // Xóa paragraph chứa "Liên kết công việc", có task_id trong href, hoặc chỉ chứa ⋮
-          .replace(/<p[^>]*>.*?Liên kết công việc.*?<\/p>/gi, '')
-          .replace(/<p[^>]*>.*?<a[^>]*href="[^"]*task_id[^"]*"[^>]*>.*?<\/a>.*?<\/p>/gi, '')
-          .replace(/<p[^>]*>.*?<a[^>]*href="[^"]*\/mtp\/project\/[^"]*"[^>]*>.*?Liên kết công việc.*?<\/a>.*?<\/p>/gi, '')
-          .replace(/<p[^>]*>⋮<\/p>/gi, '')
-          .replace(/<p[^>]*>.*?⋮.*?<\/p>/gi, '')
-          // Xóa các paragraph rỗng hoặc chỉ chứa whitespace
-          .replace(/<p[^>]*class="is-empty"[^>]*>.*?<\/p>/gi, '')
-          .replace(/<p[^>]*>\s*<\/p>/gi, '')
-          .replace(/<p[^>]*>\s*<br[^>]*>\s*<\/p>/gi, '')
-        
-        targetNode.data.label = cleanedLabel
+        // Fallback: thử parse lại với DOMParser
+        try {
+          const parser = new DOMParser()
+          const doc = parser.parseFromString(targetNode.data.label, 'text/html')
+          const body = doc.body
+          
+          // ⚠️ FIX: Xóa element có data-type="node-task-link" hoặc các element cũ
+          const taskLinkSections = body.querySelectorAll('[data-type="node-task-link"], .node-task-link-section, [data-node-section="task-link"]')
+          taskLinkSections.forEach(section => section.remove())
+          
+          // ⚠️ FIX: Đảm bảo luôn có ít nhất một paragraph title
+          const hasTitleParagraph = body.querySelector('p[data-type="node-title"]') !== null
+          if (!hasTitleParagraph) {
+            const titleP = doc.createElement('p')
+            titleP.setAttribute('data-type', 'node-title')
+            if (body.firstChild) {
+              body.insertBefore(titleP, body.firstChild)
+            } else {
+              body.appendChild(titleP)
+            }
+          }
+          
+          let cleanedHtml = body.innerHTML
+          if (!cleanedHtml || cleanedHtml.trim() === '') {
+            cleanedHtml = '<p data-type="node-title"></p>'
+          }
+          
+          targetNode.data.label = cleanedHtml
+        } catch (fallbackErr) {
+          console.error('Error in fallback HTML parsing:', fallbackErr)
+          // Nếu cả fallback cũng fail, chỉ xóa bằng regex đơn giản
+          let cleanedLabel = targetNode.data.label
+            .replace(/<section[^>]*data-type="node-task-link"[^>]*>.*?<\/section>/gi, '')
+          
+          if (!cleanedLabel || cleanedLabel.trim() === '') {
+            cleanedLabel = '<p data-type="node-title"></p>'
+          }
+          
+          targetNode.data.label = cleanedLabel
+        }
       }
     }
 
@@ -1819,26 +1891,30 @@ const deleteTaskLink = async (node) => {
     // Đồng bộ nội dung editor ngay lập tức
     const editorInstance = d3Renderer?.getEditorInstance?.(targetNode.id)
     if (editorInstance) {
-      // Clean HTML trước khi set vào editor để xóa <p>⋮</p>
       let contentToSet = targetNode.data?.label || ''
-      if (contentToSet) {
-        // Xóa tất cả paragraph chỉ chứa ⋮
-        contentToSet = contentToSet.replace(/<p[^>]*>\s*⋮\s*<\/p>/gi, '')
-        contentToSet = contentToSet.replace(/<p[^>]*>.*?⋮.*?<\/p>/gi, '')
-        // Xóa tất cả ký tự ⋮ còn lại
-        contentToSet = contentToSet.replace(/⋮/g, '')
+      
+      console.log('[deleteTaskLink] Content trước khi set vào editor:', contentToSet)
+      
+      // ⚠️ FIX: Đảm bảo content không rỗng
+      if (!contentToSet || contentToSet.trim() === '') {
+        console.warn('[deleteTaskLink] Content rỗng, tạo title paragraph mặc định')
+        contentToSet = '<p data-type="node-title"></p>'
       }
+      
+      console.log('[deleteTaskLink] Content cuối cùng sẽ set vào editor:', contentToSet)
       
       if (typeof editorInstance.commands?.setContent === 'function') {
         editorInstance.commands.setContent(contentToSet, false)
+        console.log('[deleteTaskLink] Đã set content vào editor')
       }
       
-      // Gọi cleanup function để xóa ⋮ từ DOM và ProseMirror document
-      if (typeof editorInstance.cleanupRemoveMenuText === 'function') {
-        setTimeout(() => {
-          editorInstance.cleanupRemoveMenuText()
-        }, 100)
-      }
+      // ⚠️ FIX: Không gọi cleanupRemoveMenuText vì có thể tạo lại ⋮
+      // Chỉ gọi nếu thực sự cần thiết
+      // if (typeof editorInstance.cleanupRemoveMenuText === 'function') {
+      //   setTimeout(() => {
+      //     editorInstance.cleanupRemoveMenuText()
+      //   }, 100)
+      // }
     }
 
     // Cập nhật nodes array
@@ -1995,7 +2071,7 @@ const handleCreateTask = async (formData) => {
         // Thêm badge "Liên kết công việc" vào node label (tương tự confirmTaskLink)
         // Tự động thêm badge khi tạo mới công việc từ node
         if (taskOpenLink && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
-          const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
+          const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" data-type="node-task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
           try {
             const parser = new DOMParser()
             const doc = parser.parseFromString(linkNode.data.label, 'text/html')
@@ -2118,6 +2194,13 @@ const handleCreateTask = async (formData) => {
           const editorInstance = d3Renderer?.getEditorInstance?.(linkNode.id)
           if (editorInstance && typeof editorInstance.commands?.setContent === 'function') {
             editorInstance.commands.setContent(linkNode.data?.label || '', false)
+            
+            // ⚠️ FIX: Gọi setDataTypesForElements sau khi set content để thêm data-type="node-task-link" vào paragraph
+            if (typeof editorInstance.setDataTypesForElements === 'function') {
+              setTimeout(() => {
+                editorInstance.setDataTypesForElements()
+              }, 100)
+            }
           }
           
           // Cập nhật nodes array

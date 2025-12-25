@@ -131,13 +131,24 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	const singleLineHeight = Math.ceil(19 * 1.4) + 16 // ~43px
 	
 	// ⚠️ FIX: Check isEmpty đúng cách, bao gồm cả HTML rỗng như <p></p> hoặc <p><br></p>
+	// ⚠️ CRITICAL: Không coi là empty nếu có blockquote (mô tả), ngay cả khi title rỗng
 	let isEmpty = !value || !value.trim()
 	if (!isEmpty && value.includes('<')) {
 		// Nếu là HTML, parse và check text content
 		const tempDiv = document.createElement('div')
 		tempDiv.innerHTML = value
-		const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim()
-		isEmpty = !textContent || textContent === ''
+		
+		// ⚠️ FIX: Kiểm tra xem có blockquote không
+		const hasBlockquote = tempDiv.querySelector('blockquote[data-type="node-description"]') !== null
+		
+		if (hasBlockquote) {
+			// Có blockquote: không coi là empty, ngay cả khi title rỗng
+			isEmpty = false
+		} else {
+			// Không có blockquote: kiểm tra text content như bình thường
+			const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim()
+			isEmpty = !textContent || textContent === ''
+		}
 	}
 	
 	const isRootNode = nodeData.data?.isRoot || nodeId === 'root'
@@ -486,6 +497,16 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 					}
 				} else {
 					// ⚠️ KHÔNG có ảnh: Đo height trực tiếp từ DOM để hiển thị text nhiều dòng
+					// ⚠️ FIX: Remove class is-empty và is-editor-empty khỏi blockquote TRƯỚC khi đo height
+					// Class này có thể làm ảnh hưởng đến height của blockquote
+					const blockquotes = editorContent.querySelectorAll('blockquote[data-type="node-description"]')
+					blockquotes.forEach((blockquote) => {
+						blockquote.classList.remove('is-empty', 'is-editor-empty')
+						blockquote.removeAttribute('data-placeholder')
+						// Force reflow để đảm bảo height được tính đúng sau khi remove class
+						void blockquote.offsetHeight
+					})
+					
 					// Force height = auto để đo chính xác
 					editorContent.style.height = 'auto'
 					editorContent.style.minHeight = `${singleLineHeight}px`
@@ -497,7 +518,25 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 					
 					// Đo height thực tế từ scrollHeight (bao gồm tất cả nội dung)
 					const contentScrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
-					measuredHeight = Math.max(contentScrollHeight, singleLineHeight)
+					
+					// ⚠️ FIX: Nếu có blockquote, đảm bảo height ít nhất bằng blockquote + padding
+					if (blockquotes.length > 0) {
+						let maxBlockquoteBottom = 0
+						const proseRect = editorContent.getBoundingClientRect()
+						
+						blockquotes.forEach((blockquote) => {
+							const blockquoteRect = blockquote.getBoundingClientRect()
+							const blockquoteBottom = blockquoteRect.bottom - proseRect.top
+							maxBlockquoteBottom = Math.max(maxBlockquoteBottom, blockquoteBottom)
+						})
+						
+						// Height = max(blockquote bottom + padding bottom, scrollHeight, singleLineHeight)
+						const paddingBottom = 8 // padding-bottom của editorContent
+						const blockquoteHeight = maxBlockquoteBottom + paddingBottom
+						measuredHeight = Math.max(contentScrollHeight, blockquoteHeight, singleLineHeight)
+					} else {
+						measuredHeight = Math.max(contentScrollHeight, singleLineHeight)
+					}
 					
 					// KHÔNG lưu vào fixedHeight (chỉ lưu khi có ảnh)
 					// Vì text có thể thay đổi liên tục, không cần fix
@@ -1678,7 +1717,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	
 	const nodeEditorEl = fo.select('.mindmap-node-editor').node()
 	if (nodeEditorEl) {
-		nodeEditorEl.style.setProperty('height', `${foHeight}px`, 'important')
+		nodeEditorEl.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
 		nodeEditorEl.style.setProperty('min-height', `${foHeight}px`, 'important')
 		nodeEditorEl.style.setProperty('max-height', 'none', 'important')
 		nodeEditorEl.style.setProperty('overflow', 'visible', 'important')
@@ -1686,7 +1725,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	
 	const editorContentEl = fo.select('.mindmap-editor-content').node()
 	if (editorContentEl) {
-		editorContentEl.style.setProperty('height', `${foHeight}px`, 'important')
+		editorContentEl.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
 		editorContentEl.style.setProperty('min-height', `${foHeight}px`, 'important')
 		editorContentEl.style.setProperty('max-height', 'none', 'important')
 		editorContentEl.style.setProperty('overflow', 'visible', 'important')
@@ -1843,7 +1882,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					
 					const nodeEditorEl = fo.select('.mindmap-node-editor').node()
 					if (nodeEditorEl) {
-						nodeEditorEl.style.setProperty('height', `${updatedFoHeight}px`, 'important')
+						nodeEditorEl.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
 						nodeEditorEl.style.setProperty('min-height', `${updatedFoHeight}px`, 'important')
 						nodeEditorEl.style.setProperty('max-height', 'none', 'important')
 						nodeEditorEl.style.setProperty('overflow', 'visible', 'important')
@@ -1851,7 +1890,7 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 					
 					const editorContentEl = fo.select('.mindmap-editor-content').node()
 					if (editorContentEl) {
-						editorContentEl.style.setProperty('height', `${updatedFoHeight}px`, 'important')
+						editorContentEl.style.setProperty('height', 'auto', 'important') // Tự động điều chỉnh theo nội dung
 						editorContentEl.style.setProperty('min-height', `${updatedFoHeight}px`, 'important')
 						editorContentEl.style.setProperty('max-height', 'none', 'important')
 						editorContentEl.style.setProperty('overflow', 'visible', 'important')

@@ -149,6 +149,7 @@ export default {
           History,
           Placeholder.configure({
             placeholder: this.placeholder,
+            showOnlyCurrent: false,
           }),
           // Extension.create({
           //   name: 'handleEnter',
@@ -849,7 +850,8 @@ export default {
   margin: 0 !important;
 }
 
-.rich-comment-editor :deep(.ProseMirror p.is-editor-empty:first-child::before) {
+.rich-comment-editor :deep(.ProseMirror p.is-editor-empty:first-child::before),
+.rich-comment-editor :deep(.ProseMirror p.is-empty:first-child::before) {
   content: attr(data-placeholder);
   float: left;
   color: #9ca3af;
