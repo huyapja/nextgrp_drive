@@ -456,7 +456,7 @@ export function renderNodes(renderer, positions) {
       const nodeGroup = d3.select(this)
       nodeGroup.raise()
       
-      // Click đơn giản để select node
+      // Click đơn giản để select node - CHỈ mở toolbar, KHÔNG focus editor
       // Blur editor nếu đang focus (CHỈ khi không click vào toolbar)
       // ⚠️ FIX: Không blur editor nếu node mới được tạo và vừa mới focus (trong vòng 800ms)
       const editorInstance = renderer.getEditorInstance(d.id)
@@ -483,10 +483,14 @@ export function renderNodes(renderer, positions) {
         }
       }
       
-      // Cho phép click link trong chế độ view
+      // ⚠️ CRITICAL FIX: KHÔNG set pointer-events: auto khi click 1 lần vào node
+      // Chỉ mở toolbar, không cho phép edit ngay lập tức
+      // Editor chỉ được enable khi double click hoặc click trực tiếp vào editor content
       const editorContainer = nodeGroup.select('.node-editor-container')
       if (editorContainer.node()) {
-        editorContainer.style('pointer-events', 'auto')
+        // Giữ nguyên pointer-events: none để ngăn click vào editor khi click 1 lần
+        // Chỉ cho phép click link trong chế độ view (nếu cần)
+        editorContainer.style('pointer-events', 'none')
       }
       
       // CHỈ select node, KHÔNG BAO GIỜ gọi onNodeAdd ở đây
@@ -495,6 +499,16 @@ export function renderNodes(renderer, positions) {
         // thêm event để chặn sự kiện onNodeClick khi click vào count badge
         renderer.callbacks.onNodeClick(d, event)
       }
+      
+      // ⚠️ CRITICAL FIX: Đảm bảo editor không tự động focus sau khi select node
+      // Đợi một chút để đảm bảo các callback đã chạy xong
+      setTimeout(() => {
+        const editorInstanceAfterSelect = renderer.getEditorInstance(d.id)
+        if (editorInstanceAfterSelect && editorInstanceAfterSelect.isFocused) {
+          console.log('[DEBUG] nodeRendering click: Editor đã tự động focus, blur lại', d.id)
+          editorInstanceAfterSelect.commands.blur()
+        }
+      }, 50)
     })
     .on('dblclick', function(event, d) {
       // Double click để edit - focus vào TipTap editor
@@ -535,83 +549,164 @@ export function renderNodes(renderer, positions) {
       setTimeout(() => {
         const editorInstance = renderer.getEditorInstance(d.id)
         if (editorInstance) {
-          // Focus vào editor và đặt cursor ở cuối title (không phải blockquote)
-          const { state } = editorInstance.view
-          const { doc } = state
+          // Gọi handleEditorFocus trước để setup đúng cách
+          renderer.handleEditorFocus(d.id, fo.node(), d)
           
-          // Tìm paragraph cuối cùng của title (không trong blockquote)
-          let lastTitleEndPos = null
-          
-          // Duyệt qua tất cả nodes để tìm paragraph cuối cùng không trong blockquote
-          doc.forEach((node, offset) => {
-            if (node.type.name === 'paragraph') {
-              // Kiểm tra xem paragraph có trong blockquote không
-              const resolvedPos = state.doc.resolve(offset + 1)
-              let inBlockquote = false
+          // Sau đó đặt cursor ở cuối title (không phải blockquote và không phải task-link)
+          setTimeout(() => {
+            const { state } = editorInstance.view
+            const { doc } = state
+            
+            // Helper function để kiểm tra xem paragraph có phải là task-link không
+            const isTaskLinkParagraph = (node) => {
+              const attrs = node.attrs || {}
+              if (attrs['data-type'] === 'node-task-link') {
+                return true
+              }
               
-              for (let i = resolvedPos.depth; i > 0; i--) {
-                const nodeAtDepth = resolvedPos.node(i)
-                if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
-                  inBlockquote = true
-                  break
+              // Kiểm tra text content và link marks
+              const paragraphText = node.textContent || ''
+              const hasTaskLinkText = paragraphText.includes('Liên kết công việc')
+              
+              if (hasTaskLinkText) {
+                // Kiểm tra xem có mark link với href chứa task_id không
+                let hasTaskLinkMark = false
+                node.descendants((child) => {
+                  if (child.isText && child.marks) {
+                    const linkMark = child.marks.find(m => m.type.name === 'link' && m.attrs && m.attrs.href)
+                    if (linkMark && linkMark.attrs.href && 
+                        (linkMark.attrs.href.includes('task_id') || linkMark.attrs.href.includes('/mtp/project/'))) {
+                      hasTaskLinkMark = true
+                      return false // Stop iteration
+                    }
+                  }
+                })
+                
+                if (hasTaskLinkMark) {
+                  return true
                 }
               }
               
-              if (!inBlockquote) {
-                // Đây là title paragraph, lưu vị trí cuối của nó
-                // offset + 1 là vị trí bắt đầu của node, offset + node.nodeSize là vị trí cuối
-                lastTitleEndPos = offset + node.nodeSize - 1
-              }
+              return false
             }
-          })
-          
-          if (lastTitleEndPos !== null && lastTitleEndPos > 0) {
-            // Set selection ở cuối title paragraph
-            editorInstance.chain().setTextSelection(lastTitleEndPos).focus().run()
-          } else {
-            // Fallback: focus vào đầu nếu không tìm thấy title paragraph
-            editorInstance.commands.focus('start')
-          }
-          
-          // Gọi handleEditorFocus để setup đúng cách
-          renderer.handleEditorFocus(d.id, fo.node(), d)
+            
+            // Tìm paragraph cuối cùng của title (không trong blockquote và không phải task-link)
+            let lastTitleParagraph = null
+            let lastTitleParagraphPos = null
+            
+            doc.forEach((node, offset) => {
+              if (node.type.name === 'paragraph') {
+                // Kiểm tra xem paragraph có trong blockquote không
+                const resolvedPos = state.doc.resolve(offset + 1)
+                let inBlockquote = false
+                
+                for (let i = resolvedPos.depth; i > 0; i--) {
+                  const nodeAtDepth = resolvedPos.node(i)
+                  if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                    inBlockquote = true
+                    break
+                  }
+                }
+                
+                // Kiểm tra xem có phải task-link không
+                const isTaskLink = isTaskLinkParagraph(node)
+                
+                if (!inBlockquote && !isTaskLink) {
+                  // Đây là title paragraph
+                  lastTitleParagraph = node
+                  lastTitleParagraphPos = offset
+                }
+              }
+            })
+            
+            if (lastTitleParagraph && lastTitleParagraphPos !== null) {
+              // Tìm vị trí cuối cùng của text trong paragraph (sau content, trước closing tag)
+              // Vị trí cuối của content là: offset + 1 (opening tag) + content.size
+              const paragraphContentEnd = lastTitleParagraphPos + 1 + lastTitleParagraph.content.size
+              
+              // Set selection ở cuối title paragraph content
+              editorInstance.chain().setTextSelection(paragraphContentEnd).focus().run()
+            } else {
+              // Fallback: focus vào cuối nếu không tìm thấy title paragraph
+              editorInstance.commands.focus('end')
+            }
+          }, 50)
         } else {
           // Nếu editor chưa sẵn sàng, thử lại sau
           setTimeout(() => {
             const editorInstance2 = renderer.getEditorInstance(d.id)
             if (editorInstance2) {
-              const { state } = editorInstance2.view
-              const { doc } = state
+              renderer.handleEditorFocus(d.id, fo.node(), d)
               
-              // Tìm paragraph cuối cùng của title (không trong blockquote)
-              let lastTitleEndPos = null
-              
-              doc.forEach((node, offset) => {
-                if (node.type.name === 'paragraph') {
-                  const resolvedPos = state.doc.resolve(offset + 1)
-                  let inBlockquote = false
+              // Sau đó đặt cursor ở cuối title
+              setTimeout(() => {
+                const { state } = editorInstance2.view
+                const { doc } = state
+                
+                // Helper function để kiểm tra xem paragraph có phải là task-link không
+                const isTaskLinkParagraph2 = (node) => {
+                  const attrs = node.attrs || {}
+                  if (attrs['data-type'] === 'node-task-link') {
+                    return true
+                  }
                   
-                  for (let i = resolvedPos.depth; i > 0; i--) {
-                    const nodeAtDepth = resolvedPos.node(i)
-                    if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
-                      inBlockquote = true
-                      break
+                  const paragraphText = node.textContent || ''
+                  const hasTaskLinkText = paragraphText.includes('Liên kết công việc')
+                  
+                  if (hasTaskLinkText) {
+                    let hasTaskLinkMark = false
+                    node.descendants((child) => {
+                      if (child.isText && child.marks) {
+                        const linkMark = child.marks.find(m => m.type.name === 'link' && m.attrs && m.attrs.href)
+                        if (linkMark && linkMark.attrs.href && 
+                            (linkMark.attrs.href.includes('task_id') || linkMark.attrs.href.includes('/mtp/project/'))) {
+                          hasTaskLinkMark = true
+                          return false
+                        }
+                      }
+                    })
+                    
+                    if (hasTaskLinkMark) {
+                      return true
                     }
                   }
                   
-                  if (!inBlockquote) {
-                    lastTitleEndPos = offset + node.nodeSize - 1
-                  }
+                  return false
                 }
-              })
-              
-              if (lastTitleEndPos !== null && lastTitleEndPos > 0) {
-                editorInstance2.chain().setTextSelection(lastTitleEndPos).focus().run()
-              } else {
-                editorInstance2.commands.focus('start')
-              }
-              
-              renderer.handleEditorFocus(d.id, fo.node(), d)
+                
+                // Tìm paragraph cuối cùng của title
+                let lastTitleParagraph2 = null
+                let lastTitleParagraphPos2 = null
+                
+                doc.forEach((node, offset) => {
+                  if (node.type.name === 'paragraph') {
+                    const resolvedPos = state.doc.resolve(offset + 1)
+                    let inBlockquote = false
+                    
+                    for (let i = resolvedPos.depth; i > 0; i--) {
+                      const nodeAtDepth = resolvedPos.node(i)
+                      if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+                        inBlockquote = true
+                        break
+                      }
+                    }
+                    
+                    const isTaskLink = isTaskLinkParagraph2(node)
+                    
+                    if (!inBlockquote && !isTaskLink) {
+                      lastTitleParagraph2 = node
+                      lastTitleParagraphPos2 = offset
+                    }
+                  }
+                })
+                
+                if (lastTitleParagraph2 && lastTitleParagraphPos2 !== null) {
+                  const paragraphContentEnd = lastTitleParagraphPos2 + 1 + lastTitleParagraph2.content.size
+                  editorInstance2.chain().setTextSelection(paragraphContentEnd).focus().run()
+                } else {
+                  editorInstance2.commands.focus('end')
+                }
+              }, 50)
             }
           }, 50)
         }

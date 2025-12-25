@@ -1180,6 +1180,160 @@ const executeToggleUnderline = (editorInstance) => {
 	emit('underline')
 }
 
+// Helper function để highlight toàn bộ title
+const applyHighlightToAllTitle = (editorInstance, hexColor, colorName) => {
+	const { state } = editorInstance.view
+	const { doc, schema } = state
+	
+	// Tìm tất cả text nodes trong title paragraphs (không trong blockquote)
+	const titleRanges = []
+	
+	doc.descendants((node, pos) => {
+		if (node.isText) {
+			const resolvedPos = state.doc.resolve(pos)
+			let inBlockquote = false
+			let isTaskLink = false
+			
+			// Kiểm tra các parent nodes
+			for (let i = resolvedPos.depth; i > 0; i--) {
+				const nodeAtDepth = resolvedPos.node(i)
+				if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
+					inBlockquote = true
+					break
+				}
+				// Kiểm tra xem paragraph có data-type="node-task-link" không
+				if (nodeAtDepth && nodeAtDepth.type.name === 'paragraph') {
+					const attrs = nodeAtDepth.attrs || {}
+					if (attrs['data-type'] === 'node-task-link') {
+						isTaskLink = true
+						break
+					}
+					
+					// Kiểm tra từ DOM nếu attribute chưa có trong ProseMirror document
+					if (!isTaskLink && editorInstance.view && editorInstance.view.nodeDOM) {
+						try {
+							const paragraphPos = resolvedPos.start(i + 1)
+							const domNode = editorInstance.view.nodeDOM(paragraphPos)
+							if (domNode && domNode.nodeType === 1) {
+								const domDataType = domNode.getAttribute('data-type')
+								if (domDataType === 'node-task-link') {
+									isTaskLink = true
+									break
+								}
+								
+								// Kiểm tra từ DOM: xem có text "Liên kết công việc" và có link với task_id không
+								const paragraphText = domNode.textContent || ''
+								const hasTaskLinkText = paragraphText.includes('Liên kết công việc')
+								const hasTaskLinkAnchor = domNode.querySelector('a[href*="task_id"]') || 
+								                          domNode.querySelector('a[href*="/mtp/project/"]')
+								
+								if (hasTaskLinkText && hasTaskLinkAnchor) {
+									isTaskLink = true
+									break
+								}
+							}
+						} catch (e) {
+							// Ignore errors khi không thể truy cập DOM
+						}
+					}
+					
+					// Kiểm tra từ ProseMirror document: text content và marks (links)
+					if (!isTaskLink) {
+						const paragraphText = nodeAtDepth.textContent || ''
+						const hasTaskLinkText = paragraphText.includes('Liên kết công việc')
+						
+						// Kiểm tra xem có mark link với href chứa task_id không
+						let hasTaskLinkMark = false
+						nodeAtDepth.descendants((child) => {
+							if (child.isText && child.marks) {
+								const linkMark = child.marks.find(m => m.type.name === 'link' && m.attrs && m.attrs.href)
+								if (linkMark && linkMark.attrs.href && 
+								    (linkMark.attrs.href.includes('task_id') || linkMark.attrs.href.includes('/mtp/project/'))) {
+									hasTaskLinkMark = true
+									return false // Stop iteration
+								}
+							}
+						})
+						
+						if (hasTaskLinkText && hasTaskLinkMark) {
+							isTaskLink = true
+							break
+						}
+					}
+				}
+			}
+			
+			// Chỉ thêm vào titleRanges nếu không phải blockquote và không phải task link
+			if (!inBlockquote && !isTaskLink) {
+				titleRanges.push({ from: pos, to: pos + node.nodeSize })
+			}
+		}
+	})
+	
+	if (titleRanges.length > 0) {
+		// ⚠️ NEW: Set flag để skip handleEditorInput khi style update
+		const nodeId = props.selectedNode?.id
+		if (props.renderer && nodeId) {
+			if (!props.renderer.isUpdatingStyle) {
+				props.renderer.isUpdatingStyle = new Set()
+			}
+			props.renderer.isUpdatingStyle.add(nodeId)
+		}
+		
+		let tr = state.tr
+		const textStyleMark = schema.marks.textStyle
+		
+		// Kiểm tra xem có highlight hiện tại không (kiểm tra tất cả text nodes)
+		let textNodeCount = 0
+		let highlightedTextNodeCount = 0
+		
+		titleRanges.forEach(({ from, to }) => {
+			const node = state.doc.nodeAt(from)
+			if (node && node.isText && node.textContent.trim().length > 0) {
+				textNodeCount++
+				const marks = node.marks || []
+				const hasHighlight = marks.some(m => 
+					m.type.name === 'textStyle' && 
+					m.attrs && 
+					m.attrs.backgroundColor === hexColor
+				)
+				if (hasHighlight) {
+					highlightedTextNodeCount++
+				}
+			}
+		})
+		
+		const hasCurrentHighlight = textNodeCount > 0 && highlightedTextNodeCount === textNodeCount
+		
+		titleRanges.forEach(({ from, to }) => {
+			if (hasCurrentHighlight) {
+				// Bỏ highlight
+				tr = tr.removeMark(from, to, textStyleMark.create({ backgroundColor: hexColor }))
+				tr = tr.removeMark(from, to, textStyleMark.create({ backgroundColor: null }))
+			} else {
+				// Thêm highlight
+				tr = tr.addMark(from, to, textStyleMark.create({ backgroundColor: hexColor }))
+			}
+		})
+		
+		editorInstance.view.dispatch(tr)
+		currentHighlightColor.value = hasCurrentHighlight ? null : colorName
+		
+		// ⚠️ NEW: Clear flag sau khi dispatch
+		if (props.renderer && nodeId) {
+			setTimeout(() => {
+				if (props.renderer.isUpdatingStyle) {
+					props.renderer.isUpdatingStyle.delete(nodeId)
+				}
+			}, 100)
+		}
+		
+		// Update style mà không tính toán lại kích thước
+		updateStyleWithoutResize()
+		updateEditorState(editorInstance)
+	}
+}
+
 // Set highlight color
 const setHighlightColor = (colorName) => {
 	
@@ -1269,44 +1423,66 @@ const executeSetHighlightColor = (editorInstance, colorName) => {
 					}
 				}
 				
-				// Restore selection nếu có, nếu không thì chọn paragraph
+				// ⚠️ FIX: Nếu không có selection, highlight toàn bộ title
+				if (from === to) {
+					// Không có selection: highlight toàn bộ title
+					applyHighlightToAllTitle(editorInstance, hexColor, colorName)
+					savedSelection = null
+					return
+				}
+				
+				// Có selection: áp dụng cho selection đó
 				let selectionFrom = from
 				let selectionTo = to
-				if (from === to) {
-					
-					const $from = state.doc.resolve(from)
-					for (let depth = $from.depth; depth > 0; depth--) {
-						const node = $from.node(depth)
-						if (node.type.name === 'paragraph') {
-							selectionFrom = $from.start(depth)
-							selectionTo = $from.end(depth)
-							break
+				
+				// Sử dụng transaction với addMark/removeMark để xử lý đúng selection xuyên qua nhiều paragraphs
+				const { schema } = editorInstance.view.state
+				const textStyleMark = schema.marks.textStyle
+				
+				// Kiểm tra xem có highlight hiện tại trong selection không
+				const currentState = editorInstance.view.state
+				let textNodeCount = 0
+				let highlightedTextNodeCount = 0
+				
+				// Kiểm tra tất cả text nodes trong selection có highlight không
+				currentState.doc.nodesBetween(selectionFrom, selectionTo, (node, pos) => {
+					if (node.isText && node.textContent.trim().length > 0) {
+						textNodeCount++
+						const marks = node.marks || []
+						const hasHighlight = marks.some(m => 
+							m.type.name === 'textStyle' && 
+							m.attrs && 
+							m.attrs.backgroundColor === hexColor
+						)
+						if (hasHighlight) {
+							highlightedTextNodeCount++
 						}
 					}
-					
-				}
+				})
 				
-				const currentAttrs = editorInstance.getAttributes('textStyle')
+				// Nếu tất cả text nodes đều có highlight thì bỏ highlight, nếu không thì thêm highlight
+				const hasCurrentHighlight = textNodeCount > 0 && highlightedTextNodeCount === textNodeCount
 				
-				if (currentAttrs && currentAttrs.backgroundColor === hexColor) {
-					
-					// Bỏ highlight
-					if (selectionFrom !== selectionTo) {
-						editorInstance.chain().setTextSelection({ from: selectionFrom, to: selectionTo }).focus().setMark('textStyle', { backgroundColor: null }).removeEmptyTextStyle().run()
-					} else {
-						editorInstance.chain().focus().setMark('textStyle', { backgroundColor: null }).removeEmptyTextStyle().run()
-					}
+				// Set selection trước
+				editorInstance.chain().setTextSelection({ from: selectionFrom, to: selectionTo }).focus().run()
+				
+				// Lấy state mới sau khi set selection
+				const stateForTr = editorInstance.view.state
+				let tr = stateForTr.tr
+				
+				if (hasCurrentHighlight) {
+					// Bỏ highlight - remove mark từ toàn bộ selection
+					tr = tr.removeMark(selectionFrom, selectionTo, textStyleMark.create({ backgroundColor: hexColor }))
+					tr = tr.removeMark(selectionFrom, selectionTo, textStyleMark.create({ backgroundColor: null }))
 					currentHighlightColor.value = null
 				} else {
-					
-					// Set highlight
-					if (selectionFrom !== selectionTo) {
-						editorInstance.chain().setTextSelection({ from: selectionFrom, to: selectionTo }).focus().setMark('textStyle', { backgroundColor: hexColor }).run()
-					} else {
-						editorInstance.chain().focus().setMark('textStyle', { backgroundColor: hexColor }).run()
-					}
+					// Thêm highlight - add mark cho toàn bộ selection
+					tr = tr.addMark(selectionFrom, selectionTo, textStyleMark.create({ backgroundColor: hexColor }))
 					currentHighlightColor.value = colorName
 				}
+				
+				// Dispatch transaction
+				editorInstance.view.dispatch(tr)
 				
 				// Collapse selection để hiển thị màu ngay (không còn vùng bôi đen)
 				editorInstance.chain().setTextSelection({ from: selectionTo, to: selectionTo }).run()
@@ -1327,77 +1503,8 @@ const executeSetHighlightColor = (editorInstance, colorName) => {
 			updateStyleWithoutResize()
 			updateEditorState(editorInstance)
 		} else {
-			// Chỉ chọn: chỉ áp dụng cho title
-			// Sử dụng applyStyleToTitle với textStyle mark và backgroundColor attribute
-			const { state } = editorInstance.view
-			const { doc, schema } = state
-			
-			// Tìm tất cả text nodes trong title paragraphs (không trong blockquote)
-			const titleRanges = []
-			
-			doc.descendants((node, pos) => {
-				if (node.isText) {
-					const resolvedPos = state.doc.resolve(pos)
-					let inBlockquote = false
-					
-					for (let i = resolvedPos.depth; i > 0; i--) {
-						const nodeAtDepth = resolvedPos.node(i)
-						if (nodeAtDepth && nodeAtDepth.type.name === 'blockquote') {
-							inBlockquote = true
-							break
-						}
-					}
-					
-					if (!inBlockquote) {
-						titleRanges.push({ from: pos, to: pos + node.nodeSize })
-					}
-				}
-			})
-			
-			if (titleRanges.length > 0) {
-				// ⚠️ NEW: Set flag để skip handleEditorInput khi style update
-				const nodeId = props.selectedNode?.id
-				if (props.renderer && nodeId) {
-					if (!props.renderer.isUpdatingStyle) {
-						props.renderer.isUpdatingStyle = new Set()
-					}
-					props.renderer.isUpdatingStyle.add(nodeId)
-				}
-				
-				let tr = state.tr
-				const textStyleMark = schema.marks.textStyle
-				
-				// Kiểm tra xem có highlight hiện tại không
-				const currentAttrs = editorInstance.getAttributes('textStyle')
-				const hasCurrentHighlight = currentAttrs && currentAttrs.backgroundColor === hexColor
-				
-				titleRanges.forEach(({ from, to }) => {
-					if (hasCurrentHighlight) {
-						// Bỏ highlight
-						tr = tr.removeMark(from, to, textStyleMark.create({ backgroundColor: hexColor }))
-						tr = tr.removeMark(from, to, textStyleMark.create({ backgroundColor: null }))
-					} else {
-						// Thêm highlight
-						tr = tr.addMark(from, to, textStyleMark.create({ backgroundColor: hexColor }))
-					}
-				})
-				
-				editorInstance.view.dispatch(tr)
-				currentHighlightColor.value = hasCurrentHighlight ? null : colorName
-				
-				// ⚠️ NEW: Clear flag sau khi dispatch
-				if (props.renderer && nodeId) {
-					setTimeout(() => {
-						if (props.renderer.isUpdatingStyle) {
-							props.renderer.isUpdatingStyle.delete(nodeId)
-						}
-					}, 100)
-				}
-				
-				// Update style mà không tính toán lại kích thước
-				updateStyleWithoutResize()
-				updateEditorState(editorInstance)
-			}
+			// Chỉ chọn: chỉ áp dụng cho title (sử dụng helper function)
+			applyHighlightToAllTitle(editorInstance, hexColor, colorName)
 		}
 		emit('highlight-color', colorName)
 	}

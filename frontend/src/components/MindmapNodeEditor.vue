@@ -20,7 +20,7 @@ import Link from "@tiptap/extension-link"
 import TextStyle from "@tiptap/extension-text-style"
 import Typography from "@tiptap/extension-typography"
 import { Fragment, Slice } from '@tiptap/pm/model'
-import { Plugin, PluginKey } from "@tiptap/pm/state"
+import { NodeSelection, Plugin, PluginKey, TextSelection } from "@tiptap/pm/state"
 import { Decoration, DecorationSet } from "@tiptap/pm/view"
 import StarterKit from "@tiptap/starter-kit"
 import { Editor, EditorContent } from "@tiptap/vue-3"
@@ -85,6 +85,17 @@ const FilterMenuTextExtension = Extension.create({
             
             // Xóa tất cả ký tự '⋮' còn lại
             cleanHtml = cleanHtml.replace(/⋮/g, '')
+            
+            // ⚠️ FIX: Thêm data-type="node-title" cho tất cả paragraphs (trừ những paragraph đã có data-type khác)
+            // Bỏ qua blockquote và task-link (sẽ được xử lý sau)
+            cleanHtml = cleanHtml.replace(/<p(?![^>]*data-type="node-task-link")(?![^>]*data-type="node-description")([^>]*)>/gi, (match, attrs) => {
+              // Nếu đã có data-type, giữ nguyên
+              if (attrs && attrs.includes('data-type')) {
+                return match
+              }
+              // Nếu chưa có data-type, thêm node-title
+              return `<p data-type="node-title"${attrs ? ' ' + attrs : ''}>`
+            })
             
             return cleanHtml
           }
@@ -214,6 +225,345 @@ const PreventTaskLinkDeletionExtension = Extension.create({
               
               return false
             },
+          },
+        },
+      }),
+    ]
+  },
+})
+
+// Extension để ngăn con trỏ di chuyển vào task link và ảnh khi nhấn phím mũi tên
+const PreventCursorInTaskLinkAndImageExtension = Extension.create({
+  name: 'preventCursorInTaskLinkAndImage',
+  
+  addProseMirrorPlugins() {
+    let lastArrowKey = null
+    
+    return [
+      new Plugin({
+        appendTransaction: (transactions, oldState, newState) => {
+          // Chỉ xử lý khi có thay đổi selection (do navigation)
+          const selectionChanged = transactions.some(tr => tr.selectionSet)
+          if (!selectionChanged || !lastArrowKey) {
+            return null
+          }
+          
+          const { selection } = newState
+          const { $from } = selection
+          
+          // Kiểm tra xem con trỏ có nằm trong task link hoặc image không
+          let isInTaskLinkOrImage = false
+          
+          // Kiểm tra NodeSelection (khi image được chọn)
+          if (selection instanceof NodeSelection) {
+            const node = selection.node
+            if (node && node.type.name === 'image') {
+              isInTaskLinkOrImage = true
+            }
+          }
+          
+          // Kiểm tra node tại vị trí hiện tại và các parent nodes
+          for (let depth = $from.depth; depth >= 0; depth--) {
+            const node = $from.node(depth)
+            
+            // Kiểm tra image node
+            if (node.type.name === 'image') {
+              isInTaskLinkOrImage = true
+              break
+            }
+            
+            // Kiểm tra paragraph có chứa task link
+            if (node.type.name === 'paragraph') {
+              const nodeText = node.textContent || ''
+              if (nodeText.includes('Liên kết công việc')) {
+                // Kiểm tra xem có link với task_id không bằng cách tìm trong node marks
+                let hasTaskLink = false
+                node.descendants((child) => {
+                  if (child.type.name === 'text' && child.marks) {
+                    child.marks.forEach((mark) => {
+                      if (mark.type.name === 'link') {
+                        const href = mark.attrs.href || ''
+                        if (href.includes('task_id')) {
+                          hasTaskLink = true
+                          return false
+                        }
+                      }
+                    })
+                  }
+                  if (hasTaskLink) return false
+                })
+                
+                if (hasTaskLink) {
+                  isInTaskLinkOrImage = true
+                  break
+                }
+              }
+            }
+          }
+          
+          // Kiểm tra thêm: nếu con trỏ đang ở ngay trước hoặc sau image node
+          const nodeAtPos = $from.node()
+          if (nodeAtPos && nodeAtPos.type.name === 'image') {
+            isInTaskLinkOrImage = true
+          }
+          
+          // Kiểm tra node trước và sau vị trí hiện tại
+          if (!isInTaskLinkOrImage) {
+            try {
+              // Kiểm tra node trước
+              if ($from.pos > 0) {
+                const prevNode = newState.doc.nodeAt($from.pos - 1)
+                if (prevNode && prevNode.type.name === 'image') {
+                  isInTaskLinkOrImage = true
+                }
+              }
+              
+              // Kiểm tra node sau
+              if ($from.pos < newState.doc.content.size) {
+                const nextNode = newState.doc.nodeAt($from.pos)
+                if (nextNode && nextNode.type.name === 'image') {
+                  isInTaskLinkOrImage = true
+                }
+              }
+            } catch (e) {
+              // Ignore errors
+            }
+          }
+          
+          // Nếu con trỏ nằm trong task link hoặc image, di chuyển ra ngoài
+          if (isInTaskLinkOrImage) {
+            const doc = newState.doc
+            const tr = newState.tr
+            let targetPos = null
+            let bestPos = null
+            let bestDistance = Infinity
+            
+            // Tìm paragraph hợp lệ gần nhất theo hướng mũi tên
+            doc.forEach((node, offset) => {
+              // Bỏ qua image nodes
+              if (node.type.name === 'image') {
+                return
+              }
+              
+              if (node.type.name === 'paragraph') {
+                const nodeText = node.textContent || ''
+                const isTaskLink = nodeText.includes('Liên kết công việc')
+                
+                // Kiểm tra xem có phải task link không (kiểm tra qua DOM nếu có thể)
+                let isInvalid = isTaskLink
+                
+                if (!isInvalid) {
+                  const paragraphStart = offset + 1
+                  const distance = Math.abs(paragraphStart - $from.pos)
+                  
+                  // Nếu nhấn ArrowUp, ưu tiên paragraph ở trên
+                  if (lastArrowKey === 'ArrowUp' && paragraphStart < $from.pos) {
+                    if (distance < bestDistance) {
+                      bestDistance = distance
+                      bestPos = paragraphStart
+                    }
+                  }
+                  // Nếu nhấn ArrowDown, ưu tiên paragraph ở dưới
+                  else if (lastArrowKey === 'ArrowDown' && paragraphStart > $from.pos) {
+                    if (distance < bestDistance) {
+                      bestDistance = distance
+                      bestPos = paragraphStart
+                    }
+                  }
+                  // Nếu không có paragraph ở hướng mong muốn, dùng paragraph gần nhất
+                  else if (bestPos === null) {
+                    if (distance < bestDistance) {
+                      bestDistance = distance
+                      bestPos = paragraphStart
+                    }
+                  }
+                }
+              }
+            })
+            
+            // Sử dụng bestPos nếu tìm thấy, nếu không dùng paragraph hợp lệ đầu tiên
+            if (bestPos === null) {
+              // Tìm paragraph hợp lệ đầu tiên
+              doc.forEach((node, offset) => {
+                if (bestPos === null && node.type.name === 'paragraph') {
+                  const nodeText = node.textContent || ''
+                  const isTaskLink = nodeText.includes('Liên kết công việc')
+                  if (!isTaskLink) {
+                    bestPos = offset + 1
+                  }
+                }
+              })
+            }
+            
+            targetPos = bestPos
+            
+            // Di chuyển con trỏ
+            if (targetPos !== null) {
+              try {
+                const resolvedPos = doc.resolve(Math.max(1, Math.min(targetPos, doc.content.size)))
+                const newSelection = TextSelection.create(doc, resolvedPos.pos)
+                tr.setSelection(newSelection)
+                return tr
+              } catch (e) {
+                console.error('[PreventCursorInTaskLinkAndImage] Error:', e)
+              }
+            }
+          }
+          
+          // Reset lastArrowKey sau khi xử lý
+          lastArrowKey = null
+          
+          return null
+        },
+        view: (editorView) => {
+          // Hàm kiểm tra xem một element có phải là task link hoặc image không (cho DOM)
+          const isTaskLinkOrImageElement = (el) => {
+            if (!el) return false
+            
+            // Kiểm tra task link
+            if (el.classList?.contains('node-task-link-section') ||
+                el.getAttribute('data-node-section') === 'task-link' ||
+                el.getAttribute('data-type') === 'node-task-link' ||
+                el.querySelector('.node-task-link-section') ||
+                el.querySelector('[data-node-section="task-link"]')) {
+              return true
+            }
+            
+            // Kiểm tra image
+            if (el.classList?.contains('image-wrapper-node') ||
+                el.classList?.contains('image-wrapper') ||
+                el.tagName === 'IMG' ||
+                el.closest('.image-wrapper-node') ||
+                el.closest('.image-wrapper')) {
+              return true
+            }
+            
+            // Kiểm tra text content
+            if (el.textContent?.includes('Liên kết công việc')) {
+              const hasTaskLinkAnchor = el.querySelector('a[href*="task_id"]')
+              if (hasTaskLinkAnchor) {
+                return true
+              }
+            }
+            
+            return false
+          }
+          
+          // Hàm kiểm tra và di chuyển con trỏ nếu cần (backup check qua DOM)
+          const checkAndMoveCursor = () => {
+            const { state } = editorView
+            const { selection } = state
+            const { $from } = selection
+            
+            // Lấy DOM element tại vị trí con trỏ
+            const dom = editorView.domAtPos($from.pos)
+            if (!dom) return
+            
+            let element = dom.node
+            if (element.nodeType === Node.TEXT_NODE) {
+              element = element.parentElement
+            }
+            
+            // Kiểm tra xem con trỏ có nằm trong task link hoặc image không
+            let currentElement = element
+            let foundTaskLinkOrImage = false
+            
+            while (currentElement && currentElement !== editorView.dom) {
+              if (isTaskLinkOrImageElement(currentElement)) {
+                foundTaskLinkOrImage = true
+                break
+              }
+              currentElement = currentElement.parentElement
+            }
+            
+            // Nếu con trỏ nằm trong task link hoặc image, di chuyển ra ngoài
+            if (foundTaskLinkOrImage) {
+              const doc = state.doc
+              let targetPos = null
+              let bestPos = null
+              let bestDistance = Infinity
+              
+              // Tìm paragraph hợp lệ gần nhất theo hướng mũi tên
+              doc.forEach((node, offset) => {
+                if (node.type.name === 'paragraph') {
+                  const nodeDOM = editorView.nodeDOM(offset)
+                  if (nodeDOM) {
+                    let isInvalid = false
+                    let checkElement = nodeDOM
+                    while (checkElement && checkElement !== editorView.dom) {
+                      if (isTaskLinkOrImageElement(checkElement)) {
+                        isInvalid = true
+                        break
+                      }
+                      checkElement = checkElement.parentElement
+                    }
+                    
+                    if (!isInvalid) {
+                      const paragraphStart = offset + 1
+                      const distance = Math.abs(paragraphStart - $from.pos)
+                      
+                      // Nếu nhấn ArrowUp, ưu tiên paragraph ở trên
+                      if (lastArrowKey === 'ArrowUp' && paragraphStart < $from.pos) {
+                        if (distance < bestDistance) {
+                          bestDistance = distance
+                          bestPos = paragraphStart
+                        }
+                      }
+                      // Nếu nhấn ArrowDown, ưu tiên paragraph ở dưới
+                      else if (lastArrowKey === 'ArrowDown' && paragraphStart > $from.pos) {
+                        if (distance < bestDistance) {
+                          bestDistance = distance
+                          bestPos = paragraphStart
+                        }
+                      }
+                      // Nếu không có paragraph ở hướng mong muốn, dùng paragraph gần nhất
+                      else if (bestPos === null) {
+                        if (distance < bestDistance) {
+                          bestDistance = distance
+                          bestPos = paragraphStart
+                        }
+                      }
+                    }
+                  }
+                }
+              })
+              
+              // Di chuyển con trỏ
+              if (bestPos !== null) {
+                try {
+                  const resolvedPos = doc.resolve(Math.max(1, Math.min(bestPos, doc.content.size)))
+                  const newSelection = TextSelection.create(doc, resolvedPos.pos)
+                  editorView.dispatch(state.tr.setSelection(newSelection))
+                } catch (e) {
+                  console.error('[PreventCursorInTaskLinkAndImage] Error:', e)
+                }
+              }
+            }
+            
+            // Reset lastArrowKey
+            lastArrowKey = null
+          }
+          
+          return {
+            update: (view, prevState) => {
+              // Backup check: Chỉ kiểm tra khi selection thay đổi và có phím mũi tên được nhấn
+              if (lastArrowKey && view.state.selection.from !== prevState.selection.from) {
+                setTimeout(() => {
+                  checkAndMoveCursor()
+                }, 10)
+              }
+            },
+          }
+        },
+        props: {
+          handleKeyDown: (view, event) => {
+            // Chỉ xử lý ArrowUp và ArrowDown
+            if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+              lastArrowKey = event.key
+              // Cho phép ProseMirror xử lý navigation trước, sau đó appendTransaction sẽ kiểm tra
+              return false
+            }
+            return false
           },
         },
       }),
@@ -741,43 +1091,89 @@ function updateImageLayout(view) {
   const allImages = view.dom.querySelectorAll('.image-wrapper-node')
   const count = allImages.length
   
+  // ⚠️ FIX: Nếu không có ảnh, không cần update
+  if (count === 0) return
+  
+  console.log('[DEBUG] updateImageLayout: Called with', count, 'images')
+  console.log('[DEBUG] updateImageLayout: allImages.length =', allImages.length, ', count =', count)
+  
   let newWidth = '100%'
   let newGap = '0px'
-  let newHeight = 'auto'
+  let newHeight = 'auto' // ⚠️ FIX: Luôn dùng auto để ảnh hiển thị đầy đủ
+  let newObjectFit = 'contain' // ⚠️ FIX: Dùng contain thay vì cover để không crop ảnh
   
-  if (count === 2) {
-    newWidth = 'calc(50% - 12px)'
+  // ⚠️ FIX: Tính toán width chính xác dựa trên số lượng ảnh
+  // Với gap 12px giữa các ảnh:
+  // - 1 ảnh: 100% width (không có gap)
+  // - 2 ảnh: (100% - 12px) / 2 = calc(50% - 14px) cho mỗi ảnh
+  // - 3+ ảnh: (100% - 24px) / 3 = calc(33.333% - 14px) cho mỗi ảnh (2 gaps giữa 3 ảnh)
+  if (count === 1) {
+    newWidth = '100%' // ⚠️ CRITICAL: 1 ảnh = 100% width
+    newGap = '0px'
+    newHeight = 'auto' // ⚠️ FIX: Height auto để ảnh hiển thị đầy đủ
+    console.log('[DEBUG] updateImageLayout: 1 ảnh → width = 100%')
+  } else if (count === 2) {
+    newWidth = 'calc(50% - 14px)' // 50% trừ đi nửa gap (12px / 2)
     newGap = '12px'
-    newHeight = '150px'
+    newHeight = 'auto' // ⚠️ FIX: Thay vì 150px, dùng auto để ảnh hiển thị đầy đủ
+    console.log('[DEBUG] updateImageLayout: 2 ảnh → width = calc(50% - 14px)')
   } else if (count >= 3) {
-    newWidth = 'calc(33.333% - 8px)'
+    newWidth = 'calc(33.333% - 14px)' // 33.333% trừ đi 2/3 gap (24px / 3)
     newGap = '12px'
-    newHeight = '100px'
+    newHeight = 'auto' // ⚠️ FIX: Thay vì 100px, dùng auto để ảnh hiển thị đầy đủ
+    console.log('[DEBUG] updateImageLayout: 3+ ảnh → width = calc(33.333% - 14px)')
   }
   
+  console.log('[DEBUG] updateImageLayout: Calculated width =', newWidth, 'for', count, 'images')
+  
   allImages.forEach((wrapper, index) => {
-    wrapper.style.width = newWidth
-    // Ảnh cuối mỗi hàng (index 2, 5, 8, ...) không có margin-right
-    wrapper.style.marginRight = ((index + 1) % 3 === 0 || count === 1) ? '0' : newGap
+    // ⚠️ CRITICAL: Luôn set width với !important để override CSS rules
+    const currentComputedWidth = getComputedStyle(wrapper).width
+    const currentInlineWidth = wrapper.style.width
     
-    // Cập nhật height cho img bên trong
+    console.log(`[DEBUG] updateImageLayout: Image ${index + 1}: currentInlineWidth = "${currentInlineWidth}", currentComputedWidth = "${currentComputedWidth}", newWidth = "${newWidth}"`)
+    
+    // ⚠️ CRITICAL: Luôn set width với !important để đảm bảo override CSS
+    // Kiểm tra xem có cần update không
+    const needsUpdate = currentInlineWidth !== newWidth || 
+                        (count === 1 && currentComputedWidth !== '368px' && !currentComputedWidth.includes('368'))
+    
+    if (needsUpdate || currentInlineWidth !== newWidth) {
+      console.log(`[DEBUG] updateImageLayout: Updating width for image ${index + 1} from "${currentInlineWidth}" (computed: "${currentComputedWidth}") to "${newWidth}"`)
+      // Set với !important thông qua setProperty
+      wrapper.style.setProperty('width', newWidth, 'important')
+      wrapper.style.setProperty('max-width', newWidth === '100%' ? '100%' : newWidth, 'important')
+    }
+    
+    const expectedMarginRight = ((index + 1) % 3 === 0 || count === 1) ? '0' : newGap
+    const currentMarginRight = wrapper.style.marginRight || getComputedStyle(wrapper).marginRight
+    if (currentMarginRight !== expectedMarginRight) {
+      wrapper.style.setProperty('margin-right', expectedMarginRight, 'important')
+    }
+    
+    // Cập nhật height và object-fit cho img bên trong
     const img = wrapper.querySelector('img')
     if (img) {
-      img.style.setProperty('height', newHeight, 'important')
+      const currentHeight = img.style.height
+      const currentObjectFit = img.style.objectFit || getComputedStyle(img).objectFit
+      
+      // ⚠️ FIX: Luôn set height = auto và object-fit = contain để ảnh hiển thị đầy đủ
+      if (currentHeight !== newHeight) {
+        img.style.setProperty('height', newHeight, 'important')
+        img.style.setProperty('max-height', 'none', 'important')
+      }
+      if (currentObjectFit !== newObjectFit) {
+        img.style.setProperty('object-fit', newObjectFit, 'important')
+      }
+      img.style.setProperty('width', '100%', 'important')
+      img.style.setProperty('max-width', '100%', 'important')
     }
   })
   
-  // ⚠️ CRITICAL FIX: Force reflow để đảm bảo width mới được áp dụng NGAY
-  // Điều này đảm bảo ảnh có đúng kích thước trước khi đo height
-  allImages.forEach((wrapper) => {
-    void wrapper.offsetWidth
-    void wrapper.offsetHeight
-    const img = wrapper.querySelector('img')
-    if (img) {
-      void img.offsetWidth
-      void img.offsetHeight
-    }
-  })
+  console.log('[DEBUG] updateImageLayout: Completed')
+  
+  // ⚠️ REMOVED: Bỏ force reflow để tránh trigger lại update → nháy liên tục
+  // Browser sẽ tự động reflow khi cần
 }
 
 const ImageWithMenuExtension = Extension.create({
@@ -788,18 +1184,35 @@ const ImageWithMenuExtension = Extension.create({
       new Plugin({
         view: (editorView) => {
           // Track view để có thể update layout sau
+          let lastImageCount = 0
+          let updateTimeout = null
+          
           return {
             update: (view, prevState) => {
-              // ⚠️ CRITICAL FIX: Update layout TRƯỚC, sau đó đợi reflow bằng requestAnimationFrame
-              // Điều này đảm bảo ảnh có đúng width trước khi tính height
-              updateImageLayout(view)
+              // ⚠️ CRITICAL FIX: Chỉ update layout khi số lượng ảnh thay đổi
+              // Tránh update liên tục gây nháy khi hover
+              const currentImageCount = view.dom.querySelectorAll('.image-wrapper-node').length
               
-              // Force reflow ngay lập tức
-              const allImages = view.dom.querySelectorAll('.image-wrapper-node')
-              allImages.forEach((wrapper) => {
-                void wrapper.offsetWidth
-                void wrapper.offsetHeight
-              })
+              // Chỉ update nếu số lượng ảnh thay đổi
+              if (currentImageCount === lastImageCount) {
+                return // Không có thay đổi về số lượng ảnh, skip
+              }
+              
+              lastImageCount = currentImageCount
+              
+              // Debounce để tránh update quá nhiều lần
+              if (updateTimeout) {
+                clearTimeout(updateTimeout)
+              }
+              
+              updateTimeout = setTimeout(() => {
+                updateImageLayout(view)
+              }, 10) // Debounce 10ms
+            },
+            destroy: () => {
+              if (updateTimeout) {
+                clearTimeout(updateTimeout)
+              }
             }
           }
         },
@@ -815,28 +1228,48 @@ const ImageWithMenuExtension = Extension.create({
               
               // ⚠️ CRITICAL: Tính width dựa trên số ảnh trong editor
               // Đếm số ảnh hiện có để xác định layout
+              // ⚠️ FIX: Không cộng thêm 1 vì ảnh hiện tại có thể đã được add vào DOM
+              // hoặc sẽ được update bởi updateImageLayout sau khi add vào DOM
               const allImages = view.dom.querySelectorAll('.image-wrapper-node')
-              const totalImages = allImages.length + 1 // +1 cho ảnh hiện tại
+              // ⚠️ FIX: Đếm chính xác số ảnh, không cộng thêm 1
+              // Nếu ảnh hiện tại chưa có trong DOM, nó sẽ được add sau, và updateImageLayout sẽ handle
+              // Nếu ảnh hiện tại đã có trong DOM, nó đã được đếm trong allImages.length
+              const totalImages = allImages.length
               
-              // Tính width: 1 ảnh = 100%, 2 ảnh = 50%, 3+ ảnh = 33.33%
+              console.log('[DEBUG] nodeViews.image: allImages.length =', allImages.length, ', totalImages =', totalImages)
+              
+              // ⚠️ FIX: Tính width chính xác dựa trên số lượng ảnh
+              // Với gap 12px giữa các ảnh:
+              // - 1 ảnh: 100% width (không có gap)
+              // - 2 ảnh: (100% - 12px) / 2 = calc(50% - 14px) cho mỗi ảnh
+              // - 3+ ảnh: (100% - 24px) / 3 = calc(33.333% - 14px) cho mỗi ảnh
               let imageWidth = '100%'
               let gap = '0px'
               
-              if (totalImages === 2) {
-                imageWidth = 'calc(50% - 6px)' // 50% - half of 12px gap
+              // ⚠️ FIX: Nếu ảnh hiện tại chưa có trong DOM, sẽ có ít hơn 1 ảnh trong allImages
+              // Nên ta cần xem xét cả trường hợp 0 ảnh (tức là ảnh đầu tiên đang được tạo)
+              if (totalImages === 0 || totalImages === 1) {
+                imageWidth = '100%'
+                gap = '0px'
+                console.log('[DEBUG] nodeViews.image: 0-1 ảnh → width = 100%')
+              } else if (totalImages === 2) {
+                imageWidth = 'calc(50% - 14px)' // 50% trừ đi nửa gap (12px / 2)
                 gap = '12px'
+                console.log('[DEBUG] nodeViews.image: 2 ảnh → width = calc(50% - 14px)')
               } else if (totalImages >= 3) {
-                imageWidth = 'calc(33.333% - 8px)' // 33.33% - 2/3 of 12px gap
+                imageWidth = 'calc(33.333% - 14px)' // 33.333% trừ đi 2/3 gap (24px / 3)
                 gap = '12px'
+                console.log('[DEBUG] nodeViews.image: 3+ ảnh → width = calc(33.333% - 14px)')
               }
               
-              // Tính height: 1 ảnh = auto, 2 ảnh = 150px, 3+ ảnh = 100px
+              // ⚠️ FIX: Height luôn là auto để ảnh hiển thị đầy đủ, không bị crop
+              // Thay vì set height cố định (150px, 100px) gây crop ảnh,
+              // ta dùng height: auto để ảnh giữ tỷ lệ tự nhiên
               let imageHeight = 'auto'
-              if (totalImages === 2) {
-                imageHeight = '150px'
-              } else if (totalImages >= 3) {
-                imageHeight = '100px'
-              }
+              let objectFit = 'contain' // ⚠️ FIX: Dùng contain thay vì cover để không crop ảnh
+              
+              // ⚠️ OPTIONAL: Có thể set max-height để limit chiều cao tối đa nếu muốn
+              // Nhưng để ảnh hiển thị đầy đủ, tốt nhất là dùng auto
               
               dom.style.cssText = `
                 position: relative;
@@ -861,7 +1294,8 @@ const ImageWithMenuExtension = Extension.create({
                 display: block;
                 width: 100%;
                 height: ${imageHeight} !important;
-                object-fit: cover;
+                max-height: none !important;
+                object-fit: ${objectFit};
                 border-radius: 5px;
                 cursor: zoom-in;
               `
@@ -2103,6 +2537,37 @@ export default {
         if (wrapper.getAttribute('data-type') !== 'node-image') {
           wrapper.setAttribute('data-type', 'node-image')
         }
+        
+        // ⚠️ NEW: Thêm event handlers để ngăn editor focus khi click vào ảnh
+        const preventEditorFocus = (e) => {
+          // Chỉ stop propagation nếu click vào wrapper (không phải button menu)
+          if (!e.target.closest('.image-menu-button')) {
+            e.stopPropagation()
+          }
+        }
+        
+        // Remove old listeners nếu có (tránh duplicate)
+        wrapper.removeEventListener('mousedown', preventEditorFocus, true)
+        
+        // Add new listeners
+        wrapper.addEventListener('mousedown', preventEditorFocus, true)
+      })
+      
+      // ⚠️ NEW: Thêm event handlers cho tất cả ảnh trực tiếp
+      const images = proseElement.querySelectorAll('img:not(.image-menu-button *)')
+      images.forEach((img) => {
+        const preventEditorFocus = (e) => {
+          // Chỉ stop propagation nếu click vào ảnh (không phải button menu)
+          if (!e.target.closest('.image-menu-button')) {
+            e.stopPropagation()
+          }
+        }
+        
+        // Remove old listeners nếu có (tránh duplicate)
+        img.removeEventListener('mousedown', preventEditorFocus, true)
+        
+        // Add new listeners
+        img.addEventListener('mousedown', preventEditorFocus, true)
       })
       
       // 2. Thêm data-type="node-task-link" cho task link sections (nếu chưa có)
@@ -2111,6 +2576,20 @@ export default {
         if (section.getAttribute('data-type') !== 'node-task-link') {
           section.setAttribute('data-type', 'node-task-link')
         }
+        
+        // ⚠️ NEW: Thêm event handlers để ngăn editor focus khi click vào task link
+        const preventEditorFocus = (e) => {
+          e.stopPropagation()
+          // Không preventDefault để link vẫn hoạt động
+        }
+        
+        // Remove old listeners nếu có (tránh duplicate)
+        section.removeEventListener('mousedown', preventEditorFocus, true)
+        section.removeEventListener('click', preventEditorFocus, true)
+        
+        // Add new listeners
+        section.addEventListener('mousedown', preventEditorFocus, true)
+        section.addEventListener('click', preventEditorFocus, true)
       })
       
       // ⚠️ FIX: Thêm data-type="node-task-link" cho paragraph chứa link "Liên kết công việc" với task_id
@@ -2136,6 +2615,22 @@ export default {
           if (currentDataType !== 'node-task-link') {
             p.setAttribute('data-type', 'node-task-link')
             console.log('[DEBUG] Đã thêm data-type="node-task-link" cho paragraph chứa task link:', text.substring(0, 50))
+            
+            // ⚠️ NEW: Thêm event handlers để ngăn editor focus khi click vào task link paragraph
+            const preventEditorFocus = (e) => {
+              // Chỉ stop propagation nếu click vào paragraph hoặc link, không phải vào text editor
+              if (e.target === p || e.target.closest('a')) {
+                e.stopPropagation()
+              }
+            }
+            
+            // Remove old listeners nếu có (tránh duplicate)
+            p.removeEventListener('mousedown', preventEditorFocus, true)
+            p.removeEventListener('click', preventEditorFocus, true)
+            
+            // Add new listeners
+            p.addEventListener('mousedown', preventEditorFocus, true)
+            p.addEventListener('click', preventEditorFocus, true)
             
             // ⚠️ FIX: Update ProseMirror document để giữ lại attribute khi serialize
             // Sử dụng requestAnimationFrame để tránh vòng lặp
@@ -2180,12 +2675,11 @@ export default {
         }
       })
       
-      // 3. Thêm data-type="node-title" cho paragraph đầu tiên (nếu chưa có)
-      // ⚠️ FIX: Bỏ qua paragraph có data-type="node-task-link" khi set node-title
+      // 3. Thêm data-type="node-title" cho TẤT CẢ các title paragraphs (không trong blockquote và không phải task-link)
+      // ⚠️ FIX: Set data-type="node-title" cho tất cả title paragraphs, không chỉ paragraph đầu tiên
       const paragraphs = Array.from(proseElement.querySelectorAll('p'))
       console.log('[DEBUG] setDataTypesForElements: tìm thấy', paragraphs.length, 'paragraphs')
       
-      let foundFirstTitle = false
       for (const p of paragraphs) {
         const isInBlockquote = p.closest('blockquote') !== null
         const currentDataType = p.getAttribute('data-type')
@@ -2196,43 +2690,65 @@ export default {
           continue
         }
         
-        console.log('[DEBUG] Paragraph:', p.textContent, 'isInBlockquote:', isInBlockquote, 'foundFirstTitle:', foundFirstTitle, 'currentDataType:', currentDataType)
+        // Bỏ qua paragraph trong blockquote
+        if (isInBlockquote) {
+          continue
+        }
         
-        if (!isInBlockquote && !foundFirstTitle) {
-          const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
-            p.querySelector('a[href*="/mtp/project/"]')
-          const text = p.textContent?.trim() || ''
-          const hasTaskLinkText = text.includes('Liên kết công việc')
-          const isTaskLink = p.querySelector('.node-task-link-section') || 
-                            p.querySelector('[data-node-section="task-link"]') ||
-                            p.classList.contains('node-task-link-section') ||
-                            p.getAttribute('data-node-section') === 'task-link' ||
-                            (hasTaskLinkText && hasTaskLinkAnchor)
-          
-          console.log('[DEBUG] isTaskLink:', isTaskLink)
-          
-          if (!isTaskLink) {
-            // Xóa data-type="node-title" khỏi các paragraph khác trước
-            paragraphs.forEach((otherP) => {
-              if (otherP !== p && otherP.getAttribute('data-type') === 'node-title') {
-                otherP.removeAttribute('data-type')
-              }
-            })
+        // Kiểm tra xem có phải task link không (bằng cách kiểm tra text và link)
+        const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
+          p.querySelector('a[href*="/mtp/project/"]')
+        const text = p.textContent?.trim() || ''
+        const hasTaskLinkText = text.includes('Liên kết công việc')
+        const isTaskLink = p.querySelector('.node-task-link-section') || 
+                          p.querySelector('[data-node-section="task-link"]') ||
+                          p.classList.contains('node-task-link-section') ||
+                          p.getAttribute('data-node-section') === 'task-link' ||
+                          (hasTaskLinkText && hasTaskLinkAnchor)
+        
+        // Nếu không phải task link, set data-type="node-title"
+        if (!isTaskLink) {
+          if (currentDataType !== 'node-title') {
+            p.setAttribute('data-type', 'node-title')
+            console.log('[DEBUG] Đã set data-type="node-title" cho paragraph:', p.textContent.substring(0, 50))
             
-            // Thêm data-type cho paragraph đầu tiên
-            console.log('[DEBUG] Setting data-type for paragraph:', p.textContent, 'current:', currentDataType)
-            if (currentDataType !== 'node-title') {
-              p.setAttribute('data-type', 'node-title')
-              console.log('[DEBUG] Đã set data-type="node-title" cho paragraph:', p.textContent)
+            // ⚠️ FIX: Update ProseMirror document để giữ lại attribute khi serialize
+            if (this.editor && this.editor.view && !this.isUpdatingFromModelValue) {
+              requestAnimationFrame(() => {
+                try {
+                  const { view } = this.editor
+                  const pos = view.posAtDOM(p, 0)
+                  if (pos !== null && pos !== undefined && pos >= 0) {
+                    const $pos = view.state.doc.resolve(pos)
+                    const node = $pos.parent
+                    if (node && node.type.name === 'paragraph') {
+                      // Tìm vị trí của paragraph trong document
+                      let paragraphPos = null
+                      view.state.doc.descendants((n, p) => {
+                        if (n === node) {
+                          paragraphPos = p
+                          return false
+                        }
+                      })
+                      
+                      if (paragraphPos !== null && paragraphPos >= 0) {
+                        // Update attribute trong ProseMirror document
+                        const tr = view.state.tr
+                        tr.setNodeMarkup(paragraphPos, null, {
+                          ...node.attrs,
+                          'data-type': 'node-title'
+                        })
+                        view.dispatch(tr)
+                      }
+                    }
+                  }
+                } catch (err) {
+                  console.error('[DEBUG] Lỗi khi update ProseMirror document:', err)
+                }
+              })
             }
-            foundFirstTitle = true
-            break
           }
         }
-      }
-      
-      if (!foundFirstTitle) {
-        console.log('[DEBUG] Không tìm thấy paragraph đầu tiên để set data-type')
       }
     },
     // Lấy text từ editor mà preserve trailing spaces
@@ -3008,6 +3524,7 @@ export default {
       extensions: [
         FilterMenuTextExtension, // ⚠️ CRITICAL: Phải là extension đầu tiên
         PreventTaskLinkDeletionExtension, // Ngăn xóa task link sections
+        PreventCursorInTaskLinkAndImageExtension, // Ngăn con trỏ di chuyển vào task link và ảnh
         BlockquoteWithDataTypeExtension, // Thêm data-type="node-description" cho blockquote
         ParagraphWithDataTypeExtension, // Thêm data-type="node-title" cho paragraph đầu tiên
         Document,
@@ -3973,6 +4490,23 @@ export default {
   /* ⚠️ FIX: Padding đều 8px (không thừa) */
 }
 
+/* ⚠️ NEW: Ngăn chặn text cursor và text selection cho task link và ảnh */
+:deep(.mindmap-editor-prose p[data-type="node-task-link"]),
+:deep(.mindmap-editor-prose .node-task-link-section),
+:deep(.mindmap-editor-prose [data-node-section="task-link"]),
+:deep(.mindmap-editor-prose .node-task-link-section *),
+:deep(.mindmap-editor-prose [data-node-section="task-link"] *),
+:deep(.mindmap-editor-prose img),
+:deep(.mindmap-editor-prose .image-wrapper-node),
+:deep(.mindmap-editor-prose .image-wrapper-node *) {
+  cursor: pointer !important;
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  pointer-events: auto !important;
+}
+
 /* ⚠️ FIX: Đảm bảo background luôn trong suốt khi focus */
 :deep(.mindmap-editor-prose:focus),
 :deep(.mindmap-editor-prose:focus-within),
@@ -4375,7 +4909,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: cover;
+  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
 }
 
 /* 2 ảnh trong wrapper: mỗi ảnh 50% */
@@ -4396,7 +4930,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: cover;
+  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
 }
 
 /* 3+ ảnh trong wrapper: mỗi ảnh 33.33% */
@@ -4417,7 +4951,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: cover;
+  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
 }
 
 /* Fallback: Style cho ảnh direct children (khi chưa có wrapper) */
@@ -4431,7 +4965,7 @@ export default {
   height: auto !important;
   margin: 12px 0 !important;
   box-sizing: border-box !important;
-  object-fit: cover;
+  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
 }
 
 /* 2 ảnh: mỗi ảnh 50% (với margin 4px giữa các ảnh) */
@@ -4445,7 +4979,7 @@ export default {
   height: auto !important;
   margin: 0 4px 4px 0 !important;
   box-sizing: border-box !important;
-  object-fit: cover;
+  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
 }
 
 /* Ảnh thứ 2 (cuối hàng) trong trường hợp 2 ảnh */
@@ -4464,7 +4998,7 @@ export default {
   height: auto !important;
   margin: 0 4px 4px 0 !important;
   box-sizing: border-box !important;
-  object-fit: cover;
+  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
 }
 
 /* Ảnh thứ 3, 6, 9... (cuối hàng) không có margin-right */
@@ -4474,13 +5008,36 @@ export default {
 
 
 /* Image không nên inline trong paragraph */
-:deep(.mindmap-editor-prose p img) {
+/* ⚠️ FIX: Chỉ áp dụng cho img không có wrapper */
+:deep(.mindmap-editor-prose p > img:not(.image-wrapper-node img)) {
   display: block;
   margin: 12px 0;
   width: 400px;
   min-width: 400px;
   flex-shrink: 0;
   flex-grow: 0;
+}
+
+/* ⚠️ NEW: Style cho .image-wrapper-node để đảm bảo width đúng */
+:deep(.mindmap-editor-prose .image-wrapper-node) {
+  box-sizing: border-box !important;
+  display: inline-block !important;
+  vertical-align: top !important;
+}
+
+/* ⚠️ NEW: 1 ảnh = 100% width */
+:deep(.mindmap-editor-prose .image-wrapper-node:only-child),
+:deep(.mindmap-editor-prose .image-wrapper-node:only-of-type) {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* ⚠️ NEW: Ảnh bên trong wrapper luôn 100% width của wrapper */
+:deep(.mindmap-editor-prose .image-wrapper-node img) {
+  width: 100% !important;
+  max-width: 100% !important;
+  display: block !important;
+  box-sizing: border-box !important;
 }
 
 /* Đảm bảo image node được render đúng */
@@ -4686,7 +5243,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: cover;
+  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
 }
 
 /* Menu button - ULTRA CRITICAL với specificity cao */
