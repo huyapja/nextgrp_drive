@@ -6,7 +6,7 @@
 
     <div v-if="mindmap.data && !mindmapEntity.error" class="w-full relative">
       <!-- Loading indicator khi đang render mindmap -->
-      <div v-if="isRendering" class="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50">
+      <div v-if="currentView === 'visual' && isRendering" class="absolute inset-0 bg-white bg-opacity-90 flex items-center justify-center z-50">
         <div class="text-center">
           <div class="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
           <div class="text-lg text-gray-600 mt-4">Đang tải sơ đồ tư duy...</div>
@@ -24,7 +24,7 @@
       </div>
 
       <Teleport to="body">
-        <div @click="showPanel = true" class="absolute cursor-pointer top-[120px] right-0 z-10 text-sm
+        <div v-if="currentView === 'visual'" @click="showPanel = true" class="absolute cursor-pointer top-[120px] right-0 z-10 text-sm
               border border-gray-300 border-r-0
               rounded-tl-[20px] rounded-bl-[20px]
               bg-white pl-3 py-3 flex
@@ -99,8 +99,76 @@
         @createTask="handleCreateTask"
       />
 
+      <!-- Change view mindmap -->
+      <div class="absolute top-12 left-6 z-10 flex flex-col gap-2">
+        <!-- TEXT VIEW -->
+        <button
+          v-tooltip.right="{ value: 'Phác thảo', pt: { text: { class: ['text-[12px]'] } } }"
+          @click="currentView = 'text'"
+          class="control-btn transition-colors"
+          :class="{
+            'bg-blue-50 border-blue-400': currentView === 'text',
+          }"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 32 32"
+            :fill="currentView === 'text' ? '#2563eb' : '#000000'"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M3 14h-2c-0.552 0-1 0.448-1 1v2c0 0.552 0.448 1 1 1h2c0.552 0 1-0.448 1-1v-2c0-0.552-0.448-1-1-1zM31 15h-21c-0.552 0-1 0.448-1 1s0.448 1 1 1h21c0.552 0 1-0.448 1-1s-0.448-1-1-1zM3 22h-2c-0.552 0-1 0.448-1 1v2c0 0.552 0.448 1 1 1h2c0.552 0 1-0.448 1-1v-2c0-0.552-0.448-1-1-1zM31 23h-21c-0.552 0-1 0.448-1 1s0.448 1 1 1h21c0.552 0 1-0.448 1-1s-0.448-1-1-1zM3 6h-2c-0.552 0-1 0.448-1 1v2c0 0.552 0.448 1 1 1h2c0.552 0 1-0.448 1-1v-2c0-0.552-0.448-1-1-1zM10 9h21c0.552 0 1-0.448 1-1s-0.448-1-1-1h-21c-0.552 0-1 0.448-1 1s0.448 1 1 1z"
+            />
+          </svg>
+        </button>
 
-      <div style="height: calc(100vh - 84px); width: 100%" class="d3-mindmap-container">
+        <!-- VISUAL VIEW -->
+        <button
+          v-tooltip.right="{ value: 'Bản đồ tư duy', pt: { text: { class: ['text-[12px]'] } } }"
+          @click="currentView = 'visual'"
+          class="control-btn transition-colors"
+          :class="{
+            'bg-blue-50 border-blue-400': currentView === 'visual',
+          }"
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 48 48"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              d="M26 24L42 24"
+              :stroke="currentView === 'visual' ? '#2563eb' : '#000000'"
+              stroke-width="4"
+              stroke-linecap="round"
+            />
+            <path
+              d="M26 38H42"
+              :stroke="currentView === 'visual' ? '#2563eb' : '#000000'"
+              stroke-width="4"
+              stroke-linecap="round"
+            />
+            <path
+              d="M26 10H42"
+              :stroke="currentView === 'visual' ? '#2563eb' : '#000000'"
+              stroke-width="4"
+              stroke-linecap="round"
+            />
+            <path
+              d="M18 24L6 24C6 24 7.65685 24 10 24M18 38C12 36 16 24 10 24M18 10C12 12 16 24 10 24"
+              :stroke="currentView === 'visual' ? '#2563eb' : '#000000'"
+              stroke-width="4"
+              stroke-linecap="round"
+            />
+          </svg>
+        </button>
+      </div>
+
+
+
+      <div v-show="currentView === 'visual'" style="height: calc(100vh - 84px); width: 100%" class="d3-mindmap-container">
         <!-- D3.js Mindmap Renderer -->
         <div ref="d3Container" class="d3-mindmap-wrapper"></div>
 
@@ -136,11 +204,6 @@
           :position="contextMenuPos" :has-clipboard="hasClipboard" :center="contextMenuCentered"
           @action="handleContextMenuAction" @close="showContextMenu = false" />
 
-        <MindmapCommentPanel @open-history="showPanel = true" :visible="showPanel" :node="activeCommentNode" :mindmap="realtimeMindmapNodes"
-          @close="showPanel = false" ref="commentPanelRef" @update:input="commentInputValue = $event"
-          @cancel="onCancelComment" @update:node="handleSelectCommentNode" @highlight:node="handleHighlightNode" :userAddComment="isFromUI">
-        </MindmapCommentPanel>
-
         <!-- Mindmap Toolbar -->
         <MindmapToolbar ref="toolbarRef" :visible="!!selectedNode" :selected-node="selectedNode"
           :editor-instance="currentEditorInstance" :is-editing="editingNode === selectedNode?.id" :renderer="d3Renderer"
@@ -163,6 +226,27 @@
           @imported="handleImportComplete"
         />
       </div>
+
+        <MindmapCommentPanel :current-view="currentView" @open-history="showPanel = true" :visible="showPanel" :node="activeCommentNode" :mindmap="realtimeMindmapNodes"
+          @close="showPanel = false" ref="commentPanelRef" @update:input="commentInputValue = $event"
+          @cancel="onCancelComment" @update:node="handleSelectCommentNode" @highlight:node="handleHighlightNode" :userAddComment="isFromUI">
+        </MindmapCommentPanel>      
+
+        <div
+          v-if="currentView === 'text'"
+          class="w-full h-[calc(100vh-84px)] flex items-center justify-center text-gray-400"
+        >
+          <MindmapTextModeView 
+          :nodes="nodes"
+          :edges="edges" 
+          :version="textViewVersion"
+          :active-comment-node="activeCommentNode"
+          @rename-title="renameMindmapTitle"
+          @update-nodes="applyTextEdits"
+          @open-comment="onOpenComment"
+          @add-child-node="addChildToNodeTextMode"
+          />
+        </div>
     </div>
   </div>
 </template>
@@ -188,6 +272,9 @@ import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
 import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
+import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
+import { provide } from "vue"
+import { computeInsertAfterAnchor } from "../components/Mindmap/components/engine/nodeOrderEngine"
 
 
 const showContextMenu = ref(false)
@@ -195,9 +282,15 @@ const contextMenuPos = ref({ x: 0, y: 0 })
 const contextMenuNode = ref(null)
 const contextMenuCentered = ref(false) // Flag để biết có dùng center transform không
 
+const currentView = ref('visual')
+const textViewVersion = ref(0)
+
 const store = useStore()
 const emitter = inject("emitter")
 const socket = inject("socket")
+const suppressPanelAutoFocus = ref(false)
+provide("suppressPanelAutoFocus", suppressPanelAutoFocus)
+
 
 const props = defineProps({
   entityName: String,
@@ -610,11 +703,17 @@ const initializeMindmap = async (data) => {
 
   // Initialize D3 renderer
   await nextTick()
-  initD3Renderer()
+  if (currentView.value === 'visual') {
+    initD3Renderer()
+  }
 }
 
 // Initialize D3 Renderer
 const initD3Renderer = () => {
+  if (currentView.value !== 'visual') {
+    isRendering.value = false
+    return
+  }  
   if (!d3Container.value) return
 
   // Set loading state khi bắt đầu render
@@ -665,42 +764,6 @@ const initD3Renderer = () => {
     onNodeAdd: (parentId) => {
       addChildToNode(parentId)
     },
-    // onNodeUpdate: (nodeId, updates) => {
-    //   const node = nodes.value.find(n => n.id === nodeId)
-    //   if (node) {
-    //     // Cập nhật label nếu có
-    //     if (updates.label !== undefined) {
-    //       node.data.label = updates.label
-    //     }
-    //     // Cập nhật parentId nếu có (drag-and-drop)
-    //     if (updates.parentId !== undefined) {
-    //       // Tìm và cập nhật edge
-    //       const edgeIndex = edges.value.findIndex(e => e.target === nodeId)
-    //       if (edgeIndex !== -1) {
-    //         edges.value[edgeIndex].source = updates.parentId
-    //       } else {
-    //         // Tạo edge mới nếu chưa có
-    //         edges.value.push({
-    //           id: `edge-${updates.parentId}-${nodeId}`,
-    //           source: updates.parentId,
-    //           target: nodeId
-    //         })
-    //       }
-    //       // Cập nhật layout
-    //       updateD3RendererWithDelay()
-    //     }
-
-    //     // ⚠️ NEW: Nếu là style update (skipSizeCalculation = true), không tính toán lại kích thước
-    //     if (updates.skipSizeCalculation) {
-    //       // Chỉ lưu nội dung, không update layout
-    //       scheduleSave()
-    //       return
-    //     }
-
-    //     // Chỉ lưu layout/nội dung node, không đổi tên file ở đây
-    //     scheduleSave()
-    //   }
-    // },
     onNodeUpdate: (nodeId, updates) => {
       // sửa lại để update sort dựa trên root/ position cho bên comment panel
       const node = nodes.value.find(n => n.id === nodeId)
@@ -734,7 +797,7 @@ const initD3Renderer = () => {
 
         // re-layout
         updateD3RendererWithDelay()
-        
+        // textViewVersion.value++
       }
 
       // 3. skipSizeCalculation: chỉ lưu không tính lại size
@@ -758,6 +821,7 @@ const initD3Renderer = () => {
       }
 
       scheduleSave()
+      // textViewVersion.value++
     },
     onNodeEditingStart: (nodeId) => {
       editingNode.value = nodeId
@@ -3648,20 +3712,40 @@ function syncElementsWithRendererPosition() {
 }
 
 
-function openCommentPanel(node) {
-  if (!node) return
+function openCommentPanel(input, options = {}) {
+  if (!input) return
 
+  const { focus = true } = options
+
+  // 1. Chuẩn hoá nodeId
+  const nodeId =
+    typeof input === "string"
+      ? input
+      : typeof input === "object"
+        ? input.id
+        : null
+
+  if (!nodeId) return
+
+  // 2. Tìm node thật trong state
+  const syncedNode = nodes.value.find(n => n.id === nodeId)
+  if (!syncedNode) return
+
+  // 3. Mở panel
   isFromUI.value = true
   syncElementsWithRendererPosition()
 
-  const syncedNode = nodes.value.find(n => n.id === node.id)
-
-  activeCommentNode.value = syncedNode || node
+  activeCommentNode.value = syncedNode
   showPanel.value = true
 
   nextTick(() => {
-    d3Renderer?.selectCommentNode(node.id, false)
-    commentPanelRef.value?.focusEditorForNode?.(node.id)
+    d3Renderer?.selectCommentNode(nodeId, false)
+
+    if (focus) {
+      suppressPanelAutoFocus && (suppressPanelAutoFocus.value = false)
+      commentPanelRef.value?.focusEditorForNode?.(nodeId)
+    }
+
     isFromUI.value = false
   })
 }
@@ -3723,7 +3807,7 @@ function handleContextMenuAction({ type, node }) {
       break
 
     case 'add-comment': {
-      openCommentPanel(node)
+      openCommentPanel(node, { focus: true })
       break
     }
 
@@ -4097,7 +4181,7 @@ function handleToolbarComments({ node, show }) {
   }
 
   // Mở panel (node mới hoặc chưa mở)
-  openCommentPanel(node)
+  openCommentPanel(node, { focus: true })
 }
 
 
@@ -4641,6 +4725,15 @@ function handleRealtimeNewComment(newComment) {
   if (node) {
     node.count = (node.count || 0) + 1
   }
+  if (currentView.value === 'text') {
+    const li = document.querySelector(
+      `li[data-node-id="${newComment.node_id}"]`
+    )
+
+    if (li) {
+      li.setAttribute("data-has-count", "true")
+    }
+  }
 }
 
 function handleRealtimeDeleteOneComment(payload) {
@@ -4650,14 +4743,36 @@ function handleRealtimeDeleteOneComment(payload) {
   if (node && node.count > 0) {
     node.count = node.count - 1
   }
+  if(node.count === 0){
+    if (currentView.value === 'text') {
+      const li = document.querySelector(
+        `li[data-node-id="${payload.node_id}"]`
+      )
+
+      if (li) {
+        li.setAttribute("data-has-count", "false")
+      }
+    }    
+  }  
 }
 
 function handleRealtimeResolvedComment(payload){
-    if (!payload?.node_id) return
+  if (!payload?.node_id) return
 
   const node = nodes.value.find(n => n.id === payload.node_id)
   if (node && node.count > 0) {
     node.count = node.count - payload.count
+  }
+  if(node.count === 0){
+    if (currentView.value === 'text') {
+      const li = document.querySelector(
+        `li[data-node-id="${payload.node_id}"]`
+      )
+
+      if (li) {
+        li.setAttribute("data-has-count", "false")
+      }
+    }    
   }
 }
 
@@ -4749,6 +4864,74 @@ watch(
   },
   { immediate: true }
 )
+
+watch(currentView, (view) => {
+  if (view === 'text') {
+    showPanel.value = true
+    textViewVersion.value++
+  }
+})
+
+function applyTextEdits(changes) {
+  let changed = false
+
+  changes.forEach(({ nodeId, label }) => {
+    const node = nodes.value.find(n => n.id === nodeId)
+    if (!node) return
+
+    if (node.data?.label !== label) {
+      changed = true
+      d3Renderer?.updateNodeLabelFromExternal(nodeId, label)
+    }
+  })
+
+  if (changed) {
+    scheduleSave()
+  }
+}
+
+function onOpenComment(payload) {
+  const { nodeId, options = {} } = payload
+  openCommentPanel(nodeId, options);
+}
+
+function addChildToNodeTextMode(anchorNodeId) {
+  const anchorNode = nodes.value.find(n => n.id === anchorNodeId)
+  if (!anchorNode) return
+
+  const parentId = anchorNode.data.parentId
+  if (!parentId) return
+
+  const newOrder = computeInsertAfterAnchor({
+    nodes: nodes.value,
+    anchorNodeId,
+    parentId,
+    orderStore: nodeCreationOrder.value,
+  })
+
+  if (newOrder == null) return
+
+  const newNodeId = crypto.randomUUID()
+  nodeCreationOrder.value.set(newNodeId, newOrder)
+
+  nodes.value.push({
+    id: newNodeId,
+    data: {
+      parentId,
+      label: `<p>Nhánh mới</p>`,
+      order: newOrder,
+    },
+  })
+
+  edges.value.push({
+    id: `edge-${parentId}-${newNodeId}`,
+    source: parentId,
+    target: newNodeId,
+  })
+
+  d3Renderer.render()
+  scheduleSave()
+}
 
 </script>
 

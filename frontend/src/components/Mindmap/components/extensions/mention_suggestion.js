@@ -94,7 +94,7 @@ export function MentionSuggestion({ getMembers, nodeId }) {
         popup.style.left = `${left}px`
         popup.innerHTML = ""
 
-        items.forEach((item) => {
+        items.forEach((item) => {          
           const el = document.createElement("div")
           el.className =
             "px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm flex items-center gap-2"
@@ -102,7 +102,7 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           el.setAttribute("data-mention-item", "true")
 
           el.innerHTML = `
-      <img src="${item.imageURL || ""}" class="w-5 h-5 rounded-full"/>
+      <img src="${item.imageURL || item.user_image || ""}" class="w-5 h-5 rounded-full"/>
       <span>${item.full_name}</span>
     `
           el.onmousedown = (e) => {

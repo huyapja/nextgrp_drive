@@ -1,5 +1,5 @@
 import { computed } from "vue"
-import { getTeamMembers } from "../../../resources/team"
+import { getCommentMembers } from "../../../resources/team"
 
 function buildGroupKey(nodeId, sessionIndex) {
   return `${nodeId}__${sessionIndex}`
@@ -8,7 +8,7 @@ function buildGroupKey(nodeId, sessionIndex) {
 export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
   /* ---------------- members ---------------- */
 
-  const members = computed(() => getTeamMembers.data || [])
+  const members = computed(() => getCommentMembers.data || [])
 
   const memberMap = computed(() => {
     const map = {}
@@ -30,8 +30,20 @@ export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
 
   const stripLabel = (raw) => {
     if (!raw) return ""
-    const match = String(raw).match(/<p[^>]*>(.*?)<\/p>/i)
-    return match ? match[1] : ""
+
+    const div = document.createElement("div")
+    div.innerHTML = String(raw)
+
+    // ưu tiên p
+    const p = div.querySelector("p")
+    if (p) return p.textContent?.trim() || ""
+
+    // fallback span
+    const span = div.querySelector("span")
+    if (span) return span.textContent?.trim() || ""
+
+    // fallback cuối cùng
+    return div.textContent?.trim() || ""
   }
 
   /* ---------------- node map ---------------- */
@@ -46,102 +58,80 @@ export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
 
   /* ---------------- sort nodes (giữ nguyên logic) ---------------- */
 
-function sortMindmapNodes(nodes) {
-  if (!Array.isArray(nodes)) return []
+  function sortMindmapNodes(nodes) {
+    if (!Array.isArray(nodes)) return []
 
-  const EPS = 1 // cho phép lệch float nhỏ
+    const EPS = 1
 
-  const comparePos = (a, b) => {
-    const ay = a?.position?.y ?? 0
-    const by = b?.position?.y ?? 0
-    const dy = ay - by
+    const comparePos = (a, b) => {
+      const ay = a?.position?.y ?? 0
+      const by = b?.position?.y ?? 0
+      const dy = ay - by
 
-    // coi như cùng hàng nếu chênh lệch rất nhỏ
-    if (Math.abs(dy) < EPS) {
-      const ax = a?.position?.x ?? 0
-      const bx = b?.position?.x ?? 0
-      return ax - bx
+      if (Math.abs(dy) < EPS) {
+        const ax = a?.position?.x ?? 0
+        const bx = b?.position?.x ?? 0
+        return ax - bx
+      }
+      return dy
     }
 
-    return dy
-  }
+    // ---- map & childrenMap ----
+    const nodeMap = {}
+    const childrenMap = {}
 
-  // --- build map + children map ---
-  const map = {}
-  const childrenMap = {}
-
-  for (const n of nodes) {
-    map[n.id] = n
-    childrenMap[n.id] = []
-  }
-
-  for (const n of nodes) {
-    const parentId = n.data?.parentId
-    if (parentId && childrenMap[parentId]) {
-      childrenMap[parentId].push(n.id)
+    for (const n of nodes) {
+      nodeMap[n.id] = n
+      childrenMap[n.id] = []
     }
-  }
 
-  // --- các nhánh con trực tiếp của root ---
-  const rootChildren = nodes
-    .filter(n => n.data?.parentId === "root")
-    .slice()
-    .sort(comparePos) // sort theo position (y,x)
-
-  const visited = new Set()
-  const result = []
-
-  function collectSubtreeIds(rootId) {
-    const ids = []
-    const stack = [rootId]
-
-    while (stack.length) {
-      const id = stack.pop()
-      if (!map[id]) continue
-      if (ids.includes(id)) continue
-
-      ids.push(id)
-
-      const children = childrenMap[id] || []
-      for (const cId of children) {
-        stack.push(cId)
+    for (const n of nodes) {
+      const pid = n.data?.parentId
+      if (pid && childrenMap[pid]) {
+        childrenMap[pid].push(n)
       }
     }
 
-    return ids
-  }
+    // ---- DFS theo nhánh ----
+    const result = []
+    const visited = new Set()
 
-  // --- duyệt từng nhánh: rootChild -> toàn bộ subtree của nó ---
-  for (const rootChild of rootChildren) {
-    const ids = collectSubtreeIds(rootChild.id)
+    function dfs(node) {
+      if (!node || visited.has(node.id)) return
+      visited.add(node.id)
+      result.push(node)
 
-    const subtreeNodes = ids
-      .map(id => map[id])
-      .filter(Boolean)
-      .sort(comparePos) // trong nhánh cũng sort theo (y,x)
+      const children = (childrenMap[node.id] || []).slice().sort(comparePos)
 
-    for (const n of subtreeNodes) {
-      if (!visited.has(n.id)) {
-        visited.add(n.id)
-        result.push(n)
+      for (const c of children) {
+        dfs(c)
       }
     }
+
+    // ---- 1. root children trước ----
+    const rootChildren = nodes
+      .filter((n) => n.data?.parentId === "root")
+      .slice()
+      .sort(comparePos)
+
+    for (const rootChild of rootChildren) {
+      dfs(rootChild)
+    }
+
+    // ---- 2. node lẻ / parent sai ----
+    const leftovers = nodes
+      .filter((n) => !visited.has(n.id) && n.id !== "root")
+      .slice()
+      .sort(comparePos)
+
+    for (const n of leftovers) {
+      dfs(n)
+    }
+
+    return result
   }
 
-  // --- node lẻ, không thuộc nhánh nào (hoặc không có parent hợp lệ) ---
-  const leftovers = nodes
-    .filter(n => !visited.has(n.id) && n.id !== "root")
-    .slice()
-    .sort(comparePos)
-
-  result.push(...leftovers)
-
-  return result
-}
-
-
-const sortedNodes = computed(() => sortMindmapNodes(mindmap.value || []))
-
+  const sortedNodes = computed(() => sortMindmapNodes(mindmap.value || []))
 
   /* ---- group comments theo node (1 lần duy nhất) ---- */
 

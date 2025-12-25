@@ -76,6 +76,18 @@ def get_comments(mindmap_id: str):
 
 @frappe.whitelist()
 def add_comment(mindmap_id: str, node_id: str, session_index: int | None, comment: str, node_key: str):
+
+    from drive.api.permissions import get_user_access
+
+    entity = frappe.get_doc("Drive File", mindmap_id)
+    access = get_user_access(entity, frappe.session.user)
+
+    if not access.get("read"):
+        frappe.throw(
+            "Bạn không có quyền bình luận.",
+            frappe.PermissionError,
+        )
+
     if not mindmap_id or not node_id or not comment:
         frappe.throw("Missing params")
 
@@ -491,14 +503,14 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
     return {"status": "ok", "comment": doc.as_dict()}
 
 
+
+from drive.api.permissions import get_user_access
 def notify_mentions(comment_name):
+    # 1. Lấy comment
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
-    shared_users = set(
-        get_notify_users_from_shared(doc.mindmap_id)
-    )    
-
-    drive_file = frappe.get_value(
+    # 2. Lấy Drive File (mindmap)
+    drive_file = frappe.db.get_value(
         "Drive File",
         doc.mindmap_id,
         ["team"],
@@ -510,20 +522,16 @@ def notify_mentions(comment_name):
 
     team = drive_file["team"]
 
-    # link = (
-    #     f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
-    #     f"?node={doc.node_id}"
-    #     f"#comment_id={doc.name}"
-    # )
+    # 3. Build link
     link = (
         f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
         f"?node={doc.node_id}"
         f"&session={doc.session_index}"
         f"&node_key={doc.node_key}"
         f"#comment_id={doc.name}"
-    )    
+    )
 
-    # ---- parse comment safely ----
+    # 4. Parse comment an toàn
     comment = doc.comment
     if isinstance(comment, str):
         try:
@@ -535,18 +543,20 @@ def notify_mentions(comment_name):
     if not mentions:
         return
 
+    # 5. Lấy danh sách user được mention (KHÔNG lọc theo quyền)
     mentioned_users = {
         m.get("id")
         for m in mentions
-        if m.get("id") in shared_users
+        if m.get("id")
     }
 
-    # Không notify chính mình
+    # Không xử lý mention chính mình
     mentioned_users.discard(doc.owner)
 
     if not mentioned_users:
         return
 
+    # 6. Chỉ giữ user hợp lệ + enabled
     valid_users = frappe.get_all(
         "User",
         filters={
@@ -559,11 +569,32 @@ def notify_mentions(comment_name):
     if not valid_users:
         return
 
+    # 7. AUTO SHARE quyền read + comment nếu user chưa có quyền
+    entity = frappe.get_doc("Drive File", doc.mindmap_id)
+
+    for user in valid_users:
+        access = get_user_access(entity, user)
+
+        if not access.get("read"):
+            frappe.get_doc({
+                "doctype": "Drive Permission",
+                "entity": doc.mindmap_id,
+                "user": user,
+                "read": 1,
+                "comment": 1,
+                "write": 0,
+                "share": 0,
+            }).insert(ignore_permissions=True)
+
+    # 8. Gửi notify
     bot_docs = frappe.conf.get("bot_docs")
     if not bot_docs:
         return
 
-    actor_full_name = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
+    actor_full_name = (
+        frappe.db.get_value("User", doc.owner, "full_name")
+        or doc.owner
+    )
 
     for user in valid_users:
         message_data = {
@@ -583,9 +614,13 @@ def notify_mentions(comment_name):
         RavenBot.send_notification_to_user(
             bot_name=bot_docs,
             user_id=user,
-            link_doctype= "Drive Mindmap Comment",
-            link_document= doc.name,   
-            message=json.dumps(message_data, ensure_ascii=False, default=str),
+            link_doctype="Drive Mindmap Comment",
+            link_document=doc.name,
+            message=json.dumps(
+                message_data,
+                ensure_ascii=False,
+                default=str,
+            ),
         )
 
 

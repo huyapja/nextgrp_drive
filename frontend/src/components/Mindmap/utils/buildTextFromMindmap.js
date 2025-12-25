@@ -1,0 +1,169 @@
+/**
+ * Lấy HTML inline an toàn cho heading
+ * - Nếu label là <p>...</p> → lấy innerHTML của <p>
+ * - Tránh sinh <p> bên trong <h*>
+ */
+function extractInlineHTML(html) {
+  if (!html) return ""
+
+  const div = document.createElement("div")
+  div.innerHTML = html
+
+  // 1. chỉ lấy <p> đầu tiên
+  const p = div.querySelector("p")
+  if (!p) return ""
+
+  // 2. xoá TOÀN BỘ cấu trúc không-inline
+  p.querySelectorAll("ul, li").forEach((el) => el.remove())
+
+  // 3. xoá các data-node-id lạc
+  p.querySelectorAll("[data-node-id]").forEach((el) => {
+    el.removeAttribute("data-node-id")
+    el.removeAttribute("data-has-count")
+  })
+
+  // 4. nếu rỗng hoặc chỉ còn <br> thì bỏ
+  const content = p.innerHTML.trim()
+  if (!content || content === "<br>") return ""
+
+  return content
+}
+
+function extractBlockHTML(html) {
+  if (!html) return ""
+
+  const div = document.createElement("div")
+  div.innerHTML = html
+
+  const blocks = []
+
+  // 1. paragraph (trừ p đầu tiên)
+  const ps = Array.from(div.querySelectorAll("p")).slice(1)
+  ps.forEach(p => {
+    if (p.closest("blockquote")) return
+
+    const a = p.querySelector("a")
+    const text = p.textContent?.trim()
+
+    if (a) {
+      blocks.push(`
+<a data-task-link="true" href="${a.getAttribute("href")}">
+  ${a.textContent || "Liên kết công việc"}
+</a>
+      `.trim())
+      return
+    }
+
+    const content = p.innerHTML.trim()
+    if (content && content !== "<br>") {
+      blocks.push(`<p>${content}</p>`)
+    }
+  })
+
+  // 2. image wrapper
+  const images = Array.from(div.querySelectorAll(".image-wrapper"))
+  images.forEach(wrapper => {
+    const img = wrapper.querySelector("img")
+    if (!img) return
+
+    blocks.push(`
+<div class="image-wrapper" data-image-src="${wrapper.dataset.imageSrc || ""}">
+  <img src="${img.getAttribute("src")}" alt="${img.getAttribute("alt") || ""}" />
+</div>
+    `.trim())
+  })
+
+  // 3. blockquote
+  const blockquote = div.querySelector("blockquote")
+  if (blockquote) {
+    blocks.push(blockquote.outerHTML)
+  }
+
+  return blocks.join("\n")
+}
+
+
+
+/**
+ * Build HTML cho editor từ mindmap
+ * - Heading chỉ chứa inline HTML
+ * - Không sinh DOM không hợp lệ
+ */
+export function buildTextFromMindmap(nodes, edges) {
+  if (!nodes?.length) return ""
+
+  const nodeMap = new Map()
+  nodes.forEach((n) => {
+    nodeMap.set(n.id, { ...n, children: [] })
+  })
+
+  edges.forEach((e) => {
+    const parent = nodeMap.get(e.source)
+    const child = nodeMap.get(e.target)
+    if (parent && child) parent.children.push(child)
+  })
+
+  const root = nodeMap.get("root")
+  if (!root) return ""
+
+  const html = []
+
+  // render root
+  const rootHTML = extractInlineHTML(root.data?.label || "")
+  if (rootHTML) {
+    html.push(
+      `
+<h1 data-node-id="root">
+  ${rootHTML}
+</h1>
+`.trim()
+    )
+  }
+
+  function renderList(nodes) {
+    if (!nodes.length) return ""
+
+    return `
+<ul>
+  ${nodes
+    .sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
+    .map((node) => {
+      const inline = extractInlineHTML(node.data?.label || "")
+      const block = extractBlockHTML(node.data?.label || "")
+
+      if (!inline && !block) return ""
+
+      const hasCount = Number(node.count) > 0
+
+      return `
+<li
+  data-node-id="${node.id}"
+  ${hasCount ? 'data-has-count="true"' : ""}
+>
+  ${
+    inline
+      ? `
+  <p>
+    <span data-inline-root="true">
+      ${inline}
+    </span>
+  </p>
+  `.trim()
+      : ""
+  }
+
+  ${block || ""}
+
+  ${renderList(node.children)}
+</li>
+`.trim()
+    })
+    .join("\n")}
+</ul>
+`.trim()
+  }
+
+  html.push(renderList(root.children))
+
+  return html.join("\n")
+}
