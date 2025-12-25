@@ -20,7 +20,15 @@ import ListItemNodeTextView from "./components/ListItemNodeTextView.vue"
 import ListItem from "@tiptap/extension-list-item"
 import { InlineRoot } from "./components/extensions/InlineRoot"
 import { TaskLink } from "./components/extensions/TaskLink"
+import Image from "@tiptap/extension-image"
+import { ImageZoomClickExtension } from "./components/extensions/ImageZoomClickExtension"
 
+function hasMmNode(html) {
+  if (!html) return false
+  const div = document.createElement("div")
+  div.innerHTML = html
+  return !!div.querySelector(".mm-node, [data-node-id]")
+}
 
 
 /* ================================
@@ -46,6 +54,9 @@ const emit = defineEmits([
   "update-nodes",
   "open-comment",
 ])
+
+const canEdit = hasMmNode(props.initialContent)
+
 
 /* ================================
  * Extensions giữ data-node-id
@@ -149,7 +160,9 @@ function extractParagraphAndBlock(el) {
   let inlineHTML = ""
   let blockHTML = ""
 
-  // 1️⃣ paragraph inline chính
+  /* =========================
+   * 1. INLINE PARAGRAPH
+   * ========================= */
   const p =
     el.querySelector(":scope > p") ||
     el.querySelector(":scope > div > p")
@@ -167,27 +180,48 @@ function extractParagraphAndBlock(el) {
     }
   }
 
-  // 2️⃣ ✅ TASK LINK (QUAN TRỌNG)
+  /* =========================
+   * 2. TASK LINK
+   * ========================= */
   const taskLink =
     el.querySelector(":scope > a[data-task-link]") ||
     el.querySelector(":scope > div > a[data-task-link]")
 
   if (taskLink) {
     const href = taskLink.getAttribute("href")
-
-    // giữ nguyên inline (emoji + text)
     const contentHTML = taskLink.innerHTML.trim()
 
     blockHTML += `
 <p>
   ${contentHTML.includes("<a")
-    ? contentHTML
-    : `<a href="${href}">${contentHTML}</a>`}
+        ? contentHTML
+        : `<a href="${href}">${contentHTML}</a>`}
 </p>
     `.trim()
   }
 
-  // 3️⃣ blockquote
+  /* =========================
+   * 3. IMAGE → image-wrapper
+   * ========================= */
+  const images = el.querySelectorAll(":scope img")
+
+  images.forEach(img => {
+    const src = img.getAttribute("src")
+    if (!src) return
+
+    const dataSrc = img.getAttribute("data-image-src") || src
+    const alt = img.getAttribute("alt") || ""
+
+    blockHTML += `
+<div class="image-wrapper" data-image-src="${dataSrc}">
+  <img src="${src}" alt="${alt}" />
+</div>
+    `.trim()
+  })
+
+  /* =========================
+   * 4. BLOCKQUOTE
+   * ========================= */
   const blockquote =
     el.querySelector(":scope > blockquote") ||
     el.querySelector(":scope > div > blockquote")
@@ -201,9 +235,8 @@ function extractParagraphAndBlock(el) {
     blockHTML += blockquote.outerHTML
   }
 
-  return inlineHTML + blockHTML
+  return (inlineHTML + blockHTML).trim()
 }
-
 
 
 // function này trích edits từ HTML của editor rồi gửi lên với payload nodes
@@ -261,10 +294,13 @@ const editor = ref(null)
 onMounted(() => {
   editor.value = new Editor({
     content: props.initialContent,
-    editable: props.editable,
+    editable: canEdit,
     autofocus: "start",
-    onOpenComment(nodeId) {
-      emit("open-comment", nodeId)
+    onOpenComment(nodeId, options = {}) {      
+      emit("open-comment", {
+        nodeId,
+        options,
+      })
     },
     extensions: [
       StarterKit.configure({
@@ -279,6 +315,22 @@ onMounted(() => {
       HeadingWithNodeId,
       InlineStyle,
       Underline,
+      Image.extend({
+        addAttributes() {
+          return {
+            ...this.parent?.(),
+            "data-image-src": {
+              default: null,
+              parseHTML: el => el.getAttribute("data-image-src"),
+              renderHTML: attrs =>
+                attrs["data-image-src"]
+                  ? { "data-image-src": attrs["data-image-src"] }
+                  : {},
+            },
+          }
+        },
+      }),
+      ImageZoomClickExtension
     ],
 
     editorProps: {
@@ -330,22 +382,28 @@ watch(
   (val) => {
     if (!editor.value) return
 
-    if (isEditorEmitting) return
-    if (isComposing) return
-    if (isEditorFocused) return
+    const canEdit = hasMmNode(val)
 
-    const current = editor.value.getHTML()
-    if (current !== val) {
+    if (editor.value.isEditable !== canEdit) {
+      editor.value.setEditable(canEdit)
+    }
+
+    if (editor.value.getHTML() !== val) {
       editor.value.commands.setContent(val || "", false)
     }
   }
 )
+
 
 </script>
 
 <style scoped>
 .prose :deep(p) {
   margin: 0.5em 0;
+}
+
+.prose :deep(.ProseMirror-gapcursor.ProseMirror-widget) {
+  display: none;
 }
 
 .prose :deep(li[data-has-count="true"] > div > div > p span) {
@@ -428,7 +486,7 @@ watch(
 }
 
 .prose :deep(blockquote) {
-  padding:0;
+  padding: 0;
   margin: 0px;
   border: none;
   quotes: none;

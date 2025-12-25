@@ -37,35 +37,43 @@ function extractBlockHTML(html) {
 
   const blocks = []
 
+  // 1. paragraph (trừ p đầu tiên)
   const ps = Array.from(div.querySelectorAll("p")).slice(1)
-
   ps.forEach(p => {
     if (p.closest("blockquote")) return
 
     const a = p.querySelector("a")
     const text = p.textContent?.trim()
 
-    // ✅ CASE: task link
     if (a) {
       blocks.push(`
-<a
-  data-task-link="true"
-  href="${a.getAttribute("href")}"
->
+<a data-task-link="true" href="${a.getAttribute("href")}">
   ${a.textContent || "Liên kết công việc"}
 </a>
       `.trim())
       return
     }
 
-    // paragraph thường
     const content = p.innerHTML.trim()
     if (content && content !== "<br>") {
       blocks.push(`<p>${content}</p>`)
     }
   })
 
-  // blockquote
+  // 2. image wrapper
+  const images = Array.from(div.querySelectorAll(".image-wrapper"))
+  images.forEach(wrapper => {
+    const img = wrapper.querySelector("img")
+    if (!img) return
+
+    blocks.push(`
+<div class="image-wrapper" data-image-src="${wrapper.dataset.imageSrc || ""}">
+  <img src="${img.getAttribute("src")}" alt="${img.getAttribute("alt") || ""}" />
+</div>
+    `.trim())
+  })
+
+  // 3. blockquote
   const blockquote = div.querySelector("blockquote")
   if (blockquote) {
     blocks.push(blockquote.outerHTML)
@@ -73,6 +81,7 @@ function extractBlockHTML(html) {
 
   return blocks.join("\n")
 }
+
 
 
 /**

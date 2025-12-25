@@ -973,8 +973,6 @@ function handleReply(c) {
       id: c.user.email,
       label: c.user.full_name,
     })
-
-    // 🔓 mở lại auto scroll sau khi ổn định
     requestAnimationFrame(() => {
       suppressAutoScroll.value = false
     })
@@ -982,9 +980,13 @@ function handleReply(c) {
 }
 
 
-
+const suppressPanelAutoFocus = inject(
+  "suppressPanelAutoFocus",
+  ref(false)
+)
 
 function focusEditorOf(group) {
+  if (suppressPanelAutoFocus.value) return
   const key = groupKeyOf(group)
   nextTick(() => {
     const editor = commentEditorRef.value?.value?.[key]

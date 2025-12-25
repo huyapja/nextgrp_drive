@@ -1,5 +1,5 @@
 import { computed } from "vue"
-import { getTeamMembers } from "../../../resources/team"
+import { getCommentMembers  } from "../../../resources/team"
 
 function buildGroupKey(nodeId, sessionIndex) {
   return `${nodeId}__${sessionIndex}`
@@ -8,7 +8,7 @@ function buildGroupKey(nodeId, sessionIndex) {
 export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
   /* ---------------- members ---------------- */
 
-  const members = computed(() => getTeamMembers.data || [])
+  const members = computed(() => getCommentMembers.data || [])
 
   const memberMap = computed(() => {
     const map = {}

@@ -271,6 +271,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
+import { provide } from "vue"
 
 
 const showContextMenu = ref(false)
@@ -284,6 +285,9 @@ const textViewVersion = ref(0)
 const store = useStore()
 const emitter = inject("emitter")
 const socket = inject("socket")
+const suppressPanelAutoFocus = ref(false)
+provide("suppressPanelAutoFocus", suppressPanelAutoFocus)
+
 
 const props = defineProps({
   entityName: String,
@@ -3566,8 +3570,10 @@ function syncElementsWithRendererPosition() {
 }
 
 
-function openCommentPanel(input) {
+function openCommentPanel(input, options = {}) {
   if (!input) return
+
+  const { focus = true } = options
 
   // 1. Chuẩn hoá nodeId
   const nodeId =
@@ -3592,7 +3598,12 @@ function openCommentPanel(input) {
 
   nextTick(() => {
     d3Renderer?.selectCommentNode(nodeId, false)
-    commentPanelRef.value?.focusEditorForNode?.(nodeId)
+
+    if (focus) {
+      suppressPanelAutoFocus && (suppressPanelAutoFocus.value = false)
+      commentPanelRef.value?.focusEditorForNode?.(nodeId)
+    }
+
     isFromUI.value = false
   })
 }
@@ -3654,7 +3665,7 @@ function handleContextMenuAction({ type, node }) {
       break
 
     case 'add-comment': {
-      openCommentPanel(node)
+      openCommentPanel(node, { focus: true })
       break
     }
 
@@ -4028,7 +4039,7 @@ function handleToolbarComments({ node, show }) {
   }
 
   // Mở panel (node mới hoặc chưa mở)
-  openCommentPanel(node)
+  openCommentPanel(node, { focus: true })
 }
 
 
@@ -4737,9 +4748,11 @@ function applyTextEdits(changes) {
   }
 }
 
-function onOpenComment(nodeId) {
-  openCommentPanel(nodeId);
+function onOpenComment(payload) {
+  const { nodeId, options = {} } = payload
+  openCommentPanel(nodeId, options);
 }
+
 </script>
 
 <style scoped>

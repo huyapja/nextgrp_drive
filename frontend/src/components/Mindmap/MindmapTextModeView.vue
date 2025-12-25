@@ -31,10 +31,15 @@ function onUpdateNodes(edits) {
     emit("update-nodes", edits)
 }
 
-function onOpenComment(nodeId) {
-    emit("open-comment", nodeId)
-}
+function onOpenComment(payload) {
+  if (!payload) return
 
+  const { nodeId, options = {} } = payload
+  emit("open-comment", {
+    nodeId,
+    options,
+  })
+}
 provide("activeCommentNode", toRef(props, "activeCommentNode"))
 
 watch(

@@ -30,3 +30,9 @@ export const getTeamMembers = createResource({
   },
   auto: false // Set auto: false để tự điều khiển việc gọi API
 })
+
+
+export const getCommentMembers = createResource({
+  url: "drive.api.product.get_all_users_without_team",
+  auto: true
+})

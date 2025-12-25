@@ -17,7 +17,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watchEffect } from "vue"
+import { ref, computed, inject, watchEffect  } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 
 const props = defineProps({
@@ -28,6 +28,10 @@ const props = defineProps({
 
 const isHover = ref(false)
 const isActive = ref(false)
+const suppressPanelAutoFocus = inject(
+  "suppressPanelAutoFocus",
+  null
+)
 
 /**
  * Paragraph này có phải là paragraph TRỰC TIẾP của list-item không?
@@ -63,13 +67,13 @@ function resolveNodeIdFromDOM(fallbackEl) {
  * HÀM DUY NHẤT mở comment
  * → dùng cho cả click text & click icon
  */
-function openCommentFromEvent(e) {
+function openCommentFromEvent(e, options = {}) {
   if (!isMindmapParagraph.value) return
 
   const nodeId = resolveNodeIdFromDOM(e.currentTarget)
   if (!nodeId) return
 
-  props.editor?.options?.onOpenComment?.(nodeId)
+  props.editor?.options?.onOpenComment?.(nodeId, options)
 }
 
 /**
@@ -79,14 +83,17 @@ function openCommentFromEvent(e) {
  */
 function onClickNode(e) {
   if (!isMindmapParagraph.value) return
-
+  
   const li = e.currentTarget.closest("li[data-node-id]")
   if (!li) return
-
+  
   const hasCount = li.getAttribute("data-has-count") === "true"
   if (!hasCount) return
 
-  openCommentFromEvent(e)
+  suppressPanelAutoFocus && (suppressPanelAutoFocus.value = true)
+  
+  // KHÔNG focus editor
+  openCommentFromEvent(e, { focus: false })
 }
 
 /**
@@ -94,7 +101,8 @@ function onClickNode(e) {
  * - luôn mở comment
  */
 function onClickComment(e) {
-  openCommentFromEvent(e)
+  suppressPanelAutoFocus && (suppressPanelAutoFocus.value = false)
+  openCommentFromEvent(e, { focus: true })
 }
 
 /**

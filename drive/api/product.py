@@ -459,6 +459,61 @@ def get_all_users(team):
                     u["department"] = department["department_name"]
     return users
 
+@frappe.whitelist()
+def get_all_users_without_team():
+    earliest_creation = frappe.db.get_value(
+        "User",
+        filters={
+            "enabled": 1,
+            "name": ["not in", ["Administrator", "Guest"]],
+        },
+        fieldname="creation",
+        order_by="creation asc",
+    )
+
+    users = frappe.get_all(
+        "User",
+        filters=[
+            ["enabled", "=", 1],
+            ["name", "not in", ["Administrator", "Guest"]],
+            ["creation", "!=", earliest_creation],
+        ],
+        fields=[
+            "name",
+            "email",
+            "full_name",
+            "user_image",
+        ],
+        order_by="full_name asc",
+    )
+
+    for u in users:
+        officer = frappe.db.get_value(
+            "Officer",
+            {"user": u["name"]},
+            "name",
+            as_dict=True,
+        )
+        if officer:
+            position = frappe.db.get_value(
+                "Department User",
+                {"user": officer["name"]},
+                ["position", "parent"],
+                as_dict=True,
+            )
+            if position and position.get("position"):
+                u["position"] = position["position"]
+                department = frappe.db.get_value(
+                    "Department",
+                    position["parent"],
+                    "department_name",
+                )
+                if department:
+                    u["department"] = department
+
+    return users
+
+
 
 @frappe.whitelist()
 def get_all_site_users():
