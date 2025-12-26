@@ -152,6 +152,22 @@ onMounted(() => {
                 if (!editor.value?.storage?.__isInitializing && event.key === "@") {
                     editor.value.storage.__mentionUserTriggered = true
                 }
+                if (event.key === "Backspace") {
+                    const { state } = view
+                    const { from } = state.selection
+
+                    const textBefore = state.doc.textBetween(
+                        Math.max(0, from - 50),
+                        from,
+                        "\0",
+                        "\0"
+                    )
+
+                    // regex giống trigger mention
+                    if (/@[\p{L}\d_]*$/u.test(textBefore)) {
+                        editor.value.storage.__mentionUserTriggered = true
+                    }
+                }
                 const isMentionOpen = editor.value?.storage?.__mentionOpen;
                 const { state } = view
                 const { selection } = state

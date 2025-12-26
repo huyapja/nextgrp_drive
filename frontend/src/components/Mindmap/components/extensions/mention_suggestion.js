@@ -1,5 +1,5 @@
-function normalizeVN(str = "") {
-  return str
+function normalize(str = "") {
+  return String(str)
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
@@ -7,9 +7,24 @@ function normalizeVN(str = "") {
     .toLowerCase()
 }
 
+function matchName(fullName, query) {
+  if (!query) return true
+
+  const q = normalize(query)
+  const tokens = normalize(fullName).split(/\s+/)
+
+  return tokens.some((token) => token.startsWith(q))
+}
+
 export function MentionSuggestion({ getMembers, nodeId }) {
   let activeIndex = 0
   let currentItems = []
+
+  const normNameCache = new Map()
+
+  function getUserKey(m) {
+    return m?.name || m?.email || m?.id || m?.full_name || JSON.stringify(m)
+  }
 
   function expandCommentPanel(nodeId) {
     const panel = document.querySelector(
@@ -68,11 +83,12 @@ export function MentionSuggestion({ getMembers, nodeId }) {
     startOfLine: false,
 
     items: ({ query }) => {
-      const members = getMembers() || []
+      const members = getMembers?.() || []
       if (!query) return members
 
-      const q = normalizeVN(query)
-      return members.filter((m) => normalizeVN(m.full_name || "").includes(q))
+      return members.filter((m) =>
+        matchName(m?.full_name || m?.name || "", query)
+      )
     },
 
     render: () => {
