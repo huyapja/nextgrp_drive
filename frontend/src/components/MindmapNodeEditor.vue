@@ -1183,10 +1183,10 @@ function updateImageLayout(view) {
       const currentHeight = img.style.height
       const currentObjectFit = img.style.objectFit || getComputedStyle(img).objectFit
       
-      // ⚠️ FIX: Luôn set height = auto và object-fit = contain để ảnh hiển thị đầy đủ
+      // Thống nhất chiều cao cho tất cả ảnh
       if (currentHeight !== newHeight) {
         img.style.setProperty('height', newHeight, 'important')
-        img.style.setProperty('max-height', 'none', 'important')
+        img.style.setProperty('max-height', '200px', 'important') // Chiều cao tối đa thống nhất
       }
       if (currentObjectFit !== newObjectFit) {
         img.style.setProperty('object-fit', newObjectFit, 'important')
@@ -1288,14 +1288,11 @@ const ImageWithMenuExtension = Extension.create({
                 
               }
               
-              // ⚠️ FIX: Height luôn là auto để ảnh hiển thị đầy đủ, không bị crop
-              // Thay vì set height cố định (150px, 100px) gây crop ảnh,
-              // ta dùng height: auto để ảnh giữ tỷ lệ tự nhiên
+              // Thống nhất chiều cao cho tất cả ảnh để không bị cao thấp không thống nhất
+              // Dùng max-height cố định để tất cả ảnh có cùng chiều cao tối đa
               let imageHeight = 'auto'
-              let objectFit = 'contain' // ⚠️ FIX: Dùng contain thay vì cover để không crop ảnh
-              
-              // ⚠️ OPTIONAL: Có thể set max-height để limit chiều cao tối đa nếu muốn
-              // Nhưng để ảnh hiển thị đầy đủ, tốt nhất là dùng auto
+              let maxHeight = '200px' // Chiều cao tối đa thống nhất cho tất cả ảnh
+              let objectFit = 'contain' // Dùng contain để không crop ảnh, giữ tỷ lệ
               
               dom.style.cssText = `
                 position: relative;
@@ -1320,7 +1317,7 @@ const ImageWithMenuExtension = Extension.create({
                 display: block;
                 width: 100%;
                 height: ${imageHeight} !important;
-                max-height: none !important;
+                max-height: ${maxHeight} !important;
                 object-fit: ${objectFit};
                 border-radius: 5px;
                 cursor: zoom-in;
@@ -4911,10 +4908,11 @@ export default {
   width: 100% !important;
   max-width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* 2 ảnh trong wrapper: mỗi ảnh 50% */
@@ -4932,10 +4930,11 @@ export default {
   width: 100% !important;
   max-width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* 3+ ảnh trong wrapper: mỗi ảnh 33.33% */
@@ -4953,10 +4952,11 @@ export default {
   width: 100% !important;
   max-width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* Fallback: Style cho ảnh direct children (khi chưa có wrapper) */
@@ -5074,6 +5074,7 @@ export default {
   box-sizing: border-box !important;
   position: relative;
   outline: none !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa cho tất cả ảnh */
 }
 
 /* Bỏ border khi click/focus */
@@ -5245,10 +5246,11 @@ export default {
 :deep(.mindmap-editor-prose .image-wrapper img) {
   width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* Menu button - ULTRA CRITICAL với specificity cao */

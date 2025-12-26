@@ -247,6 +247,7 @@
       ref="groupedContextMenu"
       :actionItems="selectedRow ? dropdownActionItems(selectedRow) : []"
       :close="onContextMenuClose"
+      :onDownloadMindmap="handleDownloadMindmap"
     />
 
     <!-- Custom Tooltip -->
@@ -279,6 +280,8 @@ import { useTimeAgoVi } from "@/utils/useTimeAgoVi"
 import CustomAvatar from "./CustomAvatar.vue"
 import ShortCutIconFile from "@/assets/Icons/ShortCutIconFile.vue"
 import { createShortcutResource, removeShortcutResource } from "../utils/files"
+import { call } from "frappe-ui"
+import { toast } from "@/utils/toasts"
 
 // Directives
 const vTooltip = Tooltip
@@ -605,6 +608,62 @@ watch(selectedRows, (newSelections) => {
 watch(selectedRow, (k) => {
   store.commit("setActiveEntity", k)
 })
+
+// Function để export mindmap sang định dạng nmm
+const handleDownloadMindmap = async (entity) => {
+  if (!entity || !entity.mindmap) {
+    toast({ title: "Không tìm thấy mindmap", indicator: "red" })
+    return
+  }
+
+  try {
+    // Lấy dữ liệu mindmap từ API
+    const mindmapData = await call("drive.api.mindmap.get_mindmap_data", {
+      entity_name: entity.name
+    })
+
+    if (!mindmapData || !mindmapData.mindmap_data) {
+      toast({ title: "Không thể lấy dữ liệu mindmap", indicator: "red" })
+      return
+    }
+
+    const { nodes = [], edges = [], layout = "horizontal" } = mindmapData.mindmap_data
+
+    // Tạo nextgrpData format
+    const nextgrpData = {
+      version: "1.0",
+      format: "nextgrp",
+      exported_at: new Date().toISOString(),
+      mindmap: {
+        title: mindmapData.title || entity.title || "Mindmap",
+        nodes: nodes,
+        edges: edges,
+        layout: layout
+      }
+    }
+
+    // Convert to JSON and download
+    const jsonStr = JSON.stringify(nextgrpData, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const blobUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    
+    // Tạo tên file từ title, chỉ loại bỏ các ký tự không hợp lệ cho tên file
+    // Giữ nguyên tên file gốc, case, và các ký tự hợp lệ
+    const originalTitle = mindmapData.title || entity.title || "Mindmap"
+    // Loại bỏ các ký tự không hợp lệ: / \ : * ? " < > |
+    const sanitizedTitle = originalTitle.replace(/[\/\\:*?"<>|]/g, '_')
+    link.download = `${sanitizedTitle}.nmm`
+    link.href = blobUrl
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
+  } catch (error) {
+    console.error("Export mindmap error:", error)
+    toast({ title: "Lỗi khi tải xuống mindmap", indicator: "red" })
+  }
+}
 
 const dropdownActionItems = (row) => {
   if (!row) return []

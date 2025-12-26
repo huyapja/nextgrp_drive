@@ -2,7 +2,7 @@
   <Dialog
     :visible="visible"
     modal
-    :header="'Xuất/Nhập sơ đồ'"
+    :header="'Xuất sơ đồ tư duy'"
     :style="{ width: '400px' }"
     :draggable="false"
     @update:visible="$emit('update:visible', $event)"
@@ -22,7 +22,7 @@
             <LucideImage class="w-6 h-6 text-blue-600" />
           </div>
           <div class="flex-1 text-left">
-            <div class="font-semibold text-gray-900">PNG Image</div>
+            <div class="font-semibold text-gray-900">PNG (*.png)</div>
             <div class="text-sm text-gray-500">Xuất dưới dạng hình ảnh</div>
           </div>
           <svg v-if="isExporting && exportFormat === 'png'" class="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -41,7 +41,7 @@
             <LucideFileText class="w-6 h-6 text-red-600" />
           </div>
           <div class="flex-1 text-left">
-            <div class="font-semibold text-gray-900">PDF Document</div>
+            <div class="font-semibold text-gray-900">PDF (*.pdf)</div>
             <div class="text-sm text-gray-500">Xuất dưới dạng tài liệu PDF</div>
           </div>
           <svg v-if="isExporting && exportFormat === 'pdf'" class="animate-spin h-5 w-5 text-red-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -60,7 +60,7 @@
             <LucideFileCode class="w-6 h-6 text-green-600" />
           </div>
           <div class="flex-1 text-left">
-            <div class="font-semibold text-gray-900">NextGRP Format</div>
+            <div class="font-semibold text-gray-900">nextMindmap (*.nmm)</div>
             <div class="text-sm text-gray-500">Xuất với đầy đủ thông tin, có thể import lại</div>
           </div>
           <svg v-if="isExporting && exportFormat === 'nextgrp'" class="animate-spin h-5 w-5 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -85,10 +85,10 @@
 </template>
 
 <script setup>
-import { toast, toastPersistent, updateToast, removeToast } from '@/utils/toasts'
+import { removeToast, toast, toastPersistent, updateToast } from '@/utils/toasts'
 import PrimeButton from 'primevue/button'
 import Dialog from 'primevue/dialog'
-import { ref, h } from 'vue'
+import { h, ref } from 'vue'
 import LucideDownload from "~icons/lucide/download"
 import LucideFileCode from "~icons/lucide/file-code"
 import LucideFileText from "~icons/lucide/file-text"
@@ -182,7 +182,10 @@ const handleExport = async (format) => {
 
   try {
     const mindmapTitle = props.mindmap?.title || "Mindmap"
-    const fileName = `${mindmapTitle.replace(/[^a-z0-9]/gi, '_')}.${format === 'nextgrp' ? 'nextgrp' : format}`
+    // Chỉ loại bỏ các ký tự không hợp lệ cho tên file (/, \, :, *, ?, ", <, >, |)
+    // Giữ nguyên các ký tự đặc biệt khác như dấu cách, dấu tiếng Việt, v.v.
+    const sanitizedTitle = mindmapTitle.replace(/[\/\\:*?"<>|]/g, '')
+    const fileName = `${sanitizedTitle}.${format === 'nextgrp' ? 'nmm' : format}`
 
     if (format === 'png') {
       await exportToPNG(fileName)
@@ -389,7 +392,7 @@ const svgString2Image = (svgString, width, height, format = 'png') => {
 // Export to PNG - Sử dụng SVG string conversion như ví dụ
 const exportToPNG = async (fileName) => {
   try {
-    updateProgress(10, 'Đang chuẩn bị xuất PNG...')
+    updateProgress(10)
     
     // 1. Lấy SVG element từ d3Renderer
     const svgElement = props.d3Renderer.svg.node()
@@ -397,13 +400,13 @@ const exportToPNG = async (fileName) => {
       throw new Error("SVG element not found")
     }
     
-    updateProgress(20, 'Đang đợi render hoàn tất...')
+    updateProgress(20)
     // 2. Đợi Vue components render xong và đảm bảo tất cả images load xong
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => setTimeout(resolve, 500))
     
-    updateProgress(30, 'Đang tính toán kích thước...')
+    updateProgress(30)
     // 3. Tính bounding box từ tất cả nodes (giống như fitView)
     let minX = Infinity
     let minY = Infinity
@@ -439,7 +442,7 @@ const exportToPNG = async (fileName) => {
     const width = Math.max(maxX - minX + padding * 2, 800)
     const height = Math.max(maxY - minY + padding * 2, 600)
     
-    updateProgress(40, 'Đang xử lý SVG...')
+    updateProgress(40)
     // 4. Clone SVG để không ảnh hưởng đến SVG gốc
     const clonedSvg = svgElement.cloneNode(true)
     
@@ -449,11 +452,11 @@ const exportToPNG = async (fileName) => {
       mainGroup.removeAttribute('transform')
     }
     
-    updateProgress(50, 'Đang chuyển đổi hình ảnh...')
+    updateProgress(50)
     // 6. Convert images trong foreignObject thành base64 data URLs
     await convertImagesToDataURLs(clonedSvg)
     
-    updateProgress(70, 'Đang tạo hình ảnh PNG...')
+    updateProgress(70)
     // 7. Set viewBox và dimensions
     clonedSvg.setAttribute('viewBox', `${minX - padding} ${minY - padding} ${width} ${height}`)
     clonedSvg.setAttribute('width', width)
@@ -466,7 +469,7 @@ const exportToPNG = async (fileName) => {
     // 9. Convert to image blob với scale 2x cho chất lượng cao
     const blob = await svgString2Image(svgString, width * 2, height * 2, 'png')
     
-    updateProgress(90, 'Đang tải xuống...')
+    updateProgress(90)
     // 10. Download image
     const blobUrl = URL.createObjectURL(blob)
     const link = document.createElement('a')
@@ -477,7 +480,7 @@ const exportToPNG = async (fileName) => {
     document.body.removeChild(link)
     setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
     
-    updateProgress(100, 'Hoàn tất!')
+    updateProgress(100)
     
   } catch (error) {
     console.error('Export PNG error:', error)
@@ -488,7 +491,7 @@ const exportToPNG = async (fileName) => {
 // Export to PDF - Sử dụng cùng logic như PNG, sau đó convert PNG sang PDF
 const exportToPDF = async (fileName) => {
   try {
-    updateProgress(10, 'Đang chuẩn bị xuất PDF...')
+    updateProgress(10)
     
     // 1. Lấy SVG element từ d3Renderer
     const svgElement = props.d3Renderer.svg.node()
@@ -496,13 +499,13 @@ const exportToPDF = async (fileName) => {
       throw new Error("SVG element not found")
     }
     
-    updateProgress(20, 'Đang đợi render hoàn tất...')
+    updateProgress(20)
     // 2. Đợi Vue components render xong và đảm bảo tất cả images load xong
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => requestAnimationFrame(resolve))
     await new Promise(resolve => setTimeout(resolve, 500))
     
-    updateProgress(30, 'Đang tính toán kích thước...')
+    updateProgress(30)
     // 3. Tính bounding box từ tất cả nodes (giống như PNG export)
     let minX = Infinity
     let minY = Infinity
@@ -538,7 +541,7 @@ const exportToPDF = async (fileName) => {
     const width = Math.max(maxX - minX + padding * 2, 800)
     const height = Math.max(maxY - minY + padding * 2, 600)
     
-    updateProgress(40, 'Đang xử lý SVG...')
+    updateProgress(40)
     // 4. Clone SVG để không ảnh hưởng đến SVG gốc
     const clonedSvg = svgElement.cloneNode(true)
     
@@ -548,11 +551,11 @@ const exportToPDF = async (fileName) => {
       mainGroup.removeAttribute('transform')
     }
     
-    updateProgress(50, 'Đang chuyển đổi hình ảnh...')
+    updateProgress(50)
     // 6. Convert images trong foreignObject thành base64 data URLs
     await convertImagesToDataURLs(clonedSvg)
     
-    updateProgress(60, 'Đang tạo hình ảnh PNG...')
+    updateProgress(60)
     // 7. Set viewBox và dimensions
     clonedSvg.setAttribute('viewBox', `${minX - padding} ${minY - padding} ${width} ${height}`)
     clonedSvg.setAttribute('width', width)
@@ -562,13 +565,43 @@ const exportToPDF = async (fileName) => {
     // 8. Get SVG string with styles
     const svgString = getSVGString(clonedSvg)
     
-    // 9. Convert SVG to PNG blob (giống như PNG export)
-    const pngBlob = await svgString2Image(svgString, width * 2, height * 2, 'png')
+    // 9. Convert SVG to image với scale tối ưu để giảm dung lượng
+    // Giảm scale từ 2x xuống 1.2x để giảm đáng kể kích thước file (giảm ~64% số pixel)
+    const scale = 1.2
+    const scaledWidth = Math.floor(width * scale)
+    const scaledHeight = Math.floor(height * scale)
     
-    updateProgress(75, 'Đang tạo PDF...')
-    // 10. Load PNG vào Image và vẽ lên canvas
+    // Tạo canvas với kích thước đã scale
+    const canvas = document.createElement('canvas')
+    canvas.width = scaledWidth
+    canvas.height = scaledHeight
+    const ctx = canvas.getContext('2d')
+    
+    // Convert SVG sang image
+    const imgsrc = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgString)))
+    const svgImage = new Image()
+    
+    await new Promise((resolve, reject) => {
+      svgImage.onload = () => {
+        ctx.drawImage(svgImage, 0, 0, scaledWidth, scaledHeight)
+        resolve()
+      }
+      svgImage.onerror = reject
+      svgImage.src = imgsrc
+    })
+    
+    updateProgress(70)
+    // 10. Convert sang JPEG với quality 1.0 để đảm bảo chất lượng cao nhất
+    // JPEG vẫn giảm kích thước so với PNG nhưng giữ chất lượng tốt
+    const jpegBlob = await new Promise((resolve) => {
+      canvas.toBlob((blob) => {
+        resolve(blob)
+      }, 'image/jpeg', 0.9996)
+    })
+    
+    // Load JPEG vào Image
     const image = new Image()
-    const imageUrl = URL.createObjectURL(pngBlob)
+    const imageUrl = URL.createObjectURL(jpegBlob)
     
     await new Promise((resolve, reject) => {
       image.onload = resolve
@@ -576,33 +609,35 @@ const exportToPDF = async (fileName) => {
       image.src = imageUrl
     })
     
-    // 11. Import jsPDF và tạo PDF từ PNG
+    updateProgress(75)
+    // 11. Import jsPDF và tạo PDF từ JPEG
     // Import jsPDF - xử lý cả default và named export
     const jsPDFModule = await import('jspdf')
     const jsPDF = jsPDFModule.default || jsPDFModule.jsPDF || jsPDFModule
     
-    // Tính kích thước PDF (mm)
-    const pdfWidth = (width * 2) * 0.264583 // Convert px to mm (1px = 0.264583mm)
-    const pdfHeight = (height * 2) * 0.264583
+    // Tính kích thước PDF (mm) - sử dụng kích thước đã scale
+    const pdfWidth = scaledWidth * 0.264583 // Convert px to mm (1px = 0.264583mm)
+    const pdfHeight = scaledHeight * 0.264583
     
-    // Tạo PDF với kích thước phù hợp
+    // Tạo PDF với kích thước phù hợp và bật compression
     const pdf = new jsPDF({
       orientation: width > height ? 'landscape' : 'portrait',
       unit: 'mm',
-      format: [pdfWidth, pdfHeight]
+      format: [pdfWidth, pdfHeight],
+      compress: true // Bật compression để giảm dung lượng PDF
     })
     
-    // Thêm PNG vào PDF
-    pdf.addImage(image, 'PNG', 0, 0, pdfWidth, pdfHeight)
+    // Thêm JPEG vào PDF (JPEG đã được nén nên sẽ nhỏ hơn PNG rất nhiều)
+    pdf.addImage(image, 'JPEG', 0, 0, pdfWidth, pdfHeight)
     
-    updateProgress(90, 'Đang tải xuống...')
+    updateProgress(90)
     // Download PDF
     pdf.save(fileName)
     
     // Cleanup
     URL.revokeObjectURL(imageUrl)
     
-    updateProgress(100, 'Hoàn tất!')
+    updateProgress(100)
     
   } catch (error) {
     console.error('Export PDF error:', error)
@@ -612,49 +647,59 @@ const exportToPDF = async (fileName) => {
 
 // Export to NextGRP format
 const exportToNextGRP = async (fileName) => {
-  // Get current mindmap data with all information
-  const nodesWithPositions = props.nodes.map(({ count, ...node }) => {
-    const nodeWithPos = { ...node }
-    if (props.d3Renderer && props.d3Renderer.positions) {
-      const pos = props.d3Renderer.positions.get(node.id)
-      if (pos) {
-        nodeWithPos.position = { ...pos }
+  try {
+    updateProgress(10)
+    
+    // Get current mindmap data with all information
+    const nodesWithPositions = props.nodes.map(({ count, ...node }) => {
+      const nodeWithPos = { ...node }
+      if (props.d3Renderer && props.d3Renderer.positions) {
+        const pos = props.d3Renderer.positions.get(node.id)
+        if (pos) {
+          nodeWithPos.position = { ...pos }
+        }
       }
-    }
-    // Include order
-    if (props.nodeCreationOrder.has(node.id)) {
-      const order = props.nodeCreationOrder.get(node.id)
-      if (!nodeWithPos.data) {
-        nodeWithPos.data = {}
+      // Include order
+      if (props.nodeCreationOrder.has(node.id)) {
+        const order = props.nodeCreationOrder.get(node.id)
+        if (!nodeWithPos.data) {
+          nodeWithPos.data = {}
+        }
+        nodeWithPos.data.order = order
       }
-      nodeWithPos.data.order = order
-    }
-    return nodeWithPos
-  })
+      return nodeWithPos
+    })
 
-  const nextgrpData = {
-    version: "1.0",
-    format: "nextgrp",
-    exported_at: new Date().toISOString(),
-    mindmap: {
-      title: props.mindmap?.title || "Mindmap",
-      nodes: nodesWithPositions,
-      edges: props.edges,
-      layout: "horizontal"
+    updateProgress(50)
+    const nextgrpData = {
+      version: "1.0",
+      format: "nextgrp",
+      exported_at: new Date().toISOString(),
+      mindmap: {
+        title: props.mindmap?.title || "Mindmap",
+        nodes: nodesWithPositions,
+        edges: props.edges,
+        layout: "horizontal"
+      }
     }
+
+    updateProgress(80)
+    // Convert to JSON and download
+    const jsonStr = JSON.stringify(nextgrpData, null, 2)
+    const blob = new Blob([jsonStr], { type: 'application/json' })
+    const blobUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = blobUrl
+    link.download = fileName
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
+    
+    updateProgress(100)
+  } catch (error) {
+    console.error('Export NextGRP error:', error)
+    throw error
   }
-
-  // Convert to JSON and download
-  const jsonStr = JSON.stringify(nextgrpData, null, 2)
-  const blob = new Blob([jsonStr], { type: 'application/json' })
-  const blobUrl = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = blobUrl
-  link.download = fileName
-  document.body.appendChild(link)
-  link.click()
-  document.body.removeChild(link)
-  setTimeout(() => URL.revokeObjectURL(blobUrl), 100)
-  toast({ title: "Đang tải xuống định dạng NextGRP...", indicator: "green" })
 }
 </script>
