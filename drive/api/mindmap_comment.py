@@ -824,7 +824,7 @@ def resolve_node(
         session.name,
         {
             "is_closed": 1,
-            "closed_at": now
+            # "closed_at": now
         }
     )
 
@@ -964,7 +964,7 @@ def unresolve_node(history_name: str):
             session.name,
             {
                 "is_closed": 0,
-                "closed_at": None,
+                # "closed_at": None,
             }
         )
     # xoá history

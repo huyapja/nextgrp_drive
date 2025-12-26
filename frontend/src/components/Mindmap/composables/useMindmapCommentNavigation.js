@@ -14,13 +14,11 @@ export function useMindmapCommentNavigation({
   nodeMap,
   emit,
   galleryVisible,
-  groupKeyOf
+  groupKeyOf,
+  focusEditorOf,
 }) {
-
   function getIndex(key) {
-    return mergedGroupsFinal.value.findIndex(
-      g => groupKeyOf(g) === key
-    )
+    return mergedGroupsFinal.value.findIndex((g) => groupKeyOf(g) === key)
   }
 
   function hasNextGroup(key) {
@@ -37,13 +35,13 @@ export function useMindmapCommentNavigation({
     if (!currentKey) return
     if (galleryVisible.value) return
 
-    const index = getIndex(currentKey)    
+    const index = getIndex(currentKey)
     if (index === -1) return
 
     const next = mergedGroupsFinal.value[index + 1]
     if (!next) return
 
-    const nextKey = groupKeyOf(next)    
+    const nextKey = groupKeyOf(next)
 
     // set active group → đúng session luôn
     activeGroupKey.value = nextKey
@@ -52,6 +50,9 @@ export function useMindmapCommentNavigation({
     const nodeId = next.node.id
     const node = nodeMap.value[nodeId] || { id: nodeId }
     emit("update:node", node)
+    requestAnimationFrame(() => {
+      focusEditorOf(next)
+    })
   }
 
   function selectPrevGroup(currentKey) {
@@ -71,6 +72,9 @@ export function useMindmapCommentNavigation({
     const nodeId = prev.node.id
     const node = nodeMap.value[nodeId] || { id: nodeId }
     emit("update:node", node)
+    requestAnimationFrame(() => {
+      focusEditorOf(prev)
+    })
   }
 
   function handleKeyNavigation(e) {
@@ -111,6 +115,6 @@ export function useMindmapCommentNavigation({
     hasNextGroup,
     hasPrevGroup,
     selectNextGroup,
-    selectPrevGroup
+    selectPrevGroup,
   }
 }
