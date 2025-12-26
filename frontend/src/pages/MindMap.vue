@@ -99,8 +99,39 @@
         @createTask="handleCreateTask"
       />
 
+      <!-- Undo/Redo buttons - Top left -->
+      <div class="absolute top-4 left-5 z-10 flex gap-2">
+        <!-- Undo Button -->
+        <button 
+          @click="undo" 
+          class="control-btn transition-colors" 
+          :class="{ 'opacity-50 cursor-not-allowed': !canUndo }"
+          :disabled="!canUndo"
+          v-tooltip.right="{ value: 'Hoàn tác (Ctrl+Z)', pt: { text: { class: ['text-[12px]'] } } }"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 7v6h6"/>
+            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
+          </svg>
+        </button>
+        
+        <!-- Redo Button -->
+        <button 
+          @click="redo" 
+          class="control-btn transition-colors" 
+          :class="{ 'opacity-50 cursor-not-allowed': !canRedo }"
+          :disabled="!canRedo"
+          v-tooltip.right="{ value: 'Làm lại (Ctrl+Y)', pt: { text: { class: ['text-[12px]'] } } }"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 7v6h-6"/>
+            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
+          </svg>
+        </button>
+      </div>
+
       <!-- Change view mindmap -->
-      <div class="absolute top-12 left-6 z-10 flex flex-col gap-2">
+      <div class="absolute top-20 left-5 z-10 flex flex-col gap-2">
         <!-- TEXT VIEW -->
         <button
           v-tooltip.right="{ value: 'Phác thảo', pt: { text: { class: ['text-[12px]'] } } }"
@@ -272,9 +303,9 @@ import MindmapContextMenu from "@/components/Mindmap/MindmapContextMenu.vue"
 import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
-import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 import { provide } from "vue"
 import { computeInsertAfterAnchor } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 
 const showContextMenu = ref(false)
@@ -346,7 +377,7 @@ const fetchProjectOptions = async () => {
     const res = await call("drive.api.mindmap_task.get_my_projects")
     
     const projects = res?.data || []
-    console.log('fetchProjectOptions - projects:', projects)
+    
     
     // Cập nhật taskProjectOptionMap với tất cả projects, bao gồm end_date
     const nextMap = { ...(taskProjectOptionMap.value || {}) }
@@ -359,11 +390,11 @@ const fetchProjectOptions = async () => {
           end_date: p.end_date || null, // Đảm bảo không undefined
           need_approve: p.need_approve || false // Đảm bảo không undefined
         }
-        console.log(`[fetchProjectOptions] Project ${p.name}: end_date=${p.end_date}, need_approve=${p.need_approve}`)
+        
       }
     })
     taskProjectOptionMap.value = nextMap
-    console.log('fetchProjectOptions - taskProjectOptionMap updated:', taskProjectOptionMap.value)
+    
   } catch (err) {
     console.error("Failed to fetch project options", err)
   }
@@ -395,8 +426,8 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
       // Trường hợp: frappe-ui trả về array trực tiếp
       list = res
     }
-    console.log('[DEBUG fetchTaskOptions] res:', res)
-    console.log('[DEBUG fetchTaskOptions] list:', list)
+    
+    
     
     taskOptions.value = list.map(t => ({
       id: t.id,
@@ -421,7 +452,7 @@ const fetchTaskOptions = async ({ resetPage = false } = {}) => {
     })
     taskProjectOptionMap.value = nextMap
     
-    console.log('taskProjectOptionMap updated:', taskProjectOptionMap.value)
+    
 
     // Xử lý pagination tương tự như data
     let pag = {}
@@ -462,7 +493,7 @@ const taskProjectOptions = computed(() => {
         end_date: data.end_date || null, // Đảm bảo không undefined
         need_approve: data.need_approve !== undefined ? data.need_approve : false
       }
-      console.log(`[taskProjectOptions] Project ${value}: end_date=${option.end_date}, need_approve=${option.need_approve}`)
+      
       return option
     }
     // Nếu data chỉ là string (label), chỉ trả về value và label
@@ -571,6 +602,11 @@ let creationOrderCounter = 0
 // Clipboard state
 const clipboard = ref(null) // { type: 'node' | 'text', data: node data or text }
 const hasClipboard = computed(() => clipboard.value !== null)
+
+// Undo/Redo history
+const historyStack = ref([]) // Array of snapshots
+const historyIndex = ref(-1) // Current position in history (-1 means no history)
+const MAX_HISTORY_SIZE = 50 // Giới hạn số lượng history entries
 
 // ✅ Watch elements to ensure root node is NEVER deleted
 watch(elements, (newElements) => {
@@ -706,6 +742,10 @@ const initializeMindmap = async (data) => {
   if (currentView.value === 'visual') {
     initD3Renderer()
   }
+  
+  // Lưu snapshot ban đầu sau khi khởi tạo mindmap (force = true vì đây là snapshot đầu tiên)
+  await nextTick()
+  saveSnapshot(true)
 }
 
 // Initialize D3 Renderer
@@ -776,6 +816,9 @@ const initD3Renderer = () => {
 
       // 2. parentId (re-parent khi drag & drop)
       if (updates.parentId !== undefined) {
+        // Lưu snapshot trước khi thay đổi parent (drag & drop)
+        saveSnapshot()
+        
         // 🔴 QUAN TRỌNG: giữ data.parentId luôn sync với edges
         node.data = node.data || {}
         node.data.parentId = updates.parentId
@@ -833,6 +876,10 @@ const initD3Renderer = () => {
         const node = nodes.value.find(n => n.id === finishedNodeId)
         if (node) {
           // node.data.label đã được cập nhật trong renderer on('blur')
+          
+          // Lưu snapshot khi kết thúc edit (chỉ khi có thay đổi)
+          // saveSnapshot() sẽ tự động kiểm tra xem có thay đổi không
+          saveSnapshot()
 
           // Nếu là root node, đổi tên file
           if (node.id === 'root' || node.data?.isRoot) {
@@ -850,7 +897,7 @@ const initD3Renderer = () => {
             renameMindmapTitle(newTitle)
           }
 
-          // Lưu layout/nội dung node
+          // Lưu layout/nội dung node (scheduleSave đã có debounce)
           scheduleSave()
         }
       }
@@ -1022,6 +1069,9 @@ const zoomOut = () => {
 
 // Add child to specific node
 const addChildToNode = async (parentId) => {
+  // Lưu snapshot trước khi thêm node
+  saveSnapshot()
+  
   const parent = nodes.value.find(n => n.id === parentId)
   if (!parent) return
 
@@ -1110,22 +1160,15 @@ const addChildToNode = async (parentId) => {
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
-                  console.log('[DEBUG] addChildToNode: Focus editor cho node mới', newNodeId, {
-                    editorInstance: !!editorInstance,
-                    isFocused: editorInstance.isFocused,
-                    hasView: !!editorInstance.view,
-                    hasDom: !!editorInstance.view?.dom,
-                    timestamp: Date.now()
-                  })
                   // Focus vào editor và đặt cursor ở cuối
                   editorInstance.commands.focus('end')
                   // ⚠️ FIX: Đợi một chút để focus được apply
                   requestAnimationFrame(() => {
-                    console.log('[DEBUG] addChildToNode: Sau khi focus (requestAnimationFrame), isFocused =', editorInstance.isFocused)
+                    
                     // Gọi handleEditorFocus để setup đúng cách
                     d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
                     setTimeout(() => {
-                      console.log('[DEBUG] addChildToNode: Sau handleEditorFocus (setTimeout), isFocused =', editorInstance.isFocused)
+                      
                     }, 50)
                   })
                 } else {
@@ -1133,13 +1176,9 @@ const addChildToNode = async (parentId) => {
                   setTimeout(() => {
                     const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
                     if (editorInstance2) {
-                      console.log('[DEBUG] addChildToNode: Retry focus editor', newNodeId, {
-                        isFocused: editorInstance2.isFocused,
-                        timestamp: Date.now()
-                      })
                       editorInstance2.commands.focus('end')
                       d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
-                      console.log('[DEBUG] addChildToNode: Sau retry focus, isFocused =', editorInstance2.isFocused)
+                      
                     }
                   }, 100)
                 }
@@ -1179,6 +1218,9 @@ const extractTitleFromLabel = (label) => {
 // Add sibling node
 const addSiblingToNode = async (nodeId) => {
   if (nodeId === 'root') return
+
+  // Lưu snapshot trước khi thêm node
+  saveSnapshot()
 
   const parentEdge = edges.value.find(e => e.target === nodeId)
 
@@ -1274,22 +1316,16 @@ const addSiblingToNode = async (nodeId) => {
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
-                  console.log('[DEBUG] addSiblingToNode: Focus editor cho node mới', newNodeId, {
-                    editorInstance: !!editorInstance,
-                    isFocused: editorInstance.isFocused,
-                    hasView: !!editorInstance.view,
-                    hasDom: !!editorInstance.view?.dom,
-                    timestamp: Date.now()
-                  })
+
                   // Focus vào editor và đặt cursor ở cuối
                   editorInstance.commands.focus('end')
                   // ⚠️ FIX: Đợi một chút để focus được apply
                   requestAnimationFrame(() => {
-                    console.log('[DEBUG] addSiblingToNode: Sau khi focus (requestAnimationFrame), isFocused =', editorInstance.isFocused)
+                    
                     // Gọi handleEditorFocus để setup đúng cách
                     d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
                     setTimeout(() => {
-                      console.log('[DEBUG] addSiblingToNode: Sau handleEditorFocus (setTimeout), isFocused =', editorInstance.isFocused)
+                      
                     }, 50)
                   })
                 } else {
@@ -1297,13 +1333,11 @@ const addSiblingToNode = async (nodeId) => {
                   setTimeout(() => {
                     const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
                     if (editorInstance2) {
-                      console.log('[DEBUG] addSiblingToNode: Retry focus editor', newNodeId, {
-                        isFocused: editorInstance2.isFocused,
-                        timestamp: Date.now()
-                      })
+                      
+                
                       editorInstance2.commands.focus('end')
                       d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
-                      console.log('[DEBUG] addSiblingToNode: Sau retry focus, isFocused =', editorInstance2.isFocused)
+                      
                     }
                   }, 100)
                 }
@@ -1378,8 +1412,587 @@ const deleteSelectedNode = () => {
   performDelete(nodeId)
 }
 
+// ===== Undo/Redo System =====
+// Lưu snapshot của state hiện tại (chỉ khi có thay đổi)
+const saveSnapshot = (force = false) => {
+  // So sánh với snapshot trước đó để chỉ lưu khi có thay đổi
+  if (!force && historyStack.value.length > 0 && historyIndex.value >= 0) {
+    const lastSnapshot = historyStack.value[historyIndex.value]
+    const currentElements = JSON.stringify(elements.value)
+    const lastElements = JSON.stringify(lastSnapshot.elements)
+    
+    // So sánh elements và nodeCreationOrder
+    const currentOrder = JSON.stringify(Array.from(nodeCreationOrder.value.entries()))
+    const lastOrder = JSON.stringify(Array.from(lastSnapshot.nodeCreationOrder.entries()))
+    
+    if (currentElements === lastElements && currentOrder === lastOrder) {
+      // Không có thay đổi, không lưu snapshot
+      console.log('[Undo/Redo] ⏭️ Không có thay đổi, bỏ qua lưu snapshot')
+      return
+    }
+  }
+  
+  const snapshot = {
+    elements: JSON.parse(JSON.stringify(elements.value)),
+    nodeCreationOrder: new Map(nodeCreationOrder.value),
+    selectedNodeId: selectedNode.value?.id || null,
+    timestamp: Date.now()
+  }
+  
+  // Log snapshot để debug
+  const nodesInSnapshot = snapshot.elements.filter(el => el.id && !el.source && !el.target)
+  console.log('[Undo/Redo] 💾 Lưu snapshot:', {
+    timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
+    totalElements: snapshot.elements.length,
+    nodesCount: nodesInSnapshot.length,
+    nodes: nodesInSnapshot.map(n => ({
+      id: n.id,
+      label: n.data?.label ? n.data.label.substring(0, 50) + '...' : '(empty)',
+      hasLabel: !!n.data?.label
+    })),
+    selectedNodeId: snapshot.selectedNodeId,
+    historyIndex: historyIndex.value,
+    historyStackLength: historyStack.value.length
+  })
+  
+  // Xóa các snapshot sau vị trí hiện tại (khi có thao tác mới sau khi undo)
+  if (historyIndex.value < historyStack.value.length - 1) {
+    const removedCount = historyStack.value.length - historyIndex.value - 1
+    historyStack.value = historyStack.value.slice(0, historyIndex.value + 1)
+    console.log(`[Undo/Redo] 🗑️ Xóa ${removedCount} snapshot(s) sau vị trí hiện tại`)
+  }
+  
+  // Thêm snapshot mới
+  historyStack.value.push(snapshot)
+  historyIndex.value = historyStack.value.length - 1
+  
+  // Giới hạn kích thước history
+  if (historyStack.value.length > MAX_HISTORY_SIZE) {
+    const removed = historyStack.value.shift()
+    historyIndex.value = historyStack.value.length - 1
+    console.log(`[Undo/Redo] ⚠️ Đã đạt giới hạn ${MAX_HISTORY_SIZE} snapshots, xóa snapshot cũ nhất`)
+  }
+  
+  console.log(`[Undo/Redo] ✅ Snapshot đã được lưu. Tổng số: ${historyStack.value.length}, Index hiện tại: ${historyIndex.value}`)
+}
+
+// Computed properties để kiểm tra có thể undo/redo không
+const canUndo = computed(() => {
+  return historyStack.value.length > 0 && historyIndex.value > 0
+})
+
+const canRedo = computed(() => {
+  return historyIndex.value >= 0 && historyIndex.value < historyStack.value.length - 1
+})
+
+// Undo: Khôi phục state trước đó
+const undo = () => {
+  console.log('[Undo/Redo] ⏪ Undo được gọi:', {
+    historyStackLength: historyStack.value.length,
+    currentIndex: historyIndex.value,
+    canUndo: canUndo.value
+  })
+  
+  // Kiểm tra có history không
+  if (historyStack.value.length === 0 || historyIndex.value < 0) {
+    console.log('[Undo/Redo] ❌ Không có history để undo')
+    return
+  }
+  
+  // Nếu đang ở snapshot đầu tiên, không thể undo
+  if (historyIndex.value === 0) {
+    console.log('[Undo/Redo] ❌ Đã ở snapshot đầu tiên, không thể undo')
+    return
+  }
+  
+  // Di chuyển về snapshot trước
+  historyIndex.value--
+  const snapshot = historyStack.value[historyIndex.value]
+  
+  console.log('[Undo/Redo] 📖 Khôi phục snapshot:', {
+    index: historyIndex.value,
+    timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
+    nodesCount: snapshot.elements.filter(el => el.id && !el.source && !el.target).length,
+    selectedNodeId: snapshot.selectedNodeId
+  })
+  
+  // Khôi phục state
+  restoreSnapshot(snapshot)
+}
+
+// Redo: Khôi phục state tiếp theo
+const redo = () => {
+  console.log('[Undo/Redo] ⏩ Redo được gọi:', {
+    historyStackLength: historyStack.value.length,
+    currentIndex: historyIndex.value,
+    canRedo: historyIndex.value < historyStack.value.length - 1
+  })
+  
+  if (historyIndex.value >= historyStack.value.length - 1) {
+    console.log('[Undo/Redo] ❌ Không có history để redo')
+    return
+  }
+  
+  // Di chuyển đến snapshot tiếp theo
+  historyIndex.value++
+  const snapshot = historyStack.value[historyIndex.value]
+  
+  console.log('[Undo/Redo] 📖 Khôi phục snapshot:', {
+    index: historyIndex.value,
+    timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
+    nodesCount: snapshot.elements.filter(el => el.id && !el.source && !el.target).length,
+    selectedNodeId: snapshot.selectedNodeId
+  })
+  
+  // Khôi phục state
+  restoreSnapshot(snapshot)
+}
+
+// Khôi phục state từ snapshot
+const restoreSnapshot = async (snapshot) => {
+  if (!snapshot) {
+    console.log('[Undo/Redo] ❌ restoreSnapshot: snapshot không tồn tại')
+    return
+  }
+  
+  console.log('[Undo/Redo] 🔄 Bắt đầu restore snapshot:', {
+    timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
+    elementsCount: snapshot.elements.length
+  })
+  
+  // ⚠️ Lấy lại nodes từ JSON snapshot
+  const restoredElements = JSON.parse(JSON.stringify(snapshot.elements))
+  const restoredNodes = restoredElements.filter(el => el.id && !el.source && !el.target)
+  
+  console.log('[Undo/Redo] 📦 Nodes được khôi phục:', {
+    nodesCount: restoredNodes.length,
+    nodes: restoredNodes.map(n => ({
+      id: n.id,
+      label: n.data?.label ? n.data.label.substring(0, 50) + '...' : '(empty)',
+      hasLabel: !!n.data?.label,
+      labelLength: n.data?.label?.length || 0
+    }))
+  })
+  
+  // Khôi phục elements
+  elements.value = restoredElements
+  
+  // Khôi phục nodeCreationOrder
+  nodeCreationOrder.value = new Map(snapshot.nodeCreationOrder)
+  
+  // Khôi phục selectedNode
+  if (snapshot.selectedNodeId) {
+    const node = nodes.value.find(n => n.id === snapshot.selectedNodeId)
+    selectedNode.value = node || null
+    if (d3Renderer && node) {
+      d3Renderer.selectedNode = snapshot.selectedNodeId
+    }
+  } else {
+    selectedNode.value = null
+    if (d3Renderer) {
+      d3Renderer.selectedNode = null
+    }
+  }
+  
+  // Update renderer
+  await nextTick()
+  if (d3Renderer) {
+    d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
+    
+    // ⚠️ OPTIMIZATION: So sánh snapshot để chỉ unmount các node thay đổi
+    // Tìm các node đã thay đổi (thêm, xóa, hoặc thay đổi nội dung)
+    const previousNodes = new Map()
+    d3Renderer.nodes.forEach(node => {
+      previousNodes.set(node.id, node)
+    })
+    
+    const changedNodeIds = new Set()
+    const newNodes = new Map()
+    nodes.value.forEach(node => {
+      newNodes.set(node.id, node)
+      const prevNode = previousNodes.get(node.id)
+      if (!prevNode) {
+        // Node mới được thêm
+        changedNodeIds.add(node.id)
+      } else if (prevNode.data?.label !== node.data?.label) {
+        // Node đã thay đổi nội dung
+        changedNodeIds.add(node.id)
+      }
+    })
+    
+    // Tìm các node đã bị xóa
+    previousNodes.forEach((node, id) => {
+      if (!newNodes.has(id)) {
+        changedNodeIds.add(id)
+      }
+    })
+    
+    // ⚠️ CRITICAL: Chỉ unmount các Vue components của node thay đổi
+    // Để tránh re-mount không cần thiết
+    changedNodeIds.forEach(nodeId => {
+      if (nodeId !== 'root') {
+        d3Renderer.unmountNodeEditor(nodeId)
+      }
+    })
+    
+    // ⚠️ OPTIMIZATION: Chỉ update data và render lại (không force full re-render)
+    // Nếu chỉ có một vài node thay đổi, có thể chỉ update chúng
+    const hasStructuralChanges = changedNodeIds.size > nodes.value.length * 0.3 // Nếu > 30% node thay đổi
+    
+    if (hasStructuralChanges || changedNodeIds.size === 0) {
+      // Nhiều node thay đổi hoặc không xác định được -> full re-render
+      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+    } else {
+      // Chỉ update data và render lại (không force full re-render)
+      d3Renderer.nodes = nodes.value
+      d3Renderer.edges = edges.value
+      // Chỉ render lại (không phải initial render)
+      d3Renderer.render(false)
+    }
+    
+    // ⚠️ OPTIMIZATION: Giảm delay - chỉ đợi Vue components của node thay đổi mount
+    await nextTick()
+    // Chỉ đợi 100ms thay vì 800ms
+    await new Promise(resolve => setTimeout(resolve, 100))
+    await nextTick()
+    
+    // ⚠️ CRITICAL: Insert nội dung từ JSON vào editor instances
+    // Kiểm tra xem Vue components đã được mount chưa bằng cách kiểm tra DOM
+    console.log('[Undo/Redo] 🔍 Bắt đầu kiểm tra và insert nội dung vào editor instances')
+    restoredNodes.forEach(restoredNode => {
+      if (restoredNode.id !== 'root' && restoredNode.data?.label) {
+        console.log(`[Undo/Redo] 📝 Xử lý node ${restoredNode.id}:`, {
+          labelLength: restoredNode.data.label.length,
+          labelPreview: restoredNode.data.label.substring(0, 50) + '...'
+        })
+        
+        // Đợi Vue component được mount (kiểm tra DOM)
+        const checkAndInsert = (retries = 20) => {
+          if (retries <= 0) {
+            console.warn(`[Undo/Redo] ⚠️ Không thể mount editor cho node ${restoredNode.id} sau ${20 * 150}ms`)
+            return
+          }
+          
+          // Kiểm tra xem Vue component đã được mount chưa bằng cách kiểm tra DOM
+          const container = document.querySelector(`[data-node-id="${restoredNode.id}"]`)
+          const hasVueComponent = container && container.querySelector('.mindmap-node-editor')
+          
+          if (hasVueComponent) {
+            console.log(`[Undo/Redo] ✅ Vue component đã mount cho node ${restoredNode.id}`)
+            const editor = d3Renderer.getEditorInstance(restoredNode.id)
+            if (editor && typeof editor.commands?.setContent === 'function') {
+              try {
+                // Đảm bảo editor đã sẵn sàng trước khi setContent
+                if (editor.view && editor.view.state && editor.view.state.doc) {
+                  console.log(`[Undo/Redo] ✏️ Insert nội dung vào editor cho node ${restoredNode.id}`)
+                  
+                  const content = restoredNode.data.label || ''
+                  
+                  // Đợi một chút để đảm bảo editor hoàn toàn sẵn sàng và không có transaction đang chạy
+                  setTimeout(() => {
+                    try {
+                      // Kiểm tra lại state sau khi đợi
+                      if (editor.view && editor.view.state && editor.view.state.doc) {
+                        // Kiểm tra xem document có hợp lệ không
+                        const docSize = editor.view.state.doc.content.size
+                        if (docSize >= 0) {
+                          // Đợi thêm một chút để đảm bảo không có transaction đang pending
+                          setTimeout(() => {
+                            try {
+                              // Kiểm tra lại state một lần nữa
+                              if (editor.view && editor.view.state && editor.view.state.doc) {
+                                const currentDocSize = editor.view.state.doc.content.size
+                                if (currentDocSize >= 0) {
+                                  // Sử dụng requestAnimationFrame để đảm bảo setContent được gọi khi không có transaction đang chạy
+                                  requestAnimationFrame(() => {
+                                    try {
+                                      // Kiểm tra lại state lần cuối
+                                      if (editor.view && editor.view.state && editor.view.state.doc) {
+                                        // Set content trực tiếp mà không dùng chain để tránh conflict
+                                        // Sử dụng emitUpdate = false để tránh trigger các event không cần thiết
+                                        editor.commands.setContent(content, false)
+                                        
+                                        // ⚠️ CRITICAL: Xóa fixedWidth để node tự động tính lại chiều rộng
+                                        const node = nodes.value.find(n => n.id === restoredNode.id)
+                                        if (node && node.data) {
+                                          delete node.data.fixedWidth
+                                        }
+                                        
+                                        // Cập nhật node trong renderer để xóa fixedWidth
+                                        const d3Node = d3Renderer.nodes.find(n => n.id === restoredNode.id)
+                                        if (d3Node && d3Node.data) {
+                                          delete d3Node.data.fixedWidth
+                                        }
+                                        
+                                        // ⚠️ CRITICAL: Clear size cache để force tính lại width từ DOM
+                                        if (d3Renderer?.nodeSizeCache) {
+                                          d3Renderer.nodeSizeCache.delete(restoredNode.id)
+                                        }
+                                        
+                                        // ⚠️ CRITICAL: Xóa inline style width của tiptap editor để CSS tự động tính lại
+                                        const editorContent = editor.view.dom.querySelector('.mindmap-editor-prose')
+                                        if (editorContent) {
+                                          // Xóa inline style width để CSS tự động tính
+                                          editorContent.style.removeProperty('width')
+                                          editorContent.style.width = '100%'
+                                          editorContent.style.maxWidth = '100%'
+                                        }
+                                        
+                                        // ⚠️ CRITICAL: Tính lại width ngay lập tức từ content (không cần đợi DOM update)
+                                        // Sử dụng content đã set để tính width trước, sau đó cập nhật DOM
+                                        const calculateAndUpdateWidth = () => {
+                                          try {
+                                            // Lấy HTML content từ editor hoặc từ content đã set
+                                            const finalValue = editor.getHTML ? editor.getHTML() : content
+                                            
+                                            // Parse HTML để lấy title và description (tương tự handleEditorBlur)
+                                            let titleText = ''
+                                            let descriptionText = ''
+                                            
+                                            if (finalValue && finalValue.trim()) {
+                                              const tempDiv = document.createElement('div')
+                                              tempDiv.innerHTML = finalValue
+                                              const paragraphs = tempDiv.querySelectorAll('p')
+                                              paragraphs.forEach(p => {
+                                                let inBlockquote = false
+                                                let parent = p.parentElement
+                                                while (parent && parent !== tempDiv) {
+                                                  if (parent.tagName === 'BLOCKQUOTE') {
+                                                    inBlockquote = true
+                                                    break
+                                                  }
+                                                  parent = parent.parentElement
+                                                }
+                                                if (!inBlockquote) {
+                                                  const paraText = (p.textContent || p.innerText || '').trim()
+                                                  if (paraText) {
+                                                    titleText += (titleText ? '\n' : '') + paraText
+                                                  }
+                                                }
+                                              })
+                                              const blockquotes = tempDiv.querySelectorAll('blockquote')
+                                              blockquotes.forEach(bq => {
+                                                const bqText = (bq.textContent || bq.innerText || '').trim()
+                                                if (bqText) {
+                                                  descriptionText += (descriptionText ? '\n' : '') + bqText
+                                                }
+                                              })
+                                              if (!titleText && !descriptionText) {
+                                                titleText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+                                              }
+                                            } else {
+                                              titleText = finalValue.trim()
+                                            }
+                                            
+                                            // Đo width của title (font-size 19px) - tương tự handleEditorBlur
+                                            let maxTitleWidth = 0
+                                            if (titleText) {
+                                              const titleLines = titleText.split('\n')
+                                              titleLines.forEach(line => {
+                                                if (line.trim()) {
+                                                  const lineSpan = document.createElement('span')
+                                                  lineSpan.style.cssText = `
+                                                    position: absolute;
+                                                    visibility: hidden;
+                                                    white-space: nowrap;
+                                                    font-size: 19px;
+                                                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                                                  `
+                                                  lineSpan.textContent = line.trim()
+                                                  document.body.appendChild(lineSpan)
+                                                  void lineSpan.offsetHeight
+                                                  maxTitleWidth = Math.max(maxTitleWidth, lineSpan.offsetWidth)
+                                                  document.body.removeChild(lineSpan)
+                                                }
+                                              })
+                                            }
+                                            
+                                            // Đo width của description (font-size 16px) - tương tự handleEditorBlur
+                                            let maxDescWidth = 0
+                                            if (descriptionText) {
+                                              const descLines = descriptionText.split('\n')
+                                              descLines.forEach(line => {
+                                                if (line.trim()) {
+                                                  const lineSpan = document.createElement('span')
+                                                  lineSpan.style.cssText = `
+                                                    position: absolute;
+                                                    visibility: hidden;
+                                                    white-space: nowrap;
+                                                    font-size: 16px;
+                                                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                                                  `
+                                                  lineSpan.textContent = line.trim()
+                                                  document.body.appendChild(lineSpan)
+                                                  void lineSpan.offsetHeight
+                                                  maxDescWidth = Math.max(maxDescWidth, lineSpan.offsetWidth)
+                                                  document.body.removeChild(lineSpan)
+                                                }
+                                              })
+                                            }
+                                            
+                                            // Lấy width lớn nhất giữa title và description
+                                            const maxTextWidth = Math.max(maxTitleWidth, maxDescWidth)
+                                            
+                                            // Kiểm tra xem có ảnh không
+                                            const hasImagesInFinalValue = finalValue && (
+                                              finalValue.includes('<img') || 
+                                              finalValue.includes('image-wrapper') ||
+                                              finalValue.includes('image-wrapper-node')
+                                            )
+                                            
+                                            // Tính width mới
+                                            const absoluteMinWidth = 130
+                                            const maxWidth = 400
+                                            let newWidth
+                                            
+                                            if (hasImagesInFinalValue) {
+                                              // Nếu có ảnh, luôn dùng maxWidth
+                                              newWidth = maxWidth
+                                            } else {
+                                              // Nếu không có ảnh, tính từ text width
+                                              if (maxTextWidth === 0) {
+                                                newWidth = absoluteMinWidth
+                                              } else {
+                                                // Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
+                                                const requiredWidth = maxTextWidth + 32 + 6
+                                                const minRequiredWidth = 40
+                                                if (requiredWidth < minRequiredWidth) {
+                                                  newWidth = Math.max(requiredWidth, absoluteMinWidth)
+                                                } else {
+                                                  newWidth = requiredWidth // Dùng trực tiếp để fit chính xác
+                                                }
+                                                // Clamp giữa absoluteMinWidth và maxWidth
+                                                newWidth = Math.min(newWidth, maxWidth)
+                                              }
+                                            }
+                                            
+                                            const borderOffset = 4
+                                            
+                                            // Cập nhật rect và foreignObject width ngay lập tức
+                                            const nodeGroup = d3Renderer.g.select(`[data-node-id="${restoredNode.id}"]`)
+                                            let currentHeight = 43 // Default height
+                                            
+                                            if (!nodeGroup.empty()) {
+                                              const rect = nodeGroup.select('.node-rect')
+                                              const fo = nodeGroup.select('.node-text')
+                                              
+                                              if (!rect.empty() && !fo.empty()) {
+                                                // Lấy currentHeight trước khi cập nhật width
+                                                currentHeight = parseFloat(rect.attr('height')) || 43
+                                                
+                                                rect.attr('width', newWidth)
+                                                fo.attr('width', Math.max(0, newWidth - borderOffset))
+                                              }
+                                            }
+                                            
+                                            // Cập nhật lại inline style của editorContent với width mới
+                                            if (editorContent) {
+                                              editorContent.style.width = `${newWidth - borderOffset}px`
+                                            }
+                                            
+                                            // Cập nhật cache
+                                            if (d3Renderer?.nodeSizeCache) {
+                                              d3Renderer.nodeSizeCache.set(restoredNode.id, {
+                                                width: newWidth,
+                                                height: currentHeight
+                                              })
+                                            }
+                                            
+                                            // Cập nhật fixedWidth trong node data
+                                            if (d3Node && d3Node.data) {
+                                              d3Node.data.fixedWidth = newWidth
+                                            }
+                                            if (node && node.data) {
+                                              node.data.fixedWidth = newWidth
+                                            }
+                                            
+                                            console.log(`[Undo/Redo] ✅ Đã cập nhật width cho node ${restoredNode.id}: ${newWidth}px (maxTextWidth: ${maxTextWidth}px)`)
+                                            
+                                            // Render lại ngay để cập nhật layout
+                                            if (d3Renderer) {
+                                              d3Renderer.render(false)
+                                            }
+                                            
+                                            // Gọi updateNodeHeight sau khi đã cập nhật width
+                                            requestAnimationFrame(() => {
+                                              const vueAppEntry = d3Renderer?.vueApps?.get(restoredNode.id)
+                                              if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
+                                                vueAppEntry.instance.updateNodeHeight()
+                                              }
+                                            })
+                                          } catch (e) {
+                                            console.error(`[Undo/Redo] ❌ Lỗi khi tính width cho node ${restoredNode.id}:`, e)
+                                          }
+                                        }
+                                        
+                                        // Tính và cập nhật width ngay lập tức (không đợi DOM update)
+                                        calculateAndUpdateWidth()
+                                        
+                                        console.log(`[Undo/Redo] ✅ Đã insert nội dung cho node ${restoredNode.id}`)
+                                      } else {
+                                        console.warn(`[Undo/Redo] ⚠️ Editor state không hợp lệ sau requestAnimationFrame cho node ${restoredNode.id}`)
+                                      }
+                                    } catch (e) {
+                                      console.error(`[Undo/Redo] ❌ Lỗi khi setContent trong requestAnimationFrame cho node ${restoredNode.id}:`, e)
+                                    }
+                                  })
+                                } else {
+                                  console.warn(`[Undo/Redo] ⚠️ Document size không hợp lệ cho node ${restoredNode.id} (${currentDocSize})`)
+                                }
+                              } else {
+                                console.warn(`[Undo/Redo] ⚠️ Editor state không hợp lệ sau setTimeout cho node ${restoredNode.id}`)
+                              }
+                            } catch (e) {
+                              console.error(`[Undo/Redo] ❌ Lỗi khi setContent trong setTimeout cho node ${restoredNode.id}:`, e)
+                            }
+                          }, 100) // Đợi 100ms để đảm bảo không có transaction đang pending
+                        } else {
+                          console.warn(`[Undo/Redo] ⚠️ Document size không hợp lệ cho node ${restoredNode.id}`)
+                        }
+                      } else {
+                        console.warn(`[Undo/Redo] ⚠️ Editor state không hợp lệ sau khi đợi cho node ${restoredNode.id}`)
+                      }
+                    } catch (e) {
+                      console.error(`[Undo/Redo] ❌ Lỗi khi setContent cho node ${restoredNode.id}:`, e)
+                    }
+                  }, 200) // Tăng delay lên 200ms để đảm bảo editor sẵn sàng
+                } else {
+                  console.warn(`[Undo/Redo] ⚠️ Editor chưa sẵn sàng cho node ${restoredNode.id}, thử lại sau`)
+                  setTimeout(() => checkAndInsert(retries - 1), 150)
+                }
+              } catch (error) {
+                console.error(`[Undo/Redo] ❌ Lỗi khi insert nội dung cho node ${restoredNode.id}:`, error)
+                // Thử lại sau một chút
+                if (retries > 5) {
+                  setTimeout(() => checkAndInsert(retries - 1), 200)
+                }
+              }
+            } else {
+              console.warn(`[Undo/Redo] ⚠️ Editor instance không tồn tại hoặc không có setContent cho node ${restoredNode.id}`)
+            }
+          } else {
+            // Vue component chưa mount, thử lại sau
+            if (retries % 5 === 0) {
+              console.log(`[Undo/Redo] ⏳ Đợi Vue component mount cho node ${restoredNode.id}, còn ${retries} lần thử`)
+            }
+            setTimeout(() => checkAndInsert(retries - 1), 150)
+          }
+        }
+        
+        // Bắt đầu kiểm tra và insert
+        setTimeout(() => checkAndInsert(), 100)
+      }
+    })
+  }
+  
+  // Lưu lại sau khi restore
+  scheduleSave()
+}
+
 // Thực hiện xóa node
 const performDelete = async (nodeId) => {
+  // Lưu snapshot trước khi xóa
+  saveSnapshot()
   
 
   const nodesToDelete = new Set([nodeId])
@@ -1818,21 +2431,16 @@ const deleteTaskLink = async (node) => {
         const body = doc.body
         
         // ⚠️ DEBUG: Log HTML trước khi xóa
-        console.log('[deleteTaskLink] HTML trước khi xóa task link:', body.innerHTML)
+        
         
         // ⚠️ FIX: Xóa element có data-type="node-task-link" hoặc các element cũ (node-task-link-section, data-node-section="task-link")
         // Bao gồm cả section và paragraph có data-type="node-task-link"
         const taskLinkSections = body.querySelectorAll('[data-type="node-task-link"], .node-task-link-section, [data-node-section="task-link"]')
-        console.log('[deleteTaskLink] Tìm thấy', taskLinkSections.length, 'task link sections/elements')
+        
         
         taskLinkSections.forEach((element, index) => {
-          console.log(`[deleteTaskLink] Xóa task link element ${index + 1}:`, {
-            tagName: element.tagName,
-            outerHTML: element.outerHTML.substring(0, 200),
-            dataType: element.getAttribute('data-type'),
-            className: element.className,
-            dataNodeSection: element.getAttribute('data-node-section')
-          })
+          
+           
           element.remove()
         })
         
@@ -1859,16 +2467,13 @@ const deleteTaskLink = async (node) => {
           const hasTaskLinkText = text.includes('Liên kết công việc')
           
           if (hasTaskLinkText && hasTaskLinkAnchor) {
-            console.log('[deleteTaskLink] Xóa paragraph chứa task link (chưa có data-type):', {
-              outerHTML: p.outerHTML.substring(0, 200),
-              textContent: text
-            })
+
             p.remove()
           }
         })
         
         // ⚠️ DEBUG: Log HTML sau khi xóa task link section
-        console.log('[deleteTaskLink] HTML sau khi xóa task link section:', body.innerHTML)
+        
         
         // Cleanup: Xóa các paragraph rỗng hoặc chỉ chứa whitespace sau khi xóa task link
         // ⚠️ FIX: Không xóa paragraph có data-type="node-title" hoặc nằm trong blockquote
@@ -1909,7 +2514,7 @@ const deleteTaskLink = async (node) => {
         let cleanedHtml = body.innerHTML
         
         // ⚠️ DEBUG: Log HTML trước khi kiểm tra rỗng
-        console.log('[deleteTaskLink] HTML trước khi kiểm tra rỗng:', cleanedHtml)
+        
         
         // ⚠️ FIX: Đảm bảo HTML không rỗng
         if (!cleanedHtml || cleanedHtml.trim() === '') {
@@ -1918,7 +2523,7 @@ const deleteTaskLink = async (node) => {
         }
         
         // ⚠️ DEBUG: Log HTML cuối cùng
-        console.log('[deleteTaskLink] HTML cuối cùng:', cleanedHtml)
+        
         
         targetNode.data.label = cleanedHtml
       } catch (err) {
@@ -1987,7 +2592,7 @@ const deleteTaskLink = async (node) => {
     if (editorInstance) {
       let contentToSet = targetNode.data?.label || ''
       
-      console.log('[deleteTaskLink] Content trước khi set vào editor:', contentToSet)
+      
       
       // ⚠️ FIX: Đảm bảo content không rỗng
       if (!contentToSet || contentToSet.trim() === '') {
@@ -1995,11 +2600,11 @@ const deleteTaskLink = async (node) => {
         contentToSet = '<p data-type="node-title"></p>'
       }
       
-      console.log('[deleteTaskLink] Content cuối cùng sẽ set vào editor:', contentToSet)
+      
       
       if (typeof editorInstance.commands?.setContent === 'function') {
         editorInstance.commands.setContent(contentToSet, false)
-        console.log('[deleteTaskLink] Đã set content vào editor')
+        
       }
       
       // ⚠️ FIX: Không gọi cleanupRemoveMenuText vì có thể tạo lại ⋮
@@ -2096,25 +2701,25 @@ const handleCreateTask = async (formData) => {
       parent_task: formData.parent_task?.value || null
     }
 
-    console.log('Creating task with payload:', payload)
+    
 
     // Call API to create task
     const response = await call('nextgrp.api.task.task.create_task', {
       payload: payload
     })
 
-    console.log('Task created - full response:', response)
+    
 
     // Check response format - API returns { message: { result: {...} } }
     // frappe-ui call may unwrap the response, so check multiple formats
     // In Raven, they use: response.message.result.name
     const taskResult = response?.message?.result || response?.result || response
-    console.log('Task result extracted:', taskResult)
+    
     
     if (taskResult && taskResult.name) {
       const taskId = taskResult.name
       const projectId = formData.project?.value
-      console.log('Task ID:', taskId, 'Project ID:', projectId)
+      
 
       // Upload files if any
       if (formData.files && formData.files.length > 0) {
@@ -2473,12 +3078,12 @@ let isComposing = false
 
 const handleCompositionStart = () => {
   isComposing = true
-  console.log('[DEBUG] Composition started (Unikey bắt đầu)')
+  
 }
 
 const handleCompositionEnd = () => {
   isComposing = false
-  console.log('[DEBUG] Composition ended (Unikey kết thúc)')
+  
   // Clear alpha keys khi kết thúc composition
   recentAlphaKeys = []
 }
@@ -2493,6 +3098,22 @@ const handleKeyDown = (event) => {
     target?.classList?.contains('ProseMirror') ||
     target?.closest('[contenteditable="true"]') ||
     target?.closest('.comment-editor-root')
+
+  // Undo/Redo: Ctrl+Z (hoặc Cmd+Z trên Mac) và Ctrl+Y/Ctrl+Shift+Z (redo)
+  // Xử lý undo/redo trước để hoạt động ngay cả khi đang trong editor hoặc không có node được chọn
+  const key = event.key
+  if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z') {
+    event.preventDefault()
+    event.stopPropagation()
+    undo()
+    return
+  }
+  if ((event.ctrlKey || event.metaKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
+    event.preventDefault()
+    event.stopPropagation()
+    redo()
+    return
+  }
 
   // Nếu đang trong editor, cho phép editor xử lý keyboard shortcuts (Ctrl+B, Ctrl+I, etc.)
   if (isInEditor || editingNode.value) {
@@ -2512,7 +3133,7 @@ const handleKeyDown = (event) => {
     // Điều này đảm bảo sau khi blur, có thể bấm Delete/Backspace bình thường
     if (recentAlphaKeys.length > 0) {
       setTimeout(() => {
-        console.log('[DEBUG] Clear recentAlphaKeys sau khi blur khỏi editor')
+        
         recentAlphaKeys = []
       }, 100)
     }
@@ -2524,8 +3145,6 @@ const handleKeyDown = (event) => {
   }
 
   if (!selectedNode.value) return
-
-  const key = event.key
   
   // ⚠️ CHỈ theo dõi phím chữ KHI ĐANG TRONG EDITOR
   // Ngoài editor thì không cần track (vì có thể là phím tắt hợp lệ)
@@ -2544,44 +3163,32 @@ const handleKeyDown = (event) => {
   // ⚠️ CRITICAL: Nếu phát hiện Unikey event (code rỗng), set isComposing
   if (isUnikeyEvent) {
     isComposing = true
-    console.log('[DEBUG] Phát hiện Unikey event (code rỗng), set isComposing = true')
+    
     // Clear sau 1 giây
     setTimeout(() => {
       if (isComposing) {
-        console.log('[DEBUG] Auto clear isComposing sau 1s')
+        
         isComposing = false
       }
     }, 1000)
   }
   
   // ⚠️ DEBUG: Log phím được nhấn
-  console.log('[DEBUG handleKeyDown]', {
-    key: event.key,
-    code: event.code,
-    isRealDeleteKey,
-    isDeleteKeyPressed,
-    isUnikeyEvent,
-    isComposing,
-    shiftKey: event.shiftKey,
-    ctrlKey: event.ctrlKey,
-    altKey: event.altKey,
-    metaKey: event.metaKey,
-    target: target?.tagName,
-    isInEditor,
-    editingNode: editingNode.value
-  })
+
   
   // ⚠️ CRITICAL: Nếu event.key là Delete/Backspace NHƯNG event.code KHÔNG PHẢI
   // → Đây là phím giả mạo (phím A/S bị map thành Backspace) → BỎ QUA
   if (isDeleteKeyPressed && !isRealDeleteKey) {
-    console.log('[DEBUG] ⛔ CHẶN phím giả mạo! key:', key, 'code:', event.code)
+    
     return
   }
   
   // ⚠️ CRITICAL: Nếu vừa có Unikey event (code rỗng) trong 1s → Chắc chắn đang gõ tiếng Việt
-  if (isComposing) {
-    console.log('[DEBUG] ⛔ CHẶN tất cả phím vì Unikey đang hoạt động')
-    // CHẶN tất cả keyboard shortcuts khi Unikey hoạt động
+  // Nhưng vẫn cho phép undo/redo
+  const isUndoRedoKey = (event.ctrlKey || event.metaKey) && (key === 'z' || key === 'y')
+  if (isComposing && !isUndoRedoKey) {
+    
+    // CHẶN tất cả keyboard shortcuts khi Unikey hoạt động (trừ undo/redo)
     return
   }
 
@@ -2812,62 +3419,41 @@ const handleKeyDown = (event) => {
   // ⚠️ CRITICAL: CHỈ kiểm tra event.code, BỎ QUA event.key hoàn toàn
   // Vì event.key có thể bị map sai (ví dụ: phím A/S → Backspace)
   else if (event.code === 'Delete' || event.code === 'Backspace') {
-    console.log('[DEBUG Delete/Backspace by CODE] Phím được nhấn:', {
-      key,
-      code: event.code,
-      isInEditor,
-      editingNode: editingNode.value,
-      isComposing,
-      hasRecentAlphaKeys: hasRecentAlphaKeys(),
-      recentAlphaKeys: recentAlphaKeys.map(k => k.key),
-      canDelete: canDeleteNode(),
-      modifiers: {
-        shift: event.shiftKey,
-        ctrl: event.ctrlKey,
-        alt: event.altKey,
-        meta: event.metaKey
-      }
-    })
     
     // ⚠️ CRITICAL: KHÔNG xóa khi đang composition (Unikey/IME đang hoạt động)
     if (isComposing) {
-      console.log('[DEBUG] ⛔ Bỏ qua Delete/Backspace vì đang composition (Unikey)')
+      
       return
     }
     
     // ⚠️ CRITICAL: Debounce - chỉ cho phép xóa 1 lần mỗi 300ms
     // Tránh xóa nhiều lần khi giữ phím
     if (!canDeleteNode()) {
-      console.log('[DEBUG] ⛔ Bỏ qua Delete/Backspace vì quá gần lần xóa trước (debounce)')
+      
       return
     }
     
     // ⚠️ CRITICAL: KHÔNG xóa khi vừa có phím chữ được nhấn (trong 500ms)
     // Tránh trường hợp A+S → thả S → trigger Backspace nhầm
     if (hasRecentAlphaKeys()) {
-      console.log('[DEBUG] ⛔ Bỏ qua Delete/Backspace vì vừa có phím chữ:', recentAlphaKeys.map(k => k.key).join('+'))
+      
       return
     }
     
     // ⚠️ CRITICAL: KHÔNG xóa khi đang trong editor hoặc đang edit node
     if (isInEditor || editingNode.value) {
-      console.log('[DEBUG] Bỏ qua Delete/Backspace vì đang trong editor')
+      
       return
     }
     
     // ⚠️ CRITICAL: Chỉ xóa node khi KHÔNG có BẤT KỲ modifier key nào
     // Tránh xóa nhầm khi bấm tổ hợp phím như Shift+Delete, etc.
     if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) {
-      console.log('[DEBUG] Bỏ qua Delete/Backspace vì có modifier key:', {
-        shift: event.shiftKey,
-        ctrl: event.ctrlKey,
-        alt: event.altKey,
-        meta: event.metaKey
-      })
+
       return
     }
     
-    console.log('[DEBUG] ✅ AN TOÀN - Xóa node với key:', key, 'code:', event.code)
+    
     event.preventDefault()
     event.stopPropagation()
 
@@ -3065,18 +3651,18 @@ onMounted(() => {
 
   // ⚠️ NEW: Đăng ký socket listeners với safety check
   if (socket) {
-    console.log('🔌 Registering socket listeners, socket ID:', socket.id, 'connected:', socket.connected)
+    
     socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
     socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
     socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
     
     // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
     socket.on('connect', () => {
-      console.log('✅ Socket reconnected, re-registering listeners')
+      
       socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
     })
     
-    console.log('✅ Socket listeners registered for task status updates')
+    
   } else {
     console.warn('⚠️ Socket is not available, realtime updates will not work')
   }
@@ -3831,6 +4417,34 @@ function handleClickOutside(e) {
     const contextMenu = e.target.closest('.mindmap-context-menu')
     if (!contextMenu) {
       showContextMenu.value = false
+    }
+  }
+
+  // ⚠️ FIX: Đóng editor khi click ra ngoài node
+  if (editingNode.value) {
+    const clickedInsideNode = e.target.closest(".node-group") ||
+      e.target.closest('.mindmap-node-editor') ||
+      e.target.closest('.mindmap-editor-content') ||
+      e.target.closest('.mindmap-editor-prose') ||
+      e.target.closest('.ProseMirror') ||
+      e.target.closest('[contenteditable="true"]') ||
+      e.target.closest('.mindmap-toolbar') ||
+      e.target.closest('.toolbar-btn') ||
+      e.target.closest('.toolbar-top-popup') ||
+      e.target.closest('.toolbar-bottom') ||
+      e.target.closest('.image-menu-button') ||
+      e.target.closest('.image-context-menu') ||
+      e.target.closest('.image-menu-item')
+    
+    // Nếu click ra ngoài node và editor, blur editor để đóng editing mode
+    if (!clickedInsideNode) {
+      const nodeId = editingNode.value
+      const editorInstance = d3Renderer?.getEditorInstance?.(nodeId)
+      if (editorInstance && !editorInstance.isDestroyed) {
+        // Blur editor để trigger handleEditorBlur
+        editorInstance.commands.blur()
+        
+      }
     }
   }
 
@@ -4778,7 +5392,7 @@ function handleRealtimeResolvedComment(payload){
 
 // ⚠️ NEW: Handle realtime task status update
 function handleRealtimeTaskStatusUpdate(payload) {
-  console.log('📥 handleRealtimeTaskStatusUpdate received:', payload)
+  
   if (!payload) {
     console.warn('⚠️ handleRealtimeTaskStatusUpdate: payload is empty')
     return
@@ -4886,6 +5500,8 @@ function applyTextEdits(changes) {
   })
 
   if (changed) {
+    // Lưu snapshot trước khi apply text edits
+    saveSnapshot()
     scheduleSave()
   }
 }
@@ -4896,6 +5512,9 @@ function onOpenComment(payload) {
 }
 
 function addChildToNodeTextMode(anchorNodeId) {
+  // Lưu snapshot trước khi thêm node
+  saveSnapshot()
+  
   const anchorNode = nodes.value.find(n => n.id === anchorNodeId)
   if (!anchorNode) return
 

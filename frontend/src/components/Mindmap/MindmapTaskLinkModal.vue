@@ -844,7 +844,7 @@ onBeforeUnmount(() => {
 
 const getStatusClass = (status) => {
   const statusLower = (status || '').toLowerCase()
-  console.log('statusLower', statusLower);
+  
   
   if (statusLower.includes('hoàn thành') || statusLower.includes('completed')) {
     return 'status-green'
@@ -917,18 +917,18 @@ const ownerInfoCache = ref({})
 // Fetch owner info from email (must be declared before addOwnerToUserOptions)
 const fetchOwnerInfo = async (ownerEmail) => {
   if (!ownerEmail) {
-    console.log('fetchOwnerInfo: No ownerEmail provided')
+    
     return null
   }
   
   // Kiểm tra cache trước
   if (ownerInfoCache.value[ownerEmail]) {
-    console.log('fetchOwnerInfo: Using cached data for:', ownerEmail)
+    
     return ownerInfoCache.value[ownerEmail]
   }
   
   try {
-    console.log('fetchOwnerInfo: Fetching User info for:', ownerEmail)
+    
     // Get User info
     const userRes = await call('frappe.client.get_value', {
       doctype: 'User',
@@ -936,7 +936,7 @@ const fetchOwnerInfo = async (ownerEmail) => {
       fieldname: ['name', 'full_name', 'user_image', 'email']
     })
     
-    console.log('fetchOwnerInfo: User response:', userRes)
+    
     const user = userRes
     if (!user) {
       console.warn('fetchOwnerInfo: User not found for:', ownerEmail)
@@ -953,7 +953,7 @@ const fetchOwnerInfo = async (ownerEmail) => {
       return fallback
     }
     
-    console.log('fetchOwnerInfo: User found:', user)
+    
     
     // Get Officer info from user email - this is critical for assign_to
     let officerId = null
@@ -965,7 +965,7 @@ const fetchOwnerInfo = async (ownerEmail) => {
       })
       if (officerRes && officerRes.name) {
         officerId = officerRes.name
-        console.log('fetchOwnerInfo: Officer ID found:', officerId)
+        
       } else {
         console.warn('fetchOwnerInfo: Officer not found for user:', ownerEmail)
       }
@@ -986,7 +986,7 @@ const fetchOwnerInfo = async (ownerEmail) => {
     
     // Lưu vào cache
     ownerInfoCache.value[ownerEmail] = result
-    console.log('fetchOwnerInfo: Returning result and cached:', result)
+    
     return result
   } catch (error) {
     console.error('Failed to fetch owner info:', error)
@@ -1001,7 +1001,7 @@ const fetchOwnerInfo = async (ownerEmail) => {
     }
     // Lưu fallback vào cache để không gọi lại API
     ownerInfoCache.value[ownerEmail] = fallback
-    console.log('fetchOwnerInfo: Returning fallback and cached:', fallback)
+    
     return fallback
   }
 }
@@ -1033,7 +1033,7 @@ const addOwnerToUserOptions = async () => {
         }
         // Add owner at the beginning of the list
         userOptions.value.unshift(ownerOption)
-        console.log('Added owner to userOptions (initial):', ownerOption)
+        
       }
     }
   }
@@ -1149,7 +1149,7 @@ const fetchUserOptions = async (projectId) => {
           }
           // Add owner at the beginning of the list
           userOptions.value.unshift(ownerOption)
-          console.log('Added owner to userOptions:', ownerOption)
+          
         }
       }
     }
@@ -1193,7 +1193,7 @@ const fetchSectionOptions = async (projectId) => {
       project: projectId
     })
     
-    console.log('fetchSectionOptions response:', res)
+    
     
     // Handle different response formats
     let sections = []
@@ -1207,7 +1207,7 @@ const fetchSectionOptions = async (projectId) => {
       sections = Array.isArray(res.data) ? res.data : []
     }
     
-    console.log('fetchSectionOptions sections:', sections)
+    
     
     const formattedOptions = sections.map((section) => ({
       label: section.section_title || section.label || section.name || '',
@@ -1216,7 +1216,7 @@ const fetchSectionOptions = async (projectId) => {
     
     formattedOptions.unshift({ label: 'Chưa phân nhóm', value: '_empty' })
     sectionOptions.value = formattedOptions
-    console.log('fetchSectionOptions formattedOptions:', formattedOptions)
+    
   } catch (error) {
     console.error('Failed to fetch section options:', error)
     sectionOptions.value = [{ label: 'Chưa phân nhóm', value: '_empty' }]
@@ -1264,7 +1264,7 @@ const fetchProjectsByOwner = async (ownerUser) => {
     let officerName = null
     if (ownerInfoCache.value[ownerUser]?.officer_id) {
       officerName = ownerInfoCache.value[ownerUser].officer_id
-      console.log('fetchProjectsByOwner: Using cached officer:', officerName)
+      
     } else {
       // Nếu chưa có trong cache, fetch ownerInfo (sẽ cache kết quả)
       const ownerInfo = await fetchOwnerInfo(ownerUser)
@@ -1429,15 +1429,15 @@ const toggleNewTaskProject = () => {
 const selectNewTaskProject = async (project) => {
   const oldProject = newTaskFormData.value.project
   
-  console.log('[selectNewTaskProject] Selected project:', project)
-  console.log('[selectNewTaskProject] props.projectOptions:', props.projectOptions)
+  
+  
   
   // Tìm project đầy đủ thông tin từ props.projectOptions (đã có sẵn từ API get_my_projects)
   let projectWithFullInfo = { ...project }
   
   if (props.projectOptions && props.projectOptions.length > 0) {
     const fullProject = props.projectOptions.find(p => p.value === project.value)
-    console.log('[selectNewTaskProject] Found fullProject in props:', fullProject)
+    
     
     if (fullProject) {
       // Merge thông tin từ props (có end_date, need_approve) với project được chọn
@@ -1446,11 +1446,11 @@ const selectNewTaskProject = async (project) => {
         end_date: fullProject.end_date || project.end_date || null,
         need_approve: fullProject.need_approve !== undefined ? fullProject.need_approve : (project.need_approve !== undefined ? project.need_approve : false)
       }
-      console.log('[selectNewTaskProject] Merged project with props:', projectWithFullInfo)
+      
       
       // Nếu end_date là null trong props, fetch từ API để đảm bảo có giá trị đúng
       if (!projectWithFullInfo.end_date || projectWithFullInfo.end_date === null) {
-        console.log('[selectNewTaskProject] end_date is null, fetching from API...')
+        
         try {
           const projectRes = await call('frappe.client.get_value', {
             doctype: 'Project',
@@ -1460,11 +1460,11 @@ const selectNewTaskProject = async (project) => {
           if (projectRes?.message) {
             projectWithFullInfo.end_date = projectRes.message.end_date
             projectWithFullInfo.need_approve = projectRes.message.need_approve
-            console.log('[selectNewTaskProject] Fetched from API (message):', projectRes.message)
+            
           } else if (projectRes) {
             projectWithFullInfo.end_date = projectRes.end_date
             projectWithFullInfo.need_approve = projectRes.need_approve
-            console.log('[selectNewTaskProject] Fetched from API (direct):', projectRes)
+            
           }
         } catch (error) {
           console.error('[selectNewTaskProject] Failed to fetch from API:', error)
@@ -1483,11 +1483,11 @@ const selectNewTaskProject = async (project) => {
           if (projectRes?.message) {
             projectWithFullInfo.end_date = projectRes.message.end_date
             projectWithFullInfo.need_approve = projectRes.message.need_approve
-            console.log('[selectNewTaskProject] Fetched from API (not in props):', projectRes.message)
+            
           } else if (projectRes) {
             projectWithFullInfo.end_date = projectRes.end_date
             projectWithFullInfo.need_approve = projectRes.need_approve
-            console.log('[selectNewTaskProject] Fetched from API (not in props, direct):', projectRes)
+            
           }
         } catch (error) {
           console.error('[selectNewTaskProject] Failed to fetch from API:', error)
@@ -1521,7 +1521,7 @@ const selectNewTaskProject = async (project) => {
   newTaskFormData.value.duration = null
   
   newTaskFormData.value.project = projectWithFullInfo
-  console.log('[selectNewTaskProject] Final project set:', newTaskFormData.value.project)
+  
   newTaskProjectOpen.value = false
   newTaskProjectSearch.value = ''
   
@@ -1807,9 +1807,9 @@ const toggleCollaboratorDropdown = (e) => {
   if (e) {
     e.stopPropagation()
   }
-  console.log('toggleCollaboratorDropdown called, current state:', collaboratorDropdownOpen.value)
+  
   collaboratorDropdownOpen.value = !collaboratorDropdownOpen.value
-  console.log('New state:', collaboratorDropdownOpen.value)
+  
   if (collaboratorDropdownOpen.value) {
     // Reset search when opening
     collaboratorSearch.value = ''
@@ -1817,7 +1817,7 @@ const toggleCollaboratorDropdown = (e) => {
 }
 
 const addCollaborator = (user) => {
-  console.log('addCollaborator called with:', user)
+  
   const newCollaborator = {
     id: user.value,
     name: user.label,
@@ -1959,12 +1959,12 @@ const isFormValid = computed(() => {
 
 // Function to set owner as assignee
 const setOwnerAsAssignee = async () => {
-  console.log('setOwnerAsAssignee called', { mode: props.mode, nodeOwner: props.nodeOwner })
+  
   if (props.mode === 'from-node' && props.nodeOwner) {
     try {
-      console.log('Fetching owner info for:', props.nodeOwner)
+      
       const ownerInfo = await fetchOwnerInfo(props.nodeOwner)
-      console.log('Owner info received:', ownerInfo)
+      
             if (ownerInfo) {
               const ownerEmail = ownerInfo.email || ownerInfo.user
               // Use officer_id (Officer name) as value, fallback to other IDs
@@ -1978,7 +1978,7 @@ const setOwnerAsAssignee = async () => {
                   user.value === ownerValue ||
                   user.value === ownerInfo.officer_id
                 )
-                console.log('Found owner in userOptions:', ownerOption)
+                
               }
 
               // If not found in userOptions, create from ownerInfo
@@ -1990,7 +1990,7 @@ const setOwnerAsAssignee = async () => {
                   name: ownerInfo.full_name || ownerInfo.user,
                   email: ownerEmail
                 }
-                console.log('Created ownerOption from ownerInfo:', ownerOption)
+                
 
                 // Add to userOptions if not already there
                 const existsInOptions = userOptions.value.some(user =>
@@ -1999,14 +1999,14 @@ const setOwnerAsAssignee = async () => {
                 )
                 if (!existsInOptions) {
                   userOptions.value.unshift(ownerOption)
-                  console.log('Added owner to userOptions')
+                  
                 }
               }
         
-        console.log('Setting ownerOption as assignee:', ownerOption)
+        
         // Directly set instead of using updateFormField
         newTaskFormData.value.name_assign_to = ownerOption
-        console.log('name_assign_to after set:', newTaskFormData.value.name_assign_to)
+        
         
         // Also add to collaborators
         const existingCollab = newTaskFormData.value.collaborator.find(c => 
@@ -2022,7 +2022,7 @@ const setOwnerAsAssignee = async () => {
             isRemove: false,
             type: 'name_assign_to'
           })
-          console.log('Added owner to collaborators')
+          
         }
       } else {
         console.warn('Owner info is null or undefined')
@@ -2031,13 +2031,13 @@ const setOwnerAsAssignee = async () => {
       console.error('Error setting owner as assignee:', error)
     }
   } else {
-    console.log('Conditions not met:', { mode: props.mode, nodeOwner: props.nodeOwner })
+    
   }
 }
 
 // Initialize form when mode changes
 watch(() => props.mode, async (newMode, oldMode) => {
-  console.log('Mode changed:', { newMode, oldMode, nodeOwner: props.nodeOwner, nodeTitle: props.nodeTitle })
+  
   if (newMode === 'from-node') {
     // Reset form data when switching to from-node mode
     if (oldMode !== 'from-node') {
@@ -2147,16 +2147,10 @@ watch(() => newTaskFormData.value.task_name, () => {
 
 // Watch for visible prop to set assignee when modal opens
 watch(() => props.visible, async (isVisible) => {
-  console.log('Visible changed:', isVisible, { mode: props.mode, nodeOwner: props.nodeOwner, nodeTitle: props.nodeTitle })
+  
   if (isVisible && props.mode === 'from-node') {
     // Wait a bit to ensure all props are ready
     await new Promise(resolve => setTimeout(resolve, 300))
-    console.log('After delay - Checking:', { 
-      nodeOwner: props.nodeOwner, 
-      nodeTitle: props.nodeTitle,
-      currentAssignee: newTaskFormData.value.name_assign_to,
-      currentTaskName: newTaskFormData.value.task_name
-    })
     
     // Set task_name từ nodeTitle nếu chưa có hoặc đang rỗng
     if (props.nodeTitle && (!newTaskFormData.value.task_name || newTaskFormData.value.task_name.trim() === '')) {
@@ -2167,7 +2161,7 @@ watch(() => props.visible, async (isVisible) => {
       // Always try to set assignee if nodeOwner is available
       if (!newTaskFormData.value.name_assign_to || 
           newTaskFormData.value.name_assign_to.email !== props.nodeOwner) {
-        console.log('Setting owner as assignee (force)')
+        
         await setOwnerAsAssignee()
       }
     }
@@ -2228,7 +2222,7 @@ onMounted(async () => {
     // Wait a bit to ensure all reactive data is ready
     await new Promise(resolve => setTimeout(resolve, 100))
     if (!newTaskFormData.value.name_assign_to) {
-      console.log('onMounted: Setting owner as assignee')
+      
       await setOwnerAsAssignee()
     }
   }

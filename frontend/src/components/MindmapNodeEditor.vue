@@ -102,28 +102,54 @@ const FilterMenuTextExtension = Extension.create({
         },
         // ⚠️ CRITICAL FIX: Append transaction để xóa paragraph chứa '⋮' ngay sau mỗi transaction
         appendTransaction: (transactions, oldState, newState) => {
-          const tr = newState.tr
-          let modified = false
-          
-          // Tìm và xóa paragraphs chỉ chứa '⋮'
-          newState.doc.descendants((node, pos) => {
-            if (node.type.name === 'paragraph' && node.textContent.trim() === '⋮') {
-              tr.delete(pos, pos + node.nodeSize)
-              modified = true
-              return false
-            }
+          try {
+            const tr = newState.tr
+            let modified = false
+            const docSize = newState.doc.content.size
             
-            // Xóa text nodes chứa '⋮'
-            if (node.isText && node.text.includes('⋮')) {
-              const cleanText = node.text.replace(/⋮/g, '')
-              if (cleanText !== node.text) {
-                tr.replaceWith(pos, pos + node.nodeSize, newState.schema.text(cleanText, node.marks))
-                modified = true
+            // Tìm và xóa paragraphs chỉ chứa '⋮'
+            newState.doc.descendants((node, pos) => {
+              try {
+                // Kiểm tra position hợp lệ trước khi thao tác
+                if (pos < 0 || pos >= docSize) {
+                  return true // Skip node này nếu position không hợp lệ
+                }
+                
+                if (node.type.name === 'paragraph' && node.textContent.trim() === '⋮') {
+                  const endPos = pos + node.nodeSize
+                  // Kiểm tra lại position trước khi delete
+                  if (endPos <= docSize) {
+                    tr.delete(pos, endPos)
+                    modified = true
+                    return false
+                  }
+                }
+                
+                // Xóa text nodes chứa '⋮'
+                if (node.isText && node.text.includes('⋮')) {
+                  const cleanText = node.text.replace(/⋮/g, '')
+                  if (cleanText !== node.text) {
+                    const endPos = pos + node.nodeSize
+                    // Kiểm tra lại position trước khi replace
+                    if (endPos <= docSize) {
+                      tr.replaceWith(pos, endPos, newState.schema.text(cleanText, node.marks))
+                      modified = true
+                    }
+                  }
+                }
+              } catch (e) {
+                // Bỏ qua lỗi cho node này và tiếp tục với node khác
+                console.warn('[MindmapNodeEditor] Lỗi trong appendTransaction cho một node:', e)
+                return true
               }
-            }
-          })
-          
-          return modified ? tr : null
+            })
+            
+            return modified ? tr : null
+          } catch (e) {
+            // Nếu có lỗi nghiêm trọng, không return transaction để tránh crash
+            console.warn('[MindmapNodeEditor] Lỗi trong appendTransaction:', e)
+            return null
+          }
         },
         // ⚠️ CRITICAL FIX: View plugin để cleanup DOM ngay sau mỗi update
         view: (editorView) => {
@@ -623,7 +649,7 @@ const ParagraphWithDataTypeExtension = Extension.create({
               const hasTaskLinkText = text.includes('Liên kết công việc')
               
               if (hasTaskLinkText && hasTaskLinkAnchor) {
-                console.log('[DEBUG] ParagraphWithDataTypeExtension: Detect task link, set data-type="node-task-link"')
+                
                 return 'node-task-link'
               }
               
@@ -1094,8 +1120,8 @@ function updateImageLayout(view) {
   // ⚠️ FIX: Nếu không có ảnh, không cần update
   if (count === 0) return
   
-  console.log('[DEBUG] updateImageLayout: Called with', count, 'images')
-  console.log('[DEBUG] updateImageLayout: allImages.length =', allImages.length, ', count =', count)
+  
+  
   
   let newWidth = '100%'
   let newGap = '0px'
@@ -1111,27 +1137,27 @@ function updateImageLayout(view) {
     newWidth = '100%' // ⚠️ CRITICAL: 1 ảnh = 100% width
     newGap = '0px'
     newHeight = 'auto' // ⚠️ FIX: Height auto để ảnh hiển thị đầy đủ
-    console.log('[DEBUG] updateImageLayout: 1 ảnh → width = 100%')
+    
   } else if (count === 2) {
     newWidth = 'calc(50% - 14px)' // 50% trừ đi nửa gap (12px / 2)
     newGap = '12px'
     newHeight = 'auto' // ⚠️ FIX: Thay vì 150px, dùng auto để ảnh hiển thị đầy đủ
-    console.log('[DEBUG] updateImageLayout: 2 ảnh → width = calc(50% - 14px)')
+    
   } else if (count >= 3) {
     newWidth = 'calc(33.333% - 14px)' // 33.333% trừ đi 2/3 gap (24px / 3)
     newGap = '12px'
     newHeight = 'auto' // ⚠️ FIX: Thay vì 100px, dùng auto để ảnh hiển thị đầy đủ
-    console.log('[DEBUG] updateImageLayout: 3+ ảnh → width = calc(33.333% - 14px)')
+    
   }
   
-  console.log('[DEBUG] updateImageLayout: Calculated width =', newWidth, 'for', count, 'images')
+  
   
   allImages.forEach((wrapper, index) => {
     // ⚠️ CRITICAL: Luôn set width với !important để override CSS rules
     const currentComputedWidth = getComputedStyle(wrapper).width
     const currentInlineWidth = wrapper.style.width
     
-    console.log(`[DEBUG] updateImageLayout: Image ${index + 1}: currentInlineWidth = "${currentInlineWidth}", currentComputedWidth = "${currentComputedWidth}", newWidth = "${newWidth}"`)
+    
     
     // ⚠️ CRITICAL: Luôn set width với !important để đảm bảo override CSS
     // Kiểm tra xem có cần update không
@@ -1139,7 +1165,7 @@ function updateImageLayout(view) {
                         (count === 1 && currentComputedWidth !== '368px' && !currentComputedWidth.includes('368'))
     
     if (needsUpdate || currentInlineWidth !== newWidth) {
-      console.log(`[DEBUG] updateImageLayout: Updating width for image ${index + 1} from "${currentInlineWidth}" (computed: "${currentComputedWidth}") to "${newWidth}"`)
+      
       // Set với !important thông qua setProperty
       wrapper.style.setProperty('width', newWidth, 'important')
       wrapper.style.setProperty('max-width', newWidth === '100%' ? '100%' : newWidth, 'important')
@@ -1170,7 +1196,7 @@ function updateImageLayout(view) {
     }
   })
   
-  console.log('[DEBUG] updateImageLayout: Completed')
+  
   
   // ⚠️ REMOVED: Bỏ force reflow để tránh trigger lại update → nháy liên tục
   // Browser sẽ tự động reflow khi cần
@@ -1236,7 +1262,7 @@ const ImageWithMenuExtension = Extension.create({
               // Nếu ảnh hiện tại đã có trong DOM, nó đã được đếm trong allImages.length
               const totalImages = allImages.length
               
-              console.log('[DEBUG] nodeViews.image: allImages.length =', allImages.length, ', totalImages =', totalImages)
+              
               
               // ⚠️ FIX: Tính width chính xác dựa trên số lượng ảnh
               // Với gap 12px giữa các ảnh:
@@ -1251,15 +1277,15 @@ const ImageWithMenuExtension = Extension.create({
               if (totalImages === 0 || totalImages === 1) {
                 imageWidth = '100%'
                 gap = '0px'
-                console.log('[DEBUG] nodeViews.image: 0-1 ảnh → width = 100%')
+                
               } else if (totalImages === 2) {
                 imageWidth = 'calc(50% - 14px)' // 50% trừ đi nửa gap (12px / 2)
                 gap = '12px'
-                console.log('[DEBUG] nodeViews.image: 2 ảnh → width = calc(50% - 14px)')
+                
               } else if (totalImages >= 3) {
                 imageWidth = 'calc(33.333% - 14px)' // 33.333% trừ đi 2/3 gap (24px / 3)
                 gap = '12px'
-                console.log('[DEBUG] nodeViews.image: 3+ ảnh → width = calc(33.333% - 14px)')
+                
               }
               
               // ⚠️ FIX: Height luôn là auto để ảnh hiển thị đầy đủ, không bị crop
@@ -2520,14 +2546,14 @@ export default {
     // Thêm data-type cho các phần tử trong node
     setDataTypesForElements() {
       if (!this.editor || !this.editor.view) {
-        console.log('[DEBUG] setDataTypesForElements: editor hoặc view không tồn tại')
+        
         return
       }
       
       const { dom } = this.editor.view
       const proseElement = dom.querySelector('.mindmap-editor-prose') || dom
       if (!proseElement) {
-        console.log('[DEBUG] setDataTypesForElements: không tìm thấy proseElement')
+        
         return
       }
       
@@ -2595,7 +2621,7 @@ export default {
       // ⚠️ FIX: Thêm data-type="node-task-link" cho paragraph chứa link "Liên kết công việc" với task_id
       // (Trường hợp ProseMirror chuyển đổi <section> thành <p>)
       const allParagraphs = proseElement.querySelectorAll('p')
-      console.log('[DEBUG] setDataTypesForElements: Kiểm tra', allParagraphs.length, 'paragraphs cho task link')
+      
       allParagraphs.forEach((p, index) => {
         const hasTaskLinkAnchor = p.querySelector('a[href*="task_id"]') || 
           p.querySelector('a[href*="/mtp/project/"]')
@@ -2603,18 +2629,11 @@ export default {
         const hasTaskLinkText = text.includes('Liên kết công việc')
         const currentDataType = p.getAttribute('data-type')
         
-        console.log(`[DEBUG] Paragraph ${index + 1}:`, {
-          textContent: text.substring(0, 50),
-          hasTaskLinkAnchor: !!hasTaskLinkAnchor,
-          hasTaskLinkText,
-          currentDataType
-        })
-        
         if (hasTaskLinkText && hasTaskLinkAnchor) {
           // Đây là paragraph chứa task link - thêm data-type
           if (currentDataType !== 'node-task-link') {
             p.setAttribute('data-type', 'node-task-link')
-            console.log('[DEBUG] Đã thêm data-type="node-task-link" cho paragraph chứa task link:', text.substring(0, 50))
+            
             
             // ⚠️ NEW: Thêm event handlers để ngăn editor focus khi click vào task link paragraph
             const preventEditorFocus = (e) => {
@@ -2660,7 +2679,7 @@ export default {
                           'data-type': 'node-task-link'
                         })
                         view.dispatch(tr)
-                        console.log('[DEBUG] Đã update ProseMirror document với data-type="node-task-link"')
+                        
                       }
                     }
                   }
@@ -2669,16 +2688,14 @@ export default {
                 }
               })
             }
-          } else {
-            console.log('[DEBUG] Paragraph đã có data-type="node-task-link":', text.substring(0, 50))
-          }
+          } 
         }
       })
       
       // 3. Thêm data-type="node-title" cho TẤT CẢ các title paragraphs (không trong blockquote và không phải task-link)
       // ⚠️ FIX: Set data-type="node-title" cho tất cả title paragraphs, không chỉ paragraph đầu tiên
       const paragraphs = Array.from(proseElement.querySelectorAll('p'))
-      console.log('[DEBUG] setDataTypesForElements: tìm thấy', paragraphs.length, 'paragraphs')
+      
       
       for (const p of paragraphs) {
         const isInBlockquote = p.closest('blockquote') !== null
@@ -2686,7 +2703,7 @@ export default {
         
         // ⚠️ FIX: Bỏ qua paragraph có data-type="node-task-link"
         if (currentDataType === 'node-task-link') {
-          console.log('[DEBUG] Bỏ qua paragraph có data-type="node-task-link":', p.textContent)
+          
           continue
         }
         
@@ -2710,7 +2727,7 @@ export default {
         if (!isTaskLink) {
           if (currentDataType !== 'node-title') {
             p.setAttribute('data-type', 'node-title')
-            console.log('[DEBUG] Đã set data-type="node-title" cho paragraph:', p.textContent.substring(0, 50))
+            
             
             // ⚠️ FIX: Update ProseMirror document để giữ lại attribute khi serialize
             if (this.editor && this.editor.view && !this.isUpdatingFromModelValue) {
@@ -4132,13 +4149,6 @@ export default {
         }
       },
       onBlur: (event) => {
-        console.log('[DEBUG] MindmapNodeEditor onBlur: Editor blur event', {
-          nodeId: this.nodeId,
-          timestamp: Date.now(),
-          relatedTarget: event?.relatedTarget,
-          target: event?.target,
-          stackTrace: new Error().stack
-        })
         // ⚠️ CRITICAL: Kiểm tra ngay event target để prevent blur khi click vào menu
         const relatedTarget = event?.relatedTarget || event?.target || null
         
@@ -4204,17 +4214,12 @@ export default {
             })
           }
 
-          // Blur bình thường (không phải từ toolbar hoặc image menu): emit blur event
-          console.log('[DEBUG] MindmapNodeEditor onBlur: Emit blur event', {
-            nodeId: this.nodeId,
-            timestamp: Date.now()
-          })
+         
           this.$emit("blur")
           // Gọi callback nếu có
           if (this.onBlur) {
-            console.log('[DEBUG] MindmapNodeEditor onBlur: Gọi onBlur callback', {
-              nodeId: this.nodeId
-            })
+            
+
             this.onBlur()
           }
         }, 10)
