@@ -29,7 +29,35 @@ def get_notify_users_from_shared(entity, exclude_user=None):
 
     return result
 
+def get_users_in_comment_session(
+    mindmap_id: str,
+    node_id: str,
+    session_index: int,
+    exclude_user: str | None = None,
+):
+    # 1. User thuộc session
+    session_users = set(
+        frappe.get_all(
+            "Drive Mindmap Comment",
+            filters={
+                "mindmap_id": mindmap_id,
+                "node_id": node_id,
+                "session_index": session_index,
+            },
+            pluck="owner",
+        )
+    )
 
+    # 2. Chủ entity (mindmap owner)
+    owner = frappe.db.get_value("Drive File", mindmap_id, "owner")
+    if owner:
+        session_users.add(owner)
+
+    # 3. Không notify chính mình (nếu cần)
+    if exclude_user:
+        session_users.discard(exclude_user)
+
+    return list(session_users)
 
 @frappe.whitelist()
 def get_comments(mindmap_id: str):
@@ -627,9 +655,13 @@ def notify_mentions(comment_name):
 def notify_comment(comment_name):
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
-    notify_users = get_notify_users_from_shared(
-        entity=doc.mindmap_id
+    notify_users = get_users_in_comment_session(
+        mindmap_id=doc.mindmap_id,
+        node_id=doc.node_id,
+        session_index=doc.session_index,
+        exclude_user=doc.owner,
     )
+
 
     drive_file = frappe.get_value(
         "Drive File",

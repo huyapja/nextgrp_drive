@@ -1,9 +1,7 @@
-// extensions/MentionSuggestion.js
-
 function normalizeVN(str = "") {
   return str
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // bỏ dấu
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/đ/g, "d")
     .replace(/Đ/g, "D")
     .toLowerCase()
@@ -13,9 +11,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
   let activeIndex = 0
   let currentItems = []
 
-  /* ===============================
-   * Panel visibility helpers
-   * =============================== */
   function expandCommentPanel(nodeId) {
     const panel = document.querySelector(
       `.comment-panel[data-node-comment="${nodeId}"]`
@@ -41,9 +36,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
     }
   }
 
-  /* ===============================
-   * Keep caret visible in scroll container
-   * =============================== */
   function ensureCaretVisible(editor) {
     if (!editor?.view) return
     if (editor.storage.__isInitializing) return
@@ -80,11 +72,7 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       if (!query) return members
 
       const q = normalizeVN(query)
-
-      return members.filter((m) => {
-        const name = normalizeVN(m.full_name || "")
-        return name.includes(q)
-      })
+      return members.filter((m) => normalizeVN(m.full_name || "").includes(q))
     },
 
     render: () => {
@@ -93,6 +81,8 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       let editorInstance = null
       let lastRange = null
       let lastQuery = ""
+      let scrollContainer = null
+      let onScroll = null
 
       function clampIndex() {
         if (!currentItems.length) {
@@ -110,10 +100,14 @@ export function MentionSuggestion({ getMembers, nodeId }) {
         const activeEl = popup.querySelector('[data-mention-active="1"]')
         if (!activeEl) return
 
-        activeEl.scrollIntoView({
-          block: "nearest",
-          inline: "nearest",
-        })
+        const offsetTop = activeEl.offsetTop
+        const offsetBottom = offsetTop + activeEl.offsetHeight
+
+        if (offsetBottom > popup.scrollTop + popup.clientHeight) {
+          popup.scrollTop = offsetBottom - popup.clientHeight
+        } else if (offsetTop < popup.scrollTop) {
+          popup.scrollTop = offsetTop
+        }
       }
 
       function renderPopup() {
@@ -125,12 +119,9 @@ export function MentionSuggestion({ getMembers, nodeId }) {
         if (!wrapper) return
 
         const wrapperRect = wrapper.getBoundingClientRect()
-
-        // đo width/height sau khi đã có DOM (fallback nếu chưa)
         const popupWidth = popup.offsetWidth || 180
 
         const top = lastClientRect.bottom - wrapperRect.top
-
         let left = lastClientRect.left - wrapperRect.left
         left = Math.max(8, Math.min(left, wrapper.clientWidth - popupWidth - 8))
 
@@ -140,7 +131,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
 
         popup.innerHTML = ""
 
-        // EMPTY STATE
         if (!currentItems.length) {
           const empty = document.createElement("div")
           empty.className = "px-3 py-2 text-sm text-gray-500 italic select-none"
@@ -152,7 +142,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           return
         }
 
-        // ITEMS
         currentItems.forEach((item, index) => {
           const el = document.createElement("div")
           const isActive = index === activeIndex
@@ -180,10 +169,7 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           popup.appendChild(el)
         })
 
-        // ✅ CHỈ GỌI 1 LẦN SAU KHI RENDER XONG
-        requestAnimationFrame(() => {
-          scrollActiveItemIntoView()
-        })
+        requestAnimationFrame(scrollActiveItemIntoView)
       }
 
       function selectItem(item) {
@@ -207,23 +193,13 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       return {
         onStart(props) {
           const editor = props.editor
-
-          // đang mở lại do caret quay về range cũ -> cho phép
           const reopening =
             editor.storage.__mentionOpen &&
             isCaretInsideRange(editor, lastRange)
 
-          // chỉ chặn khi KHÔNG phải reopen
-          if (!editor.storage.__mentionUserTriggered && !reopening) {
-            return
-          }
-
-          // reset trigger sau khi dùng
+          if (!editor.storage.__mentionUserTriggered && !reopening) return
           editor.storage.__mentionUserTriggered = false
 
-          // =========================
-          // ⬇️ PHẦN CŨ GIỮ NGUYÊN
-          // =========================
           editorInstance = editor
           lastRange = props.range
           activeIndex = 0
@@ -237,19 +213,42 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           expandCommentPanel(nodeId)
 
           popup = document.createElement("div")
-          popup.className =
-            "absolute z-[9999] bg-white rounded shadow-lg border py-1 " +
-            "w-[180px] max-h-[200px] overflow-y-auto pointer-events-auto"
+          popup.className = `
+    absolute z-[9999] bg-white rounded shadow-lg border py-1
+    w-[180px] max-h-[200px] overflow-y-auto
+    overscroll-contain pointer-events-auto
+  `
+
+          popup.addEventListener(
+            "wheel",
+            (e) => {
+              e.stopPropagation()
+            },
+            { passive: true }
+          )
 
           const wrapper = document.querySelector(
             `.mention-portal-add[data-node="${nodeId}"]`
           )
           wrapper?.appendChild(popup)
 
+          scrollContainer = editor.view.dom.closest(".comment-scroll-container")
+
+          onScroll = () => {
+            const rect = props.clientRect?.()
+            if (rect) {
+              lastClientRect = rect
+              renderPopup()
+            }
+          }
+
+          scrollContainer?.addEventListener("scroll", onScroll, {
+            passive: true,
+          })
+
           clampIndex()
           renderPopup()
         },
-
         onUpdate(props) {
           currentItems = props.items || []
           lastRange = props.range
@@ -258,9 +257,7 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           const rect = props.clientRect?.()
           if (rect) lastClientRect = rect
 
-          // nếu list thay đổi (query mới) -> reset activeIndex về 0 cho tự nhiên
           if (activeIndex >= currentItems.length) activeIndex = 0
-
           clampIndex()
           renderPopup()
         },
@@ -268,7 +265,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
         onKeyDown(props) {
           const event = props.event
 
-          // không có item: chỉ cho ESC
           if (!currentItems.length) {
             if (event.key === "Escape") {
               event.preventDefault()
@@ -317,12 +313,14 @@ export function MentionSuggestion({ getMembers, nodeId }) {
 
           restoreCommentPanel(nodeId)
 
+          scrollContainer?.removeEventListener("scroll", onScroll)
+          scrollContainer = null
+          onScroll = null
+
           popup?.remove()
           popup = null
           lastClientRect = null
           editorInstance = null
-
-          // ❗ KHÔNG reset lastRange ở đây
           currentItems = []
           activeIndex = 0
           lastQuery = ""
