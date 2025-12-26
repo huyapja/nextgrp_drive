@@ -46,6 +46,14 @@
       "label": "Node Snapshot"
     }
   ],
+  "indexes": [
+    {
+      "fields": ["mindmap_id", "node_id", "session_index"]
+    },
+    {
+      "fields": ["mindmap_id", "node_id", "is_closed"]
+    }
+  ],  
   "permissions": [
     {
       "role": "System Manager",
