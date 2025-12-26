@@ -464,23 +464,6 @@ export function renderNodes(renderer, positions) {
         const newlyCreatedTime = renderer.newlyCreatedNodes?.get(d.id)
         const now = Date.now()
         const isNewlyCreated = newlyCreatedTime && (now - newlyCreatedTime) < 800
-        
-        if (isNewlyCreated) {
-          console.log('[DEBUG] nodeRendering click: Bỏ qua blur cho node mới', d.id, {
-            timeSinceCreation: now - newlyCreatedTime,
-            timestamp: Date.now()
-          })
-        } else {
-          console.log('[DEBUG] nodeRendering click: Blur editor cho node', d.id, {
-            isFocused: editorInstance.isFocused,
-            target: event.target,
-            targetClass: event.target?.className,
-            timestamp: Date.now(),
-            stackTrace: new Error().stack
-          })
-          editorInstance.commands.blur()
-          console.log('[DEBUG] nodeRendering click: Sau blur, isFocused =', editorInstance.isFocused)
-        }
       }
       
       // ⚠️ CRITICAL FIX: KHÔNG set pointer-events: auto khi click 1 lần vào node
@@ -505,7 +488,6 @@ export function renderNodes(renderer, positions) {
       setTimeout(() => {
         const editorInstanceAfterSelect = renderer.getEditorInstance(d.id)
         if (editorInstanceAfterSelect && editorInstanceAfterSelect.isFocused) {
-          console.log('[DEBUG] nodeRendering click: Editor đã tự động focus, blur lại', d.id)
           editorInstanceAfterSelect.commands.blur()
         }
       }, 50)
@@ -1442,7 +1424,7 @@ export function renderNodes(renderer, positions) {
       // Sau khi xóa task link/ảnh, rect đã được cập nhật trong handleEditorBlur
       const actualRectWidth = parseFloat(rect.attr('width')) || rectWidth
       if (actualRectWidth !== rectWidth) {
-        console.log('[DEBUG nodeRendering] Rect width mismatch, using actual:', actualRectWidth, 'instead of', rectWidth)
+        
         rectWidth = actualRectWidth
       }
       
@@ -1510,10 +1492,6 @@ export function renderNodes(renderer, positions) {
             },
             onBlur: () => {
               // Handle blur event - sẽ được cập nhật sau
-              console.log('[DEBUG] nodeRendering onBlur callback: Được gọi cho node', nodeData.id, {
-                timestamp: Date.now(),
-                stackTrace: new Error().stack
-              })
               handleEditorBlur(renderer, nodeData.id, nodeArray[idx], nodeData)
             },
           })
