@@ -46,7 +46,6 @@ function deleteTextOnly(view) {
         .sort((a, b) => b.from - a.from)
         .forEach(r => tr.delete(r.from, r.to))
 
-    // ⭐⭐⭐ FIX QUAN TRỌNG ⭐⭐⭐
     // ép selection về caret đơn (xoá selection xanh)
     const safePos = Math.min(
         tr.doc.content.size,
@@ -57,7 +56,9 @@ function deleteTextOnly(view) {
         TextSelection.near(tr.doc.resolve(safePos))
     )
 
-    dispatch(tr.scrollIntoView())
+    if (!editor.value?.storage?.__isInitializing) {
+        dispatch(tr.scrollIntoView())
+    }
     return true
 }
 
@@ -100,6 +101,16 @@ const filteredMembers = computed(() => {
 onMounted(() => {
     editor.value = new Editor({
         content: props.modelValue || "",
+        onTransaction({ transaction, editor }) {
+            if (editor.storage.__isInitializing) return
+            const uiEvent = transaction.getMeta("uiEvent")
+
+            // Trường hợp gõ @ trực tiếp
+            if (uiEvent?.type === "input" && uiEvent?.data === "@") {
+                editor.storage.__mentionUserTriggered = true
+                return
+            }
+        },
         extensions: [
             StarterKit.configure({
                 orderedList: false,
@@ -137,6 +148,10 @@ onMounted(() => {
 
         editorProps: {
             handleKeyDown(view, event) {
+
+                if (!editor.value?.storage?.__isInitializing && event.key === "@") {
+                    editor.value.storage.__mentionUserTriggered = true
+                }
                 const isMentionOpen = editor.value?.storage?.__mentionOpen;
                 const { state } = view
                 const { selection } = state
@@ -181,8 +196,11 @@ onMounted(() => {
                 }
 
 
-                if (isMentionOpen) {
-                    return false;
+                if (
+                    isMentionOpen &&
+                    ["ArrowUp", "ArrowDown", "Enter", "Escape"].includes(event.key)
+                ) {
+                    return false
                 }
 
                 if (event.key === "ArrowDown") {
@@ -250,6 +268,14 @@ onMounted(() => {
 
     })
 
+    editor.value.storage.__isInitializing = true
+
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            editor.value.storage.__isInitializing = false
+        })
+    })
+
     editor.value.view.scrollToSelection = () => { };
 
     editor.value.on("focus", () => {
@@ -258,6 +284,7 @@ onMounted(() => {
 
     editor.value.on("blur", () => {
         window.__EDITOR_FOCUSED__ = false
+        editor.value.storage.__mentionUserTriggered = false
     })
 
     editor.value.on("focus", () => emit("focus"));
@@ -567,10 +594,10 @@ const isTextEmpty = computed(() => {
 }
 
 .text-empty :deep(p:first-child)::before {
-  content: attr(data-placeholder);
-  color: #9ca3af;
-  pointer-events: none;
-  float: left;
-  height: 0;
+    content: attr(data-placeholder);
+    color: #9ca3af;
+    pointer-events: none;
+    float: left;
+    height: 0;
 }
 </style>

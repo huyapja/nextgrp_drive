@@ -708,6 +708,10 @@ function handleClickGroup(group, e) {
 
   const groupKey = groupKeyOf(group)
 
+  console.log(">>>>>> groupKey:", groupKey);
+  console.log(">>>>>> activeGroupKey.value:", activeGroupKey.value);
+  
+
   if (activeGroupKey.value === groupKey) {
     return
   }
@@ -719,8 +723,7 @@ function handleClickGroup(group, e) {
     focusEditorOf(group)
   })
 
-  emit("update:node", group.node)
-
+  emit("highlight:node", group.node)
 }
 
 function handleReplyTrigger(group) {
@@ -803,7 +806,8 @@ const {
   nodeMap,
   emit,
   galleryVisible,
-  groupKeyOf
+  groupKeyOf,
+  focusEditorOf
 })
 
 watch(

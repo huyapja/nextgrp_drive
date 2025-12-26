@@ -396,7 +396,6 @@ onMounted(() => {
         // ENTER → ADD CHILD NODE
         // ==============================
         if (event.key === 'Enter') {
-          return
           if (!selection.empty) return false
 
           const { $from } = selection
