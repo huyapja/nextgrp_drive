@@ -278,7 +278,9 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
     if not node_ids:
         return {"status": "ok", "deleted": 0}
 
-    # 1. Lấy toàn bộ comment cần xoá (kèm session_index)
+    # -------------------------------------------------
+    # 1. Lấy toàn bộ comment cần xoá
+    # -------------------------------------------------
     comments = frappe.get_all(
         "Drive Mindmap Comment",
         filters={
@@ -291,15 +293,23 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
     if not comments:
         return {"status": "ok", "deleted": 0}
 
-    # 2. Gom số comment bị xoá theo session
-    # key: (node_id, session_index) → count
-    session_counter = {}
+    deleted = len(comments)
 
-    for c in comments:
-        key = (c.node_id, c.session_index)
-        session_counter[key] = session_counter.get(key, 0) + 1
-    
+    # -------------------------------------------------
+    # 2. Gom session cần xoá
+    # key = (node_id, session_index)
+    # -------------------------------------------------
+    sessions_to_delete = {
+        (c.node_id, c.session_index)
+        for c in comments
+        if c.session_index is not None
+    }
+
     comment_ids = [c.name for c in comments]
+
+    # -------------------------------------------------
+    # 3. Xoá reaction
+    # -------------------------------------------------
     frappe.db.delete(
         "Drive Mindmap Comment Reaction",
         {
@@ -307,8 +317,9 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
         }
     )
 
-
-    # 3. Xoá toàn bộ comment
+    # -------------------------------------------------
+    # 4. Xoá comment
+    # -------------------------------------------------
     for c in comments:
         frappe.delete_doc(
             "Drive Mindmap Comment",
@@ -317,17 +328,16 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
             force=True,
         )
 
-    deleted = len(comments)
-
-    # 4. Giảm comment_count cho từng session đang mở
-    for (node_id, session_index), count in session_counter.items():
+    # -------------------------------------------------
+    # 5. Xoá session member + session
+    # -------------------------------------------------
+    for node_id, session_index in sessions_to_delete:
         session_name = frappe.db.get_value(
             "Drive Mindmap Comment Session",
             {
                 "mindmap_id": mindmap_id,
                 "node_id": node_id,
                 "session_index": session_index,
-                "is_closed": 0,
             },
             "name",
         )
@@ -335,16 +345,27 @@ def delete_comments_by_nodes(mindmap_id: str, node_ids):
         if not session_name:
             continue
 
-        frappe.db.sql(
-            """
-            UPDATE `tabDrive Mindmap Comment Session`
-            SET comment_count = GREATEST(comment_count - %s, 0)
-            WHERE name = %s
-            """,
-            (count, session_name),
+        # 5.1 Xoá session member
+        frappe.db.delete(
+            "Drive Mindmap Comment Session Member",
+            {
+                "mindmap_id": mindmap_id,
+                "node_id": node_id,
+                "session_index": session_index,
+            },
         )
 
-    # 5. Realtime sync cho client khác
+        # 5.2 Xoá session
+        frappe.db.delete(
+            "Drive Mindmap Comment Session",
+            {
+                "name": session_name,
+            },
+        )
+
+    # -------------------------------------------------
+    # 6. Realtime sync cho client khác
+    # -------------------------------------------------
     frappe.publish_realtime(
         event="drive_mindmap:multiple_comments_deleted",
         message={
@@ -571,6 +592,7 @@ def notify_mentions(comment_name):
 def notify_comment(comment_name):
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
+    # ---- parse comment ----
     comment = doc.comment
     if isinstance(comment, str):
         try:
@@ -580,29 +602,28 @@ def notify_comment(comment_name):
 
     mentions = comment.get("mentions") or []
 
-    is_reply = any(
-        m.get("kind") == "reply"
+    # ---- reply users (loại self-reply) ----
+    reply_users = {
+        m.get("id")
         for m in mentions
-    )
+        if m.get("kind") == "reply" and m.get("id")
+    }
+    reply_users -= {doc.owner}
+
+    # ---- mentioned users ----
+    mentioned_users = {
+        m.get("id")
+        for m in mentions
+        if m.get("kind") == "mention" and m.get("id")
+    }
 
     actor_full_name = (
         frappe.db.get_value("User", doc.owner, "full_name")
         or doc.owner
     )
 
-    title = (
-        f"{actor_full_name} đã trả lời bình luận của bạn trong sơ đồ tư duy"
-        if is_reply
-        else f"{actor_full_name} đã bình luận trong sơ đồ tư duy"
-    )
-
-    mentioned_users = {
-        m.get("id")
-        for m in mentions
-        if m.get("id") and m.get("kind") == "mention"
-    }
-
-    notify_users = set(
+    # ---- session members ----
+    session_users = set(
         frappe.get_all(
             "Drive Mindmap Comment Session Member",
             filters={
@@ -614,11 +635,8 @@ def notify_comment(comment_name):
         )
     )
 
-    notify_users.discard(doc.owner)
-    notify_users -= mentioned_users
-
-    if not notify_users:
-        return
+    # ---- remove actor ----
+    session_users.discard(doc.owner)
 
     team = frappe.db.get_value("Drive File", doc.mindmap_id, "team")
     if not team:
@@ -632,13 +650,40 @@ def notify_comment(comment_name):
         f"#comment_id={doc.name}"
     )
 
-
-
     bot_docs = frappe.conf.get("bot_docs")
     if not bot_docs:
         return
 
-    for user in notify_users:
+    for user in reply_users:
+        RavenBot.send_notification_to_user(
+            bot_name=bot_docs,
+            user_id=user,
+            link_doctype="Drive Mindmap Comment",
+            link_document=doc.name,
+            message=json.dumps(
+                {
+                    "key": "reply_mindmap",
+                    "title": f"{actor_full_name} đã trả lời bình luận của bạn trong sơ đồ tư duy",
+                    "full_name_owner": actor_full_name,
+                    "comment_content": comment.get("parsed") or "",
+                    "comment_id": doc.name,
+                    "mindmap_id": doc.mindmap_id,
+                    "node_id": doc.node_id,
+                    "link": link,
+                    "is_reply": True,
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+
+    comment_notify_users = (
+        session_users
+        - reply_users
+        - mentioned_users
+    )
+
+    for user in comment_notify_users:
         RavenBot.send_notification_to_user(
             bot_name=bot_docs,
             user_id=user,
@@ -647,14 +692,14 @@ def notify_comment(comment_name):
             message=json.dumps(
                 {
                     "key": "comment_mindmap",
-                    "title": title,
+                    "title": f"{actor_full_name} đã bình luận trong sơ đồ tư duy",
                     "full_name_owner": actor_full_name,
                     "comment_content": comment.get("parsed") or "",
                     "comment_id": doc.name,
                     "mindmap_id": doc.mindmap_id,
                     "node_id": doc.node_id,
                     "link": link,
-                    "is_reply": is_reply,
+                    "is_reply": False,
                 },
                 ensure_ascii=False,
                 default=str,
