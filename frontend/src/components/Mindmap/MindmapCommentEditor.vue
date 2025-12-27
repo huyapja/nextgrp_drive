@@ -88,7 +88,6 @@ const emit = defineEmits(["update:modelValue", "submit", "navigate", "open-galle
 const editor = ref(null)
 const localInsertedImages = new Set()
 const mentionMembers = ref(props.members || [])
-const hasInitialized = ref(false)
 
 const filteredMembers = computed(() => {
     if (!props.members) return []
@@ -162,8 +161,6 @@ onMounted(() => {
                         "\0",
                         "\0"
                     )
-
-                    // regex giống trigger mention
                     if (/@[\p{L}\d_]*$/u.test(textBefore)) {
                         editor.value.storage.__mentionUserTriggered = true
                     }
@@ -202,7 +199,7 @@ onMounted(() => {
                         node.type.name === "imageRow"
                     ) {
                         event.preventDefault()
-                        return true // ⛔ chặn hoàn toàn
+                        return true
                     }
                 }
 
@@ -270,7 +267,6 @@ onMounted(() => {
                     }
 
                     if (!imageFiles.length) {
-                        // không có ảnh → cho paste text bình thường
                         return false
                     }
 
