@@ -972,11 +972,12 @@ def delete_history(history_id: str):
         frappe.throw("Missing history_id")
 
     history = frappe.get_doc("Drive Mindmap Comment History", history_id)
-
     if not history:
         frappe.throw("History not found")
 
-    # permission trên mindmap
+    # -----------------------
+    # Permission trên mindmap
+    # -----------------------
     if not frappe.has_permission("Drive File", "write", history.mindmap_id):
         frappe.throw("No permission to delete history")
 
@@ -985,13 +986,13 @@ def delete_history(history_id: str):
     # -----------------------
     comment_ids = []
 
-    if hasattr(history, "comment_ids") and history.comment_ids:
+    if getattr(history, "comment_ids", None):
         try:
             comment_ids = json.loads(history.comment_ids)
         except Exception:
             comment_ids = []
     else:
-        # fallback từ snapshot (phòng khi migrate cũ)
+        # fallback từ snapshot (phòng migrate cũ)
         try:
             snapshot = json.loads(history.comments_snapshot or "[]")
             comment_ids = [c.get("id") for c in snapshot if c.get("id")]
@@ -999,27 +1000,52 @@ def delete_history(history_id: str):
             comment_ids = []
 
     # -----------------------
-    # 2. Xoá comment thật
+    # 2. Xoá reaction
     # -----------------------
     if comment_ids:
         frappe.db.delete(
             "Drive Mindmap Comment Reaction",
-            {
-                "comment": ["in", comment_ids],
-            }
-        )    
+            {"comment": ["in", comment_ids]},
+        )
 
+    # -----------------------
+    # 3. Xoá comment
+    # -----------------------
     if comment_ids:
         frappe.db.delete(
             "Drive Mindmap Comment",
             {
                 "name": ["in", comment_ids],
                 "mindmap_id": history.mindmap_id,
-            }
+            },
         )
 
     # -----------------------
-    # 3. Payload realtime
+    # 4. Xoá session member
+    # -----------------------
+    frappe.db.delete(
+        "Drive Mindmap Comment Session Member",
+        {
+            "mindmap_id": history.mindmap_id,
+            "node_id": history.node_id,
+            "session_index": history.session_index,
+        },
+    )
+
+    # -----------------------
+    # 5. Xoá session
+    # -----------------------
+    frappe.db.delete(
+        "Drive Mindmap Comment Session",
+        {
+            "mindmap_id": history.mindmap_id,
+            "node_id": history.node_id,
+            "session_index": history.session_index,
+        },
+    )
+
+    # -----------------------
+    # 6. Payload realtime
     # -----------------------
     payload = {
         "mindmap_id": history.mindmap_id,
@@ -1031,12 +1057,12 @@ def delete_history(history_id: str):
     }
 
     # -----------------------
-    # 4. Xoá history
+    # 7. Xoá history
     # -----------------------
     history.delete(ignore_permissions=True)
 
     # -----------------------
-    # 5. Realtime
+    # 8. Realtime
     # -----------------------
     frappe.publish_realtime(
         event="drive_mindmap:history_deleted",

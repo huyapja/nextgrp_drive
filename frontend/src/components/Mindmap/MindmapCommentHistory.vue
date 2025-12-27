@@ -26,7 +26,7 @@
                 <!-- Header -->
                 <div class="flex justify-between items-center mb-2 text-xs text-gray-500">
                     <span class="font-medium">
-                        {{ isNodeStillExist(h) ? "Đã xử lý bình luận" : "Nhận xét đã bị xóa" }}
+                        {{ isNodeStillExist(h) ? "Đã xử lý nhận xét" : "Nhận xét đã bị xóa" }}
                     </span>
 
 
@@ -34,7 +34,7 @@
                         <button v-if="isNodeStillExist(h)" @click="handleUnresolve(h)" class="hover:underline text-xs">
                             Mở lại
                         </button>
-                        <i v-tooltip.top="{ value: 'Xóa bình luận', pt: { text: { class: ['text-[12px]'] } } }"
+                        <i v-tooltip.top="{ value: 'Xóa nhận xét', pt: { text: { class: ['text-[12px]'] } } }"
                             @click="handleDeleteHistory(h)"
                             class="pi pi-trash cursor-pointer text-gray-400 hover:text-red-500" />
                     </div>
