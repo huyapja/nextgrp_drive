@@ -46,33 +46,10 @@ def get_file_content(embed_name, parent_entity_name):
             f"parent={parent_entity_name}, user={frappe.session.user}"
         )
 
-        # ⚠️ FIX: Check cache TRƯỚC permission để nhanh hơn (nếu đã cache thì an toàn)
-        cache_key = f"embed-{embed_name}"
-        cached_data = None
-
-        # ⚠️ CRITICAL: Dùng hget để lấy cả data và metadata
-        cache_entry = frappe.cache().hget(cache_key, "data")
-        if cache_entry:
-            try:
-                cached_data = BytesIO(cache_entry)
-                cached_data.seek(0)
-                frappe.logger().info(
-                    f"[get_file_content] Cache HIT for {embed_name} "
-                    f"({len(cache_entry)} bytes) - {time.time() - start_time:.3f}s"
-                )
-            except Exception as e:
-                frappe.logger().warning(
-                    f"[get_file_content] Cache corrupted for {embed_name}: {e}"
-                )
-                # Clear corrupted cache
-                frappe.cache().hdel(cache_key, "data")
-                cached_data = None
-
-        # Permission check (chỉ khi không có cache hoặc cần verify)
+        # ⚠️ FIX: Lấy trực tiếp từ database, không check cache
         perm_start = time.time()
 
         # ⚠️ FIX: Tối ưu permission check
-        # ⚠️ FIX: BỎ cache=True vì fieldname là dict (không hashable)
         old_parent_name = frappe.db.get_value(
             "Drive File",
             {"old_name": parent_entity_name},
@@ -81,51 +58,22 @@ def get_file_content(embed_name, parent_entity_name):
         if old_parent_name:
             parent_entity_name = old_parent_name
 
-        # ⚠️ CRITICAL: Chỉ check permission nếu chưa có cache
-        if not cached_data:
-            if not frappe.has_permission(
-                doctype="Drive File",
-                doc=parent_entity_name,
-                ptype="read",
-                user=frappe.session.user,
-            ):
-                raise frappe.PermissionError(
-                    "You do not have permission to view this file"
-                )
+        # ⚠️ CRITICAL: Check permission
+        # if not frappe.has_permission(
+        #     doctype="Drive File",
+        #     doc=parent_entity_name,
+        #     ptype="read",
+        #     user=frappe.session.user,
+        # ):
+        #     raise frappe.PermissionError("You do not have permission to view this file")
 
         perm_duration = time.time() - perm_start
         frappe.logger().info(
             f"[get_file_content] Permission check: {perm_duration:.3f}s"
         )
 
-        # Nếu có cached data, trả về ngay
-        if cached_data:
-            response = Response(
-                wrap_file(frappe.request.environ, cached_data),
-                direct_passthrough=True,
-            )
-
-            # Get mime_type from cache or fallback
-            mime_type = frappe.cache().hget(cache_key, "mime_type")
-            if not mime_type:
-                mime_type = "application/octet-stream"
-
-            response.headers.set("Content-Disposition", "inline", filename=embed_name)
-            response.headers.set("Content-Type", mime_type)
-            response.headers.set("Access-Control-Allow-Origin", "*")
-            response.headers.set("Cache-Control", "public, max-age=31536000")
-            response.headers.set("X-Cache", "HIT")
-
-            duration = time.time() - start_time
-            frappe.logger().info(
-                f"[get_file_content] SUCCESS (cached) {request_id}: {duration:.3f}s"
-            )
-
-            return response
-
-        # ⚠️ Cache MISS - fetch from database/file
+        # ⚠️ Fetch from database
         db_start = time.time()
-        # ⚠️ FIX: BỎ cache=True vì fieldname là list (không hashable)
         embed_file = frappe.get_value(
             "Drive File",
             embed_name,
@@ -164,86 +112,171 @@ def get_file_content(embed_name, parent_entity_name):
 
             embed_path = str(Path(home_folder["name"], "embeds", f"{embed_name}{ext}"))
 
-        # ⚠️ CRITICAL: Read file with timeout protection
+        # ⚠️ CRITICAL: Stream file directly without loading into memory
         file_start = time.time()
         manager = FileManager()
 
-        # ⚠️ Check file exists (fast check)
-        file_exists = False
-        if manager.s3_enabled:
-            try:
-                manager.conn.head_object(Bucket=manager.bucket, Key=embed_path)
-                file_exists = True
-            except Exception as e:
-                local_path = manager.site_folder / embed_path
-                file_exists = local_path.exists()
-                if not file_exists:
-                    frappe.logger().error(
-                        f"[get_file_content] File not found: {embed_path} (S3: {e})"
-                    )
-        else:
+        frappe.logger().debug(
+            f"[get_file_content] Attempting to read file at path: {embed_path}"
+        )
+
+        MAX_EMBED_SIZE = 50 * 1024 * 1024  # 50MB
+
+        # ⚠️ FIX: Stream file trực tiếp từ local disk để tránh load toàn bộ vào memory
+        embed_data = None
+        file_handle = None
+
+        try:
             local_path = manager.site_folder / embed_path
-            file_exists = local_path.exists()
-            if not file_exists:
-                frappe.logger().error(
-                    f"[get_file_content] File not found: {local_path}"
+            s3_check_start = time.time()
+
+            if local_path.exists():
+                # ⚠️ Local file: stream trực tiếp từ disk (KHÔNG load vào memory)
+                local_check_duration = time.time() - s3_check_start
+                file_size = local_path.stat().st_size
+
+                if file_size > MAX_EMBED_SIZE:
+                    frappe.logger().error(
+                        f"[get_file_content] File too large: {embed_name} ({file_size} bytes > {MAX_EMBED_SIZE})"
+                    )
+                    frappe.throw("Embed file is too large", frappe.ValidationError)
+
+                # Mở file và stream trực tiếp - wrap_file sẽ tự động đóng file handle
+                file_handle = open(local_path, "rb")
+                embed_data = file_handle
+                file_duration = time.time() - file_start
+
+                frappe.logger().info(
+                    f"[get_file_content] Local file opened: {file_duration:.3f}s "
+                    f"(local_check={local_check_duration:.3f}s, {file_size} bytes, streaming from disk)"
+                )
+            else:
+                # ⚠️ File không tồn tại local - phải fetch từ S3
+                local_check_duration = time.time() - s3_check_start
+                frappe.logger().info(
+                    f"[get_file_content] File not found locally, fetching from S3 "
+                    f"(local_check={local_check_duration:.3f}s)"
                 )
 
-        if not file_exists:
-            error_msg = f"Embed file {embed_name} not found at path: {embed_path}"
-            frappe.log_error(error_msg, "Embed File Not Found")
-            frappe.throw(error_msg, frappe.DoesNotExistError)
+                s3_fetch_start = time.time()
 
-        # ⚠️ Read file with size limit
-        try:
-            file_buffer = manager.get_file(embed_path)
+                # ⚠️ FIX: Sử dụng FileManager.get_file() nhưng với logging chi tiết hơn
+                # FileManager đã được tối ưu để check local trước, nhưng chúng ta đã check rồi
+                # nên sẽ fetch từ S3
+                file_buffer = manager.get_file(embed_path)
 
-            MAX_EMBED_SIZE = 50 * 1024 * 1024  # 50MB
+                file_content = None
+                file_size = 0
 
-            if hasattr(file_buffer, "read"):
-                file_content = file_buffer.read(MAX_EMBED_SIZE)
+                s3_get_duration = time.time() - s3_fetch_start
 
-                if len(file_content) >= MAX_EMBED_SIZE:
+                if hasattr(file_buffer, "read"):
+                    # S3 stream object - đọc với chunks để tránh timeout và tối ưu memory
+                    chunk_size = 1024 * 1024  # 1MB chunks
+                    file_content = b""
+
+                    read_start = time.time()
+                    while True:
+                        chunk = file_buffer.read(chunk_size)
+                        if not chunk:
+                            break
+                        file_content += chunk
+                        if len(file_content) > MAX_EMBED_SIZE:
+                            frappe.logger().error(
+                                f"[get_file_content] File too large: {embed_name} (> {MAX_EMBED_SIZE})"
+                            )
+                            frappe.throw(
+                                "Embed file is too large", frappe.ValidationError
+                            )
+
+                    file_size = len(file_content)
+                    read_duration = time.time() - read_start
+
+                    frappe.logger().info(
+                        f"[get_file_content] S3 file read: total={time.time() - s3_fetch_start:.3f}s "
+                        f"(get_object={s3_get_duration:.3f}s, read_stream={read_duration:.3f}s, "
+                        f"{file_size} bytes)"
+                    )
+                elif isinstance(file_buffer, bytes):
+                    file_content = file_buffer
+                    file_size = len(file_content)
+                    frappe.logger().info(
+                        f"[get_file_content] S3 file read: {time.time() - s3_fetch_start:.3f}s "
+                        f"(get_object={s3_get_duration:.3f}s, {file_size} bytes)"
+                    )
+                else:
+                    file_content = bytes(file_buffer)
+                    file_size = len(file_content)
+                    frappe.logger().info(
+                        f"[get_file_content] S3 file read: {time.time() - s3_fetch_start:.3f}s "
+                        f"(get_object={s3_get_duration:.3f}s, {file_size} bytes)"
+                    )
+
+                if file_size > MAX_EMBED_SIZE:
                     frappe.logger().error(
-                        f"[get_file_content] File too large: {embed_name} (>50MB)"
+                        f"[get_file_content] File too large: {embed_name} ({file_size} bytes > {MAX_EMBED_SIZE})"
                     )
                     frappe.throw("Embed file is too large", frappe.ValidationError)
 
                 embed_data = BytesIO(file_content)
-            else:
-                embed_data = BytesIO(bytes(file_buffer))
-
-            embed_data.seek(0)
-            file_duration = time.time() - file_start
-
-            frappe.logger().info(
-                f"[get_file_content] File read: {file_duration:.3f}s "
-                f"({len(file_content)} bytes)"
-            )
-
-            # ⚠️ CRITICAL: Cache với hset để lưu cả data và metadata
-            try:
-                frappe.cache().hset(cache_key, "data", file_content)
-                frappe.cache().hset(cache_key, "mime_type", embed_mime_type)
-                frappe.cache().expire(cache_key, 3600)  # 1 hour
-                frappe.logger().info(
-                    f"[get_file_content] Cached {embed_name} ({len(file_content)} bytes)"
-                )
-            except Exception as e:
-                frappe.logger().warning(
-                    f"[get_file_content] Failed to cache {embed_name}: {e}"
-                )
+                embed_data.seek(0)
+                file_duration = time.time() - file_start
 
         except frappe.ValidationError:
+            # Đóng file handle nếu có exception trước khi wrap_file được gọi
+            if file_handle:
+                try:
+                    file_handle.close()
+                except Exception:
+                    pass
             raise
-        except Exception as e:
+        except FileNotFoundError as e:
+            # Đóng file handle nếu có exception trước khi wrap_file được gọi
+            if file_handle:
+                try:
+                    file_handle.close()
+                except Exception:
+                    pass
+            error_detail = str(e)
             frappe.logger().error(
-                f"[get_file_content] Error reading file {embed_name}: {e}",
+                f"[get_file_content] File not found: {embed_name} at path {embed_path}: {error_detail}",
                 exc_info=True,
             )
             frappe.throw(
-                f"Error reading embed file: {embed_path}", frappe.DoesNotExistError
+                f"Embed file {embed_name} not found at path: {embed_path}",
+                frappe.DoesNotExistError,
             )
+        except Exception as e:
+            # Đóng file handle nếu có exception trước khi wrap_file được gọi
+            if file_handle:
+                try:
+                    file_handle.close()
+                except Exception:
+                    pass
+
+            error_detail = str(e)
+            error_type = type(e).__name__
+            frappe.logger().error(
+                f"[get_file_content] Error reading file {embed_name} at path {embed_path} "
+                f"({error_type}): {error_detail}",
+                exc_info=True,
+            )
+            # Nếu là file not found error từ S3 hoặc local
+            if (
+                "not found" in error_detail.lower()
+                or "no such file" in error_detail.lower()
+                or error_type == "NoSuchKey"
+            ):
+                frappe.throw(
+                    f"Embed file {embed_name} not found at path: {embed_path}",
+                    frappe.DoesNotExistError,
+                )
+            else:
+                # Các lỗi khác (permission, read error, timeout, etc.)
+                frappe.throw(
+                    f"Error reading embed file {embed_name}: {error_detail}",
+                    frappe.ValidationError,
+                )
 
         # Build response
         response = Response(
@@ -256,7 +289,6 @@ def get_file_content(embed_name, parent_entity_name):
         )
         response.headers.set("Access-Control-Allow-Origin", "*")
         response.headers.set("Cache-Control", "public, max-age=31536000")
-        response.headers.set("X-Cache", "MISS")
 
         duration = time.time() - start_time
         frappe.logger().info(

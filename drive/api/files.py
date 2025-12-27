@@ -66,7 +66,9 @@ def copy_permissions_to_entity(entity_name, permissions_list):
 
 
 @frappe.whitelist()
-def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=None, embed=0):
+def upload_file(
+    team, personal=None, fullpath=None, parent=None, last_modified=None, embed=0
+):
     """
     Accept chunked file contents via a multipart upload, store the file on
     disk, and insert a corresponding DriveEntity doc.
@@ -103,7 +105,9 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
 
     storage_data = storage_bar_data(team)
     storage_data_limit = storage_data["limit"] * 1024 * 1024 * 1024
-    if (storage_data_limit - storage_data["total_size"]) < int(frappe.form_dict.total_file_size):
+    if (storage_data_limit - storage_data["total_size"]) < int(
+        frappe.form_dict.total_file_size
+    ):
         frappe.throw("You're out of storage!", ValueError)
 
     file = frappe.request.files["file"]
@@ -112,7 +116,9 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
     current_chunk = int(frappe.form_dict.chunk_index)
     total_chunks = int(frappe.form_dict.total_chunk_count)
 
-    temp_path = get_upload_path(home_folder["name"], f"{upload_session}_{secure_filename(title)}")
+    temp_path = get_upload_path(
+        home_folder["name"], f"{upload_session}_{secure_filename(title)}"
+    )
 
     # Thay thế đoạn code hiện tại
     if not temp_path.exists():
@@ -172,7 +178,10 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
 
     # Upload and update parent folder size
     manager = FileManager()
-    manager.upload_file(str(temp_path), drive_file.path, drive_file if not embed else None)
+    # ⚠️ FIX: Embed files should also be uploaded to S3 (if enabled) to ensure
+    # they can be accessed when importing to other sites
+    # Pass drive_file even for embed files so they get uploaded to S3 properly
+    manager.upload_file(str(temp_path), drive_file.path, drive_file)
     update_file_size(parent, file_size)
 
     return drive_file
@@ -243,7 +252,13 @@ def upload_chunked_file(personal=0, parent=None, last_modified=None):
         last_modified,
         lambda n: Path(home_directory["name"]) / "embeds" / f"{n}{save_path.suffix}",
     )
-    os.rename(save_path, Path(frappe.get_site_path("private/files")) / drive_file.path)
+
+    # ⚠️ FIX: Use FileManager to upload to S3 (if enabled) to ensure embed files
+    # can be accessed when importing to other sites
+    manager = FileManager()
+    temp_file_path = Path(frappe.get_site_path("private/files")) / drive_file.path
+    os.rename(save_path, temp_file_path)
+    manager.upload_file(str(temp_file_path), drive_file.path, drive_file)
 
     # Send team notifications for new chunked file (only for public files)
     if not personal:
@@ -260,15 +275,29 @@ def get_thumbnail(entity_name):
     drive_file = frappe.get_value(
         "Drive File",
         entity_name,
-        ["is_group", "path", "title", "mime_type", "file_size", "owner", "team", "document"],
+        [
+            "is_group",
+            "path",
+            "title",
+            "mime_type",
+            "file_size",
+            "owner",
+            "team",
+            "document",
+        ],
         as_dict=1,
     )
     if not drive_file or drive_file.is_group or drive_file.is_link:
         frappe.throw("No thumbnail for this type.", ValueError)
     if not frappe.has_permission(
-        doctype="Drive File", doc=drive_file.name, ptype="write", user=frappe.session.user
+        doctype="Drive File",
+        doc=drive_file.name,
+        ptype="write",
+        user=frappe.session.user,
     ):
-        frappe.throw("Cannot upload due to insufficient permissions", frappe.PermissionError)
+        frappe.throw(
+            "Cannot upload due to insufficient permissions", frappe.PermissionError
+        )
 
     with DistributedLock(drive_file.path, exclusive=False):
         thumbnail_data = None
@@ -281,13 +310,17 @@ def get_thumbnail(entity_name):
                 manager = FileManager()
                 thumbnail = manager.get_thumbnail(drive_file.team, entity_name)
                 thumbnail_data = BytesIO(thumbnail.read())
-                frappe.cache().set_value(entity_name, thumbnail_data, expires_in_sec=60 * 60)
+                frappe.cache().set_value(
+                    entity_name, thumbnail_data, expires_in_sec=60 * 60
+                )
             except FileNotFoundError:
                 # Handle different file types for thumbnail generation
                 if drive_file.mime_type.startswith("text"):
                     try:
                         with manager.get_file(drive_file.path) as f:
-                            thumbnail_data = f.read()[:1000].decode("utf-8").replace("\n", "<br/>")
+                            thumbnail_data = (
+                                f.read()[:1000].decode("utf-8").replace("\n", "<br/>")
+                            )
                     except Exception:
                         thumbnail_data = None
                 elif drive_file.mime_type == "frappe_doc":
@@ -303,7 +336,9 @@ def get_thumbnail(entity_name):
                     thumbnail_data = None
 
                 if thumbnail_data:
-                    frappe.cache().set_value(entity_name, thumbnail_data, expires_in_sec=60 * 60)
+                    frappe.cache().set_value(
+                        entity_name, thumbnail_data, expires_in_sec=60 * 60
+                    )
 
     if isinstance(thumbnail_data, BytesIO):
         response = Response(
@@ -318,7 +353,8 @@ def get_thumbnail(entity_name):
     else:
         # Return 404 when no thumbnail is available
         frappe.throw(
-            "No thumbnail available for this file type.", frappe.exceptions.PageDoesNotExistError
+            "No thumbnail available for this file type.",
+            frappe.exceptions.PageDoesNotExistError,
         )
 
 
@@ -498,13 +534,9 @@ def create_folder(team, title, personal=False, parent=None):
     response = drive_file.as_dict()
     response["file_type"] = "Folder"  # Đảm bảo file_type được set
 
-
     frappe.publish_realtime(
         event="upload_file_realtime",
-        message={
-            "status": "success",
-            "name": "hello ?????"
-        },
+        message={"status": "success", "name": "hello ?????"},
         user=frappe.session.user,
         after_commit=True,
     )
@@ -578,7 +610,9 @@ def create_link(team, title, link, personal=False, parent=None):
 
 
 @frappe.whitelist()
-def save_doc(entity_name, doc_name, raw_content, content, file_size, mentions, settings=None):
+def save_doc(
+    entity_name, doc_name, raw_content, content, file_size, mentions, settings=None
+):
     write_perms = user_has_permission(
         frappe.get_doc("Drive File", entity_name), "write", frappe.session.user
     )
@@ -589,7 +623,9 @@ def save_doc(entity_name, doc_name, raw_content, content, file_size, mentions, s
     if not write_perms and not comment_perms:
         raise frappe.PermissionError("You do not have permission to view this file")
     if settings:
-        frappe.db.set_value("Drive Document", doc_name, "settings", json.dumps(settings))
+        frappe.db.set_value(
+            "Drive Document", doc_name, "settings", json.dumps(settings)
+        )
     file_size = len(content.encode("utf-8")) + len(raw_content.encode("utf-8"))
     update_modifed = comment_perms and not write_perms
     frappe.db.set_value("Drive Document", doc_name, "content", content)
@@ -665,7 +701,10 @@ def create_auth_token(entity_name):
     settings = frappe.get_single("Drive Site Settings")
     key = settings.get_password("jwt_key", raise_exception=False)
     return jwt.encode(
-        {"name": entity_name, "expiry": (datetime.now() + timedelta(minutes=1)).timestamp()},
+        {
+            "name": entity_name,
+            "expiry": (datetime.now() + timedelta(minutes=1)).timestamp(),
+        },
         key=key,
     )
 
@@ -689,7 +728,9 @@ def get_file_content(entity_name, trigger_download=0, jwt_token=None):
     """
     if jwt_token:
         settings = frappe.get_single("Drive Site Settings")
-        auth = jwt.decode(jwt_token, key=settings.get_password("jwt_key"), algorithms=["HS256"])
+        auth = jwt.decode(
+            jwt_token, key=settings.get_password("jwt_key"), algorithms=["HS256"]
+        )
         if datetime.now().timestamp() > auth["expiry"] or auth["name"] != entity_name:
             raise frappe.PermissionError("You do not have permission to view this file")
 
@@ -792,8 +833,12 @@ def stream_file_content(drive_file, range_header):
         f.seek(byte1)
         data = f.read(length)
 
-    res = Response(data, 206, mimetype=mimetypes.guess_type(path)[0], direct_passthrough=True)
-    res.headers.add("Content-Range", "bytes {0}-{1}/{2}".format(byte1, byte1 + length - 1, size))
+    res = Response(
+        data, 206, mimetype=mimetypes.guess_type(path)[0], direct_passthrough=True
+    )
+    res.headers.add(
+        "Content-Range", "bytes {0}-{1}/{2}".format(byte1, byte1 + length - 1, size)
+    )
     return res
 
 
@@ -844,8 +889,12 @@ def list_entity_comments(entity_name):
             # map: comment_id -> { emoji -> count }
             counts = {}
             for row in reaction_rows:
-                normalized_emoji = unicodedata.normalize("NFC", (row.content or "").strip())
-                counts.setdefault(row.reference_name, {}).setdefault(normalized_emoji, 0)
+                normalized_emoji = unicodedata.normalize(
+                    "NFC", (row.content or "").strip()
+                )
+                counts.setdefault(row.reference_name, {}).setdefault(
+                    normalized_emoji, 0
+                )
                 counts[row.reference_name][normalized_emoji] += 1
 
             # also indicate whether current user has reacted with each emoji
@@ -862,7 +911,9 @@ def list_entity_comments(entity_name):
             ).run(as_dict=True)
             user_map = {}
             for row in user_rows:
-                normalized_emoji = unicodedata.normalize("NFC", (row.content or "").strip())
+                normalized_emoji = unicodedata.normalize(
+                    "NFC", (row.content or "").strip()
+                )
                 user_map.setdefault(row.reference_name, set()).add(normalized_emoji)
 
             # get reactor full names for tooltip per emoji
@@ -879,7 +930,9 @@ def list_entity_comments(entity_name):
             ).run(as_dict=True)
             reactors_map = {}
             for row in reactors_rows:
-                normalized_emoji = unicodedata.normalize("NFC", (row.content or "").strip())
+                normalized_emoji = unicodedata.normalize(
+                    "NFC", (row.content or "").strip()
+                )
                 reactors_map.setdefault(row.reference_name, {}).setdefault(
                     normalized_emoji, []
                 ).append(row.full_name or "")
@@ -1143,7 +1196,9 @@ def bulk_delete_files(file_names, batch_size=500):
             frappe.db.commit()
 
         except Exception as e:
-            frappe.log_error(f"Bulk delete batch failed: {str(e)[:100]}", "Bulk Delete Batch")
+            frappe.log_error(
+                f"Bulk delete batch failed: {str(e)[:100]}", "Bulk Delete Batch"
+            )
             # Continue with next batch even if this one fails
 
     return total_deleted
@@ -1195,7 +1250,9 @@ def delete_shortcuts_bulk(shortcuts, user):
             success.extend(list(valid_names))
 
         except Exception as e:
-            frappe.log_error(f"Bulk delete shortcuts: {str(e)[:50]}", "Delete Shortcuts")
+            frappe.log_error(
+                f"Bulk delete shortcuts: {str(e)[:50]}", "Delete Shortcuts"
+            )
             failed.extend(list(valid_names))
 
     return success, failed
@@ -1282,7 +1339,9 @@ def set_favourite(entities=None, clear_all=False):
 
     for entity in entities:
         # Check if this is a shortcut entity - use .get() to avoid KeyError
-        is_shortcut = entity.get("is_shortcut", False) or bool(entity.get("shortcut_name"))
+        is_shortcut = entity.get("is_shortcut", False) or bool(
+            entity.get("shortcut_name")
+        )
 
         if is_shortcut:
             shortcut_name = entity.get("shortcut_name")
@@ -1424,7 +1483,11 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
         if flag == 0:  # Move to trash
             # Thêm vào global trash
             existing_trash = frappe.db.exists(
-                {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
+                {
+                    "doctype": "Drive Trash",
+                    "entity": doc.name,
+                    "user": frappe.session.user,
+                }
             )
             if not existing_trash:
                 frappe.get_doc(
@@ -1445,7 +1508,11 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
             # Xóa khỏi global trash
             existing_trash = frappe.db.exists(
-                {"doctype": "Drive Trash", "entity": doc.name, "user": frappe.session.user}
+                {
+                    "doctype": "Drive Trash",
+                    "entity": doc.name,
+                    "user": frappe.session.user,
+                }
             )
             if existing_trash:
                 frappe.delete_doc("Drive Trash", existing_trash)
@@ -1455,7 +1522,9 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
         # Update parent folder size
         if doc.parent_entity:
-            folder_size = frappe.db.get_value("Drive File", doc.parent_entity, "file_size")
+            folder_size = frappe.db.get_value(
+                "Drive File", doc.parent_entity, "file_size"
+            )
             if folder_size is not None:
                 frappe.db.set_value(
                     "Drive File",
@@ -1553,7 +1622,9 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                 has_permission = False
 
                 if flag == 0:  # Delete operation
-                    has_permission = user_has_permission(doc, "write", frappe.session.user)
+                    has_permission = user_has_permission(
+                        doc, "write", frappe.session.user
+                    )
                 else:  # Restore operation
                     # User có thể restore nếu họ là người xóa (modified_by) hoặc owner
                     has_permission = (
@@ -1587,7 +1658,9 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
             # Check permission - user must own the shortcut
             if shortcut_doc.shortcut_owner != frappe.session.user:
-                raise frappe.PermissionError("You do not have permission to modify this shortcut")
+                raise frappe.PermissionError(
+                    "You do not have permission to modify this shortcut"
+                )
 
             if shortcut_doc.is_active:
                 # Move to trash
@@ -1615,7 +1688,9 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                 # Restore from trash
                 flag = 1
                 # Check if original file still exists and is active
-                original_file = frappe.db.get_value("Drive File", shortcut_doc.file, "is_active")
+                original_file = frappe.db.get_value(
+                    "Drive File", shortcut_doc.file, "is_active"
+                )
                 if not original_file:
                     frappe.throw(
                         f"Cannot restore shortcut '{shortcut_doc.name}'. The original file no longer exists or is in trash."
@@ -1682,7 +1757,9 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
             )
     else:
         # Tất cả thành công
-        result["message"] = f"Đã {operation_name_past} {len(success_files)} file thành công"
+        result["message"] = (
+            f"Đã {operation_name_past} {len(success_files)} file thành công"
+        )
 
     return result
 
@@ -1748,13 +1825,17 @@ def remove_recents(entity_names=[], clear_all=False):
 
 @frappe.whitelist()
 def get_children_count(drive_file):
-    children_count = frappe.db.count("Drive File", {"parent_entity": drive_file, "is_active": 1})
+    children_count = frappe.db.count(
+        "Drive File", {"parent_entity": drive_file, "is_active": 1}
+    )
     return children_count
 
 
 @frappe.whitelist()
 def does_entity_exist(name=None, parent_entity=None):
-    result = frappe.db.exists("Drive File", {"parent_entity": parent_entity, "title": name})
+    result = frappe.db.exists(
+        "Drive File", {"parent_entity": parent_entity, "title": name}
+    )
     return bool(result)
 
 
@@ -1815,11 +1896,17 @@ def move(entities, new_parent=None, is_private=None, team=None):
 
     for entity in entities:
         # Sửa: Truy cập như dictionary thay vì object attribute
-        if entity.get("is_shortcut"):  # hoặc entity["is_shortcut"] nếu chắc chắn key tồn tại
-            doc = frappe.get_doc("Drive Shortcut", {"name": entity.get("shortcut_name")})
+        if entity.get(
+            "is_shortcut"
+        ):  # hoặc entity["is_shortcut"] nếu chắc chắn key tồn tại
+            doc = frappe.get_doc(
+                "Drive Shortcut", {"name": entity.get("shortcut_name")}
+            )
             res = doc.move_shortcut(new_parent)
         else:
-            doc = frappe.get_doc("Drive File", entity.get("name"))  # hoặc entity["name"]
+            doc = frappe.get_doc(
+                "Drive File", entity.get("name")
+            )  # hoặc entity["name"]
             res = doc.move(new_parent, is_private, team)
             # if res["title"] == "Drive - " + res["team"]:
             #     res["title"] = "Home" if res["is_private"] else "Team"
@@ -2110,7 +2197,9 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
         total_items = count_items_recursive(entity_name)
 
         # Run background job for: folders OR files > 500KB
-        if total_items > 1 or (not source_doc.is_group and source_doc.file_size > 500 * 1024):
+        if total_items > 1 or (
+            not source_doc.is_group and source_doc.file_size > 500 * 1024
+        ):
             frappe.enqueue(
                 "drive.api.files.copy_file_or_folder_background",
                 queue="long",
@@ -2181,7 +2270,10 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
                             print(f"🚀 S3 native copy...")
 
                             manager.conn.copy_object(
-                                CopySource={"Bucket": manager.bucket, "Key": source_path},
+                                CopySource={
+                                    "Bucket": manager.bucket,
+                                    "Key": source_path,
+                                },
                                 Bucket=manager.bucket,
                                 Key=new_path_relative,
                                 ContentType=source.mime_type,
@@ -2348,7 +2440,10 @@ def copy_file_or_folder_background(
                         # Try S3 copy first
                         try:
                             manager.conn.copy_object(
-                                CopySource={"Bucket": manager.bucket, "Key": source_path},
+                                CopySource={
+                                    "Bucket": manager.bucket,
+                                    "Key": source_path,
+                                },
                                 Bucket=manager.bucket,
                                 Key=new_path_relative,
                                 ContentType=source.mime_type,
