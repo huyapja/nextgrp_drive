@@ -20,37 +20,15 @@ export function MentionSuggestion({ getMembers, nodeId }) {
   let activeIndex = 0
   let currentItems = []
 
-  // nếu bạn muốn cache normalize theo user thì dùng key này
-  function getUserKey(m) {
-    return m?.name || m?.email || m?.id || m?.full_name || JSON.stringify(m)
-  }
-
-  // =============================
-  // Panel expand/restore (NO JUMP)
-  // - tránh đụng content-visibility/contain vì sẽ reflow -> jump scroll
-  // - dùng overflow-anchor để chặn browser auto "neo" scroll
-  // =============================
   function expandCommentPanel(nodeId) {
     const panel = document.querySelector(
       `.comment-panel[data-node-comment="${nodeId}"]`
     )
     if (!panel) return
-    if (panel.dataset.__mentionExpanded === "1") return
 
     panel.dataset.__mentionExpanded = "1"
-
-    // 1️⃣ Freeze chiều cao hiện tại (chống giật)
-    const rect = panel.getBoundingClientRect()
-    panel.style.containIntrinsicSize = `${rect.height}px`
-
-    // 2️⃣ ÉP render subtree (LOGIC CŨ – QUAN TRỌNG)
     panel.style.contentVisibility = "visible"
-
-    // 3️⃣ GỠ layout containment (LOGIC CŨ – QUYẾT ĐỊNH)
     panel.style.contain = "none"
-
-    // 4️⃣ Chặn scroll anchoring (LOGIC MỚI)
-    panel.style.overflowAnchor = "none"
   }
 
   function restoreCommentPanel(nodeId) {
@@ -58,13 +36,13 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       `.comment-panel[data-node-comment="${nodeId}"]`
     )
     if (!panel) return
-    if (panel.dataset.__mentionExpanded !== "1") return
 
-    requestAnimationFrame(() => {
+    if (panel.dataset.__mentionExpanded === "1") {
       panel.style.contentVisibility = "auto"
-      panel.style.containIntrinsicSize = ""
+      panel.style.containIntrinsicSize = "180px"
+      panel.style.contain = ""
       delete panel.dataset.__mentionExpanded
-    })
+    }
   }
 
   function ensureCaretVisible(editor) {
@@ -115,12 +93,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       let lastQuery = ""
       let scrollContainer = null
       let onScroll = null
-
-      // exitReason:
-      // - "select": Enter chọn mention
-      // - "escape": user bấm Escape
-      // - "soft": mất match do gõ space/xóa @... => đừng restore panel kiểu gây reflow
-      let exitReason = null
 
       function clampIndex() {
         if (!currentItems.length) {
@@ -201,8 +173,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           el.onmousedown = (e) => {
             e.preventDefault()
             e.stopPropagation()
-            // click chọn => coi như select
-            exitReason = "select"
             selectItem(item)
           }
 
@@ -212,45 +182,9 @@ export function MentionSuggestion({ getMembers, nodeId }) {
         requestAnimationFrame(scrollActiveItemIntoView)
       }
 
-      function hardClose() {
-        // đóng popup + remove listeners (không đụng selection)
-        editorInstance?.storage &&
-          (editorInstance.storage.__mentionOpen = false)
-
-        scrollContainer?.removeEventListener("scroll", onScroll)
-        scrollContainer = null
-        onScroll = null
-
-        popup?.remove()
-        popup = null
-
-        lastClientRect = null
-        currentItems = []
-        activeIndex = 0
-        lastQuery = ""
-        lastRange = null
-        editorInstance = null
-      }
-
       function selectItem(item) {
         if (!item || !editorInstance || !lastRange) return
 
-        // 1) giữ scroll hiện tại để tránh ProseMirror/DOM làm nhảy
-        const container = editorInstance.view?.dom?.closest(
-          ".comment-scroll-container"
-        )
-        const prevScrollTop = container?.scrollTop ?? 0
-
-        // 2) đóng UI trước để tránh reflow sau khi thay đổi doc
-        //    (và để không bị props.exit() làm restore lung tung)
-        editorInstance.storage.__mentionOpen = false
-        restoreCommentPanel(nodeId)
-
-        scrollContainer?.removeEventListener("scroll", onScroll)
-        popup?.remove()
-        popup = null
-
-        // 3) insert mention, không cho editor auto scroll
         editorInstance
           .chain()
           .focus(null, { scrollIntoView: false })
@@ -264,30 +198,16 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           })
           .insertContent(" ")
           .run()
-
-        // 4) restore scroll về đúng vị trí trước đó
-        if (container) container.scrollTop = prevScrollTop
       }
 
       return {
         onStart(props) {
           const editor = props.editor
-
           const reopening =
             editor.storage.__mentionOpen &&
             isCaretInsideRange(editor, lastRange)
 
-          // case: gõ space đóng, backspace quay lại '@' => mở lại
-          const isBackToAt = props.query === "" && props.text?.endsWith("@")
-
-          if (
-            !editor.storage.__mentionUserTriggered &&
-            !reopening &&
-            !isBackToAt
-          ) {
-            return
-          }
-
+          if (!editor.storage.__mentionUserTriggered && !reopening) return
           editor.storage.__mentionUserTriggered = false
 
           editorInstance = editor
@@ -300,21 +220,18 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           if (rect) lastClientRect = rect
 
           editor.storage.__mentionOpen = true
-          exitReason = null
-
           expandCommentPanel(nodeId)
 
           popup = document.createElement("div")
           popup.className = `
-            absolute z-[9999] bg-white rounded shadow-lg border py-1
-            w-[180px] max-h-[200px] overflow-y-auto
-            overscroll-contain pointer-events-auto
-          `
+    absolute z-[9999] bg-white rounded shadow-lg border py-1
+    w-[180px] max-h-[200px] overflow-y-auto
+    overscroll-contain pointer-events-auto
+  `
 
           popup.addEventListener(
             "wheel",
             (e) => {
-              // đừng cho wheel bubble lên scroll cha
               e.stopPropagation()
             },
             { passive: true }
@@ -342,7 +259,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           clampIndex()
           renderPopup()
         },
-
         onUpdate(props) {
           currentItems = props.items || []
           lastRange = props.range
@@ -350,13 +266,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
 
           const rect = props.clientRect?.()
           if (rect) lastClientRect = rect
-
-          // soft-exit detection: khi mất match '@' (xóa @ hoặc biến @ thành thường)
-          // tùy Mention extension, props.text có thể là text quanh cursor
-          // nếu không còn '@' cuối nữa thì exitReason = soft để onExit không "giật"
-          const stillLooksLikeMention =
-            props.text?.includes("@") || props.text?.endsWith("@")
-          if (!stillLooksLikeMention) exitReason = "soft"
 
           if (activeIndex >= currentItems.length) activeIndex = 0
           clampIndex()
@@ -369,7 +278,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           if (!currentItems.length) {
             if (event.key === "Escape") {
               event.preventDefault()
-              exitReason = "escape"
               props.exit?.()
               return true
             }
@@ -395,18 +303,13 @@ export function MentionSuggestion({ getMembers, nodeId }) {
 
           if (event.key === "Enter") {
             event.preventDefault()
-            exitReason = "select"
             selectItem(currentItems[activeIndex])
-
-            // rất quan trọng: sau selectItem() mình đã tự đóng popup,
-            // gọi exit để plugin cleanup state, nhưng không để nó gây scroll jump
             props.exit?.()
             return true
           }
 
           if (event.key === "Escape") {
             event.preventDefault()
-            exitReason = "escape"
             props.exit?.()
             return true
           }
@@ -415,18 +318,11 @@ export function MentionSuggestion({ getMembers, nodeId }) {
         },
 
         onExit() {
-          // 1) trạng thái open
           editorInstance?.storage &&
             (editorInstance.storage.__mentionOpen = false)
 
-          // 2) restore panel:
-          // - selectItem đã restore rồi => không làm lại
-          // - soft exit (xóa @/space...) cũng không restore kiểu gây layout nhảy
-          if (exitReason !== "select" && exitReason !== "soft") {
-            restoreCommentPanel(nodeId)
-          }
+          restoreCommentPanel(nodeId)
 
-          // 3) cleanup DOM/listeners
           scrollContainer?.removeEventListener("scroll", onScroll)
           scrollContainer = null
           onScroll = null
@@ -438,8 +334,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           currentItems = []
           activeIndex = 0
           lastQuery = ""
-          lastRange = null
-          exitReason = null
         },
       }
     },

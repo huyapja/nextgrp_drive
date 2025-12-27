@@ -183,7 +183,7 @@ class DriveMindmapComment(Document):
                             "read": 1,
                             "comment": 1,
                             "write": 0,
-                            "share": 0,
+                            "share": 1,
                         }).insert(ignore_permissions=True)
 
                     # sau khi có quyền → join session
@@ -272,7 +272,7 @@ class DriveMindmapComment(Document):
                             "read": 1,
                             "comment": 1,
                             "write": 0,
-                            "share": 0,
+                            "share": 1,
                         }).insert(ignore_permissions=True)
 
                     ensure_session_member(self.mindmap_id, self.node_id, self.session_index, user)

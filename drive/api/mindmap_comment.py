@@ -676,8 +676,11 @@ def resolve_node(
         frappe.throw("Missing history payload")
 
     doc_drive = frappe.get_doc("Drive File", entity_name)
-    if not frappe.has_permission("Drive File", "write", doc_drive):
-        frappe.throw("No permission to resolve")
+    current_user = frappe.session.user
+
+    if doc_drive.owner != current_user:
+        if not frappe.has_permission("Drive Permission", "comment", doc_drive):
+            frappe.throw("No permission to resolve")
 
     now = frappe.utils.now_datetime()
 
