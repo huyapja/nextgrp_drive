@@ -1,0 +1,62 @@
+{
+  "doctype": "DocType",
+  "name": "Drive Mindmap Comment Session Member",
+  "module": "Drive",
+  "custom": 0,
+  "istable": 0,
+  "editable_grid": 0,
+  "engine": "InnoDB",
+  "allow_rename": 0,
+  "autoname": "hash",
+
+  "indexes": [
+    {
+      "fields": ["mindmap_id", "node_id", "session_index"]
+    },
+    {
+      "fields": ["mindmap_id", "node_id", "session_index", "user"]
+    }
+  ],
+
+  "fields": [
+    {
+      "fieldname": "mindmap_id",
+      "fieldtype": "Data",
+      "label": "Mindmap ID",
+      "reqd": 1
+    },
+    {
+      "fieldname": "node_id",
+      "fieldtype": "Data",
+      "label": "Node ID",
+      "reqd": 1
+    },
+    {
+      "fieldname": "session_index",
+      "fieldtype": "Int",
+      "label": "Session Index",
+      "reqd": 1
+    },
+    {
+      "fieldname": "user",
+      "fieldtype": "Link",
+      "options": "User",
+      "label": "User",
+      "reqd": 1
+    }
+  ],
+
+  "permissions": [
+    {
+      "role": "System Manager",
+      "read": 1,
+      "write": 1,
+      "create": 1,
+      "delete": 1
+    },
+    {
+      "role": "Drive User",
+      "read": 1
+    }
+  ]
+}

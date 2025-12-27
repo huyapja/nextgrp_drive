@@ -13,24 +13,6 @@ ALLOWED_ATTRS = {
     "span": ["id", "label", "data-mention"],
 }
 
-def get_notify_users_from_shared(entity, exclude_user=None):
-    from drive.api.permissions import get_shared_with_list
-
-    users = get_shared_with_list(entity)
-
-    result = []
-    for u in users:
-        user = u.get("user")
-        if not user:
-            continue
-        if exclude_user and user == exclude_user:
-            continue
-        result.append(user)
-
-    return result
-
-
-
 @frappe.whitelist()
 def get_comments(mindmap_id: str):
     if not mindmap_id:
@@ -504,34 +486,10 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
 
 
 
-from drive.api.permissions import get_user_access
 def notify_mentions(comment_name):
-    # 1. Lấy comment
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
-    # 2. Lấy Drive File (mindmap)
-    drive_file = frappe.db.get_value(
-        "Drive File",
-        doc.mindmap_id,
-        ["team"],
-        as_dict=True,
-    )
-
-    if not drive_file or not drive_file.get("team"):
-        return
-
-    team = drive_file["team"]
-
-    # 3. Build link
-    link = (
-        f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
-        f"?node={doc.node_id}"
-        f"&session={doc.session_index}"
-        f"&node_key={doc.node_key}"
-        f"#comment_id={doc.name}"
-    )
-
-    # 4. Parse comment an toàn
+    # parse comment
     comment = doc.comment
     if isinstance(comment, str):
         try:
@@ -539,24 +497,22 @@ def notify_mentions(comment_name):
         except Exception:
             return
 
-    mentions = comment.get("mentions", [])
+    mentions = comment.get("mentions") or []
     if not mentions:
         return
 
-    # 5. Lấy danh sách user được mention (KHÔNG lọc theo quyền)
     mentioned_users = {
         m.get("id")
         for m in mentions
         if m.get("id")
+        and m.get("kind") == "mention" 
+        and m.get("id") != doc.owner
     }
-
-    # Không xử lý mention chính mình
-    mentioned_users.discard(doc.owner)
 
     if not mentioned_users:
         return
 
-    # 6. Chỉ giữ user hợp lệ + enabled
+    # chỉ user enabled
     valid_users = frappe.get_all(
         "User",
         filters={
@@ -569,78 +525,9 @@ def notify_mentions(comment_name):
     if not valid_users:
         return
 
-    # 7. AUTO SHARE quyền read + comment nếu user chưa có quyền
-    entity = frappe.get_doc("Drive File", doc.mindmap_id)
-
-    for user in valid_users:
-        access = get_user_access(entity, user)
-
-        if not access.get("read"):
-            frappe.get_doc({
-                "doctype": "Drive Permission",
-                "entity": doc.mindmap_id,
-                "user": user,
-                "read": 1,
-                "comment": 1,
-                "write": 0,
-                "share": 0,
-            }).insert(ignore_permissions=True)
-
-    # 8. Gửi notify
-    bot_docs = frappe.conf.get("bot_docs")
-    if not bot_docs:
+    team = frappe.db.get_value("Drive File", doc.mindmap_id, "team")
+    if not team:
         return
-
-    actor_full_name = (
-        frappe.db.get_value("User", doc.owner, "full_name")
-        or doc.owner
-    )
-
-    for user in valid_users:
-        message_data = {
-            "key": "mention_comment_mindmap",
-            "title": f"{actor_full_name} đã đề cập đến bạn trong sơ đồ tư duy",
-            "full_name_owner": actor_full_name,
-            "to_user": user,
-            "comment_content": comment.get("parsed") or "",
-            "comment_id": doc.name,
-            "mindmap_id": doc.mindmap_id,
-            "node_id": doc.node_id,
-            "link": link,
-            "link_doctype": "Drive Mindmap Comment",
-            "link_document": doc.name,
-        }
-
-        RavenBot.send_notification_to_user(
-            bot_name=bot_docs,
-            user_id=user,
-            link_doctype="Drive Mindmap Comment",
-            link_document=doc.name,
-            message=json.dumps(
-                message_data,
-                ensure_ascii=False,
-                default=str,
-            ),
-        )
-
-
-def notify_comment(comment_name):
-    doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
-
-    notify_users = get_notify_users_from_shared(
-        entity=doc.mindmap_id
-    )
-
-    drive_file = frappe.get_value(
-        "Drive File",
-        doc.mindmap_id,
-        ["team"],
-        as_dict=True,
-    )
-    if not drive_file or not drive_file.get("team"):
-        return
-
-    team = drive_file["team"]
 
     link = (
         f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
@@ -650,6 +537,40 @@ def notify_comment(comment_name):
         f"#comment_id={doc.name}"
     )
 
+    actor_full_name = (
+        frappe.db.get_value("User", doc.owner, "full_name")
+        or doc.owner
+    )
+
+    bot_docs = frappe.conf.get("bot_docs")
+    if not bot_docs:
+        return
+
+    for user in valid_users:
+        RavenBot.send_notification_to_user(
+            bot_name=bot_docs,
+            user_id=user,
+            link_doctype="Drive Mindmap Comment",
+            link_document=doc.name,
+            message=json.dumps(
+                {
+                    "key": "mention_comment_mindmap",
+                    "title": f"{actor_full_name} đã đề cập đến bạn trong sơ đồ tư duy",
+                    "full_name_owner": actor_full_name,
+                    "comment_content": comment.get("parsed") or "",
+                    "comment_id": doc.name,
+                    "mindmap_id": doc.mindmap_id,
+                    "node_id": doc.node_id,
+                    "link": link,
+                },
+                ensure_ascii=False,
+                default=str,
+            ),
+        )
+
+def notify_comment(comment_name):
+    doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
+
     comment = doc.comment
     if isinstance(comment, str):
         try:
@@ -657,40 +578,88 @@ def notify_comment(comment_name):
         except Exception:
             return
 
-    actor_full_name = frappe.db.get_value("User", doc.owner, "full_name") or doc.owner
+    mentions = comment.get("mentions") or []
+
+    is_reply = any(
+        m.get("kind") == "reply"
+        for m in mentions
+    )
+
+    actor_full_name = (
+        frappe.db.get_value("User", doc.owner, "full_name")
+        or doc.owner
+    )
+
+    title = (
+        f"{actor_full_name} đã trả lời bình luận của bạn trong sơ đồ tư duy"
+        if is_reply
+        else f"{actor_full_name} đã bình luận trong sơ đồ tư duy"
+    )
+
+    mentioned_users = {
+        m.get("id")
+        for m in mentions
+        if m.get("id") and m.get("kind") == "mention"
+    }
+
+    notify_users = set(
+        frappe.get_all(
+            "Drive Mindmap Comment Session Member",
+            filters={
+                "mindmap_id": doc.mindmap_id,
+                "node_id": doc.node_id,
+                "session_index": doc.session_index,
+            },
+            pluck="user",
+        )
+    )
+
+    notify_users.discard(doc.owner)
+    notify_users -= mentioned_users
 
     if not notify_users:
         return
 
+    team = frappe.db.get_value("Drive File", doc.mindmap_id, "team")
+    if not team:
+        return
+
+    link = (
+        f"/drive/t/{team}/mindmap/{doc.mindmap_id}"
+        f"?node={doc.node_id}"
+        f"&session={doc.session_index}"
+        f"&node_key={doc.node_key}"
+        f"#comment_id={doc.name}"
+    )
+
+
+
+    bot_docs = frappe.conf.get("bot_docs")
+    if not bot_docs:
+        return
+
     for user in notify_users:
-        # không notify chính mình
-        if user == doc.owner:
-            continue
-
-        message_data = {
-            "key": "comment_mindmap",
-            "title": f"{actor_full_name} đã bình luận trong sơ đồ tư duy",
-            "full_name_owner": actor_full_name,
-            "to_user": user,
-            "comment_content": comment.get("parsed") or "",
-            "comment_id": doc.name,
-            "mindmap_id": doc.mindmap_id,
-            "node_id": doc.node_id,
-            "link": link,       
-        }
-
         RavenBot.send_notification_to_user(
-            bot_name=frappe.conf.get("bot_docs"),
+            bot_name=bot_docs,
             user_id=user,
+            link_doctype="Drive Mindmap Comment",
+            link_document=doc.name,
             message=json.dumps(
-                message_data,
+                {
+                    "key": "comment_mindmap",
+                    "title": title,
+                    "full_name_owner": actor_full_name,
+                    "comment_content": comment.get("parsed") or "",
+                    "comment_id": doc.name,
+                    "mindmap_id": doc.mindmap_id,
+                    "node_id": doc.node_id,
+                    "link": link,
+                    "is_reply": is_reply,
+                },
                 ensure_ascii=False,
                 default=str,
             ),
-            link_doctype= "Drive Mindmap Comment",
-            link_document= doc.name,     
         )
-    return {"status": "ok", "comment": doc.as_dict()}
 
 
 @frappe.whitelist()

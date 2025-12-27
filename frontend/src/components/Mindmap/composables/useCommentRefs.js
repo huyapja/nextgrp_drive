@@ -13,9 +13,9 @@ export function useCommentRefs() {
     if (!imgs.length) return Promise.resolve()
 
     return Promise.all(
-      [...imgs].map(img => {
+      [...imgs].map((img) => {
         if (img.complete) return Promise.resolve()
-        return new Promise(resolve => {
+        return new Promise((resolve) => {
           img.onload = resolve
           img.onerror = resolve
         })
@@ -34,42 +34,52 @@ export function useCommentRefs() {
     await nextTick()
 
     // đợi browser ổn định layout
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
+    await new Promise((r) =>
+      requestAnimationFrame(() => requestAnimationFrame(r))
+    )
   }
 
-async function scrollToComment(id) {
-  const container = document.querySelector(".comment-scroll-container")
-  if (!container) return
+  async function scrollToComment(id) {
+    const container = document.querySelector(".comment-scroll-container")
+    if (!container) return false
 
-  // 1️⃣ Đợi ref mount (CHỈ CÓ CÁCH NÀY MỚI CHUẨN)
-  let el = commentRefs.value[id]
-  let retries = 30                   // 30 × 20ms = 600ms (quá đủ)
-  while (!el && retries > 0) {
-    await new Promise(r => setTimeout(r, 20))
-    el = commentRefs.value[id]
-    retries--
+    let el = null
+    let retries = 30
+
+    while (retries-- > 0) {
+      el = commentRefs.value[id]
+      if (el) break
+      await nextTick()
+    }
+
+    if (!el) return false
+
+    await waitImagesLoaded(el)
+
+    await nextTick()
+    await new Promise((r) =>
+      requestAnimationFrame(() => requestAnimationFrame(r))
+    )
+
+    const elRect = el.getBoundingClientRect()
+    const containerRect = container.getBoundingClientRect()
+
+    const offset =
+      elRect.top -
+      containerRect.top -
+      container.clientHeight / 2 +
+      elRect.height / 2
+
+    container.scrollBy({
+      top: offset,
+      behavior: "smooth",
+    })
+
+    el.classList.add("highlight-comment")
+    setTimeout(() => el.classList.remove("highlight-comment"), 1500)
+
+    return true
   }
-
-  if (!el) {
-    console.warn("❌ Comment ref never mounted:", id)
-    return
-  }
-
-  // 2️⃣ Đợi ảnh load (optional nhưng tốt)
-  await waitImagesLoaded(el)
-
-  // 3️⃣ Đợi layout ổn định
-  await nextTick()
-  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-
-  // 4️⃣ Scroll chính xác
-  el.scrollIntoView({ behavior: "smooth", block: "center" })
-
-  // 5️⃣ Highlight
-  el.classList.add("highlight-comment")
-  setTimeout(() => el.classList.remove("highlight-comment"), 1500)
-}
-
 
   return { commentRefs, setCommentRef, scrollToComment }
 }

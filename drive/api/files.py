@@ -96,10 +96,10 @@ def upload_file(team, personal=None, fullpath=None, parent=None, last_modified=N
                 created_folders.append(new_parent)
             parent = new_parent
 
-    if not frappe.has_permission(
-        doctype="Drive File", doc=parent, ptype="write", user=frappe.session.user
-    ):
-        frappe.throw("Ask the folder owner for upload access.", frappe.PermissionError)
+    # if not frappe.has_permission(
+    #     doctype="Drive File", doc=parent, ptype="write", user=frappe.session.user
+    # ):
+    #     frappe.throw("Ask the folder owner for upload access.", frappe.PermissionError)
 
     storage_data = storage_bar_data(team)
     storage_data_limit = storage_data["limit"] * 1024 * 1024 * 1024
