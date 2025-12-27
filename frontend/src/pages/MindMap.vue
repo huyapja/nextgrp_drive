@@ -3655,10 +3655,11 @@ onMounted(() => {
     socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
     socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
     socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
+    socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
+    socket.on('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
     
     // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
     socket.on('connect', () => {
-      
       socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
     })
     
@@ -3666,10 +3667,7 @@ onMounted(() => {
   } else {
     console.warn('⚠️ Socket is not available, realtime updates will not work')
   }
-  socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
-  socket.on('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
-  socket.on('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
-  socket.on('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
+
   window.addEventListener("click", handleClickOutside, true)
 })
 
@@ -5374,19 +5372,26 @@ function handleRealtimeResolvedComment(payload){
   if (!payload?.node_id) return
 
   const node = nodes.value.find(n => n.id === payload.node_id)
-  if (node && node.count > 0) {
-    node.count = node.count - payload.count
-  }
-  if(node.count === 0){
-    if (currentView.value === 'text') {
-      const li = document.querySelector(
-        `li[data-node-id="${payload.node_id}"]`
-      )
 
-      if (li) {
-        li.setAttribute("data-has-count", "false")
-      }
-    }    
+  if (currentView.value === 'visual') {
+    if (node && node.count > 0) {
+      node.count = node.count - payload.count
+    }
+  }
+
+  if (currentView.value === 'text') {
+    if (node && node.count > 0) {
+      node.count = node.count - payload.count
+    }
+    if(node.count === 0){
+        const li = document.querySelector(
+          `li[data-node-id="${payload.node_id}"]`
+        )
+
+        if (li) {
+          li.setAttribute("data-has-count", "false")
+        }
+      }    
   }
 }
 
@@ -5454,9 +5459,23 @@ function handleRealtimeTaskStatusUpdate(payload) {
 function handleRealtimeUnresolvedComment(payload){
   if (!payload?.node_id) return
   const node = nodes.value.find(n => n.id === payload.node_id)
-  
+
   if (node) {
     node.count = node.count + payload.comment_count
+  }
+  if (currentView.value === 'visual') {
+    return
+  }
+  
+  if (currentView.value === 'text') {
+    if (node && node.count > 0) {
+        const li = document.querySelector(
+          `li[data-node-id="${payload.node_id}"]`
+        )
+        if (li) {
+          li.setAttribute("data-has-count", "true")
+        }      
+    }
   }
 }
 

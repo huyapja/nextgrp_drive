@@ -706,10 +706,6 @@ function handleClickGroup(group, e) {
 
   const groupKey = groupKeyOf(group)
 
-  console.log(">>>>>> groupKey:", groupKey);
-  console.log(">>>>>> activeGroupKey.value:", activeGroupKey.value);
-
-
   if (activeGroupKey.value === groupKey) {
     return
   }
