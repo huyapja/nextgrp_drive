@@ -1183,10 +1183,10 @@ function updateImageLayout(view) {
       const currentHeight = img.style.height
       const currentObjectFit = img.style.objectFit || getComputedStyle(img).objectFit
       
-      // ⚠️ FIX: Luôn set height = auto và object-fit = contain để ảnh hiển thị đầy đủ
+      // Thống nhất chiều cao cho tất cả ảnh
       if (currentHeight !== newHeight) {
         img.style.setProperty('height', newHeight, 'important')
-        img.style.setProperty('max-height', 'none', 'important')
+        img.style.setProperty('max-height', '200px', 'important') // Chiều cao tối đa thống nhất
       }
       if (currentObjectFit !== newObjectFit) {
         img.style.setProperty('object-fit', newObjectFit, 'important')
@@ -1288,14 +1288,11 @@ const ImageWithMenuExtension = Extension.create({
                 
               }
               
-              // ⚠️ FIX: Height luôn là auto để ảnh hiển thị đầy đủ, không bị crop
-              // Thay vì set height cố định (150px, 100px) gây crop ảnh,
-              // ta dùng height: auto để ảnh giữ tỷ lệ tự nhiên
+              // Thống nhất chiều cao cho tất cả ảnh để không bị cao thấp không thống nhất
+              // Dùng max-height cố định để tất cả ảnh có cùng chiều cao tối đa
               let imageHeight = 'auto'
-              let objectFit = 'contain' // ⚠️ FIX: Dùng contain thay vì cover để không crop ảnh
-              
-              // ⚠️ OPTIONAL: Có thể set max-height để limit chiều cao tối đa nếu muốn
-              // Nhưng để ảnh hiển thị đầy đủ, tốt nhất là dùng auto
+              let maxHeight = '200px' // Chiều cao tối đa thống nhất cho tất cả ảnh
+              let objectFit = 'contain' // Dùng contain để không crop ảnh, giữ tỷ lệ
               
               dom.style.cssText = `
                 position: relative;
@@ -1320,7 +1317,7 @@ const ImageWithMenuExtension = Extension.create({
                 display: block;
                 width: 100%;
                 height: ${imageHeight} !important;
-                max-height: none !important;
+                max-height: ${maxHeight} !important;
                 object-fit: ${objectFit};
                 border-radius: 5px;
                 cursor: zoom-in;
@@ -1708,6 +1705,302 @@ const ImageWithMenuExtension = Extension.create({
                   menuButton.removeEventListener('mouseleave', hideButton)
                 }
               }
+            }
+          }
+        }
+      })
+    ]
+  }
+})
+
+// Extension để ngăn chặn cursor xuất hiện trong vùng ảnh (image-wrapper-node)
+const PreventCursorInImageAreaExtension = Extension.create({
+  name: 'preventCursorInImageArea',
+  
+  addProseMirrorPlugins() {
+    let editorView = null
+    
+    return [
+      new Plugin({
+        view: (view) => {
+          editorView = view
+          return {}
+        },
+        appendTransaction: (transactions, oldState, newState) => {
+          // Chỉ xử lý khi có thay đổi selection
+          const selectionChanged = transactions.some(tr => tr.selectionSet)
+          if (!selectionChanged) {
+            return null
+          }
+          
+          const { selection } = newState
+          const { $from } = selection
+          
+          // Kiểm tra xem selection có nằm cạnh image node không
+          let needsMove = false
+          
+          // Kiểm tra node trước và sau selection
+          const nodeBefore = $from.nodeBefore
+          const nodeAfter = $from.nodeAfter
+          
+          if (nodeBefore && nodeBefore.type.name === 'image') {
+            needsMove = true
+          }
+          
+          if (nodeAfter && nodeAfter.type.name === 'image') {
+            needsMove = true
+          }
+          
+          // Kiểm tra xem có click vào vùng image-wrapper-node không (qua DOM)
+          if (!needsMove && editorView) {
+            try {
+              const domAtPos = editorView.domAtPos($from.pos)
+              if (domAtPos) {
+                let element = domAtPos.node
+                if (element.nodeType === Node.TEXT_NODE) {
+                  element = element.parentElement
+                }
+                
+                // Kiểm tra xem có nằm trong image-wrapper-node không
+                if (element && (
+                  element.classList?.contains('image-wrapper-node') ||
+                  element.closest('.image-wrapper-node')
+                )) {
+                  needsMove = true
+                }
+              }
+            } catch (e) {
+              // Ignore errors
+            }
+          }
+          
+          if (!needsMove) {
+            return null
+          }
+          
+          // Tìm vị trí an toàn để di chuyển cursor
+          const { doc } = newState
+          let safePos = null
+          let lastBlockquoteEnd = null
+          
+          // Tìm blockquote (mô tả) cuối cùng
+          doc.descendants((node, nodePos) => {
+            if (node.type.name === 'blockquote') {
+              const blockquoteEnd = nodePos + node.nodeSize
+              if (lastBlockquoteEnd === null || blockquoteEnd > lastBlockquoteEnd) {
+                lastBlockquoteEnd = blockquoteEnd
+                node.descendants((pNode, pPos) => {
+                  if (pNode.type.name === 'paragraph') {
+                    const paragraphPos = nodePos + pPos + 1
+                    if (paragraphPos < blockquoteEnd) {
+                      safePos = paragraphPos
+                    }
+                  }
+                })
+              }
+            }
+          })
+          
+          // Nếu không tìm thấy blockquote, tìm paragraph (title) cuối cùng
+          if (safePos === null) {
+            let lastParagraphEnd = null
+            doc.descendants((node, nodePos) => {
+              if (node.type.name === 'paragraph') {
+                const resolvedPos = doc.resolve(nodePos)
+                let inBlockquote = false
+                for (let i = resolvedPos.depth; i > 0; i--) {
+                  if (resolvedPos.node(i).type.name === 'blockquote') {
+                    inBlockquote = true
+                    break
+                  }
+                }
+                if (!inBlockquote) {
+                  const paragraphEnd = nodePos + node.nodeSize
+                  if (lastParagraphEnd === null || paragraphEnd > lastParagraphEnd) {
+                    lastParagraphEnd = paragraphEnd
+                    safePos = paragraphEnd - 1
+                  }
+                }
+              }
+            })
+          }
+          
+          if (safePos === null) {
+            safePos = doc.content.size
+          }
+          
+          // Di chuyển cursor đến vị trí an toàn
+          try {
+            const tr = newState.tr
+            const selection = TextSelection.create(tr.doc, safePos)
+            tr.setSelection(selection)
+            return tr
+          } catch (e) {
+            return null
+          }
+        },
+        props: {
+          handleClick: (view, pos, event) => {
+            const target = event.target
+            
+            // Kiểm tra xem click có xảy ra trong vùng image-wrapper-node không
+            if (target.closest('.image-wrapper-node') || 
+                target.classList?.contains('image-wrapper-node') ||
+                (target.tagName === 'IMG' && target.closest('.image-wrapper-node'))) {
+              
+              // Ngăn chặn click mặc định
+              event.preventDefault()
+              event.stopPropagation()
+              
+              // Di chuyển cursor đến vị trí an toàn
+              const { state } = view
+              const { doc } = state
+              
+              // Tìm blockquote (mô tả) cuối cùng hoặc paragraph (title) cuối cùng
+              let safePos = null
+              let lastBlockquoteEnd = null
+              
+              doc.descendants((node, nodePos) => {
+                if (node.type.name === 'blockquote') {
+                  const blockquoteEnd = nodePos + node.nodeSize
+                  if (lastBlockquoteEnd === null || blockquoteEnd > lastBlockquoteEnd) {
+                    lastBlockquoteEnd = blockquoteEnd
+                    node.descendants((pNode, pPos) => {
+                      if (pNode.type.name === 'paragraph') {
+                        const paragraphPos = nodePos + pPos + 1
+                        if (paragraphPos < blockquoteEnd) {
+                          safePos = paragraphPos
+                        }
+                      }
+                    })
+                  }
+                }
+              })
+              
+              if (safePos === null) {
+                let lastParagraphEnd = null
+                doc.descendants((node, nodePos) => {
+                  if (node.type.name === 'paragraph') {
+                    const resolvedPos = doc.resolve(nodePos)
+                    let inBlockquote = false
+                    for (let i = resolvedPos.depth; i > 0; i--) {
+                      if (resolvedPos.node(i).type.name === 'blockquote') {
+                        inBlockquote = true
+                        break
+                      }
+                    }
+                    if (!inBlockquote) {
+                      const paragraphEnd = nodePos + node.nodeSize
+                      if (lastParagraphEnd === null || paragraphEnd > lastParagraphEnd) {
+                        lastParagraphEnd = paragraphEnd
+                        safePos = paragraphEnd - 1
+                      }
+                    }
+                  }
+                })
+              }
+              
+              if (safePos === null) {
+                safePos = doc.content.size
+              }
+              
+              // Di chuyển cursor đến vị trí an toàn
+              try {
+                const transaction = state.tr
+                const selection = TextSelection.create(transaction.doc, safePos)
+                transaction.setSelection(selection)
+                view.dispatch(transaction)
+                view.focus()
+              } catch (e) {
+                // Nếu không thể tạo selection, bỏ qua
+              }
+              
+              return true // Ngăn chặn xử lý click mặc định
+            }
+            
+            return false // Cho phép xử lý click mặc định
+          },
+          handleDOMEvents: {
+            mousedown: (view, event) => {
+              const target = event.target
+              
+              // Kiểm tra xem mousedown có xảy ra trong vùng image-wrapper-node không
+              if (target.closest('.image-wrapper-node') || 
+                  target.classList?.contains('image-wrapper-node') ||
+                  (target.tagName === 'IMG' && target.closest('.image-wrapper-node'))) {
+                
+                // Chỉ ngăn chặn nếu không phải click vào menu button
+                if (!target.closest('.image-menu-button') && 
+                    !target.closest('.image-context-menu')) {
+                  event.preventDefault()
+                  event.stopPropagation()
+                  
+                  // Di chuyển cursor đến vị trí an toàn
+                  const { state } = view
+                  const { doc } = state
+                  
+                  let safePos = null
+                  let lastBlockquoteEnd = null
+                  
+                  doc.descendants((node, nodePos) => {
+                    if (node.type.name === 'blockquote') {
+                      const blockquoteEnd = nodePos + node.nodeSize
+                      if (lastBlockquoteEnd === null || blockquoteEnd > lastBlockquoteEnd) {
+                        lastBlockquoteEnd = blockquoteEnd
+                        node.descendants((pNode, pPos) => {
+                          if (pNode.type.name === 'paragraph') {
+                            const paragraphPos = nodePos + pPos + 1
+                            if (paragraphPos < blockquoteEnd) {
+                              safePos = paragraphPos
+                            }
+                          }
+                        })
+                      }
+                    }
+                  })
+                  
+                  if (safePos === null) {
+                    let lastParagraphEnd = null
+                    doc.descendants((node, nodePos) => {
+                      if (node.type.name === 'paragraph') {
+                        const resolvedPos = doc.resolve(nodePos)
+                        let inBlockquote = false
+                        for (let i = resolvedPos.depth; i > 0; i--) {
+                          if (resolvedPos.node(i).type.name === 'blockquote') {
+                            inBlockquote = true
+                            break
+                          }
+                        }
+                        if (!inBlockquote) {
+                          const paragraphEnd = nodePos + node.nodeSize
+                          if (lastParagraphEnd === null || paragraphEnd > lastParagraphEnd) {
+                            lastParagraphEnd = paragraphEnd
+                            safePos = paragraphEnd - 1
+                          }
+                        }
+                      }
+                    })
+                  }
+                  
+                  if (safePos === null) {
+                    safePos = doc.content.size
+                  }
+                  
+                  try {
+                    const transaction = state.tr
+                    const selection = TextSelection.create(transaction.doc, safePos)
+                    transaction.setSelection(selection)
+                    view.dispatch(transaction)
+                    view.focus()
+                  } catch (e) {
+                    // Nếu không thể tạo selection, bỏ qua
+                  }
+                  
+                  return true
+                }
+              }
+              
+              return false
             }
           }
         }
@@ -3557,6 +3850,7 @@ export default {
         ImageExtension.configure({ disableDropImage: true }), // Extension để chèn hình ảnh (disable dropImagePlugin để tránh duplicate)
         ImageClickExtension, // Extension để xử lý click vào ảnh
         ImageWithMenuExtension, // Extension để render image với menu button
+        PreventCursorInImageAreaExtension, // Extension để ngăn chặn cursor xuất hiện trong vùng ảnh
         StarterKit.configure({
           // Disable các extension không cần thiết từ StarterKit
           bold: false, // Dùng extension riêng
@@ -4911,10 +5205,11 @@ export default {
   width: 100% !important;
   max-width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* 2 ảnh trong wrapper: mỗi ảnh 50% */
@@ -4932,10 +5227,11 @@ export default {
   width: 100% !important;
   max-width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* 3+ ảnh trong wrapper: mỗi ảnh 33.33% */
@@ -4953,10 +5249,11 @@ export default {
   width: 100% !important;
   max-width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* Fallback: Style cho ảnh direct children (khi chưa có wrapper) */
@@ -5074,6 +5371,7 @@ export default {
   box-sizing: border-box !important;
   position: relative;
   outline: none !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa cho tất cả ảnh */
 }
 
 /* Bỏ border khi click/focus */
@@ -5245,10 +5543,11 @@ export default {
 :deep(.mindmap-editor-prose .image-wrapper img) {
   width: 100% !important;
   height: auto !important;
+  max-height: 200px !important; /* Thống nhất chiều cao tối đa */
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: contain; /* Dùng contain để không crop ảnh */
 }
 
 /* Menu button - ULTRA CRITICAL với specificity cao */

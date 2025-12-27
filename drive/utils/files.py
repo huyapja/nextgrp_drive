@@ -273,23 +273,33 @@ class FileManager:
 
     def get_file(self, path):
         """
-        Function to read file from a s3 file.
+        Function to read file from S3 or local disk.
 
-        Temporary: if not found in S3, look at disk.
+        ⚠️ FIX: Check local file first (fast) before trying S3 to avoid slow S3 searches
+        when file path is already stored in doctype.
         """
-        not_s3 = not self.s3_enabled
+        local_path = self.site_folder / path
+
+        # ⚠️ FIX: Check local file first (fast check)
+        # If file exists locally, use it directly instead of searching S3
+        if local_path.exists():
+            with DistributedLock(path, exclusive=False):
+                with open(local_path, "rb") as fh:
+                    return BytesIO(fh.read())
+
+        # If not found locally and S3 is enabled, try S3
         if self.s3_enabled:
             try:
                 buf = self.conn.get_object(Bucket=self.bucket, Key=path)["Body"]
-            except:
-                not_s3 = True
+                return buf
+            except Exception as e:
+                # If S3 also fails, raise the exception instead of silent fallback
+                # This provides clearer error messages
+                error_msg = f"File not found at path: {path} (S3 error: {str(e)})"
+                raise FileNotFoundError(error_msg) from e
 
-        if not_s3:
-            with DistributedLock(path, exclusive=False):
-                with open(self.site_folder / path, "rb") as fh:
-                    buf = BytesIO(fh.read())
-
-        return buf
+        # If S3 is not enabled and file doesn't exist locally, raise error
+        raise FileNotFoundError(f"File not found at path: {local_path}")
 
     def get_thumbnail_path(self, team, name):
         return (

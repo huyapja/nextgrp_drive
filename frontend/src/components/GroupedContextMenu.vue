@@ -41,7 +41,11 @@ const props = defineProps({
     default: () => []
   },
   event: Object,
-  close: Function
+  close: Function,
+  onDownloadMindmap: {
+    type: Function,
+    default: null
+  }
 })
 
 const contextMenu = ref(null)
@@ -177,11 +181,20 @@ const groupedMenuItems = computed(() => {
   )
   if (downloadItems.length > 0) {
     const item = downloadItems[0]
+    const entity = store.state.activeEntity
+    // Kiểm tra nếu là mindmap và có function export nmm
+    const isMindmap = entity?.mindmap || entity?.type === 'mindmap'
     items.push({
       label: actionGroups.download.label,
       icon: actionGroups.download.icon,
       command: () => {
-        item.action([store.state.activeEntity])
+        // Nếu là mindmap và có function export nmm, gọi nó
+        if (isMindmap && props.onDownloadMindmap) {
+          props.onDownloadMindmap(entity)
+        } else {
+          // Ngược lại, dùng action mặc định
+          item.action([entity])
+        }
         closeMenu()
       },
       template: 'groupedItem',

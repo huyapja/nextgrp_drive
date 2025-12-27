@@ -543,7 +543,7 @@ const importMindMapHandler = () => {
   if (!importMindMapInput.value) {
     const input = document.createElement('input')
     input.type = 'file'
-    input.accept = '.nextgrp,.json'
+    input.accept = '.nmm,.nextgrp,.json'
     input.style.display = 'none'
     input.addEventListener('change', handleImportMindMapFile)
     document.body.appendChild(input)
@@ -564,9 +564,9 @@ const handleImportMindMapFile = async (event) => {
 
   // Validate file extension
   const fileName = file.name.toLowerCase()
-  if (!fileName.endsWith('.nextgrp') && !fileName.endsWith('.json')) {
+  if (!fileName.endsWith('.nmm') && !fileName.endsWith('.nextgrp') && !fileName.endsWith('.json')) {
     toast({ 
-      title: "File không hợp lệ. Vui lòng chọn file .nextgrp hoặc .json", 
+      title: "File không hợp lệ. Vui lòng chọn file .nmm, .nextgrp hoặc .json", 
       indicator: "red" 
     })
     return
@@ -605,7 +605,7 @@ const handleImportMindMapFile = async (event) => {
     }
 
     // Lấy tên mindmap từ file hoặc dùng tên file (bỏ extension)
-    const mindmapTitle = nextgrpData.mindmap?.title || file.name.replace(/\.(nextgrp|json)$/i, '')
+    const mindmapTitle = nextgrpData.mindmap?.title || file.name.replace(/\.(nmm|nextgrp|json)$/i, '')
     
     // Tạo mindmap mới
     const createData = await createMindMap.submit({
@@ -662,6 +662,11 @@ const uploadOptions = [
     icon: LucideFolderUp,
     onClick: () => emitter.emit("uploadFolder"),
   },
+  {
+    label: "Nạp sơ đồ tư duy",
+    icon: LucideFileDown,
+    onClick: importMindMapHandler,
+  },
 ]
 
 const createOptions = [
@@ -679,11 +684,6 @@ const createOptions = [
     label: "Sơ đồ tư duy",
     icon: MindmapIcon,
     onClick: showMindMapDialogHandler,
-  },
-  {
-    label: "Import sơ đồ tư duy",
-    icon: LucideFileDown,
-    onClick: importMindMapHandler,
   },
   {
     label: "Liên kết",
