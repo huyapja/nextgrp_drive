@@ -1,23 +1,21 @@
 <template>
   <Teleport to="body">
 
-    <div
-      :class="[
-        'comment-panel-list absolute w-[320px] bg-[#f5f6f7] z-[80] border-l',
+    <div :class="[
+      'comment-panel-list absolute w-[320px] bg-[#f5f6f7] z-[80] border-l',
 
-        panelPositionClass,
+      panelPositionClass,
 
-        enableSlideAnimation && 'transition-all duration-300',
-        enableSlideAnimation
-          ? (visible ? 'translate-x-0' : 'translate-x-full')
-          : 'translate-x-0',
+      enableSlideAnimation && 'transition-all duration-300',
+      enableSlideAnimation
+        ? (visible ? 'translate-x-0' : 'translate-x-full')
+        : 'translate-x-0',
 
-        enableSlideAnimation && closing && 'animate-slide-out'
-      ]"
-    >
+      enableSlideAnimation && closing && 'animate-slide-out'
+    ]">
       <!-- Header -->
       <div class="flex py-4 px-3 items-center">
-        <p v-if="enableSlideAnimation"  class="font-medium">Nhận xét ({{ totalComments }})</p>
+        <p v-if="enableSlideAnimation" class="font-medium">Nhận xét ({{ totalComments }})</p>
         <Popover @hide="clearCommentIdFromUrl" :dismissable="!galleryVisible" ref="op"
           class="w-[360px] history-mindmap-popover">
           <MindmapCommentHistory :visible="isHistoryOpen" :mindmapId="entityName" :scrollTarget="historyScrollTarget"
@@ -710,7 +708,7 @@ function handleClickGroup(group, e) {
 
   console.log(">>>>>> groupKey:", groupKey);
   console.log(">>>>>> activeGroupKey.value:", activeGroupKey.value);
-  
+
 
   if (activeGroupKey.value === groupKey) {
     return
@@ -1058,33 +1056,48 @@ watch(
 
     // COMMENT
     if (task.type === "comment") {
-      // 1. tìm comment
       const comment = comments.value.find(c => c.name === task.id)
       if (!comment) return
 
-      // 2. set đúng groupKey của comment
       const key = `${comment.node_id}__${comment.session_index}`
 
-      // set activeGroupKey TRƯỚC
       activeGroupKey.value = key
 
-      // chờ DOM render group đó
-      let retry = 20
+      let retry = 30
       while (retry-- > 0 && !groupRefs.value[key]) {
         await nextTick()
       }
 
-      // 3. scroll đến comment
-      await new Promise(r => setTimeout(r, 200))
-      const ok = scrollToComment(task.id)
+      const groupEl = groupRefs.value[key]
+      const container = document.querySelector(".comment-scroll-container")
+      if (!groupEl || !container) return
+
+      // 🧘 silent align to group
+      const groupRect = groupEl.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      const groupTop = groupRect.top - containerRect.top
+      const groupBottom = groupRect.bottom - containerRect.top
+
+      if (groupTop < 0) {
+        container.scrollTop += groupTop - 24
+      } else if (groupBottom > container.clientHeight) {
+        container.scrollTop += groupBottom - container.clientHeight + 24
+      }
+
+      // wait layout stable
+      await nextTick()
+      await new Promise(r =>
+        requestAnimationFrame(() => requestAnimationFrame(r))
+      )
+
+      const ok = await scrollToComment(task.id)
 
       if (ok !== false) {
         pendingScroll.value = null
         hasConsumedRouteNode.value = true
       }
-
-      return
     }
+
 
 
     if (task.type === "group") {

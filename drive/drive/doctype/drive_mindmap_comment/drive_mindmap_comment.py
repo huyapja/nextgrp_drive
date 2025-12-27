@@ -13,10 +13,35 @@ ALLOWED_TAGS = ["p", "br", "b", "i", "strong", "em", "img", "a", "span"]
 ALLOWED_ATTRS = {
     "img": ["src", "alt"],
     "a": ["href", "target"],
-    "span": ["id", "label", "data-mention"]
+    "span": ["id", "label", "data-mention", "data-kind"],
 }
 
 cleaner = Cleaner(tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+
+
+def ensure_session_member(mindmap_id, node_id, session_index, user):
+    if not user:
+        return
+
+    exists = frappe.db.exists(
+        "Drive Mindmap Comment Session Member",
+        {
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "session_index": session_index,
+            "user": user,
+        }
+    )
+
+    if not exists:
+        frappe.get_doc({
+            "doctype": "Drive Mindmap Comment Session Member",
+            "mindmap_id": mindmap_id,
+            "node_id": node_id,
+            "session_index": session_index,
+            "user": user,
+        }).insert(ignore_permissions=True)
+
 
 
 class DriveMindmapComment(Document):
@@ -44,7 +69,8 @@ class DriveMindmapComment(Document):
         for tag in soup.find_all("span", attrs={"data-mention": True}):
             mentions.append({
                 "id": tag.get("data-mention"),
-                "label": tag.text.replace("@", "").strip()
+                "label": tag.text.replace("@", "").strip(),
+                "kind": tag.get("data-kind") or "mention",
             })
 
         safe_html = cleaner.clean(raw_html)
@@ -72,7 +98,8 @@ class DriveMindmapComment(Document):
         for tag in soup.find_all("span", attrs={"data-mention": True}):
             mentions.append({
                 "id": tag.get("data-mention"),
-                "label": tag.text.replace("@", "").strip()
+                "label": tag.text.replace("@", "").strip(),
+                "kind": tag.get("data-kind") or "mention",
             })
 
         # ---- 2) Sanitize HTML ----
@@ -88,86 +115,181 @@ class DriveMindmapComment(Document):
             "mentions": mentions,
             "created_at": self.comment.get("created_at")
         }
-    
-    def after_insert(self):
-        """Send only ONE type of notification:
-        - If comment contains mentions → send mention notification ONLY.
-        - Else → send normal comment notification.
-        """
-        comment = self.comment
 
+    def after_insert(self):
+        """
+        - Ensure session member: commenter + mindmap owner
+        - Nếu có mention:
+            + validate enabled users
+            + auto share read/comment nếu chưa có read
+            + ensure session member cho mentioned users
+        - Notify:
+            + notify_comment luôn chạy
+            + notify_mentions chạy nếu có mention thật
+        """
+
+        # 1) Ensure session members cơ bản
+        ensure_session_member(self.mindmap_id, self.node_id, self.session_index, self.owner)
+
+        mindmap_owner = frappe.db.get_value("Drive File", self.mindmap_id, "owner")
+        if mindmap_owner:
+            ensure_session_member(self.mindmap_id, self.node_id, self.session_index, mindmap_owner)
+
+        # 2) Parse comment safely
+        comment = self.comment
         if isinstance(comment, str):
             try:
                 comment = json.loads(comment)
             except Exception:
-                return
-
-        if not isinstance(comment, dict):
-            return
+                comment = {}
 
         mentions = comment.get("mentions") or []
 
-        # Nếu có mention → chỉ notify mention, KHÔNG notify comment thường
-        if mentions:
-            frappe.enqueue(
-                "drive.api.mindmap_comment.notify_mentions",
-                queue="short",
-                comment_name=self.name,
-                enqueue_after_commit=True 
-            )
-            return
+        # 3) Collect real mention users (loại chính mình)
+        mentioned_users = {
+            m.get("id")
+            for m in mentions
+            if isinstance(m, dict)
+            and m.get("kind") == "mention"
+            and m.get("id")
+            and m.get("id") != self.owner
+        }
 
+        # 4) Nếu có mention → check enabled + auto share + join session
+        has_real_mentions = bool(mentioned_users)
+
+        if has_real_mentions:
+            # chỉ lấy user enabled
+            valid_users = frappe.get_all(
+                "User",
+                filters={"name": ["in", list(mentioned_users)], "enabled": 1},
+                pluck="name",
+            )
+
+            if valid_users:
+                # auto-share read/comment nếu chưa có read
+                from drive.api.permissions import get_user_access
+
+                entity = frappe.get_doc("Drive File", self.mindmap_id)
+
+                for user in valid_users:
+                    access = get_user_access(entity, user) or {}
+
+                    if not access.get("read"):
+                        frappe.get_doc({
+                            "doctype": "Drive Permission",
+                            "entity": self.mindmap_id,
+                            "user": user,
+                            "read": 1,
+                            "comment": 1,
+                            "write": 0,
+                            "share": 0,
+                        }).insert(ignore_permissions=True)
+
+                    # sau khi có quyền → join session
+                    ensure_session_member(self.mindmap_id, self.node_id, self.session_index, user)
+
+        # 5) Notify comment (luôn)
         frappe.enqueue(
             "drive.api.mindmap_comment.notify_comment",
             queue="short",
             comment_name=self.name,
-            enqueue_after_commit=True 
+            enqueue_after_commit=True,
         )
+
+        # 6) Notify mention (chỉ khi có mention thật)
+        if has_real_mentions:
+            frappe.enqueue(
+                "drive.api.mindmap_comment.notify_mentions",
+                queue="short",
+                comment_name=self.name,
+                enqueue_after_commit=True,
+            )
 
 
     def on_update(self):
+        """
+        Khi edit comment:
+        - Detect mention mới (kind=mention)
+        - Với mention mới:
+            + validate enabled users
+            + auto share read/comment nếu chưa có read
+            + ensure session member
+        - Notify:
+            + notify_comment luôn
+            + notify_mentions nếu có mention mới
+        """
+
         if self.is_new():
             return
 
-        old_comment = getattr(self, "_old_comment", None)
-        if not old_comment:
+        old_comment_raw = getattr(self, "_old_comment", None)
+        if not old_comment_raw:
             return
 
-        if isinstance(old_comment, str):
-            try:
-                old_comment = json.loads(old_comment)
-            except Exception:
-                old_comment = {}
-
-        new_comment = self.comment
-        if isinstance(new_comment, str):
-            try:
-                new_comment = json.loads(new_comment)
-            except Exception:
-                return
+        # 1) Parse old & new comment safely
+        try:
+            old_comment = json.loads(old_comment_raw) if isinstance(old_comment_raw, str) else (old_comment_raw or {})
+            new_comment = json.loads(self.comment) if isinstance(self.comment, str) else (self.comment or {})
+        except Exception:
+            return
 
         old_mentions = {
             m.get("id")
-            for m in old_comment.get("mentions", [])
-            if isinstance(m, dict)
+            for m in (old_comment.get("mentions") or [])
+            if isinstance(m, dict) and m.get("kind") == "mention" and m.get("id")
         }
 
         new_mentions = {
             m.get("id")
-            for m in new_comment.get("mentions", [])
-            if isinstance(m, dict)
+            for m in (new_comment.get("mentions") or [])
+            if isinstance(m, dict) and m.get("kind") == "mention" and m.get("id")
         }
 
         newly_mentioned = new_mentions - old_mentions
         newly_mentioned.discard(self.owner)
 
-        if not newly_mentioned:
-            return
+        # 2) Với mention mới → check enabled + auto share + join session
+        if newly_mentioned:
+            valid_users = frappe.get_all(
+                "User",
+                filters={"name": ["in", list(newly_mentioned)], "enabled": 1},
+                pluck="name",
+            )
 
+            if valid_users:
+                from drive.api.permissions import get_user_access
+                entity = frappe.get_doc("Drive File", self.mindmap_id)
+
+                for user in valid_users:
+                    access = get_user_access(entity, user) or {}
+
+                    if not access.get("read"):
+                        frappe.get_doc({
+                            "doctype": "Drive Permission",
+                            "entity": self.mindmap_id,
+                            "user": user,
+                            "read": 1,
+                            "comment": 1,
+                            "write": 0,
+                            "share": 0,
+                        }).insert(ignore_permissions=True)
+
+                    ensure_session_member(self.mindmap_id, self.node_id, self.session_index, user)
+
+        # 3) Notify comment (luôn)
         frappe.enqueue(
-            "drive.api.mindmap_comment.notify_mentions",
+            "drive.api.mindmap_comment.notify_comment",
             queue="short",
             comment_name=self.name,
-            enqueue_after_commit=True 
+            enqueue_after_commit=True,
         )
 
+        # 4) Notify mention (chỉ khi có mention mới)
+        if newly_mentioned:
+            frappe.enqueue(
+                "drive.api.mindmap_comment.notify_mentions",
+                queue="short",
+                comment_name=self.name,
+                enqueue_after_commit=True,
+            )

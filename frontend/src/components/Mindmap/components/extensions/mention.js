@@ -28,11 +28,21 @@ export const Mention = Node.create({
     return {
       id: { default: null },
       label: { default: null },
+      kind: { default: "mention" },
     }
   },
 
   parseHTML() {
-    return [{ tag: "span[data-mention]" }]
+    return [
+      {
+        tag: "span[data-mention]",
+        getAttrs: (el) => ({
+          id: el.getAttribute("data-mention"),
+          label: el.textContent?.replace(/^@/, ""),
+          kind: el.getAttribute("data-kind") || "mention",
+        }),
+      },
+    ]
   },
 
   renderHTML({ node, HTMLAttributes }) {
@@ -40,6 +50,7 @@ export const Mention = Node.create({
       "span",
       mergeAttributes(HTMLAttributes, {
         "data-mention": node.attrs.id,
+        "data-kind": node.attrs.kind,
       }),
       `@${node.attrs.label}`,
     ]

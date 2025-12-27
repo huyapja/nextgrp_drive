@@ -508,7 +508,11 @@ defineExpose({
         // -----------------------------
         // 2️⃣ CHÈN LẠI MENTION MỚI VỀ ĐẦU DOCUMENT
         // -----------------------------
-        const mentionNode = schema.nodes.mention.create({ id, label });
+        const mentionNode = schema.nodes.mention.create({
+            id,
+            label,
+            kind: "reply"
+        })
         const space = schema.text(" ");
 
         // insert vào vị trí 1 (bên trong paragraph)
