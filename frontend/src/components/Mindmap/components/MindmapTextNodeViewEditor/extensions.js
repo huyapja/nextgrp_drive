@@ -67,6 +67,12 @@ export const ListItemWithNodeId = ListItem.extend({
         renderHTML: (attrs) =>
           attrs.hasChildren ? { "data-has-children": "true" } : {},
       },
+      collapsed: {
+        default: false,
+        parseHTML: (el) => el.getAttribute("data-collapsed") === "true",
+        renderHTML: (attrs) =>
+          attrs.collapsed ? { "data-collapsed": "true" } : {},
+      },
     }
   },
 

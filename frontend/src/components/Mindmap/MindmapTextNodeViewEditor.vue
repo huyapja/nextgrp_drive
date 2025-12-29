@@ -213,11 +213,57 @@ watch(
   margin: 0.5em 0;
 }
 
+.prose :deep(ul) {
+  list-style-type: none;
+}
+
+.prose :deep(.mm-node) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prose :deep(.collapse-slot) {
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.prose :deep(.collapse-toggle) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  cursor: pointer;
+}
+
+.prose :deep(li[data-collapsed="true"] ul) {
+  display: none;
+}
+
+/* hover hoặc active */
+.prose :deep(.mm-node:hover .collapse-toggle),
+.prose :deep(.mm-node.is-comment-hover .collapse-toggle) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* hover vào dòng */
+.prose :deep(.mm-node:hover .collapse-toggle) {
+  opacity: 1;
+}
+
+/* hoặc đang active (mở comment / selected) */
+.prose :deep(.mm-node.is-comment-hover .collapse-toggle) {
+  opacity: 1;
+}
+
 .prose :deep(.ProseMirror-gapcursor.ProseMirror-widget) {
   display: none;
 }
 
-.prose :deep(li[data-has-count="true"] > div > div > p span) {
+.prose :deep(li[data-has-count="true"] > div > div > p span:not(.collapse-slot)) {
   border-bottom: 2px solid #fcdf7e;
   transition: all 0.2s ease;
 }
