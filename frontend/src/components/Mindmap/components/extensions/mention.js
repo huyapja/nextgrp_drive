@@ -29,6 +29,7 @@ export const Mention = Node.create({
       id: { default: null },
       label: { default: null },
       kind: { default: "mention" },
+      comment_id: { default: null },
     }
   },
 
@@ -40,6 +41,7 @@ export const Mention = Node.create({
           id: el.getAttribute("data-mention"),
           label: el.textContent?.replace(/^@/, ""),
           kind: el.getAttribute("data-kind") || "mention",
+          comment_id: el.getAttribute("data-comment-id") || null,
         }),
       },
     ]
@@ -51,6 +53,7 @@ export const Mention = Node.create({
       mergeAttributes(HTMLAttributes, {
         "data-mention": node.attrs.id,
         "data-kind": node.attrs.kind,
+        "data-comment-id": node.attrs.comment_id,
       }),
       `@${node.attrs.label}`,
     ]

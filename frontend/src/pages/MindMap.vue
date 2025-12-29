@@ -304,7 +304,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import { provide } from "vue"
-import { computeInsertAfterAnchor } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import { computeInsertAfterAnchor, computeInsertBeforeAnchor } from "../components/Mindmap/components/engine/nodeOrderEngine"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 
@@ -5530,30 +5530,42 @@ function onOpenComment(payload) {
   openCommentPanel(nodeId, options);
 }
 
-function addChildToNodeTextMode(anchorNodeId) {
-  // Lưu snapshot trước khi thêm node
+function addChildToNodeTextMode(payload) {
   saveSnapshot()
-  
+
+  const { anchorNodeId, newNodeId, position = "after_carpet" } = payload
+
   const anchorNode = nodes.value.find(n => n.id === anchorNodeId)
   if (!anchorNode) return
 
   const parentId = anchorNode.data.parentId
   if (!parentId) return
 
-  const newOrder = computeInsertAfterAnchor({
-    nodes: nodes.value,
-    anchorNodeId,
-    parentId,
-    orderStore: nodeCreationOrder.value,
-  })
+  let newOrder
+
+  if (position === "before_carpet") {
+    newOrder = computeInsertBeforeAnchor({
+      nodes: nodes.value,
+      anchorNodeId,
+      parentId,
+      orderStore: nodeCreationOrder.value,
+    })
+  } else {
+    newOrder = computeInsertAfterAnchor({
+      nodes: nodes.value,
+      anchorNodeId,
+      parentId,
+      orderStore: nodeCreationOrder.value,
+    })
+  }
 
   if (newOrder == null) return
 
-  const newNodeId = crypto.randomUUID()
   nodeCreationOrder.value.set(newNodeId, newOrder)
 
   nodes.value.push({
     id: newNodeId,
+    node_key: crypto.randomUUID(),
     data: {
       parentId,
       label: `<p>Nhánh mới</p>`,

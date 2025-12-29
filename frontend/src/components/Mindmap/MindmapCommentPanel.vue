@@ -935,7 +935,7 @@ useClickOutsideToResetActiveNode({
 })
 
 
-function insertReplyMention({ id, label }) {
+function insertReplyMention({ id, label, kind, comment_id }) {
   const nodeId = activeGroupKey.value
   if (!nodeId) return
 
@@ -946,6 +946,8 @@ function insertReplyMention({ id, label }) {
   editor.insertMention({
     id,
     label,
+    kind: kind ?? "reply",
+    comment_id,
   })
 }
 
@@ -970,6 +972,8 @@ function handleReply(c) {
     insertReplyMention({
       id: c.user.email,
       label: c.user.full_name,
+      kind: "reply",
+      comment_id: c.name,
     })
     requestAnimationFrame(() => {
       suppressAutoScroll.value = false

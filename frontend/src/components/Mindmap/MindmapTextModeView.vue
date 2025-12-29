@@ -42,8 +42,8 @@ function onOpenComment(payload) {
   })
 }
 
-function onAddChildFromText(parentId) {    
-  emit("add-child-node", parentId)
+function onAddChildFromText(payload) {    
+  emit("add-child-node", payload)
 }
 
 provide("activeCommentNode", toRef(props, "activeCommentNode"))
