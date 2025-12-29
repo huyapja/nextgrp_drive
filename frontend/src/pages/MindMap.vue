@@ -344,6 +344,8 @@ const taskLinkDragNodeId = ref(null)
 const taskLinkDragResolve = ref(null) // Promise resolve function để trả kết quả từ dialog
 let saveTimeout = null
 const SAVE_DELAY = 2000
+// Tracking timeouts cho việc focus node mới để tránh focus bị nhảy khi tạo node liên tục
+let nodeFocusTimeouts = []
 const showPanel = ref(false);
 const activeCommentNode = ref(null)
 const commentPanelRef = ref(null)
@@ -843,16 +845,26 @@ const initD3Renderer = () => {
         // textViewVersion.value++
       }
 
-      // 3. skipSizeCalculation: chỉ lưu không tính lại size
+      // 3. skipSizeCalculation: chỉ lưu không tính lại size (formatting updates)
       if (updates.skipSizeCalculation) {
+      console.log('skipSizeCalculation', updates)
+        // ⚠️ FIX: Lưu snapshot vào undo/redo history cho formatting changes
+        // Formatting changes là thao tác rời rạc (click button bold, italic, etc.)
+        // nên cần lưu snapshot ngay, không giống text typing
+        saveSnapshot()
         scheduleSave()
         return
       }
 
-      // 4. lưu mindmap
+      // 4. lưu mindmap (text content updates)
+      // ⚠️ NOTE: Không lưu snapshot ở đây vì text content changes được xử lý
+      // trong onNodeEditingEnd khi user kết thúc edit (blur)
       scheduleSave()
     },
     onNodeReorder: (nodeId, newOrder) => {
+      // ⚠️ FIX: Lưu snapshot trước khi reorder
+      saveSnapshot()
+      
       // ⚠️ NEW: Cập nhật nodeCreationOrder khi reorder sibling
       nodeCreationOrder.value.set(nodeId, newOrder)
       
@@ -1069,9 +1081,10 @@ const zoomOut = () => {
 
 // Add child to specific node
 const addChildToNode = async (parentId) => {
-  // Lưu snapshot trước khi thêm node
-  saveSnapshot()
-  
+  // ⚠️ FIX: Clear tất cả các timeout focus trước đó để tránh focus bị nhảy khi tạo node liên tục
+  nodeFocusTimeouts.forEach(timeoutId => clearTimeout(timeoutId))
+  nodeFocusTimeouts = []
+
   const parent = nodes.value.find(n => n.id === parentId)
   if (!parent) return
 
@@ -1104,6 +1117,10 @@ const addChildToNode = async (parentId) => {
     newEdge
   ]
 
+  // ⚠️ FIX: Lưu snapshot SAU KHI node đã được thêm vào elements
+  // Để snapshot có node mới, tránh mất node khi undo sau formatting
+  saveSnapshot()
+
   selectedNode.value = newNode
 
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
@@ -1115,11 +1132,12 @@ const addChildToNode = async (parentId) => {
     }
     d3Renderer.newlyCreatedNodes.set(newNodeId, Date.now())
     // Tự động xóa sau 1 giây
-    setTimeout(() => {
+    const cleanupTimeoutId = setTimeout(() => {
       if (d3Renderer.newlyCreatedNodes) {
         d3Renderer.newlyCreatedNodes.delete(newNodeId)
       }
     }, 1000)
+    nodeFocusTimeouts.push(cleanupTimeoutId)
   }
 
   
@@ -1134,17 +1152,17 @@ const addChildToNode = async (parentId) => {
   requestAnimationFrame(() => {
     void document.body.offsetHeight
 
-    setTimeout(() => {
+    const timeoutId1 = setTimeout(() => {
       // Update với nodeCreationOrder mới
       updateD3RendererWithDelay(100)
 
       // Đảm bảo selectedNode vẫn được set sau khi render
       if (d3Renderer) {
-        setTimeout(() => {
+        const timeoutId2 = setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
 
           // ⚠️ NEW: Tự động focus vào editor của node mới để có thể nhập ngay
-          setTimeout(() => {
+          const timeoutId3 = setTimeout(() => {
             const nodeGroup = d3Renderer.g.select(`[data-node-id="${newNodeId}"]`)
             if (!nodeGroup.empty()) {
               const fo = nodeGroup.select('.node-text')
@@ -1160,20 +1178,35 @@ const addChildToNode = async (parentId) => {
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
+                  // ⚠️ FIX: Kiểm tra nếu vừa blur bằng Tab thì không focus lại
+                  if (typeof window !== 'undefined' && window.__shouldClearFocusTimeouts) {
+                    return
+                  }
+                  
                   // Focus vào editor và đặt cursor ở cuối
                   editorInstance.commands.focus('end')
                   // ⚠️ FIX: Đợi một chút để focus được apply
                   requestAnimationFrame(() => {
+                    // Kiểm tra lại trước khi focus
+                    if (typeof window !== 'undefined' && window.__shouldClearFocusTimeouts) {
+                      return
+                    }
                     
                     // Gọi handleEditorFocus để setup đúng cách
                     d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
-                    setTimeout(() => {
+                    const timeoutId5 = setTimeout(() => {
                       
                     }, 50)
+                    nodeFocusTimeouts.push(timeoutId5)
                   })
                 } else {
                   // Nếu editor chưa sẵn sàng, thử lại sau
-                  setTimeout(() => {
+                  const timeoutId4 = setTimeout(() => {
+                    // Kiểm tra trước khi focus
+                    if (typeof window !== 'undefined' && window.__shouldClearFocusTimeouts) {
+                      return
+                    }
+                    
                     const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
                     if (editorInstance2) {
                       editorInstance2.commands.focus('end')
@@ -1181,13 +1214,17 @@ const addChildToNode = async (parentId) => {
                       
                     }
                   }, 100)
+                  nodeFocusTimeouts.push(timeoutId4)
                 }
               }
             }
           }, 200) // Đợi render xong
+          nodeFocusTimeouts.push(timeoutId3)
         }, 150)
+        nodeFocusTimeouts.push(timeoutId2)
       }
     }, 30)
+    nodeFocusTimeouts.push(timeoutId1)
   })
 
   scheduleSave()
@@ -1217,6 +1254,10 @@ const extractTitleFromLabel = (label) => {
 
 // Add sibling node
 const addSiblingToNode = async (nodeId) => {
+  // ⚠️ FIX: Clear tất cả các timeout focus trước đó để tránh focus bị nhảy khi tạo node liên tục
+  nodeFocusTimeouts.forEach(timeoutId => clearTimeout(timeoutId))
+  nodeFocusTimeouts = []
+
   if (nodeId === 'root') return
 
   // Lưu snapshot trước khi thêm node
@@ -1271,11 +1312,12 @@ const addSiblingToNode = async (nodeId) => {
     }
     d3Renderer.newlyCreatedNodes.set(newNodeId, Date.now())
     // Tự động xóa sau 1 giây
-    setTimeout(() => {
+    const cleanupTimeoutId = setTimeout(() => {
       if (d3Renderer.newlyCreatedNodes) {
         d3Renderer.newlyCreatedNodes.delete(newNodeId)
       }
     }, 1000)
+    nodeFocusTimeouts.push(cleanupTimeoutId)
   }
 
   
@@ -1290,17 +1332,17 @@ const addSiblingToNode = async (nodeId) => {
   requestAnimationFrame(() => {
     void document.body.offsetHeight
 
-    setTimeout(() => {
+    const timeoutId1 = setTimeout(() => {
       // Update với nodeCreationOrder mới
       updateD3RendererWithDelay(100)
 
       // Đảm bảo selectedNode vẫn được set sau khi render
       if (d3Renderer) {
-        setTimeout(() => {
+        const timeoutId2 = setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
 
           // ⚠️ NEW: Tự động focus vào editor của node mới để có thể nhập ngay
-          setTimeout(() => {
+          const timeoutId3 = setTimeout(() => {
             const nodeGroup = d3Renderer.g.select(`[data-node-id="${newNodeId}"]`)
             if (!nodeGroup.empty()) {
               const fo = nodeGroup.select('.node-text')
@@ -1316,21 +1358,35 @@ const addSiblingToNode = async (nodeId) => {
                 // Lấy editor instance và focus
                 const editorInstance = d3Renderer.getEditorInstance(newNodeId)
                 if (editorInstance) {
+                  // ⚠️ FIX: Kiểm tra nếu vừa blur bằng Tab thì không focus lại
+                  if (typeof window !== 'undefined' && window.__shouldClearFocusTimeouts) {
+                    return
+                  }
 
                   // Focus vào editor và đặt cursor ở cuối
                   editorInstance.commands.focus('end')
                   // ⚠️ FIX: Đợi một chút để focus được apply
                   requestAnimationFrame(() => {
+                    // Kiểm tra lại trước khi focus
+                    if (typeof window !== 'undefined' && window.__shouldClearFocusTimeouts) {
+                      return
+                    }
                     
                     // Gọi handleEditorFocus để setup đúng cách
                     d3Renderer.handleEditorFocus(newNodeId, foNode, newNode)
-                    setTimeout(() => {
+                    const timeoutId5 = setTimeout(() => {
                       
                     }, 50)
+                    nodeFocusTimeouts.push(timeoutId5)
                   })
                 } else {
                   // Nếu editor chưa sẵn sàng, thử lại sau
-                  setTimeout(() => {
+                  const timeoutId4 = setTimeout(() => {
+                    // Kiểm tra trước khi focus
+                    if (typeof window !== 'undefined' && window.__shouldClearFocusTimeouts) {
+                      return
+                    }
+                    
                     const editorInstance2 = d3Renderer.getEditorInstance(newNodeId)
                     if (editorInstance2) {
                       
@@ -1340,13 +1396,17 @@ const addSiblingToNode = async (nodeId) => {
                       
                     }
                   }, 100)
+                  nodeFocusTimeouts.push(timeoutId4)
                 }
               }
             }
           }, 200) // Đợi render xong
+          nodeFocusTimeouts.push(timeoutId3)
         }, 150)
+        nodeFocusTimeouts.push(timeoutId2)
       }
     }, 30)
+    nodeFocusTimeouts.push(timeoutId1)
   })
 
   scheduleSave()
@@ -1580,18 +1640,10 @@ const restoreSnapshot = async (snapshot) => {
   // Khôi phục nodeCreationOrder
   nodeCreationOrder.value = new Map(snapshot.nodeCreationOrder)
   
-  // Khôi phục selectedNode
-  if (snapshot.selectedNodeId) {
-    const node = nodes.value.find(n => n.id === snapshot.selectedNodeId)
-    selectedNode.value = node || null
-    if (d3Renderer && node) {
-      d3Renderer.selectedNode = snapshot.selectedNodeId
-    }
-  } else {
-    selectedNode.value = null
-    if (d3Renderer) {
-      d3Renderer.selectedNode = null
-    }
+  // ⚠️ FIX: Sau undo/redo, KHÔNG focus vào node nào cả
+  selectedNode.value = null
+  if (d3Renderer) {
+    d3Renderer.selectedNode = null
   }
   
   // Update renderer
@@ -2401,6 +2453,9 @@ const confirmTaskLink = async () => {
         }, 150) // Tăng delay để đảm bảo DOM đã cập nhật
       })
     })
+    
+    // ⚠️ FIX: Lưu snapshot sau khi link task
+    saveSnapshot()
     scheduleSave()
     toast({ title: "Đã liên kết công việc thành công", indicator: "green" })
     closeTaskLinkModal()
@@ -2664,6 +2719,8 @@ const deleteTaskLink = async (node) => {
       })
     })
     
+    // ⚠️ FIX: Lưu snapshot sau khi xóa task link
+    saveSnapshot()
     scheduleSave()
     toast({ title: "Đã xóa liên kết công việc thành công", indicator: "green" })
   } catch (err) {
@@ -3197,6 +3254,12 @@ const handleKeyDown = (event) => {
   if (key === 'Tab') {
     event.preventDefault()
     event.stopPropagation()
+
+    // ⚠️ FIX: Nếu vừa blur khỏi editor bằng Tab, không tạo node mà chỉ clear flag
+    if (typeof window !== 'undefined' && window.__justBlurredFromEditorByTab) {
+      window.__justBlurredFromEditorByTab = false
+      return
+    }
 
     // Nếu node đang bị thu gọn, khi nhấn Tab để tạo node con
     // thì đồng thời phải EXPAND nhánh để hiển thị lại tất cả node con (bao gồm node mới).
@@ -4113,6 +4176,8 @@ function pasteToNode(targetNodeId) {
       }, 30)
     })
 
+    // ⚠️ FIX: Lưu snapshot sau khi paste
+    saveSnapshot()
     scheduleSave()
     return
   }
@@ -4205,6 +4270,8 @@ function pasteToNode(targetNodeId) {
     }, 30)
   })
 
+  // ⚠️ FIX: Lưu snapshot sau khi paste node đơn lẻ
+  saveSnapshot()
   scheduleSave()
 }
 
@@ -4616,6 +4683,8 @@ async function handleToolbarDone(node) {
           d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
           d3Renderer.render()
         }
+        // ⚠️ FIX: Lưu snapshot vào undo/redo history
+        saveSnapshot()
         scheduleSave()
         return
       }
@@ -4640,6 +4709,8 @@ async function handleToolbarDone(node) {
           d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
           d3Renderer.render()
         }
+        // ⚠️ FIX: Lưu snapshot vào undo/redo history
+        saveSnapshot()
         scheduleSave()
         return
       }
@@ -4688,6 +4759,8 @@ async function handleToolbarDone(node) {
         d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
         d3Renderer.render()
       }
+      // ⚠️ FIX: Lưu snapshot vào undo/redo history
+      saveSnapshot()
       scheduleSave()
       return
       
@@ -4724,6 +4797,8 @@ async function handleToolbarDone(node) {
     d3Renderer.render()
   }
 
+  // ⚠️ FIX: Lưu snapshot vào undo/redo history
+  saveSnapshot()
   scheduleSave()
   
 }
@@ -5594,6 +5669,18 @@ kbd {
   -webkit-user-select: text;
   -moz-user-select: text;
   -ms-user-select: text;
+  /* ⚠️ FIX: Ẩn outline màu đen khi focus vào node */
+  outline: none !important;
+}
+
+.d3-mindmap-wrapper :deep(.node-text) {
+  outline: none !important;
+  border: none !important;
+}
+
+.d3-mindmap-wrapper :deep(.node-text):focus {
+  outline: none !important;
+  border: none !important;
 }
 
 .d3-mindmap-wrapper :deep(.node-editor-container) {

@@ -149,6 +149,7 @@ export function renderNodes(renderer, positions) {
   const borderOffset = 4 // 2px border mỗi bên
   const nodeTextEnter = nodesEnter.append('foreignObject')
     .attr('class', 'node-text')
+    .attr('tabindex', -1) // ⚠️ FIX: Cho phép focus vào foreignObject để nhận keyboard events
     .attr('x', 2) // Offset để không đè lên border 2px
     .attr('y', 2) // Offset để không đè lên border 2px
     .attr('width', d => Math.max(0, getNodeSize(d).width - borderOffset))
