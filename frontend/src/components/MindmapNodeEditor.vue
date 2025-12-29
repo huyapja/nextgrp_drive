@@ -3934,6 +3934,46 @@ export default {
           return false
         },
         handleKeyDown: (view, event) => {
+          // ⚠️ FIX: Xử lý Tab để blur editor và tránh text bị select all lại
+          if (event.key === 'Tab') {
+            event.preventDefault()
+            event.stopPropagation()
+
+            // Đánh dấu vừa blur bằng Tab (để MindMap.vue biết không tạo node ngay)
+            // và trigger clear các timeout focus đang chờ
+            if (typeof window !== 'undefined') {
+              window.__justBlurredFromEditorByTab = true
+              window.__shouldClearFocusTimeouts = true
+              
+              // Clear flag tạo node nhanh để có thể tạo node tiếp
+              setTimeout(() => {
+                window.__justBlurredFromEditorByTab = false
+              }, 10)
+              
+              // Clear flag focus timeout chậm hơn để đảm bảo select all timeout (100ms) đã bị skip
+              setTimeout(() => {
+                window.__shouldClearFocusTimeouts = false
+              }, 150)
+            }
+
+            // Blur editor để thoát khỏi chế độ edit
+            this.editor.commands.blur()
+            
+            // Focus vào foreignObject parent để có thể nhận Tab event tiếp
+            setTimeout(() => {
+              const editorElement = this.editor?.view?.dom
+              if (editorElement) {
+                // Tìm foreignObject parent
+                const foreignObject = editorElement.closest('foreignObject')
+                if (foreignObject) {
+                  foreignObject.focus()
+                }
+              }
+            }, 50)
+            
+            return true
+          }
+
           // ⚠️ NEW: Xử lý Enter (không có Shift) để blur editor và thoát khỏi chế độ edit
           if (event.key === 'Enter' && !event.shiftKey) {
             event.preventDefault()

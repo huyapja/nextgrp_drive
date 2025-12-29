@@ -206,10 +206,6 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
         if not doc_drive or not doc_drive.mindmap:
             frappe.throw(_("Mindmap not found"), frappe.DoesNotExistError)
 
-        # Check permission
-        if not frappe.has_permission("Drive File", "write", doc_drive):
-            frappe.throw(_("No permission to edit"), frappe.PermissionError)
-
         # Get Drive Mindmap
         mindmap_doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
 

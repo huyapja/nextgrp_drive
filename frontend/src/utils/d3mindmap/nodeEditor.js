@@ -843,6 +843,11 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
 	const isDefaultText = currentText === 'Nhánh mới' || (isFirstEdit && currentText)
 	if (isDefaultText) {
 		setTimeout(() => {
+			// ⚠️ FIX: Kiểm tra flag trước khi select all để tránh select lại sau khi blur bằng Tab
+			if (typeof window !== 'undefined' && window.__shouldClearFocusTimeouts) {
+				return
+			}
+			
 			const editorInstance = getEditorInstance(renderer, nodeId)
 			if (editorInstance && editorInstance.view) {
 				// ⚠️ FIX: Đảm bảo editor vẫn focus trước khi select all
@@ -877,22 +882,35 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
  * Handler cho editor blur event
  */
 export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
-	// ⚠️ FIX: Kiểm tra xem node có đang trong quá trình focus không (node mới được tạo)
-	const isBeingFocused = renderer.nodesBeingFocused?.has(nodeId)
-	const isNewlyCreated = renderer.newlyCreatedNodes?.has(nodeId)
+	// ⚠️ FIX: Nếu user nhấn Tab để blur, cho phép blur ngay cả khi là node mới
+	const shouldAllowBlur = typeof window !== 'undefined' && window.__shouldClearFocusTimeouts
 	
-	if (isBeingFocused || isNewlyCreated) {
-		// Focus lại editor ngay lập tức
-		const editor = getEditorInstance(renderer, nodeId)
-		if (editor && !editor.isDestroyed) {
-			requestAnimationFrame(() => {
-				if (editor && !editor.isDestroyed) {
-					editor.commands.focus('end')
-					
-				}
-			})
+	if (!shouldAllowBlur) {
+		// ⚠️ FIX: Kiểm tra xem node có đang trong quá trình focus không (node mới được tạo)
+		const isBeingFocused = renderer.nodesBeingFocused?.has(nodeId)
+		const isNewlyCreated = renderer.newlyCreatedNodes?.has(nodeId)
+		
+		if (isBeingFocused || isNewlyCreated) {
+			// Focus lại editor ngay lập tức
+			const editor = getEditorInstance(renderer, nodeId)
+			if (editor && !editor.isDestroyed) {
+				requestAnimationFrame(() => {
+					if (editor && !editor.isDestroyed) {
+						editor.commands.focus('end')
+						
+					}
+				})
+			}
+			return // Không xử lý blur cho node mới được tạo
 		}
-		return // Không xử lý blur cho node mới được tạo
+	} else {
+		// ⚠️ FIX: Khi blur bằng Tab, clear các flags ngay để node không còn bị prevent blur nữa
+		if (renderer.nodesBeingFocused) {
+			renderer.nodesBeingFocused.delete(nodeId)
+		}
+		if (renderer.newlyCreatedNodes) {
+			renderer.newlyCreatedNodes.delete(nodeId)
+		}
 	}
 	
 	// ⚠️ IMPORTANT: Xóa cache kích thước ban đầu khi blur
