@@ -10,6 +10,7 @@ export function getLinkStem(entity) {
       true: "file",
       [new Boolean(entity.is_group)]: "folder",
       [new Boolean(entity.document)]: "document",
+      [new Boolean(entity.mindmap)]: "mindmap"
     }[true]
   }/${entity.name}`
 }
