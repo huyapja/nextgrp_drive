@@ -1,6 +1,12 @@
 <template>
   <NodeViewWrapper as="p" class="mm-node relative" :class="{ 'is-comment-hover': isHover || isActive }"
     @click="onClickNode">
+    <span v-if="isMindmapParagraph" class="collapse-slot">
+      <span v-if="liState?.hasChildren" class="collapse-toggle" @mousedown.prevent @click.stop="toggleCollapse">
+        {{ liState.collapsed ? "▶" : "▼" }}
+      </span>
+    </span>
+
     <NodeViewContent />
 
     <div v-if="isMindmapParagraph" class="comment-icon" v-tooltip.bottom="{
@@ -17,7 +23,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watchEffect  } from "vue"
+import { ref, computed, inject, watchEffect } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 
 const props = defineProps({
@@ -32,6 +38,55 @@ const suppressPanelAutoFocus = inject(
   "suppressPanelAutoFocus",
   null
 )
+
+const liState = computed(() => {
+  try {
+    const pos = props.getPos?.()
+    if (pos == null) return null
+
+    const $pos = props.editor.state.doc.resolve(pos)
+
+    for (let d = $pos.depth; d > 0; d--) {
+      const node = $pos.node(d)
+      if (node.type.name === "listItem") {
+        return {
+          depth: d,
+          hasChildren: !!node.attrs.hasChildren,
+          collapsed: !!node.attrs.collapsed,
+        }
+      }
+    }
+
+    return null
+  } catch {
+    return null
+  }
+})
+
+
+function toggleCollapse(e) {
+  const info = liState.value
+  if (!info) return
+
+  props.editor
+    .chain()
+    .command(({ tr, state }) => {
+      const pos = props.getPos?.()
+      if (pos == null) return false
+
+      const $pos = state.doc.resolve(pos)
+      const liNode = $pos.node(info.depth)
+
+      tr.setNodeMarkup($pos.before(info.depth), undefined, {
+        ...liNode.attrs,
+        collapsed: !liNode.attrs.collapsed,
+      })
+
+      return true
+    })
+    .run()
+}
+
 
 /**
  * Paragraph này có phải là paragraph TRỰC TIẾP của list-item không?
@@ -83,15 +138,15 @@ function openCommentFromEvent(e, options = {}) {
  */
 function onClickNode(e) {
   if (!isMindmapParagraph.value) return
-  
+
   const li = e.currentTarget.closest("li[data-node-id]")
   if (!li) return
-  
+
   const hasCount = li.getAttribute("data-has-count") === "true"
   if (!hasCount) return
 
   suppressPanelAutoFocus && (suppressPanelAutoFocus.value = true)
-  
+
   // KHÔNG focus editor
   openCommentFromEvent(e, { focus: false })
 }

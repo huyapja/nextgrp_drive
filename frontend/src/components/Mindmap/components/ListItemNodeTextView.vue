@@ -1,9 +1,6 @@
 <template>
-  <NodeViewWrapper
-    as="li"
-    :data-node-id="node.attrs.nodeId"
-    :data-has-count="node.attrs.hasCount"
-  >
+  <NodeViewWrapper as="li" :data-node-id="node.attrs.nodeId" :data-has-count="node.attrs.hasCount"
+    :data-has-children="node.attrs.hasChildren" :data-collapsed="node.attrs.collapsed">
     <div class="li-inner">
       <!-- đoạn text -->
       <NodeViewContent />

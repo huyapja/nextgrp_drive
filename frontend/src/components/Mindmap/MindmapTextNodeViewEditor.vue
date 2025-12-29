@@ -8,29 +8,18 @@
 
 <script setup>
 import { onMounted, onBeforeUnmount, ref, watch } from "vue"
-import { Editor, EditorContent, VueNodeViewRenderer } from "@tiptap/vue-3"
+import { Editor, EditorContent } from "@tiptap/vue-3"
 import StarterKit from "@tiptap/starter-kit"
-import Heading from "@tiptap/extension-heading"
-import Paragraph from "@tiptap/extension-paragraph"
-import HeadingNodeView from "./components/HeadingNodeTextView.vue"
 import { InlineStyle } from "./components/extensions/InlineStyle"
 import Underline from "@tiptap/extension-underline"
-import ParagraphNodeTextView from "./components/ParagraphNodeTextView.vue"
-import ListItemNodeTextView from "./components/ListItemNodeTextView.vue"
-import ListItem from "@tiptap/extension-list-item"
 import { InlineRoot } from "./components/extensions/InlineRoot"
 import { TaskLink } from "./components/extensions/TaskLink"
 import Image from "@tiptap/extension-image"
 import { ImageZoomClickExtension } from "./components/extensions/ImageZoomClickExtension"
-import { TextSelection } from "@tiptap/pm/state"
-
-
-function hasMmNode(html) {
-  if (!html) return false
-  const div = document.createElement("div")
-  div.innerHTML = html
-  return !!div.querySelector(".mm-node, [data-node-id]")
-}
+import { extractNodeEditsFromHTML, hasMmNode } from "./components/MindmapTextNodeViewEditor/helpers"
+import { HeadingWithNodeId, ListItemWithNodeId, ParagraphWithNodeId } from "./components/MindmapTextNodeViewEditor/extensions"
+import { createEditorKeyDown } from "./components/MindmapTextNodeViewEditor/editorKeymap"
+import { ListItemChildrenSync } from "./components/extensions/ListItemChildrenSync"
 
 
 /* ================================
@@ -50,6 +39,8 @@ const props = defineProps({
 let isComposing = false
 let isEditorEmitting = false
 let isEditorFocused = false
+let isCreatingDraftNode = false
+
 
 const emit = defineEmits([
   "rename-title",
@@ -59,78 +50,6 @@ const emit = defineEmits([
 ])
 
 const canEdit = hasMmNode(props.initialContent)
-
-
-/* ================================
- * Extensions giữ data-node-id
- * ================================ */
-const HeadingWithNodeId = Heading.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      nodeId: {
-        default: null,
-        parseHTML: el => el.getAttribute("data-node-id"),
-        renderHTML: attrs =>
-          attrs.nodeId ? { "data-node-id": attrs.nodeId } : {},
-      },
-    }
-  },
-
-  addNodeView() {
-    return VueNodeViewRenderer(HeadingNodeView)
-  },
-})
-
-
-const ParagraphWithNodeId = Paragraph.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-      nodeId: {
-        default: null,
-        parseHTML: el => el.getAttribute("data-node-id"),
-        renderHTML: attrs =>
-          attrs.nodeId
-            ? { "data-node-id": attrs.nodeId }
-            : {},
-      },
-    }
-  },
-
-  addNodeView() {
-    return VueNodeViewRenderer(ParagraphNodeTextView)
-  },
-})
-
-
-const ListItemWithNodeId = ListItem.extend({
-  addAttributes() {
-    return {
-      ...this.parent?.(),
-
-      nodeId: {
-        default: null,
-        parseHTML: el => el.getAttribute("data-node-id"),
-        renderHTML: attrs =>
-          attrs.nodeId ? { "data-node-id": attrs.nodeId } : {},
-      },
-
-      hasCount: {
-        default: false,
-        parseHTML: el => el.getAttribute("data-has-count") === "true",
-        renderHTML: attrs =>
-          attrs.hasCount ? { "data-has-count": "true" } : {},
-      },
-    }
-  },
-
-  addNodeView() {
-    return VueNodeViewRenderer(ListItemNodeTextView)
-  },
-})
-
-
 
 /* ================================
  * Helpers
@@ -159,127 +78,6 @@ function syncFromEditor(editor) {
 }
 
 
-function extractParagraphAndBlock(el) {
-  let inlineHTML = ""
-  let blockHTML = ""
-
-  /* =========================
-   * 1. INLINE PARAGRAPH
-   * ========================= */
-  const p =
-    el.querySelector(":scope > p") ||
-    el.querySelector(":scope > div > p")
-
-  if (p) {
-    p.querySelectorAll("ul, li").forEach(e => e.remove())
-    p.querySelectorAll("[data-node-id]").forEach(e => {
-      e.removeAttribute("data-node-id")
-      e.removeAttribute("data-has-count")
-    })
-
-    const content = p.innerHTML.trim()
-    if (content && content !== "<br>") {
-      inlineHTML = `<p>${content}</p>`
-    }
-  }
-
-  /* =========================
-   * 2. TASK LINK
-   * ========================= */
-  const taskLink =
-    el.querySelector(":scope > a[data-task-link]") ||
-    el.querySelector(":scope > div > a[data-task-link]")
-
-  if (taskLink) {
-    const href = taskLink.getAttribute("href")
-    const contentHTML = taskLink.innerHTML.trim()
-
-    blockHTML += `
-<p>
-  ${contentHTML.includes("<a")
-        ? contentHTML
-        : `<a href="${href}">${contentHTML}</a>`}
-</p>
-    `.trim()
-  }
-
-  /* =========================
-   * 3. IMAGE → image-wrapper
-   * ========================= */
-  const images = el.querySelectorAll(":scope img")
-
-  images.forEach(img => {
-    const src = img.getAttribute("src")
-    if (!src) return
-
-    const dataSrc = img.getAttribute("data-image-src") || src
-    const alt = img.getAttribute("alt") || ""
-
-    blockHTML += `
-<div class="image-wrapper" data-image-src="${dataSrc}">
-  <img src="${src}" alt="${alt}" />
-</div>
-    `.trim()
-  })
-
-  /* =========================
-   * 4. BLOCKQUOTE
-   * ========================= */
-  const blockquote =
-    el.querySelector(":scope > blockquote") ||
-    el.querySelector(":scope > div > blockquote")
-
-  if (blockquote) {
-    blockquote.querySelectorAll("[data-node-id]").forEach(e => {
-      e.removeAttribute("data-node-id")
-      e.removeAttribute("data-has-count")
-    })
-
-    blockHTML += blockquote.outerHTML
-  }
-
-  return (inlineHTML + blockHTML).trim()
-}
-
-
-// function này trích edits từ HTML của editor rồi gửi lên với payload nodes
-function extractNodeEditsFromHTML(html) {
-  const container = document.createElement("div")
-  container.innerHTML = html
-
-  const edits = []
-
-  container.querySelectorAll("[data-node-id]").forEach(el => {
-    const nodeId = el.getAttribute("data-node-id")
-    if (!nodeId) return
-
-    let labelHTML = ""
-
-    // heading
-    if (/^H[1-6]$/.test(el.tagName)) {
-      const content = el.innerHTML.trim()
-      if (!content || content === "<br>") return
-
-      labelHTML = `<p>${content}</p>`
-    }
-
-    // list item / paragraph
-    else {
-      labelHTML = extractParagraphAndBlock(el)
-      if (!labelHTML) return
-    }
-
-    edits.push({
-      nodeId,
-      label: labelHTML,
-    })
-  })
-
-  return edits
-}
-
-
-
 let syncTimer = null
 
 function syncFromEditorDebounced(editor) {
@@ -288,50 +86,6 @@ function syncFromEditorDebounced(editor) {
     syncFromEditor(editor)
   }, 300)
 }
-
-function insertTempChildNode(editor) {
-  const { state, view } = editor
-  const { selection, schema } = state
-
-  const { $from } = selection
-  let found = null
-
-  for (let d = $from.depth; d > 0; d--) {
-    const node = $from.node(d)
-    if (node.type === schema.nodes.listItem) {
-      found = {
-        node,
-        pos: $from.before(d),
-      }
-      break
-    }
-  }
-
-  if (!found) return
-
-  const insertPos = found.pos + found.node.nodeSize
-
-  const text = schema.text('Nhánh mới')
-  const p = schema.nodes.paragraph.create({}, text)
-  const li = schema.nodes.listItem.create({}, p)
-
-  let tr = state.tr.insert(insertPos, li)
-
-  // 3️⃣ tính vị trí caret: bên trong paragraph mới
-  const caretPos =
-    insertPos + 1 /* <li> */ +
-    1 /* <p> */ +
-    text.nodeSize
-
-  tr = tr.setSelection(
-    TextSelection.create(tr.doc, caretPos)
-  )
-
-  view.dispatch(tr)
-  view.focus()
-}
-
-
 
 /* ================================
  * Editor
@@ -349,8 +103,8 @@ onMounted(() => {
         options,
       })
     },
-    onAddChildNode(nodeId) {
-      emit("add-child-node", nodeId)
+    onAddChildNode(payload) {
+      emit("add-child-node", payload)
     },
     extensions: [
       StarterKit.configure({
@@ -380,7 +134,8 @@ onMounted(() => {
           }
         },
       }),
-      ImageZoomClickExtension
+      ImageZoomClickExtension,
+      ListItemChildrenSync,
     ],
 
     editorProps: {
@@ -388,83 +143,12 @@ onMounted(() => {
         class: "min-h-[60vh]",
       },
 
-      handleKeyDown(view, event) {
-        const { state } = view
-        const { selection } = state
-
-        // ==============================
-        // ENTER → ADD CHILD NODE
-        // ==============================
-        if (event.key === 'Enter') {
-          return
-          if (!selection.empty) return false
-
-          const { $from } = selection
-          const isAtEnd = $from.parentOffset === $from.parent.content.size
-          if (!isAtEnd) return false
-
-          // tìm nodeId mindmap
-          let nodeId = null
-          for (let d = $from.depth; d > 0; d--) {
-            const node = $from.node(d)
-            if (node?.attrs?.nodeId) {
-              nodeId = node.attrs.nodeId
-              break
-            }
-          }
-          if (!nodeId) return false
-
-          // ✅ 1. chèn ngay trong text editor
-          insertTempChildNode(editor.value)
-
-          // ✅ 2. sync sang mindmap
-          editor.value?.options?.onAddChildNode?.(nodeId)
-
-          event.preventDefault()
-          return true
-        }
-
-
-
-        if ((event.ctrlKey || event.metaKey) && event.key === "a") {
-          const { state, dispatch } = view
-          const { selection } = state
-
-          // chỉ xử lý khi đang là caret
-          if (!selection.empty) {
-            return false // để ProseMirror select-all bình thường
-          }
-
-          const { $from } = selection
-
-          // lấy block cha (paragraph / list-item / heading)
-          let depth = $from.depth
-          while (depth > 0 && !$from.node(depth).isBlock) {
-            depth--
-          }
-
-          const blockNode = $from.node(depth)
-          if (!blockNode) return false
-
-          const start = $from.start(depth)
-          const end = start + blockNode.nodeSize
-
-          dispatch(
-            state.tr.setSelection(
-              state.selection.constructor.create(
-                state.doc,
-                start,
-                end - 1
-              )
-            )
-          )
-
-          event.preventDefault()
-          return true
-        }
-
-        return false
-      },
+      handleKeyDown: createEditorKeyDown({
+        editor,
+        flags: {
+          isCreatingDraftNode,
+        },
+      }),
 
       handleDOMEvents: {
         focus: () => {
@@ -510,6 +194,7 @@ watch(
   (val) => {
     if (!editor.value) return
     if (isEditorFocused) return
+    if (isCreatingDraftNode) return
     const canEdit = hasMmNode(val)
 
     if (editor.value.isEditable !== canEdit) {
@@ -521,8 +206,6 @@ watch(
     }
   }
 )
-
-
 </script>
 
 <style scoped>
@@ -530,11 +213,57 @@ watch(
   margin: 0.5em 0;
 }
 
+.prose :deep(ul) {
+  list-style-type: none;
+}
+
+.prose :deep(.mm-node) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.prose :deep(.collapse-slot) {
+  width: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.prose :deep(.collapse-toggle) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  cursor: pointer;
+}
+
+.prose :deep(li[data-collapsed="true"] ul) {
+  display: none;
+}
+
+/* hover hoặc active */
+.prose :deep(.mm-node:hover .collapse-toggle),
+.prose :deep(.mm-node.is-comment-hover .collapse-toggle) {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* hover vào dòng */
+.prose :deep(.mm-node:hover .collapse-toggle) {
+  opacity: 1;
+}
+
+/* hoặc đang active (mở comment / selected) */
+.prose :deep(.mm-node.is-comment-hover .collapse-toggle) {
+  opacity: 1;
+}
+
 .prose :deep(.ProseMirror-gapcursor.ProseMirror-widget) {
   display: none;
 }
 
-.prose :deep(li[data-has-count="true"] > div > div > p span) {
+.prose :deep(li[data-has-count="true"] > div > div > p span:not(.collapse-slot)) {
   border-bottom: 2px solid #fcdf7e;
   transition: all 0.2s ease;
 }

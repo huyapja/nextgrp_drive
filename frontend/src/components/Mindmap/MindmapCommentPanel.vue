@@ -935,7 +935,7 @@ useClickOutsideToResetActiveNode({
 })
 
 
-function insertReplyMention({ id, label }) {
+function insertReplyMention({ id, label, kind, comment_id }) {
   const nodeId = activeGroupKey.value
   if (!nodeId) return
 
@@ -946,13 +946,14 @@ function insertReplyMention({ id, label }) {
   editor.insertMention({
     id,
     label,
+    kind: kind,
+    comment_id,
   })
 }
 
 function handleReply(c) {
   const replyKey = `${c.node_id}__${c.session_index}`
 
-  // 🔒 khóa auto scroll
   suppressAutoScroll.value = true
 
   activeGroupKey.value = replyKey
@@ -970,6 +971,8 @@ function handleReply(c) {
     insertReplyMention({
       id: c.user.email,
       label: c.user.full_name,
+      kind: "reply",
+      comment_id: c.name,
     })
     requestAnimationFrame(() => {
       suppressAutoScroll.value = false

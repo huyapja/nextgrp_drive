@@ -568,9 +568,11 @@ def notify_mentions(comment_name):
             ),
         )
 
+
 def notify_comment(comment_name):
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
+    # parse comment
     comment = doc.comment
     if isinstance(comment, str):
         try:
@@ -580,28 +582,35 @@ def notify_comment(comment_name):
 
     mentions = comment.get("mentions") or []
 
-    is_reply = any(
-        m.get("kind") == "reply"
-        for m in mentions
-    )
+    # -------------------------------------------------
+    # 1. XÁC ĐỊNH REPLY OWNER (NẾU CÓ)
+    # -------------------------------------------------
+    reply_comment_id = None
+    reply_owner = None
 
+    for m in mentions:
+        if m.get("kind") == "reply" and m.get("comment_id"):
+            reply_comment_id = m.get("comment_id")
+            break
+
+    if reply_comment_id:
+        reply_owner = frappe.db.get_value(
+            "Drive Mindmap Comment",
+            reply_comment_id,
+            "owner",
+        )
+
+    # -------------------------------------------------
+    # 2. ACTOR
+    # -------------------------------------------------
     actor_full_name = (
         frappe.db.get_value("User", doc.owner, "full_name")
         or doc.owner
     )
 
-    title = (
-        f"{actor_full_name} đã trả lời bình luận của bạn trong sơ đồ tư duy"
-        if is_reply
-        else f"{actor_full_name} đã bình luận trong sơ đồ tư duy"
-    )
-
-    mentioned_users = {
-        m.get("id")
-        for m in mentions
-        if m.get("id") and m.get("kind") == "mention"
-    }
-
+    # -------------------------------------------------
+    # 3. SESSION MEMBERS
+    # -------------------------------------------------
     notify_users = set(
         frappe.get_all(
             "Drive Mindmap Comment Session Member",
@@ -614,12 +623,30 @@ def notify_comment(comment_name):
         )
     )
 
+    # loại chính mình
     notify_users.discard(doc.owner)
-    notify_users -= mentioned_users
+
+    # -------------------------------------------------
+    # 4. LOẠI MENTION THƯỜNG (KHÔNG ĐỘNG REPLY)
+    # -------------------------------------------------
+    mentioned_users = {
+        m.get("id")
+        for m in mentions
+        if m.get("kind") == "mention" and m.get("id")
+    }
+
+    if reply_owner:
+        # giữ reply_owner lại
+        notify_users -= (mentioned_users - {reply_owner})
+    else:
+        notify_users -= mentioned_users
 
     if not notify_users:
         return
 
+    # -------------------------------------------------
+    # 5. BUILD LINK
+    # -------------------------------------------------
     team = frappe.db.get_value("Drive File", doc.mindmap_id, "team")
     if not team:
         return
@@ -632,13 +659,22 @@ def notify_comment(comment_name):
         f"#comment_id={doc.name}"
     )
 
-
-
     bot_docs = frappe.conf.get("bot_docs")
     if not bot_docs:
         return
 
+    # -------------------------------------------------
+    # 6. SEND NOTIFY – THEO USER
+    # -------------------------------------------------
     for user in notify_users:
+        is_reply_for_user = bool(reply_owner and user == reply_owner)
+
+        title = (
+            f"{actor_full_name} đã trả lời bình luận của bạn trong sơ đồ tư duy"
+            if is_reply_for_user
+            else f"{actor_full_name} đã bình luận trong sơ đồ tư duy"
+        )
+
         RavenBot.send_notification_to_user(
             bot_name=bot_docs,
             user_id=user,
@@ -654,7 +690,7 @@ def notify_comment(comment_name):
                     "mindmap_id": doc.mindmap_id,
                     "node_id": doc.node_id,
                     "link": link,
-                    "is_reply": is_reply,
+                    "is_reply": is_reply_for_user,
                 },
                 ensure_ascii=False,
                 default=str,

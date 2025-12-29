@@ -13,7 +13,7 @@ ALLOWED_TAGS = ["p", "br", "b", "i", "strong", "em", "img", "a", "span"]
 ALLOWED_ATTRS = {
     "img": ["src", "alt"],
     "a": ["href", "target"],
-    "span": ["id", "label", "data-mention", "data-kind"],
+    "span": ["id", "label", "data-mention", "data-kind", "data-comment-id"],
 }
 
 cleaner = Cleaner(tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
@@ -71,6 +71,7 @@ class DriveMindmapComment(Document):
                 "id": tag.get("data-mention"),
                 "label": tag.text.replace("@", "").strip(),
                 "kind": tag.get("data-kind") or "mention",
+                "comment_id": tag.get("data-comment-id")
             })
 
         safe_html = cleaner.clean(raw_html)
@@ -100,6 +101,7 @@ class DriveMindmapComment(Document):
                 "id": tag.get("data-mention"),
                 "label": tag.text.replace("@", "").strip(),
                 "kind": tag.get("data-kind") or "mention",
+                "comment_id": tag.get("data-comment-id")
             })
 
         # ---- 2) Sanitize HTML ----

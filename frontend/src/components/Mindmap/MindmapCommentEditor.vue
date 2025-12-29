@@ -88,7 +88,6 @@ const emit = defineEmits(["update:modelValue", "submit", "navigate", "open-galle
 const editor = ref(null)
 const localInsertedImages = new Set()
 const mentionMembers = ref(props.members || [])
-const hasInitialized = ref(false)
 
 const filteredMembers = computed(() => {
     if (!props.members) return []
@@ -484,7 +483,7 @@ defineExpose({
         // modelValue phải được set về "" từ parent, không emit 2 chiều kiểu này nữa
         emit("update:modelValue", "")
     },
-    insertMention({ id, label }) {
+    insertMention({ id, label, kind = "mention", comment_id = null }) {
         if (!editor.value) return;
 
         const view = editor.value.view;
@@ -511,7 +510,8 @@ defineExpose({
         const mentionNode = schema.nodes.mention.create({
             id,
             label,
-            kind: "reply"
+            kind,
+            comment_id,
         })
         const space = schema.text(" ");
 
