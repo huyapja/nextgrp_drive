@@ -131,9 +131,9 @@ export class D3MindmapRenderer {
           return !!(event.ctrlKey || event.metaKey)
         }
 
-        // Cho phép middle mouse button để pan
+        // Cho phép middle mouse button và right mouse button để pan
         if (event.type === "mousedown") {
-          return event.button === 1 // Middle mouse button
+          return event.button === 1 || event.button === 2 // Middle hoặc right mouse button
         }
 
         // Chặn các events khác (không cho phép left-click drag)
