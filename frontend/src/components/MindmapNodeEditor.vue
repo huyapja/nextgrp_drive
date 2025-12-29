@@ -1127,6 +1127,7 @@ function updateImageLayout(view) {
   let newGap = '0px'
   let newHeight = 'auto' // ⚠️ FIX: Luôn dùng auto để ảnh hiển thị đầy đủ
   let newObjectFit = 'cover' // ⚠️ FIX: Dùng cover thay vì cover để không crop ảnh
+  let useAspectRatio = false // ⚠️ FIX: Khai báo biến useAspectRatio
   
   // ⚠️ FIX: Tính toán width chính xác dựa trên số lượng ảnh
   // Với gap 12px giữa các ảnh:
@@ -1240,12 +1241,38 @@ const ImageWithMenuExtension = Extension.create({
           // Track view để có thể update layout sau
           let lastImageCount = 0
           let updateTimeout = null
+          let isInitialized = false
+          
+          // ⚠️ FIX: Gọi updateImageLayout lần đầu khi view được khởi tạo (khi reload)
+          // Đảm bảo layout được áp dụng ngay cả khi số lượng ảnh không thay đổi
+          setTimeout(() => {
+            requestAnimationFrame(() => {
+              const initialImageCount = editorView.dom.querySelectorAll('.image-wrapper-node').length
+              if (initialImageCount > 0) {
+                lastImageCount = initialImageCount
+                updateImageLayout(editorView)
+                isInitialized = true
+              }
+            })
+          }, 100) // Đợi DOM render xong
           
           return {
             update: (view, prevState) => {
               // ⚠️ CRITICAL FIX: Chỉ update layout khi số lượng ảnh thay đổi
               // Tránh update liên tục gây nháy khi hover
               const currentImageCount = view.dom.querySelectorAll('.image-wrapper-node').length
+              
+              // ⚠️ FIX: Nếu chưa khởi tạo lần đầu, gọi updateImageLayout
+              if (!isInitialized && currentImageCount > 0) {
+                lastImageCount = currentImageCount
+                isInitialized = true
+                setTimeout(() => {
+                  requestAnimationFrame(() => {
+                    updateImageLayout(view)
+                  })
+                }, 50)
+                return
+              }
               
               // Chỉ update nếu số lượng ảnh thay đổi
               if (currentImageCount === lastImageCount) {
@@ -4404,6 +4431,15 @@ export default {
               setTimeout(() => {
                 this.setDataTypesForElements()
               }, 150)
+            })
+            
+            // ⚠️ FIX: Gọi updateImageLayout sau khi editor được tạo để đảm bảo layout đúng khi reload
+            this.$nextTick(() => {
+              setTimeout(() => {
+                if (this.editor && this.editor.view) {
+                  updateImageLayout(this.editor.view)
+                }
+              }, 200) // Đợi DOM render xong
             })
           }
         })

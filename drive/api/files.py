@@ -2712,33 +2712,80 @@ def download_folder_as_zip(entity_name):
     zip_buffer = BytesIO()
 
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        manager = FileManager()
+        files_added_count = 0
+        files_skipped_count = 0
+        
         # Recursively add all files/folders
         def add_to_zip(folder_entity_name, arcname_prefix=""):
+            nonlocal files_added_count, files_skipped_count
+            
             children = frappe.db.get_all(
                 "Drive File",
                 filters={"parent_entity": folder_entity_name, "is_active": 1},
-                fields=["name", "title", "is_group", "file_size", "mime_type"],
+                fields=["name", "title", "is_group", "file_size", "mime_type", "path", "document"],
             )
+
+            print(f"📁 Processing folder {folder_entity_name}: Found {len(children)} children")
 
             for child in children:
                 arcname = f"{arcname_prefix}{child['title']}"
 
                 if child["is_group"]:
                     # Recursively add folder contents
+                    print(f"  📂 Adding folder: {arcname}")
                     add_to_zip(child["name"], f"{arcname}/")
                 else:
                     # Add file to ZIP
                     try:
+                        # ✅ FIX: Handle different file types
+                        if child.get("document"):
+                            # Handle Drive Document files (frappe doc)
+                            print(f"  ⚠️ Skipping Drive Document: {child['title']} (requires special handling)")
+                            files_skipped_count += 1
+                            continue
+                        
+                        # Get file path
                         file_path = get_file_path(child["name"])
-                        if file_path and os.path.exists(file_path):
+                        
+                        if not file_path:
+                            # Try to get file from S3 or handle missing path
+                            if child.get("path"):
+                                try:
+                                    # For S3 files, download content and add to ZIP
+                                    file_content = manager.get_file(child["path"])
+                                    if file_content:
+                                        zf.writestr(arcname, file_content.read())
+                                        files_added_count += 1
+                                        print(f"  ✅ Added file from S3: {arcname}")
+                                        continue
+                                except Exception as e:
+                                    print(f"  ⚠️ Error getting S3 file {child['title']}: {e}")
+                            
+                            print(f"  ⚠️ Skipping file (no path): {child['title']}")
+                            files_skipped_count += 1
+                            continue
+                        
+                        # Add local file to ZIP
+                        if os.path.exists(file_path):
                             zf.write(file_path, arcname=arcname)
+                            files_added_count += 1
+                            print(f"  ✅ Added file: {arcname}")
+                        else:
+                            print(f"  ⚠️ File not found: {file_path} (skipping {child['title']})")
+                            files_skipped_count += 1
                     except Exception as e:
-                        print(f"⚠️ Error adding {child['title']} to ZIP: {e}")
-                        # Skip file if error
+                        print(f"  ❌ Error adding {child['title']} to ZIP: {e}")
+                        files_skipped_count += 1
                         continue
 
-        # Start recursive add from root folder
-        add_to_zip(entity_name)
+        # ✅ FIX: Start recursive add from root folder with folder name as prefix
+        # This ensures all contents are placed inside a folder named after the root folder
+        folder_name = secure_filename(parent_doc.title or "download")
+        print(f"🚀 Starting ZIP creation for folder: {folder_name} (entity: {entity_name})")
+        add_to_zip(entity_name, f"{folder_name}/")
+        
+        print(f"📊 ZIP creation complete: {files_added_count} files added, {files_skipped_count} files skipped")
 
     # Prepare response
     zip_buffer.seek(0)
@@ -2771,12 +2818,33 @@ def get_file_path(entity_name):
     """Get file path for an entity"""
     try:
         file_entity = frappe.get_doc("Drive File", entity_name)
-        file_path = file_entity.file_path
-
-        if file_entity.store_in_s3:
-            # For S3 files, would need different handling
+        
+        # ✅ FIX: Use 'path' field, not 'file_path'
+        if not file_entity.path:
+            print(f"⚠️ No path found for entity {entity_name}")
             return None
-
-        return file_path
-    except:
+        
+        # Get full physical path
+        manager = FileManager()
+        full_path = manager.site_folder / file_entity.path
+        
+        # For S3 files, we need to download first or use get_file()
+        # But for ZIP, we need local path, so return None for S3
+        # (We'll handle S3 files differently)
+        if manager.s3_enabled:
+            # Check if file exists locally first
+            if full_path.exists():
+                return str(full_path)
+            # For S3-only files, we'll need to download them
+            # For now, return None and handle in download_folder_as_zip
+            return None
+        
+        # For local files, return full path
+        if full_path.exists():
+            return str(full_path)
+        
+        print(f"⚠️ File not found at path: {full_path} for entity {entity_name}")
+        return None
+    except Exception as e:
+        print(f"⚠️ Error getting file path for {entity_name}: {e}")
         return None

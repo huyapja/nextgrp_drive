@@ -30,12 +30,12 @@
         />
 
         <!-- Comments Tab -->
-        <!-- <CommentsPanel
+        <CommentsPanel
           v-if="entity.comment && tab === 1"
           :entity="entity"
           :is-small-screen="isSmallScreen"
           @close="closeDrawer"
-        /> -->
+        />
 
         <!-- Activity Tab
         <ActivityPanel
@@ -55,6 +55,7 @@ import { userList } from "@/resources/permissions"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 import InfoPanel from "./InfoPanel.vue"
+import CommentsPanel from "./CommentsPanel.vue"
 
 const store = useStore()
 const isSmallScreen = ref(false)
