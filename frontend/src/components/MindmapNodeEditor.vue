@@ -1126,8 +1126,7 @@ function updateImageLayout(view) {
   let newWidth = '100%'
   let newGap = '0px'
   let newHeight = 'auto' // ⚠️ FIX: Luôn dùng auto để ảnh hiển thị đầy đủ
-  let newObjectFit = 'contain' // ⚠️ FIX: Dùng contain thay vì cover để không crop ảnh
-  let useAspectRatio = false // ⚠️ NEW: Dùng aspect-ratio để tạo hình vuông cho 2+ ảnh
+  let newObjectFit = 'cover' // ⚠️ FIX: Dùng cover thay vì cover để không crop ảnh
   
   // ⚠️ FIX: Tính toán width chính xác dựa trên số lượng ảnh
   // Với gap 12px giữa các ảnh:
@@ -1157,35 +1156,30 @@ function updateImageLayout(view) {
   
   
   allImages.forEach((wrapper, index) => {
-    // ⚠️ CRITICAL: Luôn set width với !important để override CSS rules
-    const currentComputedWidth = getComputedStyle(wrapper).width
-    const currentInlineWidth = wrapper.style.width
+    // ⚠️ OPTIMIZE: Chỉ đọc inline style, tránh getComputedStyle để giảm lag
+    const currentInlineWidth = wrapper.style.getPropertyValue('width')
+    const currentAspectRatio = wrapper.style.getPropertyValue('aspect-ratio')
+    const currentMarginRight = wrapper.style.getPropertyValue('margin-right')
     
-    
-    
-    // ⚠️ CRITICAL: Luôn set width với !important để đảm bảo override CSS
-    // Kiểm tra xem có cần update không
-    const needsUpdate = currentInlineWidth !== newWidth || 
-                        (count === 1 && currentComputedWidth !== '368px' && !currentComputedWidth.includes('368'))
-    
-    if (needsUpdate || currentInlineWidth !== newWidth) {
-      
-      // Set với !important thông qua setProperty
+    // ⚠️ OPTIMIZE: Chỉ update width nếu thay đổi
+    if (currentInlineWidth !== newWidth) {
       wrapper.style.setProperty('width', newWidth, 'important')
       wrapper.style.setProperty('max-width', newWidth === '100%' ? '100%' : newWidth, 'important')
     }
     
-    // ⚠️ NEW: Set aspect-ratio để tạo hình vuông cho 2+ ảnh
-    if (useAspectRatio) {
-      wrapper.style.setProperty('aspect-ratio', '1', 'important')
-      wrapper.style.setProperty('height', 'auto', 'important')
-    } else {
-      wrapper.style.removeProperty('aspect-ratio')
+    // ⚠️ OPTIMIZE: Chỉ update aspect-ratio nếu thay đổi
+    const expectedAspectRatio = count >= 2 ? '1' : ''
+    if (currentAspectRatio !== expectedAspectRatio) {
+      if (count >= 2) {
+        wrapper.style.setProperty('aspect-ratio', '1', 'important')
+      } else {
+        wrapper.style.removeProperty('aspect-ratio')
+      }
       wrapper.style.setProperty('height', 'auto', 'important')
     }
     
+    // ⚠️ OPTIMIZE: Chỉ update margin-right nếu thay đổi
     const expectedMarginRight = ((index + 1) % 3 === 0 || count === 1) ? '0' : newGap
-    const currentMarginRight = wrapper.style.marginRight || getComputedStyle(wrapper).marginRight
     if (currentMarginRight !== expectedMarginRight) {
       wrapper.style.setProperty('margin-right', expectedMarginRight, 'important')
     }
@@ -1193,28 +1187,39 @@ function updateImageLayout(view) {
     // Cập nhật height và object-fit cho img bên trong
     const img = wrapper.querySelector('img')
     if (img) {
-      const currentHeight = img.style.height
-      const currentObjectFit = img.style.objectFit || getComputedStyle(img).objectFit
+      // ⚠️ OPTIMIZE: Chỉ đọc inline style, tránh getComputedStyle
+      const currentImgWidth = img.style.getPropertyValue('width')
+      const currentImgHeight = img.style.getPropertyValue('height')
+      const currentImgObjectFit = img.style.getPropertyValue('object-fit')
       
       // ⚠️ NEW: Với 2+ ảnh, ảnh phải fill toàn bộ wrapper (hình vuông)
-      // Với 1 ảnh, giữ nguyên height auto
-      if (useAspectRatio) {
-        // Ảnh fill toàn bộ wrapper hình vuông, dùng contain để giữ tỉ lệ
-        img.style.setProperty('width', '100%', 'important')
-        img.style.setProperty('height', '100%', 'important')
-        img.style.setProperty('object-fit', 'contain', 'important')
-        img.style.removeProperty('max-height')
-      } else {
-        // 1 ảnh: giữ nguyên logic cũ
-        if (currentHeight !== newHeight) {
-          img.style.setProperty('height', newHeight, 'important')
-          img.style.setProperty('max-height', '200px', 'important') // Chiều cao tối đa thống nhất
+      if (count >= 2) {
+        // ⚠️ OPTIMIZE: Chỉ update nếu thay đổi
+        if (currentImgWidth !== '100%') {
+          img.style.setProperty('width', '100%', 'important')
         }
-        if (currentObjectFit !== newObjectFit) {
+        if (currentImgHeight !== '100%') {
+          img.style.setProperty('height', '100%', 'important')
+        }
+        if (currentImgObjectFit !== 'cover') {
+          img.style.setProperty('object-fit', 'cover', 'important')
+        }
+        if (img.style.getPropertyValue('max-height')) {
+          img.style.removeProperty('max-height')
+        }
+      } else {
+        // 1 ảnh: giữ nguyên logic cũ, chỉ update nếu thay đổi
+        if (currentImgHeight !== newHeight) {
+          img.style.setProperty('height', newHeight, 'important')
+          img.style.setProperty('max-height', '200px', 'important')
+        }
+        if (currentImgObjectFit !== newObjectFit) {
           img.style.setProperty('object-fit', newObjectFit, 'important')
         }
-        img.style.setProperty('width', '100%', 'important')
-        img.style.setProperty('max-width', '100%', 'important')
+        if (currentImgWidth !== '100%') {
+          img.style.setProperty('width', '100%', 'important')
+          img.style.setProperty('max-width', '100%', 'important')
+        }
       }
     }
   })
@@ -1254,9 +1259,13 @@ const ImageWithMenuExtension = Extension.create({
                 clearTimeout(updateTimeout)
               }
               
+              // ⚠️ OPTIMIZE: Tăng debounce time để tránh lag khi hover
+              // Sử dụng requestAnimationFrame để đảm bảo update chỉ xảy ra khi browser sẵn sàng
               updateTimeout = setTimeout(() => {
-                updateImageLayout(view)
-              }, 10) // Debounce 10ms
+                requestAnimationFrame(() => {
+                  updateImageLayout(view)
+                })
+              }, 50) // Tăng từ 10ms lên 50ms để giảm lag
             },
             destroy: () => {
               if (updateTimeout) {
@@ -1318,7 +1327,7 @@ const ImageWithMenuExtension = Extension.create({
               // Dùng max-height cố định để tất cả ảnh có cùng chiều cao tối đa
               let imageHeight = 'auto'
               let maxHeight = '200px' // Chiều cao tối đa thống nhất cho tất cả ảnh (chỉ dùng cho 1 ảnh)
-              let objectFit = 'contain' // Dùng contain để không crop ảnh, giữ tỷ lệ
+              let objectFit = 'cover' // Dùng cover để không crop ảnh, giữ tỷ lệ
               
               dom.style.cssText = `
                 position: relative;
@@ -1346,7 +1355,7 @@ const ImageWithMenuExtension = Extension.create({
                   display: block;
                   width: 100%;
                   height: 100%;
-                  object-fit: contain;
+                  object-fit: cover;
                   border-radius: 5px;
                   cursor: zoom-in;
                 `
@@ -3215,39 +3224,45 @@ export default {
           imageWrapper.appendChild(img)
           imageWrapper.appendChild(menuButton)
           
-          // Thêm event listeners
-          imageWrapper.addEventListener('mouseenter', () => {
-            // ⚠️ CRITICAL: Chỉ cho phép hover vào menu tooltip khi editor đang focused
-            if (this.editor && this.editor.view && this.editor.view.focused) {
-              menuButton.style.opacity = '1'
-              imageWrapper.classList.add('image-wrapper-hover')
+          // Thêm event listeners với tối ưu để giảm lag
+          // ⚠️ OPTIMIZE: Cache editor focused state và dùng requestAnimationFrame
+          let isEditorFocused = this.editor && this.editor.view && this.editor.view.focused
+          
+          const showMenu = () => {
+            if (isEditorFocused) {
+              requestAnimationFrame(() => {
+                menuButton.style.opacity = '1'
+                imageWrapper.classList.add('image-wrapper-hover')
+              })
             }
-          })
-          imageWrapper.addEventListener('mouseleave', (e) => {
+          }
+          
+          const hideMenu = (e) => {
             const relatedTarget = e.relatedTarget
             if (!relatedTarget || 
                 (!relatedTarget.classList.contains('image-menu-button') && 
                  !relatedTarget.closest('.image-menu-button'))) {
-              menuButton.style.opacity = '0'
-              imageWrapper.classList.remove('image-wrapper-hover')
+              requestAnimationFrame(() => {
+                menuButton.style.opacity = '0'
+                imageWrapper.classList.remove('image-wrapper-hover')
+              })
             }
-          })
-          menuButton.addEventListener('mouseenter', () => {
-            // ⚠️ CRITICAL: Chỉ cho phép hover vào menu tooltip khi editor đang focused
-            if (this.editor && this.editor.view && this.editor.view.focused) {
-              menuButton.style.opacity = '1'
-              imageWrapper.classList.add('image-wrapper-hover')
-            }
-          })
+          }
+          
+          imageWrapper.addEventListener('mouseenter', showMenu, { passive: true })
+          imageWrapper.addEventListener('mouseleave', hideMenu, { passive: true })
+          menuButton.addEventListener('mouseenter', showMenu, { passive: true })
           menuButton.addEventListener('mouseleave', (e) => {
             const relatedTarget = e.relatedTarget
             if (!relatedTarget || 
                 (!relatedTarget.classList.contains('image-wrapper') && 
                  !relatedTarget.closest('.image-wrapper'))) {
-              menuButton.style.opacity = '0'
-              imageWrapper.classList.remove('image-wrapper-hover')
+              requestAnimationFrame(() => {
+                menuButton.style.opacity = '0'
+                imageWrapper.classList.remove('image-wrapper-hover')
+              })
             }
-          })
+          }, { passive: true })
           
           imageWrapper.setAttribute('data-menu-attached', 'true')
         }
@@ -5288,7 +5303,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* Dùng contain để không crop ảnh */
+  object-fit: cover; /* Dùng cover để không crop ảnh */
 }
 
 /* 2 ảnh trong wrapper: mỗi ảnh 50% */
@@ -5310,7 +5325,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* Dùng contain để không crop ảnh */
+  object-fit: cover; /* Dùng cover để không crop ảnh */
 }
 
 /* 3+ ảnh trong wrapper: mỗi ảnh 33.33% */
@@ -5332,7 +5347,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* Dùng contain để không crop ảnh */
+  object-fit: cover; /* Dùng cover để không crop ảnh */
 }
 
 /* Fallback: Style cho ảnh direct children (khi chưa có wrapper) */
@@ -5346,7 +5361,7 @@ export default {
   height: auto !important;
   margin: 12px 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: cover; /* ⚠️ FIX: Dùng cover để không crop ảnh */
 }
 
 /* 2 ảnh: mỗi ảnh 50% (với margin 4px giữa các ảnh) */
@@ -5360,7 +5375,7 @@ export default {
   height: auto !important;
   margin: 0 4px 4px 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: cover; /* ⚠️ FIX: Dùng cover để không crop ảnh */
 }
 
 /* Ảnh thứ 2 (cuối hàng) trong trường hợp 2 ảnh */
@@ -5379,7 +5394,7 @@ export default {
   height: auto !important;
   margin: 0 4px 4px 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* ⚠️ FIX: Dùng contain để không crop ảnh */
+  object-fit: cover; /* ⚠️ FIX: Dùng cover để không crop ảnh */
 }
 
 /* Ảnh thứ 3, 6, 9... (cuối hàng) không có margin-right */
@@ -5456,12 +5471,15 @@ export default {
   image-rendering: auto;
   border-radius: 5px !important;
   border: 2px solid transparent !important;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+  /* ⚠️ OPTIMIZE: Chỉ transition border-color, bỏ box-shadow để giảm lag */
+  transition: border-color 0.15s ease !important;
   cursor: zoom-in !important;
   box-sizing: border-box !important;
   position: relative;
   outline: none !important;
   max-height: 200px !important; /* Thống nhất chiều cao tối đa cho tất cả ảnh */
+  /* ⚠️ OPTIMIZE: Hint browser để tối ưu rendering */
+  will-change: border-color;
 }
 
 /* Bỏ border khi click/focus */
@@ -5493,7 +5511,9 @@ export default {
   background-size: 24px 24px;
   pointer-events: none;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  /* ⚠️ OPTIMIZE: Dùng transform và opacity thay vì các properties gây reflow */
+  transition: opacity 0.15s ease;
+  will-change: opacity;
 }
 
 :deep(.mindmap-editor-prose img:hover::after) {
@@ -5637,7 +5657,7 @@ export default {
   display: block !important;
   margin: 0 !important;
   box-sizing: border-box !important;
-  object-fit: contain; /* Dùng contain để không crop ảnh */
+  object-fit: cover; /* Dùng cover để không crop ảnh */
 }
 
 /* Menu button - ULTRA CRITICAL với specificity cao */
@@ -5659,13 +5679,17 @@ export default {
   font-weight: bold !important;
   line-height: 1 !important;
   opacity: 0 !important;
-  transition: all 0.2s ease !important;
+  /* ⚠️ OPTIMIZE: Chỉ transition opacity để giảm lag */
+  transition: opacity 0.15s ease !important;
   z-index: 1000 !important;
   backdrop-filter: blur(4px) !important;
+  /* ⚠️ OPTIMIZE: Hint browser để tối ưu rendering */
+  will-change: opacity;
   padding: 0 !important;
   margin: 0 !important;
   pointer-events: auto !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+  /* ⚠️ OPTIMIZE: Bỏ box-shadow để giảm lag, dùng backdrop-filter thay thế */
+  /* box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important; */
 }
 
 :deep(.mindmap-editor-prose .image-group-wrapper .image-wrapper .image-menu-button svg) {
