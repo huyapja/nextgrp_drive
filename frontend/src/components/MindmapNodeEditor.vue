@@ -1245,7 +1245,7 @@ const ImageWithMenuExtension = Extension.create({
           
           // ⚠️ FIX: Gọi updateImageLayout lần đầu khi view được khởi tạo (khi reload)
           // Đảm bảo layout được áp dụng ngay cả khi số lượng ảnh không thay đổi
-          setTimeout(() => {
+         
             requestAnimationFrame(() => {
               const initialImageCount = editorView.dom.querySelectorAll('.image-wrapper-node').length
               if (initialImageCount > 0) {
@@ -1254,7 +1254,7 @@ const ImageWithMenuExtension = Extension.create({
                 isInitialized = true
               }
             })
-          }, 100) // Đợi DOM render xong
+          
           
           return {
             update: (view, prevState) => {

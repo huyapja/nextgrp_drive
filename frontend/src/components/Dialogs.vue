@@ -20,12 +20,45 @@
     @success="
       ({ name, title, is_shortcut = false }) => {
         if (selections[0] !== rootResource?.data && props.getEntities){
-          if (is_shortcut){
-            props.getEntities.data.find((k) => k.shortcut_name === name).shortcut_title = title
-            props.getEntities.data.find((k) => k.shortcut_name === name).accessed = new Date().getTime()
-          } else {
-            props.getEntities.data.find((k) => k.name === name).title = title
-            props.getEntities.data.find((k) => k.name === name).accessed = new Date().getTime()
+          // Handle paginated response {data: [...], total: 23}
+          const currentData = props.getEntities.data
+          let dataArray = []
+          
+          if (currentData && typeof currentData === 'object' && 'data' in currentData) {
+            dataArray = currentData.data
+            // Update in paginated structure
+            if (is_shortcut){
+              const item = dataArray.find((k) => k.shortcut_name === name)
+              if (item) {
+                item.shortcut_title = title
+                item.accessed = new Date().getTime()
+                props.getEntities.setData({ ...currentData, data: dataArray })
+              }
+            } else {
+              const item = dataArray.find((k) => k.name === name)
+              if (item) {
+                item.title = title
+                item.accessed = new Date().getTime()
+                props.getEntities.setData({ ...currentData, data: dataArray })
+              }
+            }
+          } else if (Array.isArray(currentData)) {
+            // Non-paginated response
+            dataArray = currentData
+            if (is_shortcut){
+              const item = dataArray.find((k) => k.shortcut_name === name)
+              if (item) {
+                item.shortcut_title = title
+                item.accessed = new Date().getTime()
+              }
+            } else {
+              const item = dataArray.find((k) => k.name === name)
+              if (item) {
+                item.title = title
+                item.accessed = new Date().getTime()
+              }
+            }
+            props.getEntities.setData(dataArray)
           }
         }
         resetDialog()
@@ -167,7 +200,22 @@ function addToList(data, file_type) {
 
   data.relativeModified = useTimeAgo(data.modified)
 
-  const newData = [...props.getEntities.data, data]
+  // Handle paginated response {data: [...], total: 23}
+  const currentData = props.getEntities.data
+  let dataArray = []
+  
+  if (currentData && typeof currentData === 'object' && 'data' in currentData) {
+    // Paginated response - reload from API instead of adding locally
+    // because pagination state may have changed
+    if (props.getEntities?.fetch) {
+      props.getEntities.fetch(props.getEntities.params)
+    }
+    return
+  } else if (Array.isArray(currentData)) {
+    dataArray = currentData
+  }
+  
+  const newData = [...dataArray, data]
   sortEntities(newData, store.state.sortOrder)
   props.getEntities.setData(newData)
   // props.getEntities.fetch()
@@ -202,15 +250,28 @@ function removeFromList(entities, move = true) {
     }
   } else {
     const names = entities.map((o) => o.shortcut_name || o.name)
-    props.getEntities.setData(
-      props.getEntities.data.filter(({ name, shortcut_name, is_shortcut }) => {
+    
+    // Handle paginated response {data: [...], total: 23}
+    const currentData = props.getEntities.data
+    let dataArray = []
+    
+    if (currentData && typeof currentData === 'object' && 'data' in currentData) {
+      // Paginated response - reload from API instead of filtering locally
+      // because pagination state may have changed
+      if (props.getEntities?.fetch) {
+        props.getEntities.fetch(props.getEntities.params)
+      }
+    } else if (Array.isArray(currentData)) {
+      // Non-paginated response - filter locally
+      dataArray = currentData.filter(({ name, shortcut_name, is_shortcut }) => {
         if (is_shortcut) {
           return !names.includes(shortcut_name)
         } else {
           return !names.includes(name)
         }
       })
-    )
+      props.getEntities.setData(dataArray)
+    }
   }
   resetDialog()
 }

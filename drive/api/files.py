@@ -1627,14 +1627,18 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                 flag = 0 if doc.is_active else 1
 
                 # ✅ FIX: Check permission phù hợp với operation
-                # - Delete (flag=0): cần write permission
+                # - Delete (flag=0): cần write permission hoặc là owner
                 # - Restore (flag=1): chỉ cần là owner hoặc modified_by
                 has_permission = False
 
                 if flag == 0:  # Delete operation
-                    has_permission = user_has_permission(
-                        doc, "write", frappe.session.user
-                    )
+                    # Owner luôn có quyền xóa file của mình
+                    if doc.owner == frappe.session.user:
+                        has_permission = True
+                    else:
+                        has_permission = user_has_permission(
+                            doc, "write", frappe.session.user
+                        )
                 else:  # Restore operation
                     # ✅ FIX: Kiểm tra quyền restore dựa trên Drive Trash
                     # User có thể restore nếu:
@@ -1658,14 +1662,6 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                             doc, "write", frappe.session.user
                         )  # User có write permission
                     )
-                print(has_permission, "has_permission")
-                print(trash_record, "trash_record")
-                print(doc.owner, "doc.owner")
-                print(frappe.session.user, "frappe.session.user")
-                print(
-                    user_has_permission(doc, "write", frappe.session.user),
-                    "user_has_permission",
-                )
                 if has_permission:
                     # Toggle entity và tất cả children
                     try:
@@ -1684,35 +1680,46 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                             )
                             print(f"⚠️ Storage error for {doc.name}: {error_str}")
                         else:
-                            failed_files.append(
-                                doc.title.strip()[:30] if doc.title else entity
+                            # Ensure we append a string, not None
+                            failed_name = (
+                                doc.title.strip()[:30]
+                                if doc.title
+                                else (entity or "Unknown")
                             )
+                            failed_files.append(failed_name)
                             print(f"❌ ValueError for {doc.name}: {error_str}")
                     except Exception as e:
                         # Log lỗi chi tiết khi restore/xóa
                         import traceback
 
-                        error_msg = (
-                            f"Error processing entity {entity} ({doc.title}): {str(e)}"
-                        )
+                        error_msg = f"Error processing entity {entity} ({doc.title if doc.title else 'Unknown'}): {str(e)}"
                         error_traceback = traceback.format_exc()
                         frappe.log_error(
                             f"{error_msg}\n{error_traceback}", "remove_or_restore_error"
                         )
                         print(f"❌ {error_msg}")
                         print(f"❌ Traceback: {error_traceback}")
-                        failed_files.append(
-                            doc.title.strip()[:30] if doc.title else entity
+                        # Ensure we append a string, not None
+                        failed_name = (
+                            doc.title.strip()[:30]
+                            if doc.title
+                            else (entity or "Unknown")
                         )
+                        failed_files.append(failed_name)
                 else:
-                    failed_files.append(doc.title.strip()[:30] if doc.title else entity)
+                    # Ensure we append a string, not None
+                    failed_name = (
+                        doc.title.strip()[:30] if doc.title else (entity or "Unknown")
+                    )
+                    failed_files.append(failed_name)
 
             except Exception as e:
                 # Log lỗi khi không thể get doc hoặc kiểm tra quyền
                 error_msg = f"Error processing entity {entity}: {str(e)}"
                 frappe.log_error(error_msg, "remove_or_restore_error")
                 print(f"❌ {error_msg}")  # Debug log
-                failed_files.append(entity)
+                # Ensure we append a string, not None
+                failed_files.append(entity or "Unknown")
                 continue
 
     # Process shortcuts
@@ -1787,25 +1794,33 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                 success_files.append(shortcut)
 
             except frappe.PermissionError:
-                failed_files.append(
+                # Ensure we append a string, not None
+                failed_name = (
                     shortcut.shortcut_name if isinstance(shortcut, dict) else shortcut
-                )
+                ) or "Unknown"
+                failed_files.append(failed_name)
                 continue
             except Exception as e:
                 frappe.log_error(f"Error processing shortcut {shortcut}: {str(e)}")
-                failed_files.append(
+                # Ensure we append a string, not None
+                failed_name = (
                     shortcut.shortcut_name if isinstance(shortcut, dict) else shortcut
-                )
+                ) or "Unknown"
+                failed_files.append(failed_name)
                 continue
 
     frappe.db.commit()
 
     # ✅ FIX: Trả về message phù hợp với operation và loại lỗi
+    # Filter out None values and ensure all items are strings
+    failed_files_clean = [str(f) for f in failed_files if f is not None]
+    storage_error_files_clean = [str(f) for f in storage_error_files if f is not None]
+
     result = {
         "success": len(success_files) > 0,
         "message": "",
         "success_files": success_files,
-        "failed_files": failed_files,
+        "failed_files": failed_files_clean,
     }
 
     # Determine operation name for messages
@@ -1813,32 +1828,33 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
     operation_name_past = "khôi phục" if is_restore_operation else "xóa"
 
     # ✅ FIX: Xử lý storage error riêng
-    if len(storage_error_files) > 0:
+    if len(storage_error_files_clean) > 0:
         if len(success_files) > 0:
             result["message"] = (
                 f"Đã {operation_name_past} {len(success_files)} file thành công. "
-                f"{len(storage_error_files)} file không thể {operation_name} do hết dung lượng lưu trữ: {', '.join(storage_error_files)}"
+                f"{len(storage_error_files_clean)} file không thể {operation_name} do hết dung lượng lưu trữ: {', '.join(storage_error_files_clean)}"
             )
         else:
             result["message"] = (
-                f"Không thể {operation_name} các file do hết dung lượng lưu trữ: {', '.join(storage_error_files)}"
+                f"Không thể {operation_name} các file do hết dung lượng lưu trữ: {', '.join(storage_error_files_clean)}"
             )
         # Thêm storage_error_files vào failed_files để hiển thị
-        failed_files.extend(storage_error_files)
-        result["failed_files"] = failed_files
-    elif len(failed_files) > 0:
+        failed_files_clean.extend(storage_error_files_clean)
+        result["failed_files"] = failed_files_clean
+    elif len(failed_files_clean) > 0:
         # Nếu có file thất bại (không phải do storage)
         if len(success_files) > 0:
             # Có cả file thành công và thất bại
             result["message"] = (
                 f"Đã {operation_name_past} {len(success_files)} file thành công. "
-                f"{len(failed_files)} file không có quyền {operation_name}: {', '.join(failed_files)}"
+                f"{len(failed_files_clean)} file không có quyền {operation_name}: {', '.join(failed_files_clean)}"
             )
         else:
             # Tất cả đều thất bại
             result["message"] = (
-                f"Không có quyền {operation_name} các file: {', '.join(failed_files)}"
+                f"Không có quyền {operation_name} các file: {', '.join(failed_files_clean)}"
             )
+        result["failed_files"] = failed_files_clean
     else:
         # Tất cả thành công
         result["message"] = (
@@ -2715,18 +2731,28 @@ def download_folder_as_zip(entity_name):
         manager = FileManager()
         files_added_count = 0
         files_skipped_count = 0
-        
+
         # Recursively add all files/folders
         def add_to_zip(folder_entity_name, arcname_prefix=""):
             nonlocal files_added_count, files_skipped_count
-            
+
             children = frappe.db.get_all(
                 "Drive File",
                 filters={"parent_entity": folder_entity_name, "is_active": 1},
-                fields=["name", "title", "is_group", "file_size", "mime_type", "path", "document"],
+                fields=[
+                    "name",
+                    "title",
+                    "is_group",
+                    "file_size",
+                    "mime_type",
+                    "path",
+                    "document",
+                ],
             )
 
-            print(f"📁 Processing folder {folder_entity_name}: Found {len(children)} children")
+            print(
+                f"📁 Processing folder {folder_entity_name}: Found {len(children)} children"
+            )
 
             for child in children:
                 arcname = f"{arcname_prefix}{child['title']}"
@@ -2741,13 +2767,15 @@ def download_folder_as_zip(entity_name):
                         # ✅ FIX: Handle different file types
                         if child.get("document"):
                             # Handle Drive Document files (frappe doc)
-                            print(f"  ⚠️ Skipping Drive Document: {child['title']} (requires special handling)")
+                            print(
+                                f"  ⚠️ Skipping Drive Document: {child['title']} (requires special handling)"
+                            )
                             files_skipped_count += 1
                             continue
-                        
+
                         # Get file path
                         file_path = get_file_path(child["name"])
-                        
+
                         if not file_path:
                             # Try to get file from S3 or handle missing path
                             if child.get("path"):
@@ -2760,19 +2788,23 @@ def download_folder_as_zip(entity_name):
                                         print(f"  ✅ Added file from S3: {arcname}")
                                         continue
                                 except Exception as e:
-                                    print(f"  ⚠️ Error getting S3 file {child['title']}: {e}")
-                            
+                                    print(
+                                        f"  ⚠️ Error getting S3 file {child['title']}: {e}"
+                                    )
+
                             print(f"  ⚠️ Skipping file (no path): {child['title']}")
                             files_skipped_count += 1
                             continue
-                        
+
                         # Add local file to ZIP
                         if os.path.exists(file_path):
                             zf.write(file_path, arcname=arcname)
                             files_added_count += 1
                             print(f"  ✅ Added file: {arcname}")
                         else:
-                            print(f"  ⚠️ File not found: {file_path} (skipping {child['title']})")
+                            print(
+                                f"  ⚠️ File not found: {file_path} (skipping {child['title']})"
+                            )
                             files_skipped_count += 1
                     except Exception as e:
                         print(f"  ❌ Error adding {child['title']} to ZIP: {e}")
@@ -2782,10 +2814,14 @@ def download_folder_as_zip(entity_name):
         # ✅ FIX: Start recursive add from root folder with folder name as prefix
         # This ensures all contents are placed inside a folder named after the root folder
         folder_name = secure_filename(parent_doc.title or "download")
-        print(f"🚀 Starting ZIP creation for folder: {folder_name} (entity: {entity_name})")
+        print(
+            f"🚀 Starting ZIP creation for folder: {folder_name} (entity: {entity_name})"
+        )
         add_to_zip(entity_name, f"{folder_name}/")
-        
-        print(f"📊 ZIP creation complete: {files_added_count} files added, {files_skipped_count} files skipped")
+
+        print(
+            f"📊 ZIP creation complete: {files_added_count} files added, {files_skipped_count} files skipped"
+        )
 
     # Prepare response
     zip_buffer.seek(0)
@@ -2818,16 +2854,16 @@ def get_file_path(entity_name):
     """Get file path for an entity"""
     try:
         file_entity = frappe.get_doc("Drive File", entity_name)
-        
+
         # ✅ FIX: Use 'path' field, not 'file_path'
         if not file_entity.path:
             print(f"⚠️ No path found for entity {entity_name}")
             return None
-        
+
         # Get full physical path
         manager = FileManager()
         full_path = manager.site_folder / file_entity.path
-        
+
         # For S3 files, we need to download first or use get_file()
         # But for ZIP, we need local path, so return None for S3
         # (We'll handle S3 files differently)
@@ -2838,11 +2874,11 @@ def get_file_path(entity_name):
             # For S3-only files, we'll need to download them
             # For now, return None and handle in download_folder_as_zip
             return None
-        
+
         # For local files, return full path
         if full_path.exists():
             return str(full_path)
-        
+
         print(f"⚠️ File not found at path: {full_path} for entity {entity_name}")
         return None
     except Exception as e:

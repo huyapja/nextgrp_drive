@@ -21,12 +21,12 @@
           {
             label: __('By'),
             value: 'by',
-            disabled: !getEntities.data?.length,
+            disabled: !hasData,
           },
           {
             label: __('With you'),
             value: 'with',
-            disabled: !getEntities.data?.length,
+            disabled: !hasData,
           },
         ]"
       />
@@ -36,14 +36,14 @@
     <IconField
       v-else
       class="search-container p-inputtext p-component"
-      :disabled="!getEntities.data?.length"
-      :class="{ '!bg-[#e2e8f0]': !getEntities.data?.length }"
+      :disabled="!hasData"
+      :class="{ '!bg-[#e2e8f0]': !hasData }"
     >
       <InputIcon class="pi pi-search" />
       <InputText
         ref="search-input"
         v-model="search"
-        :disabled="!getEntities.data?.length"
+        :disabled="!hasData"
         :placeholder="__('Tìm kiếm')"
         class="search-input"
       />
@@ -58,7 +58,7 @@
             icon="pi pi-filter"
             text
             severity="secondary"
-            :disabled="!getEntities.data?.length"
+            :disabled="!hasData"
             class="control-btn"
             v-tooltip="__('Filter')"
             @click="showFilterMenu = !showFilterMenu"
@@ -125,7 +125,7 @@
             :icon="sortOrder.ascending ? 'pi pi-sort-amount-up' : 'pi pi-sort-amount-down'"
             text
             severity="secondary"
-            :disabled="!getEntities.data?.length"
+            :disabled="!hasData"
             class="sort-arrow-btn"
             @click.stop="toggleAscending"
           />
@@ -139,7 +139,7 @@
             text
             severity="secondary"
             :class="{ active: viewState === 'list' }"
-            :disabled="!getEntities.data?.length"
+            :disabled="!hasData"
             class="view-btn"
             @click="viewState = 'list'"
           />
@@ -148,7 +148,7 @@
             text
             severity="secondary"
             :class="{ active: viewState === 'grid' }"
-            :disabled="!getEntities.data?.length"
+            :disabled="!hasData"
             class="view-btn"
             @click="viewState = 'grid'"
           />
@@ -216,7 +216,21 @@ const props = defineProps({
   actionItems: Array,
   getEntities: Object,
 })
+const emit = defineEmits(['filter-change', 'search-change'])
 const store = useStore()
+
+// Computed to check if there's data (handle both paginated and non-paginated responses)
+const hasData = computed(() => {
+  if (!props.getEntities?.data) return false
+  
+  // Handle paginated response {data: [...], total: 23}
+  if (typeof props.getEntities.data === 'object' && 'data' in props.getEntities.data) {
+    return Array.isArray(props.getEntities.data.data) && props.getEntities.data.data.length > 0
+  }
+  
+  // Handle array response (backward compatibility)
+  return Array.isArray(props.getEntities.data) && props.getEntities.data.length > 0
+})
 
 const sortOrder = ref(store.state.sortOrder)
 const activeFilters = ref([])
@@ -249,25 +263,33 @@ watch(
   { immediate: true }
 )
 
-watch(activeFilters.value, (val) => {
-  if (!val.length) {
-    rows.value = props.getEntities.data
-    return
+// Helper to get actual data array from getEntities.data (handle paginated response)
+const getDataArray = () => {
+  const data = props.getEntities.data
+  if (!data) return []
+  // Handle paginated response {data: [...], total: 23}
+  if (typeof data === 'object' && 'data' in data && Array.isArray(data.data)) {
+    return data.data
   }
-  const mime_types = []
-  const isFolder = val.find((k) => k === "Folder")
-  for (let k of val) {
-    if (k === "Unknown") continue
-    mime_types.push(...MIME_LIST_MAP[k])
-  }
-  rows.value = props.getEntities.data.filter(
-    ({ mime_type, is_group }) =>
-      mime_types.includes(mime_type) || (isFolder && is_group)
-  )
-})
+  // Handle array response (backward compatibility)
+  return Array.isArray(data) ? data : []
+}
+
+// Watch for filter changes - emit event to parent to trigger API call
+watch(activeFilters, (val) => {
+  emit('filter-change', val)
+}, { deep: true })
+
+// Watch for search changes - emit event to parent to trigger API call
+// Use debounce to avoid too many API calls while typing
+let searchTimeout = null
 watch(search, (val) => {
-  const search = new RegExp(val, "i")
-  rows.value = props.getEntities.data.filter((k) => search.test(k.title))
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+  }
+  searchTimeout = setTimeout(() => {
+    emit('search-change', val)
+  }, 500) // Debounce 500ms
 })
 
 const route = useRoute()

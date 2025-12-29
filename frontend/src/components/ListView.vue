@@ -1,13 +1,22 @@
 <template>
   <div class="file-manager-container">
+    <!-- Debug info (remove later) -->
+    <div v-if="false" style="padding: 10px; background: yellow; font-size: 12px;">
+      Debug: totalRecords={{ props.totalRecords }}, computedTotalRecords={{ computedTotalRecords }}, 
+      pageSize={{ pageSize }}, first={{ first }}, formattedRows.length={{ formattedRows.length }}
+    </div>
     <!-- Data Table -->
     <div class="table-container">
       <DataTable
         v-model:selection="selectedRows"
         :value="formattedRowsWithKeys"
-        :loading="!folderContents"
-        :paginator="false"
-        :rows="1000"
+        :loading="loading || !folderContents"
+        paginator
+        :rows="pageSize"
+        :first="first"
+        :totalRecords="computedTotalRecords"
+        :lazy="true"
+        template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink"
         :scrollable="true"
         scrollHeight="flex"
         showGridlines
@@ -17,6 +26,7 @@
         @row-click="onRowClick"
         @row-dblclick="onRowDoubleClick"
         :rowClass="rowClass"
+        @page="onPageChange"
       >
         <!-- Selection Column -->
         <Column
@@ -292,8 +302,11 @@ const props = defineProps({
   folderContents: Object,
   actionItems: Array,
   userData: Object,
+  getEntities: Object,
+  totalRecords: { type: Number, default: 0 },
+  loading: { type: Boolean, default: false },
 })
-const emit = defineEmits(["dropped"])
+const emit = defineEmits(["dropped", "page-change"])
 
 const selections = defineModel(new Set())
 const selectedRow = ref(null)
@@ -306,6 +319,11 @@ const tooltipStyle = ref({})
 const tooltipOffset = 10
 const highlightedRow = ref(null)
 const isContextMenuOpen = ref(false)
+
+// Pagination state
+const pageSize = ref(20)
+const first = ref(0)
+const currentPage = ref(1)
 
 // Computed: Check if current page is Trash
 const isTrashPage = computed(() => route.name === 'Trash')
@@ -352,6 +370,12 @@ function onThumbnailError(event, row) {
 
 const formattedRows = computed(() => {
   if (!props.folderContents) return []
+  
+  // Handle paginated response (when API returns {data: [...], total: 123})
+  if (props.folderContents && typeof props.folderContents === 'object' && 'data' in props.folderContents) {
+    return props.folderContents.data || []
+  }
+  
   if (Array.isArray(props.folderContents)) {
     console.log("Folder contents is an array:", props.folderContents)
     return props.folderContents
@@ -360,6 +384,23 @@ const formattedRows = computed(() => {
   return Object.keys(props.folderContents).flatMap(
     (k) => props.folderContents[k] || []
   )
+})
+
+// Computed totalRecords - ALWAYS use props.totalRecords when available, never fallback to formattedRows.length
+// because formattedRows.length is just the current page data, not the total
+const computedTotalRecords = computed(() => {
+  // Use props.totalRecords if provided (from API), otherwise 0
+  const total = Number(props.totalRecords) || 0
+  
+  console.log("ListView computedTotalRecords:", {
+    propsTotalRecords: props.totalRecords,
+    computedTotal: total,
+    pageSize: pageSize.value,
+    currentRowsLength: formattedRows.value.length,
+    shouldHaveNext: total > pageSize.value
+  })
+  
+  return total
 })
 
 // Data display methods
@@ -762,6 +803,33 @@ onKeyDown("Escape", (e) => {
   highlightedRow.value = null
   e.preventDefault()
 })
+
+// Handle page change
+const onPageChange = (event) => {
+  console.log("Page change event:", event)
+  // PrimeVue uses 0-based index, API uses 1-based
+  currentPage.value = event.page + 1
+  pageSize.value = event.rows
+  first.value = event.first
+  
+  console.log("Emitting page-change:", {
+    page: currentPage.value,
+    pageSize: pageSize.value,
+  })
+  
+  emit("page-change", {
+    page: currentPage.value,
+    pageSize: pageSize.value,
+  })
+  
+  // Scroll to top when page changes
+  nextTick(() => {
+    const tableContainer = document.querySelector('.table-container')
+    if (tableContainer) {
+      tableContainer.scrollTop = 0
+    }
+  })
+}
 </script>
 
 <style scoped>
