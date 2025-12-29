@@ -946,7 +946,7 @@ function insertReplyMention({ id, label, kind, comment_id }) {
   editor.insertMention({
     id,
     label,
-    kind: kind ?? "reply",
+    kind: kind,
     comment_id,
   })
 }
@@ -954,7 +954,6 @@ function insertReplyMention({ id, label, kind, comment_id }) {
 function handleReply(c) {
   const replyKey = `${c.node_id}__${c.session_index}`
 
-  // 🔒 khóa auto scroll
   suppressAutoScroll.value = true
 
   activeGroupKey.value = replyKey

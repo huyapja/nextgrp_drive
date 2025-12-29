@@ -117,3 +117,66 @@ export function computeInsertBeforeAnchor({
     dropPosition
   )
 }
+
+
+export function computeInsertAsFirstChild({
+  nodes,
+  parentId,
+  orderStore,
+}) {
+  const siblings = nodes.filter(
+    n => n.data.parentId === parentId
+  )
+
+  // chưa có con nào → node đầu tiên
+  if (!siblings.length) {
+    return 1
+  }
+
+  let minOrder = Infinity
+
+  siblings.forEach(n => {
+    const o =
+      orderStore.get(n.id) ??
+      n.data.order ??
+      0
+
+    if (o < minOrder) minOrder = o
+  })
+
+  // chèn lên đầu
+  return minOrder - 1
+}
+
+export function moveNodeAsFirstChild({
+  nodeId,
+  newParentId,
+  nodes,
+  orderStore,
+}) {
+  const node = nodes.find(n => n.id === nodeId)
+  if (!node) return null
+
+  const oldParentId = node.data.parentId
+  if (oldParentId === newParentId) return null
+
+  // 1️⃣ đổi parent
+  node.data.parentId = newParentId
+
+  // 2️⃣ tính order mới (lên đầu danh sách con)
+  const newOrder = computeInsertAsFirstChild({
+    nodes,
+    parentId: newParentId,
+    orderStore,
+  })
+
+  orderStore.set(nodeId, newOrder)
+  node.data.order = newOrder
+
+  return {
+    nodeId,
+    oldParentId,
+    newParentId,
+    newOrder,
+  }
+}

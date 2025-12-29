@@ -19,6 +19,7 @@ import { ImageZoomClickExtension } from "./components/extensions/ImageZoomClickE
 import { extractNodeEditsFromHTML, hasMmNode } from "./components/MindmapTextNodeViewEditor/helpers"
 import { HeadingWithNodeId, ListItemWithNodeId, ParagraphWithNodeId } from "./components/MindmapTextNodeViewEditor/extensions"
 import { createEditorKeyDown } from "./components/MindmapTextNodeViewEditor/editorKeymap"
+import { ListItemChildrenSync } from "./components/extensions/ListItemChildrenSync"
 
 
 /* ================================
@@ -86,8 +87,6 @@ function syncFromEditorDebounced(editor) {
   }, 300)
 }
 
-
-
 /* ================================
  * Editor
  * ================================ */
@@ -135,7 +134,8 @@ onMounted(() => {
           }
         },
       }),
-      ImageZoomClickExtension
+      ImageZoomClickExtension,
+      ListItemChildrenSync,
     ],
 
     editorProps: {

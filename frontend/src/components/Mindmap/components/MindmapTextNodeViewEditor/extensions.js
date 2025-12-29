@@ -61,6 +61,12 @@ export const ListItemWithNodeId = ListItem.extend({
         renderHTML: (attrs) =>
           attrs.hasCount ? { "data-has-count": "true" } : {},
       },
+      hasChildren: {
+        default: false,
+        parseHTML: (el) => el.getAttribute("data-has-children") === "true",
+        renderHTML: (attrs) =>
+          attrs.hasChildren ? { "data-has-children": "true" } : {},
+      },
     }
   },
 

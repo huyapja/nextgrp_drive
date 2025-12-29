@@ -39,17 +39,24 @@ export function MentionSuggestion({ getMembers, nodeId }) {
 
     panel.dataset.__mentionExpanded = "1"
 
-    // 1️⃣ Freeze chiều cao hiện tại (chống giật)
+    // lưu style gốc để restore chuẩn
+    panel.dataset.__origContentVisibility = panel.style.contentVisibility || ""
+    panel.dataset.__origContain = panel.style.contain || ""
+    panel.dataset.__origOverflowAnchor = panel.style.overflowAnchor || ""
+    panel.dataset.__origContainIntrinsicSize =
+      panel.style.containIntrinsicSize || ""
+
+    // 1) freeze height
     const rect = panel.getBoundingClientRect()
     panel.style.containIntrinsicSize = `${rect.height}px`
 
-    // 2️⃣ ÉP render subtree (LOGIC CŨ – QUAN TRỌNG)
+    // 2) force render subtree
     panel.style.contentVisibility = "visible"
 
-    // 3️⃣ GỠ layout containment (LOGIC CŨ – QUYẾT ĐỊNH)
+    // 3) remove containment
     panel.style.contain = "none"
 
-    // 4️⃣ Chặn scroll anchoring (LOGIC MỚI)
+    // 4) disable scroll anchoring
     panel.style.overflowAnchor = "none"
   }
 
@@ -61,9 +68,18 @@ export function MentionSuggestion({ getMembers, nodeId }) {
     if (panel.dataset.__mentionExpanded !== "1") return
 
     requestAnimationFrame(() => {
-      panel.style.contentVisibility = "auto"
-      panel.style.containIntrinsicSize = ""
+      panel.style.contentVisibility =
+        panel.dataset.__origContentVisibility || ""
+      panel.style.contain = panel.dataset.__origContain || ""
+      panel.style.overflowAnchor = panel.dataset.__origOverflowAnchor || ""
+      panel.style.containIntrinsicSize =
+        panel.dataset.__origContainIntrinsicSize || ""
+
       delete panel.dataset.__mentionExpanded
+      delete panel.dataset.__origContentVisibility
+      delete panel.dataset.__origContain
+      delete panel.dataset.__origOverflowAnchor
+      delete panel.dataset.__origContainIntrinsicSize
     })
   }
 
@@ -235,38 +251,34 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       function selectItem(item) {
         if (!item || !editorInstance || !lastRange) return
 
-        // 1) giữ scroll hiện tại để tránh ProseMirror/DOM làm nhảy
         const container = editorInstance.view?.dom?.closest(
           ".comment-scroll-container"
         )
         const prevScrollTop = container?.scrollTop ?? 0
 
-        // 2) đóng UI trước để tránh reflow sau khi thay đổi doc
-        //    (và để không bị props.exit() làm restore lung tung)
+        // đóng UI trước
         editorInstance.storage.__mentionOpen = false
-        restoreCommentPanel(nodeId)
-
         scrollContainer?.removeEventListener("scroll", onScroll)
         popup?.remove()
         popup = null
 
-        // 3) insert mention, không cho editor auto scroll
+        // ✅ mutate doc trước (không auto scroll)
         editorInstance
           .chain()
           .focus(null, { scrollIntoView: false })
           .deleteRange(lastRange)
           .insertContent({
             type: "mention",
-            attrs: {
-              id: item.email,
-              label: item.full_name,
-            },
+            attrs: { id: item.email, label: item.full_name },
           })
           .insertContent(" ")
           .run()
 
-        // 4) restore scroll về đúng vị trí trước đó
+        // ✅ restore scroll ngay sau mutate
         if (container) container.scrollTop = prevScrollTop
+
+        // ✅ restore panel SAU CÙNG (để không reflow đúng lúc doc thay)
+        requestAnimationFrame(() => restoreCommentPanel(nodeId))
       }
 
       return {

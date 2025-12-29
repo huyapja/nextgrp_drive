@@ -88,7 +88,6 @@ const emit = defineEmits(["update:modelValue", "submit", "navigate", "open-galle
 const editor = ref(null)
 const localInsertedImages = new Set()
 const mentionMembers = ref(props.members || [])
-const hasInitialized = ref(false)
 
 const filteredMembers = computed(() => {
     if (!props.members) return []
