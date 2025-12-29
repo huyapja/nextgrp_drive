@@ -36,6 +36,8 @@
           :action-items="actionItems"
           :selections="selectedEntitities"
           :get-entities="getEntities"
+          @filter-change="onFilterChange"
+          @search-change="onSearchChange"
         />
         <div
           v-if="!props.getEntities.fetched"
@@ -45,7 +47,7 @@
           <LoadingIndicator class="size-10 text-ink-gray-9" />
         </div>
         <NoFilesSection
-          v-else-if="!props.getEntities.data?.length"
+          v-else-if="!rows || (Array.isArray(rows) && rows.length === 0)"
           :icon="icon"
           :primary-message="__(primaryMessage)"
           :secondary-message="__(secondaryMessage)"
@@ -56,7 +58,11 @@
           :folder-contents="rows && grouper(rows)"
           :action-items="actionItems"
           :user-data="userData"
+          :get-entities="getEntities"
+          :total-records="totalRecords"
+          :loading="getEntities.loading"
           @dropped="onDrop"
+          @page-change="onPageChange"
         />
         <GridView
           v-else
@@ -155,6 +161,15 @@ const entityName = route.params.entityName
 const activeEntity = computed(() => store.state.activeEntity)
 const rows = ref(props.getEntities.data)
 
+// Pagination state
+const currentPage = ref(1)
+const pageSize = ref(20)
+const totalRecords = ref(0)
+
+// Filter and search state
+const activeFilters = ref([])
+const searchQuery = ref("")
+
 // ✅ Responsive bottom padding
 const isMobile = ref(false)
 const bottomBarHeight = ref('0px')
@@ -193,33 +208,153 @@ onUnmounted(() => {
 watch(
   () => props.getEntities.data,
   (val) => {
-    rows.value = val
-  }
+    if (!val) {
+      rows.value = null
+      totalRecords.value = 0
+      return
+    }
+    
+    // Handle paginated response
+    if (typeof val === 'object' && 'data' in val && 'total' in val) {
+      totalRecords.value = Number(val.total) || 0
+      rows.value = val.data
+      console.log("GenericPage watch - paginated response:", {
+        total: val.total,
+        totalRecords: totalRecords.value,
+        rowsLength: rows.value.length,
+        dataType: typeof val.total
+      })
+    } else if (Array.isArray(val)) {
+      // For backward compatibility with non-paginated response
+      rows.value = val
+      totalRecords.value = val.length
+      console.log("GenericPage watch - array response, totalRecords:", totalRecords.value)
+    } else {
+      // Fallback
+      rows.value = val
+      totalRecords.value = 0
+      console.log("GenericPage watch - fallback, totalRecords:", totalRecords.value)
+    }
+  },
+  { immediate: true }
 )
+
+// Reset to first page when sorting changes
+watch(
+  () => store.state.sortOrder,
+  () => {
+    if (currentPage.value > 1) {
+      currentPage.value = 1
+    }
+  },
+  { deep: true }
+)
+
+// Computed for paginated folder contents
+const paginatedFolderContents = computed(() => {
+  if (!rows.value) return null
+  
+  // If already paginated response from API, return as is
+  if (typeof rows.value === 'object' && 'data' in rows.value) {
+    return rows.value
+  }
+  
+  // Otherwise return the data for grouper
+  return rows.value
+})
 
 const selections = ref(new Set())
 const selectedEntitities = computed(
   () =>
-    props.getEntities.data?.filter?.(({ name, is_shortcut, shortcut_name }) =>
+    rows.value?.filter?.(({ name, is_shortcut, shortcut_name }) =>
       selections.value.has(is_shortcut ? shortcut_name : name)
     ) || []
 )
+
+// Helper function to build API params
+const buildApiParams = () => {
+  const params = {
+    team,
+    order_by:
+      store.state.sortOrder.field +
+      (store.state.sortOrder.ascending ? " 1" : " 0"),
+    page: currentPage.value,
+    page_size: pageSize.value,
+  }
+  
+  // Add search parameter if exists
+  if (searchQuery.value && searchQuery.value.trim()) {
+    params.search = searchQuery.value.trim()
+  }
+  
+  // Add file_kinds filter if exists
+  if (activeFilters.value && activeFilters.value.length > 0) {
+    params.file_kinds = JSON.stringify(activeFilters.value)
+  }
+  
+  return params
+}
+
+// Handle filter change - reset to page 1 and fetch
+const onFilterChange = async (filters) => {
+  console.log("onFilterChange called with:", filters)
+  activeFilters.value = filters
+  currentPage.value = 1 // Reset to page 1
+  
+  try {
+    const params = buildApiParams()
+    console.log("Fetching with filter params:", params)
+    await props.getEntities.fetch(params)
+    console.log("Filter fetch completed")
+  } catch (error) {
+    console.error("Error fetching with filter:", error)
+  }
+}
+
+// Handle search change - reset to page 1 and fetch
+const onSearchChange = async (query) => {
+  console.log("onSearchChange called with:", query)
+  searchQuery.value = query
+  currentPage.value = 1 // Reset to page 1
+  
+  try {
+    const params = buildApiParams()
+    console.log("Fetching with search params:", params)
+    await props.getEntities.fetch(params)
+    console.log("Search fetch completed")
+  } catch (error) {
+    console.error("Error fetching with search:", error)
+  }
+}
 
 const verifyAccess = computed(() => props.verify?.data || !props.verify)
 
 watch(
   verifyAccess,
   async (data) => {
-    if (data)
-      await props.getEntities.fetch({
-        team,
-        order_by:
-          store.state.sortOrder.field +
-          (store.state.sortOrder.ascending ? " 1" : " 0"),
-      })
+    if (data) {
+      console.log("verifyAccess changed, fetching data with params:", buildApiParams())
+      await props.getEntities.fetch(buildApiParams())
+      console.log("Initial fetch completed, data:", props.getEntities.data)
+    }
   },
   { immediate: true }
 )
+
+// Handle page change from ListView
+const onPageChange = async (pagination) => {
+  console.log("onPageChange called with:", pagination)
+  currentPage.value = pagination.page
+  pageSize.value = pagination.pageSize
+  
+  try {
+    await props.getEntities.fetch(buildApiParams())
+    
+    console.log("Fetch completed, data:", props.getEntities.data)
+  } catch (error) {
+    console.error("Error fetching page:", error)
+  }
+}
 
 if (team) {
   allUsers.fetch({ team })

@@ -19,7 +19,23 @@ export const COMMON_OPTIONS = {
     }
   },
   transform(data) {
-    return prettyData(data)
+    // Frappe-ui automatically extracts message field, but handle both cases
+    let actualData = data
+    
+    // If data is wrapped in message field (frappe response format)
+    if (data && typeof data === 'object' && 'message' in data && data.message) {
+      actualData = data.message
+    }
+    
+    // Handle paginated response
+    if (actualData && typeof actualData === 'object' && 'data' in actualData && Array.isArray(actualData.data)) {
+      return {
+        ...actualData,
+        data: prettyData(actualData.data)
+      }
+    }
+    // Handle non-paginated response (backward compatibility)
+    return prettyData(actualData)
   },
 }
 

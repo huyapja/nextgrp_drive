@@ -90,6 +90,20 @@
             </div>
           </div>
 
+          <!-- Checkbox chuyển quyền sở hữu các file con -->
+          <div class="field-group">
+            <div class="checkbox-item">
+              <Checkbox
+                v-model="transferChildFiles"
+                inputId="transferChildFiles"
+                :binary="true"
+              />
+              <label for="transferChildFiles" class="checkbox-label">
+                Chuyển quyền sở hữu các tài liệu thuộc sở hữu của tôi trong thư mục
+              </label>
+            </div>
+          </div>
+
           <!-- Loading và error states -->
           <div v-if="loading" class="loading-container">
             <ProgressSpinner size="small" />
@@ -124,6 +138,7 @@ import {
   createResource,
 } from "frappe-ui";
 import Button from 'primevue/button';
+import Checkbox from 'primevue/checkbox';
 import Dialog from "primevue/dialog";
 import Dropdown from 'primevue/dropdown';
 import ProgressSpinner from 'primevue/progressspinner';
@@ -142,6 +157,7 @@ const store = useStore()
 // Reactive data
 const selectedUser = ref(null)
 const ownerPermission = ref("0") // Default là quyền xem
+const transferChildFiles = ref(false) // Mặc định không chuyển quyền sở hữu các file con
 const loading = ref(false)
 const error = ref('')
 const submitting = ref(false)
@@ -225,6 +241,7 @@ const handleTransfer = async () => {
     args: JSON.stringify({
       new_owner: selectedUser.value,
       old_owner_permissions: ownerPermission.value,
+      transfer_child_files: transferChildFiles.value, // Thêm flag chuyển quyền sở hữu các file con
     })
   }
   
@@ -235,6 +252,7 @@ const handleTransfer = async () => {
 const resetForm = () => {
   selectedUser.value = null
   ownerPermission.value = "0"
+  transferChildFiles.value = false
   error.value = ''
 }
 
@@ -399,6 +417,36 @@ onMounted(() => {
 :deep(.p-radiobutton .p-radiobutton-box.p-highlight) {
   border-color: #3b82f6;
   background: #3b82f6;
+}
+
+.checkbox-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: #374151;
+  line-height: 1.5;
+  user-select: none;
+}
+
+:deep(.p-checkbox .p-checkbox-box) {
+  border-color: #d1d5db;
+  border-radius: 4px;
+}
+
+:deep(.p-checkbox .p-checkbox-box.p-highlight) {
+  border-color: #3b82f6;
+  background: #3b82f6;
+}
+
+:deep(.p-checkbox:not(.p-disabled):hover .p-checkbox-box) {
+  border-color: #9ca3af;
 }
 
 /* Fixed height dialog styles */

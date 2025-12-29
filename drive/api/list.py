@@ -124,7 +124,8 @@ def files(
     else:
         query = query.left_join(DriveFavourite)
     query = query.on(
-        (DriveFavourite.entity == DriveFile.name) & (DriveFavourite.user == frappe.session.user)
+        (DriveFavourite.entity == DriveFile.name)
+        & (DriveFavourite.user == frappe.session.user)
     ).select(DriveFavourite.name.as_("is_favourite"))
 
     # if recents_only:
@@ -143,7 +144,10 @@ def files(
     # Subquery để lấy lần truy cập gần nhất của mỗi file
     recent_subquery = (
         frappe.qb.from_(Recents)
-        .select(Recents.entity_name, fn.Max(Recents.last_interaction).as_("last_interaction"))
+        .select(
+            Recents.entity_name,
+            fn.Max(Recents.last_interaction).as_("last_interaction"),
+        )
         .groupby(Recents.entity_name)
     ).as_("recent_data")
 
@@ -162,7 +166,9 @@ def files(
             .select(recent_subquery.last_interaction.as_("accessed"))
         )
     else:
-        query = query.left_join(recent_subquery).on(recent_subquery.entity_name == DriveFile.name)
+        query = query.left_join(recent_subquery).on(
+            recent_subquery.entity_name == DriveFile.name
+        )
         if ascending:
             query = query.orderby(recent_subquery.last_interaction, order=Order.asc)
         else:
@@ -170,9 +176,13 @@ def files(
         query = query.select(recent_subquery.last_interaction.as_("accessed"))
 
     if favourites_only or recents_only:
-        query = query.where((DriveFile.is_private == 0) | (DriveFile.owner == frappe.session.user))
+        query = query.where(
+            (DriveFile.is_private == 0) | (DriveFile.owner == frappe.session.user)
+        )
     elif not is_active:
-        query = query.where((DriveFile.owner == frappe.session.user) & (DriveFile.is_private == 1))
+        query = query.where(
+            (DriveFile.owner == frappe.session.user) & (DriveFile.is_private == 1)
+        )
 
     if personal == 0 or personal == -1:
         query = query.where((DriveFile.is_private == 0))
@@ -191,11 +201,15 @@ def files(
 
     if tag_list:
         tag_list = json.loads(tag_list)
-        query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
+        query = query.left_join(DriveEntityTag).on(
+            DriveEntityTag.parent == DriveFile.name
+        )
         tag_list_criterion = [DriveEntityTag.tag == tags for tags in tag_list]
         query = query.where(Criterion.any(tag_list_criterion))
 
-    file_kinds = json.loads(file_kinds) if not isinstance(file_kinds, list) else file_kinds
+    file_kinds = (
+        json.loads(file_kinds) if not isinstance(file_kinds, list) else file_kinds
+    )
     if file_kinds:
         mime_types = []
         for kind in file_kinds:
@@ -272,7 +286,10 @@ def shared(
         .right_join(DrivePermission)
         .on(
             (DrivePermission.entity == DriveFile.name)
-            & ((DrivePermission.owner if by else DrivePermission.user) == frappe.session.user)
+            & (
+                (DrivePermission.owner if by else DrivePermission.user)
+                == frappe.session.user
+            )
         )
         .limit(limit)
         .where((DrivePermission.read == 1) & (DriveFile.is_active == 1))
@@ -295,14 +312,18 @@ def shared(
 
     if tag_list:
         tag_list = json.loads(tag_list)
-        query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
+        query = query.left_join(DriveEntityTag).on(
+            DriveEntityTag.parent == DriveFile.name
+        )
         tag_list_criterion = [DriveEntityTag.tag == tags for tags in tag_list]
         query = query.where(Criterion.any(tag_list_criterion))
 
     if mime_type_list:
         mime_type_list = json.loads(mime_type_list)
         query = query.where(
-            Criterion.any(DriveFile.mime_type == mime_type for mime_type in mime_type_list)
+            Criterion.any(
+                DriveFile.mime_type == mime_type for mime_type in mime_type_list
+            )
         )
 
     # Extremely inefficient
@@ -374,7 +395,10 @@ def apply_favourite_join(query, favourites_only=False, has_shortcut_join=False):
                 (
                     (
                         # Trường hợp không phải shortcut
-                        (DriveShortcut.is_shortcut.isnull() | (DriveShortcut.is_shortcut == 0))
+                        (
+                            DriveShortcut.is_shortcut.isnull()
+                            | (DriveShortcut.is_shortcut == 0)
+                        )
                         & (DriveShortcut.name.isnull())
                         & (DriveFavourite.entity == DriveFile.name)
                     )
@@ -427,6 +451,9 @@ def files_multi_team(
     personal=-1,
     folders=0,
     only_parent=1,
+    page=None,
+    page_size=50,
+    search=None,
 ):
     """
     Lấy tệp từ nhiều nhóm với logic giống Google Drive
@@ -457,7 +484,8 @@ def files_multi_team(
 
             if not user_access["read"]:
                 frappe.throw(
-                    "You don't have permission to access this folder", frappe.PermissionError
+                    "You don't have permission to access this folder",
+                    frappe.PermissionError,
                 )
 
             # Chỉ query trong team của entity
@@ -515,11 +543,15 @@ def files_multi_team(
 
             try:
                 entity = frappe.get_doc("Drive File", current_entity_name)
-                print(f"DEBUG - Entity {current_entity_name} belongs to team: {entity.team}")
+                print(
+                    f"DEBUG - Entity {current_entity_name} belongs to team: {entity.team}"
+                )
                 print(f"DEBUG - Currently processing team: {team}")
                 # Skip if entity doesn't belong to current team
                 if entity.team != team:
-                    print(f"DEBUG - Skipping because entity.team ({entity.team}) != team ({team})")
+                    print(
+                        f"DEBUG - Skipping because entity.team ({entity.team}) != team ({team})"
+                    )
                     continue
                 print(f"DEBUG - Entity matches team, continuing...")
             except:
@@ -545,21 +577,33 @@ def files_multi_team(
                     frappe.qb.from_(DriveFile)
                     .left_join(DrivePermission)
                     .on(
-                        (DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user)
+                        (DrivePermission.entity == DriveFile.name)
+                        & (DrivePermission.user == user)
                     )
                     .select(
                         *ENTITY_FIELDS,
-                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
-                        fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
-                            "comment"
+                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                            "read"
                         ),
-                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
-                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_("write"),
+                        fn.Coalesce(
+                            DrivePermission.comment, user_access["comment"]
+                        ).as_("comment"),
+                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_(
+                            "share"
+                        ),
+                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_(
+                            "write"
+                        ),
                         DriveFile.team,
                         DriveFile.is_active,
                     )
                     .where(
-                        (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                        (
+                            fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                                "read"
+                            )
+                            == 1
+                        )
                         & (DriveFile.is_active == is_active)
                     )
                 )
@@ -568,10 +612,14 @@ def files_multi_team(
                 shortcut_files_query = (
                     frappe.qb.from_(DriveFile)
                     .inner_join(DriveShortcut)
-                    .on((DriveShortcut.file == DriveFile.name) & (DriveShortcut.is_shortcut == 1))
+                    .on(
+                        (DriveShortcut.file == DriveFile.name)
+                        & (DriveShortcut.is_shortcut == 1)
+                    )
                     .left_join(DrivePermission)
                     .on(
-                        (DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user)
+                        (DrivePermission.entity == DriveFile.name)
+                        & (DrivePermission.user == user)
                     )
                     .select(
                         *ENTITY_FIELDS,
@@ -582,16 +630,27 @@ def files_multi_team(
                         DriveShortcut.title.as_("shortcut_title"),
                         DriveShortcut.parent_folder.as_("parent_entity"),
                         DriveFile.is_active,
-                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
-                        fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
-                            "comment"
+                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                            "read"
                         ),
-                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
-                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_("write"),
+                        fn.Coalesce(
+                            DrivePermission.comment, user_access["comment"]
+                        ).as_("comment"),
+                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_(
+                            "share"
+                        ),
+                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_(
+                            "write"
+                        ),
                         DriveFile.team,
                     )
                     .where(
-                        (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                        (
+                            fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                                "read"
+                            )
+                            == 1
+                        )
                         & (DriveShortcut.is_active == is_active)
                         & (DriveShortcut.shortcut_owner == user)
                     )
@@ -599,7 +658,8 @@ def files_multi_team(
 
                 if personal == 1:
                     original_files_query = original_files_query.where(
-                        (DriveFile.is_private == 1) & (DriveFile.owner == frappe.session.user)
+                        (DriveFile.is_private == 1)
+                        & (DriveFile.owner == frappe.session.user)
                     )
                     print(
                         "DEBUG - Filtering original files for personal=1 (My Drive)",
@@ -622,20 +682,32 @@ def files_multi_team(
                     frappe.qb.from_(DriveFile)
                     .left_join(DrivePermission)
                     .on(
-                        (DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user)
+                        (DrivePermission.entity == DriveFile.name)
+                        & (DrivePermission.user == user)
                     )
                     .select(
                         *ENTITY_FIELDS,
-                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
-                        fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
-                            "comment"
+                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                            "read"
                         ),
-                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
-                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_("write"),
+                        fn.Coalesce(
+                            DrivePermission.comment, user_access["comment"]
+                        ).as_("comment"),
+                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_(
+                            "share"
+                        ),
+                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_(
+                            "write"
+                        ),
                         DriveFile.team,
                     )
                     .where(
-                        (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                        (
+                            fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                                "read"
+                            )
+                            == 1
+                        )
                         & (DriveFile.is_private == 0)
                     )
                 )
@@ -650,7 +722,8 @@ def files_multi_team(
                     .on(DriveShortcut.file == DriveFile.name)
                     .left_join(DrivePermission)
                     .on(
-                        (DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user)
+                        (DrivePermission.entity == DriveFile.name)
+                        & (DrivePermission.user == user)
                     )
                     .select(
                         *ENTITY_FIELDS,
@@ -660,17 +733,30 @@ def files_multi_team(
                         DriveShortcut.name.as_("shortcut_name"),
                         DriveShortcut.title.as_("shortcut_title"),
                         fn.Coalesce(DriveShortcut.is_shortcut, 0).as_("is_shortcut"),
-                        fn.Coalesce(DriveShortcut.shortcut_owner, "").as_("shortcut_owner"),
-                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read"),
-                        fn.Coalesce(DrivePermission.comment, user_access["comment"]).as_(
-                            "comment"
+                        fn.Coalesce(DriveShortcut.shortcut_owner, "").as_(
+                            "shortcut_owner"
                         ),
-                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_("share"),
-                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_("write"),
+                        fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                            "read"
+                        ),
+                        fn.Coalesce(
+                            DrivePermission.comment, user_access["comment"]
+                        ).as_("comment"),
+                        fn.Coalesce(DrivePermission.share, user_access["share"]).as_(
+                            "share"
+                        ),
+                        fn.Coalesce(DrivePermission.write, user_access["write"]).as_(
+                            "write"
+                        ),
                         DriveFile.team,
                     )
                     .where(
-                        (fn.Coalesce(DrivePermission.read, user_access["read"]).as_("read") == 1)
+                        (
+                            fn.Coalesce(DrivePermission.read, user_access["read"]).as_(
+                                "read"
+                            )
+                            == 1
+                        )
                         & (DriveFile.is_active == is_active)
                         & (DriveShortcut.is_active == is_active)
                         & (DriveShortcut.shortcut_owner == user)
@@ -688,7 +774,10 @@ def files_multi_team(
                     """Helper function to check if shortcut table exists in query"""
                     try:
                         query_sql = str(query)
-                        return "DriveShortcut" in query_sql or "tabDrive Shortcut" in query_sql
+                        return (
+                            "DriveShortcut" in query_sql
+                            or "tabDrive Shortcut" in query_sql
+                        )
                     except Exception as e:
                         print(f"DEBUG - Error checking query SQL: {e}")
                         return has_shortcut_join
@@ -699,7 +788,9 @@ def files_multi_team(
                         active_parents_subquery = (
                             frappe.qb.from_(DriveFile)
                             .select(DriveFile.name)
-                            .where((DriveFile.is_active == 1) & (DriveFile.team == team))
+                            .where(
+                                (DriveFile.is_active == 1) & (DriveFile.team == team)
+                            )
                         )
 
                         # Chỉ hiển thị items mà parent_entity vẫn ĐANG ACTIVE
@@ -713,16 +804,22 @@ def files_multi_team(
                     """Apply parent entity filtering with shortcut handling"""
                     if has_shortcut_table:
                         try:
-                            return query.where(DriveShortcut.parent_folder == current_entity_name)
+                            return query.where(
+                                DriveShortcut.parent_folder == current_entity_name
+                            )
                         except Exception as e:
                             print(f"DEBUG - Failed to add shortcut filter: {e}")
-                            return query.where(DriveFile.parent_entity == current_entity_name)
+                            return query.where(
+                                DriveFile.parent_entity == current_entity_name
+                            )
                     else:
                         print(
                             "DEBUG - No DriveShortcut table in query, only filtering by parent_entity",
                             current_entity_name,
                         )
-                        return query.where(DriveFile.parent_entity == current_entity_name)
+                        return query.where(
+                            DriveFile.parent_entity == current_entity_name
+                        )
 
                 def apply_folder_filter(query, has_shortcut_table):
                     """Apply folder-specific filtering"""
@@ -730,7 +827,9 @@ def files_multi_team(
 
                     if has_shortcut_table:
                         try:
-                            query = query.where(fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0)
+                            query = query.where(
+                                fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0
+                            )
                         except Exception as e:
                             print(f"DEBUG - Failed to add shortcut filter: {e}")
                     else:
@@ -743,7 +842,9 @@ def files_multi_team(
                 def apply_file_kinds_filter(query, file_kinds):
                     """Apply file kinds filtering"""
                     file_kinds_parsed = (
-                        json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
+                        json.loads(file_kinds)
+                        if isinstance(file_kinds, str)
+                        else file_kinds
                     )
 
                     if not file_kinds_parsed:
@@ -757,7 +858,10 @@ def files_multi_team(
 
                     if mime_types:
                         criterion.extend(
-                            [DriveFile.mime_type == mime_type for mime_type in mime_types]
+                            [
+                                DriveFile.mime_type == mime_type
+                                for mime_type in mime_types
+                            ]
                         )
 
                     if "Folder" in file_kinds_parsed:
@@ -771,12 +875,16 @@ def files_multi_team(
                         return query
 
                     tag_list_parsed = (
-                        json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+                        json.loads(tag_list)
+                        if not isinstance(tag_list, list)
+                        else tag_list
                     )
                     query = query.left_join(DriveEntityTag).on(
                         DriveEntityTag.parent == DriveFile.name
                     )
-                    tag_criteria = [DriveEntityTag.tag == tag for tag in tag_list_parsed]
+                    tag_criteria = [
+                        DriveEntityTag.tag == tag for tag in tag_list_parsed
+                    ]
                     return query.where(Criterion.any(tag_criteria))
 
                 # Main filtering logic
@@ -786,7 +894,9 @@ def files_multi_team(
                 if only_parent and (not recents_only and not favourites_only):
                     q = apply_parent_filter(q, has_shortcut_table)
                 else:
-                    q = q.where((DriveFile.team == team) & (DriveFile.parent_entity != ""))
+                    q = q.where(
+                        (DriveFile.team == team) & (DriveFile.parent_entity != "")
+                    )
 
                 # Apply favourite join
                 q = apply_favourite_join(q, favourites_only, has_shortcut)
@@ -824,9 +934,9 @@ def files_multi_team(
                         q.left_join(recent_subquery)  # Đổi từ inner_join sang left_join
                         .on(recent_subquery.entity_name == DriveFile.name)
                         .select(
-                            fn.Coalesce(recent_subquery.last_interaction, DriveFile.modified).as_(
-                                "accessed"
-                            )
+                            fn.Coalesce(
+                                recent_subquery.last_interaction, DriveFile.modified
+                            ).as_("accessed")
                         )
                     )
 
@@ -840,6 +950,13 @@ def files_multi_team(
 
                 # Apply file kinds filtering
                 q = apply_file_kinds_filter(q, file_kinds)
+
+                # Apply search filtering
+                if search:
+                    search_str = str(search).strip() if isinstance(search, str) else str(search)
+                    if search_str:
+                        # Search in title field (case-insensitive)
+                        q = q.where(DriveFile.title.like(f"%{search_str}%"))
 
                 # Apply folder filtering
                 if folders:
@@ -875,7 +992,9 @@ def files_multi_team(
                 team_results.extend(shortcut_results)
 
             print(f"DEBUG - Total team_results for {team}: {len(team_results)}")
-            team_info = frappe.get_value("Drive Team", team, ["name", "title"], as_dict=1)
+            team_info = frappe.get_value(
+                "Drive Team", team, ["name", "title"], as_dict=1
+            )
 
             # Add team info to each result
             for result in team_results:
@@ -902,7 +1021,9 @@ def files_multi_team(
                                 )
                         else:
                             modified_datetime = modified_date
-                        result["days_remaining"] = calculate_days_remaining(modified_datetime)
+                        result["days_remaining"] = calculate_days_remaining(
+                            modified_datetime
+                        )
                     except Exception as e:
                         frappe.log_error(
                             f"Error calculating days_remaining for {result['name']}: {str(e)}"
@@ -936,7 +1057,9 @@ def files_multi_team(
             .right_join(DrivePermission)
             .on(DrivePermission.entity == DriveFile.name)
             .where(
-                (DrivePermission.user != "") & (DrivePermission.user != "$TEAM") & team_condition
+                (DrivePermission.user != "")
+                & (DrivePermission.user != "$TEAM")
+                & team_condition
             )
             .select(DriveFile.name, fn.Count("*").as_("share_count"))
             .groupby(DriveFile.name)
@@ -983,7 +1106,9 @@ def files_multi_team(
 
         if field == "title":
             # ✅ Sort theo title case-insensitive
-            all_results.sort(key=lambda x: (x.get(field) or "").lower(), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+            )
         elif field == "accessed":
             print("DEBUG - Sorting by accessed with special None handling", field)
             # Tách riêng các record có và không có accessed
@@ -1010,10 +1135,39 @@ def files_multi_team(
                     filtered_results.append(r)
             all_results = filtered_results
 
-    # Apply limit
-    # if limit:
-    #     all_results = all_results[: int(limit)]
-    print(f"DEBUG - Final all_results count: {all_results}")
+    # Calculate total count before pagination
+    total_count = len(all_results)
+
+    # Apply page-based pagination if specified
+    if page is not None:
+        try:
+            page = int(page)
+            page_size = int(page_size) if page_size else 20
+
+            # Calculate offset
+            offset = (page - 1) * page_size
+
+            # Apply pagination
+            paginated_results = all_results[offset : offset + page_size]
+
+            # Return paginated response with total count
+            return {
+                "data": paginated_results,
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+            }
+        except (ValueError, TypeError):
+            # If page/page_size conversion fails, return all results as list
+            pass
+
+    # Apply limit if specified (for backward compatibility)
+    if limit:
+        all_results = all_results[: int(limit)]
+
+    print(f"DEBUG - Final all_results count: {len(all_results)}")
+
+    # Return list for backward compatibility (when no pagination)
     return all_results
 
 
@@ -1061,7 +1215,10 @@ def get_recent_files_multi_team(
     # ✅ BƯỚC 1: Lấy tất cả entities từ Recents của user
     recent_entities = (
         frappe.qb.from_(Recents)
-        .select(Recents.entity_name, fn.Max(Recents.last_interaction).as_("last_interaction"))
+        .select(
+            Recents.entity_name,
+            fn.Max(Recents.last_interaction).as_("last_interaction"),
+        )
         .where(Recents.user == user)
         .groupby(Recents.entity_name)
     ).run(as_dict=True)
@@ -1099,7 +1256,9 @@ def get_recent_files_multi_team(
 
     # Apply file kinds filter
     if file_kinds:
-        file_kinds_parsed = json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
+        file_kinds_parsed = (
+            json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
+        )
 
         if file_kinds_parsed:
             mime_types = []
@@ -1109,7 +1268,9 @@ def get_recent_files_multi_team(
                 mime_types.extend(MIME_LIST_MAP.get(kind, []))
 
             if mime_types:
-                criterion.extend([DriveFile.mime_type == mime_type for mime_type in mime_types])
+                criterion.extend(
+                    [DriveFile.mime_type == mime_type for mime_type in mime_types]
+                )
 
             if "Folder" in file_kinds_parsed:
                 criterion.append(DriveFile.is_group == 1)
@@ -1123,8 +1284,12 @@ def get_recent_files_multi_team(
 
     # Apply tag filter
     if tag_list:
-        tag_list_parsed = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
-        query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
+        tag_list_parsed = (
+            json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+        )
+        query = query.left_join(DriveEntityTag).on(
+            DriveEntityTag.parent == DriveFile.name
+        )
         tag_criteria = [DriveEntityTag.tag == tag for tag in tag_list_parsed]
         query = query.where(Criterion.any(tag_criteria))
 
@@ -1161,7 +1326,9 @@ def get_recent_files_multi_team(
         result_teams = list(set(r["team"] for r in all_results if r.get("team")))
 
         if result_teams:
-            team_condition = Criterion.any(DriveFile.team == team for team in result_teams)
+            team_condition = Criterion.any(
+                DriveFile.team == team for team in result_teams
+            )
 
             child_count_query = (
                 frappe.qb.from_(DriveFile)
@@ -1225,11 +1392,15 @@ def get_recent_files_multi_team(
     # ✅ BƯỚC 6: Sort by accessed time
     if field == "accessed":
         reverse = not ascending
-        all_results.sort(key=lambda x: x.get("accessed") or datetime.min, reverse=reverse)
+        all_results.sort(
+            key=lambda x: x.get("accessed") or datetime.min, reverse=reverse
+        )
     elif field in ["modified", "creation", "title", "file_size"]:
         reverse = not ascending
         if field == "title":
-            all_results.sort(key=lambda x: (x.get(field) or "").lower(), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+            )
         else:
             all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
 
@@ -1310,7 +1481,9 @@ def get_favourites_multi_team(
 
     # Tách entity và entity_shortcut
     entity_names = [f["entity"] for f in favourite_entities if f.get("entity")]
-    shortcut_names = [f["entity_shortcut"] for f in favourite_entities if f.get("entity_shortcut")]
+    shortcut_names = [
+        f["entity_shortcut"] for f in favourite_entities if f.get("entity_shortcut")
+    ]
 
     print(
         f"DEBUG - Found {len(entity_names)} favourite entities and {len(shortcut_names)} favourite shortcuts for user {user}"
@@ -1323,7 +1496,10 @@ def get_favourites_multi_team(
         query = (
             frappe.qb.from_(DriveFile)
             .left_join(DrivePermission)
-            .on((DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user))
+            .on(
+                (DrivePermission.entity == DriveFile.name)
+                & (DrivePermission.user == user)
+            )
             .select(
                 *ENTITY_FIELDS,
                 DrivePermission.read,
@@ -1370,8 +1546,12 @@ def get_favourites_multi_team(
 
         # Apply tag filter
         if tag_list:
-            tag_list_parsed = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
-            query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
+            tag_list_parsed = (
+                json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+            )
+            query = query.left_join(DriveEntityTag).on(
+                DriveEntityTag.parent == DriveFile.name
+            )
             tag_criteria = [DriveEntityTag.tag == tag for tag in tag_list_parsed]
             query = query.where(Criterion.any(tag_criteria))
 
@@ -1397,9 +1577,15 @@ def get_favourites_multi_team(
         shortcut_query = (
             frappe.qb.from_(DriveFile)
             .inner_join(DriveShortcut)
-            .on((DriveShortcut.file == DriveFile.name) & (DriveShortcut.is_shortcut == 1))
+            .on(
+                (DriveShortcut.file == DriveFile.name)
+                & (DriveShortcut.is_shortcut == 1)
+            )
             .left_join(DrivePermission)
-            .on((DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user))
+            .on(
+                (DrivePermission.entity == DriveFile.name)
+                & (DrivePermission.user == user)
+            )
             .select(
                 *ENTITY_FIELDS,
                 DriveShortcut.is_shortcut,
@@ -1415,7 +1601,9 @@ def get_favourites_multi_team(
                 DriveFile.team,
             )
             .where(
-                (DriveShortcut.name.isin(shortcut_names))  # Shortcut trong favourite list
+                (
+                    DriveShortcut.name.isin(shortcut_names)
+                )  # Shortcut trong favourite list
                 & (DriveShortcut.is_active == is_active)  # Active/Trash
                 # & (DrivePermission.read == 1)  # User có quyền read
             )
@@ -1451,7 +1639,9 @@ def get_favourites_multi_team(
 
         # Apply tag filter
         if tag_list:
-            tag_list_parsed = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+            tag_list_parsed = (
+                json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+            )
             shortcut_query = shortcut_query.left_join(DriveEntityTag).on(
                 DriveEntityTag.parent == DriveFile.name
             )
@@ -1499,7 +1689,9 @@ def get_favourites_multi_team(
         result_teams = list(set(r["team"] for r in all_results if r.get("team")))
 
         if result_teams:
-            team_condition = Criterion.any(DriveFile.team == team for team in result_teams)
+            team_condition = Criterion.any(
+                DriveFile.team == team for team in result_teams
+            )
 
             child_count_query = (
                 frappe.qb.from_(DriveFile)
@@ -1564,7 +1756,9 @@ def get_favourites_multi_team(
     if field in ["modified", "creation", "title", "file_size", "favourite_date"]:
         reverse = not ascending
         if field == "title":
-            all_results.sort(key=lambda x: (x.get(field) or "").lower(), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+            )
         else:
             all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
 
@@ -1620,7 +1814,9 @@ def shared_multi_team(
 
     # MIME type filter
     if mime_type_list:
-        mime_placeholders = ", ".join([f"%(mime_{i})s" for i in range(len(mime_type_list))])
+        mime_placeholders = ", ".join(
+            [f"%(mime_{i})s" for i in range(len(mime_type_list))]
+        )
         where_conditions.append(f"df.mime_type IN ({mime_placeholders})")
         for i, mime in enumerate(mime_type_list):
             query_params[f"mime_{i}"] = mime
@@ -1768,7 +1964,9 @@ def shared_multi_team(
 
         # Lọc bỏ các file có parent inactive
         if inactive_parents:
-            print(f"❌ Filtering out files with inactive parents: {len(inactive_parents)}")
+            print(
+                f"❌ Filtering out files with inactive parents: {len(inactive_parents)}"
+            )
             res = [r for r in res if r.get("parent_entity") not in inactive_parents]
 
     print(f"✅ Total files after hierarchy check: {len(res)}")
@@ -1883,7 +2081,11 @@ def shared_multi_team(
 
     # Return only top-level items
     parents = {r["name"] for r in res}
-    return [r for r in res if not r.get("parent_entity") or r["parent_entity"] not in parents]
+    return [
+        r
+        for r in res
+        if not r.get("parent_entity") or r["parent_entity"] not in parents
+    ]
 
 
 @frappe.whitelist()
@@ -1947,7 +2149,8 @@ def get_personal_files(
 
             if not user_access["read"]:
                 frappe.throw(
-                    "You don't have permission to access this folder", frappe.PermissionError
+                    "You don't have permission to access this folder",
+                    frappe.PermissionError,
                 )
 
             # Chỉ query trong team của entity này
@@ -1980,7 +2183,9 @@ def get_personal_files(
             try:
                 entity = frappe.get_doc("Drive File", current_entity_name)
                 if entity.team != team:
-                    print(f"DEBUG - Skipping: entity.team ({entity.team}) != team ({team})")
+                    print(
+                        f"DEBUG - Skipping: entity.team ({entity.team}) != team ({team})"
+                    )
                     continue
             except:
                 continue
@@ -1995,7 +2200,10 @@ def get_personal_files(
             original_files_query = (
                 frappe.qb.from_(DriveFile)
                 .left_join(DrivePermission)
-                .on((DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user))
+                .on(
+                    (DrivePermission.entity == DriveFile.name)
+                    & (DrivePermission.user == user)
+                )
                 .select(
                     *ENTITY_FIELDS,
                     DriveFile.team,
@@ -2018,9 +2226,15 @@ def get_personal_files(
             shortcut_files_query = (
                 frappe.qb.from_(DriveFile)
                 .inner_join(DriveShortcut)
-                .on((DriveShortcut.file == DriveFile.name) & (DriveShortcut.is_shortcut == 1))
+                .on(
+                    (DriveShortcut.file == DriveFile.name)
+                    & (DriveShortcut.is_shortcut == 1)
+                )
                 .left_join(DrivePermission)
-                .on((DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user))
+                .on(
+                    (DrivePermission.entity == DriveFile.name)
+                    & (DrivePermission.user == user)
+                )
                 .select(
                     *ENTITY_FIELDS,
                     DriveShortcut.is_shortcut,
@@ -2049,20 +2263,28 @@ def get_personal_files(
                 # Filter theo parent folder
                 if only_parent and (not recents_only and not favourites_only):
                     if is_shortcut:
-                        query = query.where(DriveShortcut.parent_folder == current_entity_name)
+                        query = query.where(
+                            DriveShortcut.parent_folder == current_entity_name
+                        )
                     else:
-                        query = query.where(DriveFile.parent_entity == current_entity_name)
+                        query = query.where(
+                            DriveFile.parent_entity == current_entity_name
+                        )
 
                 # Filter folders only
                 if folders:
                     query = query.where(DriveFile.is_group == 1)
                     if is_shortcut:
-                        query = query.where(fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0)
+                        query = query.where(
+                            fn.Coalesce(DriveShortcut.is_shortcut, 0) == 0
+                        )
 
                 # Filter file kinds
                 if file_kinds:
                     file_kinds_parsed = (
-                        json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
+                        json.loads(file_kinds)
+                        if isinstance(file_kinds, str)
+                        else file_kinds
                     )
                     if file_kinds_parsed:
                         mime_types = []
@@ -2071,7 +2293,10 @@ def get_personal_files(
                             mime_types.extend(MIME_LIST_MAP.get(kind, []))
                         if mime_types:
                             criterion.extend(
-                                [DriveFile.mime_type == mime_type for mime_type in mime_types]
+                                [
+                                    DriveFile.mime_type == mime_type
+                                    for mime_type in mime_types
+                                ]
                             )
                         if "Folder" in file_kinds_parsed:
                             criterion.append(DriveFile.is_group == 1)
@@ -2081,12 +2306,16 @@ def get_personal_files(
                 # Filter tags
                 if tag_list:
                     tag_list_parsed = (
-                        json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+                        json.loads(tag_list)
+                        if not isinstance(tag_list, list)
+                        else tag_list
                     )
                     query = query.left_join(DriveEntityTag).on(
                         DriveEntityTag.parent == DriveFile.name
                     )
-                    tag_criteria = [DriveEntityTag.tag == tag for tag in tag_list_parsed]
+                    tag_criteria = [
+                        DriveEntityTag.tag == tag for tag in tag_list_parsed
+                    ]
                     query = query.where(Criterion.any(tag_criteria))
 
                 # Join favourites
@@ -2131,16 +2360,18 @@ def get_personal_files(
                         query.left_join(recent_subquery)
                         .on(recent_subquery.entity_name == DriveFile.name)
                         .select(
-                            fn.Coalesce(recent_subquery.last_interaction, DriveFile.modified).as_(
-                                "accessed"
-                            )
+                            fn.Coalesce(
+                                recent_subquery.last_interaction, DriveFile.modified
+                            ).as_("accessed")
                         )
                     )
 
                 return query
 
             # Apply filters
-            original_files_query = apply_filters(original_files_query, is_shortcut=False)
+            original_files_query = apply_filters(
+                original_files_query, is_shortcut=False
+            )
             shortcut_files_query = apply_filters(shortcut_files_query, is_shortcut=True)
 
             # Execute queries
@@ -2163,7 +2394,9 @@ def get_personal_files(
             team_results = main_results + shortcut_results
 
             # Add team info
-            team_info = frappe.get_value("Drive Team", team, ["name", "title"], as_dict=1)
+            team_info = frappe.get_value(
+                "Drive Team", team, ["name", "title"], as_dict=1
+            )
             for result in team_results:
                 result["team"] = team_info.name if team_info else team
                 result["team_name"] = team_info.title if team_info else team
@@ -2197,7 +2430,9 @@ def get_personal_files(
             .right_join(DrivePermission)
             .on(DrivePermission.entity == DriveFile.name)
             .where(
-                (DrivePermission.user != "") & (DrivePermission.user != "$TEAM") & team_condition
+                (DrivePermission.user != "")
+                & (DrivePermission.user != "$TEAM")
+                & team_condition
             )
             .select(DriveFile.name, fn.Count("*").as_("share_count"))
             .groupby(DriveFile.name)
@@ -2243,7 +2478,9 @@ def get_personal_files(
         reverse = not ascending
 
         if field == "title":
-            all_results.sort(key=lambda x: (x.get(field) or "").lower(), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+            )
         elif field == "accessed":
             has_accessed = [r for r in all_results if r.get(field) is not None]
             no_accessed = [r for r in all_results if r.get(field) is None]
@@ -2364,7 +2601,9 @@ def get_trash_files(
     if only_parent:
         # Subquery: Lấy tất cả file đã bị xóa (is_active=0)
         deleted_parents_subquery = (
-            frappe.qb.from_(DriveFile).select(DriveFile.name).where(DriveFile.is_active == 0)
+            frappe.qb.from_(DriveFile)
+            .select(DriveFile.name)
+            .where(DriveFile.is_active == 0)
         )
 
         # Filter: Loại bỏ items có parent trong danh sách deleted
@@ -2373,7 +2612,9 @@ def get_trash_files(
         # - HOẶC parent_entity KHÔNG nằm trong danh sách deleted
         original_files_query = original_files_query.where(
             (DriveFile.parent_entity.isnull() | (DriveFile.parent_entity == ""))  # Root
-            | (~DriveFile.parent_entity.isin(deleted_parents_subquery))  # Parent NOT deleted
+            | (
+                ~DriveFile.parent_entity.isin(deleted_parents_subquery)
+            )  # Parent NOT deleted
         )
 
         # Tương tự cho shortcuts
@@ -2392,7 +2633,9 @@ def get_trash_files(
         if not file_kinds:
             return query
 
-        file_kinds_parsed = json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
+        file_kinds_parsed = (
+            json.loads(file_kinds) if isinstance(file_kinds, str) else file_kinds
+        )
 
         if not file_kinds_parsed:
             return query
@@ -2404,7 +2647,9 @@ def get_trash_files(
             mime_types.extend(MIME_LIST_MAP.get(kind, []))
 
         if mime_types:
-            criterion.extend([DriveFile.mime_type == mime_type for mime_type in mime_types])
+            criterion.extend(
+                [DriveFile.mime_type == mime_type for mime_type in mime_types]
+            )
 
         if "Folder" in file_kinds_parsed:
             criterion.append(DriveFile.is_group == 1)
@@ -2422,8 +2667,12 @@ def get_trash_files(
         if not tag_list:
             return query
 
-        tag_list_parsed = json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
-        query = query.left_join(DriveEntityTag).on(DriveEntityTag.parent == DriveFile.name)
+        tag_list_parsed = (
+            json.loads(tag_list) if not isinstance(tag_list, list) else tag_list
+        )
+        query = query.left_join(DriveEntityTag).on(
+            DriveEntityTag.parent == DriveFile.name
+        )
         tag_criteria = [DriveEntityTag.tag == tag for tag in tag_list_parsed]
         return query.where(Criterion.any(tag_criteria))
 
@@ -2491,7 +2740,9 @@ def get_trash_files(
             .right_join(DrivePermission)
             .on(DrivePermission.entity == DriveFile.name)
             .where(
-                (DrivePermission.user != "") & (DrivePermission.user != "$TEAM") & team_condition
+                (DrivePermission.user != "")
+                & (DrivePermission.user != "$TEAM")
+                & team_condition
             )
             .select(DriveFile.name, fn.Count("*").as_("share_count"))
             .groupby(DriveFile.name)
@@ -2542,13 +2793,17 @@ def get_trash_files(
                             modified_date, "%Y-%m-%d %H:%M:%S.%f"
                         )
                     except ValueError:
-                        modified_datetime = datetime.strptime(modified_date, "%Y-%m-%d %H:%M:%S")
+                        modified_datetime = datetime.strptime(
+                            modified_date, "%Y-%m-%d %H:%M:%S"
+                        )
                 else:
                     modified_datetime = modified_date
 
                 r["days_remaining"] = calculate_days_remaining(modified_datetime)
             except Exception as e:
-                frappe.log_error(f"Error calculating days_remaining for {r['name']}: {str(e)}")
+                frappe.log_error(
+                    f"Error calculating days_remaining for {r['name']}: {str(e)}"
+                )
                 r["days_remaining"] = None
 
     # ✅ BƯỚC 7: Sort results
@@ -2556,7 +2811,9 @@ def get_trash_files(
         reverse = not ascending
 
         if field == "title":
-            all_results.sort(key=lambda x: (x.get(field) or "").lower(), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+            )
         else:
             all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
 
@@ -2594,23 +2851,17 @@ def calculate_days_remaining(modified_datetime):
 
     return max(0, days_remaining)  # Don't return negative numbers
 
+
 @frappe.whitelist()
 def drive_list_all_folders():
     user = frappe.session.user
     teams = get_teams()
 
     # 1. Lấy default_team của user
-    default_team = frappe.db.get_value(
-        "Drive Settings",
-        {"user": user},
-        "default_team"
-    )
+    default_team = frappe.db.get_value("Drive Settings", {"user": user}, "default_team")
 
     if not default_team:
-        return {
-            "personal": {},
-            "teams": []
-        }
+        return {"personal": {}, "teams": []}
 
     # 2. Lấy root (Drive - <team>)
     home = get_home_folder(default_team)["name"]
@@ -2624,9 +2875,9 @@ def drive_list_all_folders():
             "is_active": 1,
             "is_group": 1,
             "is_private": 1,
-            "parent_entity": home
+            "parent_entity": home,
         },
-        fields=["name", "title"]
+        fields=["name", "title"],
     )
 
     # 4. Build tree con cho từng folder personal
@@ -2641,14 +2892,13 @@ def drive_list_all_folders():
         for r in personal_roots
     ]
 
-
     personal_result = {
         "name": default_team,
         "title": "Tài liệu của tôi",
         "parent_entity": home,
         "is_personal": 1,
         "parent": "",
-        "children": personal_children
+        "children": personal_children,
     }
 
     teams_result = []
@@ -2674,10 +2924,10 @@ def drive_list_all_folders():
                 "title": team_info.title,
                 "parent": team,
                 "parent_entity": home,
-                "children": root_children
+                "children": root_children,
             }
 
-        teams_result.append(team_entry)        
+        teams_result.append(team_entry)
 
     return {
         "personal": personal_result,
@@ -2693,15 +2943,15 @@ def _build_personal_subfolders(parent, user):
             "is_group": 1,
             "is_active": 1,
             "owner": user,
-            "is_private": 1
+            "is_private": 1,
         },
-        fields=["name", "title"]
+        fields=["name", "title"],
     )
     return [
         {
             "name": r.name,
             "title": r.title,
-            "children": _build_personal_subfolders(r.name, user)
+            "children": _build_personal_subfolders(r.name, user),
         }
         for r in rows
     ]
@@ -2714,16 +2964,16 @@ def _build_team_subfolders(parent):
             "parent_entity": parent,
             "is_group": 1,
             "is_active": 1,
-            "is_private": 0
+            "is_private": 0,
         },
-        fields=["name", "title"]
+        fields=["name", "title"],
     )
     return [
         {
             "name": r.name,
             "title": r.title,
             "parent_entity": parent,
-            "children": _build_team_subfolders(r.name)
+            "children": _build_team_subfolders(r.name),
         }
         for r in rows
     ]

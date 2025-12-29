@@ -137,6 +137,26 @@
           "
         />
       </Button>
+      
+      <Button
+        v-if="rootEntity?.comment"
+        class="text-ink-gray-5 !px-0"
+        :class="[
+          tab === 1
+            ? 'text-black bg-transparent'
+            : ' hover:bg-surface-menu-bar',
+        ]"
+        variant="minimal"
+        @click="switchTab(1)"
+      >
+        <LucideMessageCircle
+          :class="
+            tab === 1 && store.state.showInfo
+              ? 'size-6 text-[#0149C1]'
+              : 'size-6 text-black'
+          "
+        />
+      </Button>
     </div>
 
     <Dialogs
@@ -242,6 +262,7 @@ import LucideFolderPlus from "~icons/lucide/folder-plus"
 import LucideFolderUp from "~icons/lucide/folder-up"
 import LucideHome from "~icons/lucide/home"
 import LucideLink from "~icons/lucide/link"
+import LucideMessageCircle from "~icons/lucide/message-circle"
 import LucideScan from "~icons/lucide/scan"
 import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"

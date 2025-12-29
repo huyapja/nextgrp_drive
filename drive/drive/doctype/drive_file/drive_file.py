@@ -921,17 +921,20 @@ class DriveFile(Document):
             frappe.delete_doc("Drive Permission", perm_name, ignore_permissions=True)
 
     @frappe.whitelist()
-    def move_owner(self, new_owner, old_owner_permissions=0):
+    def move_owner(self, new_owner, old_owner_permissions=0, transfer_child_files=False):
         """
         Move ownership of this file or folder to the specified user
 
         :param new_owner: User to whom ownership is to be transferred
+        :param old_owner_permissions: Permissions for the old owner after transfer (0=read, 1=edit)
+        :param transfer_child_files: If True, transfer ownership of all child files owned by old_owner in this folder
         """
 
         try:
 
             permission_old = int(old_owner_permissions) if old_owner_permissions else 0
             old_owner = self.owner  # Lưu owner cũ
+            transfer_child_files = bool(transfer_child_files)  # Đảm bảo là boolean
 
             if self.owner == new_owner:
                 return
@@ -939,13 +942,16 @@ class DriveFile(Document):
             if not user_has_permission(self, "share", frappe.session.user):
                 frappe.throw("Not permitted", frappe.PermissionError)
 
-            # if self.is_group:
-            #     for child in self.get_children():
-            #         child.move_owner(new_owner)
-
             # Sử dụng frappe.db.set_value thay vì self.owner = new_owner
             frappe.db.set_value("Drive File", self.name, "owner", new_owner)
             frappe.db.commit()
+            
+            # Nếu là folder và transfer_child_files=True, chuyển quyền sở hữu các file con thuộc sở hữu của old_owner
+            if self.is_group and transfer_child_files:
+                for child in self.get_children():
+                    # Chỉ chuyển quyền sở hữu các file thuộc sở hữu của old_owner
+                    if child.owner == old_owner:
+                        child.move_owner(new_owner, old_owner_permissions=0, transfer_child_files=True)
 
             if self.document:
                 doc = frappe.get_doc("Drive Document", self.document)
