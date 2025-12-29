@@ -4485,22 +4485,23 @@ function handleClickOutside(e) {
     }
   }
 
+  // Kiểm tra xem có click vào node, editor, toolbar hoặc các phần tử liên quan không
+  const clickedInsideNode = e.target.closest(".node-group") ||
+    e.target.closest('.mindmap-node-editor') ||
+    e.target.closest('.mindmap-editor-content') ||
+    e.target.closest('.mindmap-editor-prose') ||
+    e.target.closest('.ProseMirror') ||
+    e.target.closest('[contenteditable="true"]') ||
+    e.target.closest('.mindmap-toolbar') ||
+    e.target.closest('.toolbar-btn') ||
+    e.target.closest('.toolbar-top-popup') ||
+    e.target.closest('.toolbar-bottom') ||
+    e.target.closest('.image-menu-button') ||
+    e.target.closest('.image-context-menu') ||
+    e.target.closest('.image-menu-item')
+
   // ⚠️ FIX: Đóng editor khi click ra ngoài node
   if (editingNode.value) {
-    const clickedInsideNode = e.target.closest(".node-group") ||
-      e.target.closest('.mindmap-node-editor') ||
-      e.target.closest('.mindmap-editor-content') ||
-      e.target.closest('.mindmap-editor-prose') ||
-      e.target.closest('.ProseMirror') ||
-      e.target.closest('[contenteditable="true"]') ||
-      e.target.closest('.mindmap-toolbar') ||
-      e.target.closest('.toolbar-btn') ||
-      e.target.closest('.toolbar-top-popup') ||
-      e.target.closest('.toolbar-bottom') ||
-      e.target.closest('.image-menu-button') ||
-      e.target.closest('.image-context-menu') ||
-      e.target.closest('.image-menu-item')
-    
     // Nếu click ra ngoài node và editor, blur editor để đóng editing mode
     if (!clickedInsideNode) {
       const nodeId = editingNode.value
@@ -4508,8 +4509,32 @@ function handleClickOutside(e) {
       if (editorInstance && !editorInstance.isDestroyed) {
         // Blur editor để trigger handleEditorBlur
         editorInstance.commands.blur()
-        
       }
+      // Clear editingNode ngay lập tức để đảm bảo editor được đóng
+      editingNode.value = null
+    }
+  }
+
+  // ⚠️ FIX: Bỏ focus node khi click ra ngoài (trừ khi click vào node hoặc toolbar)
+  if (selectedNode.value && !clickedInsideNode) {
+    // Clear tất cả các timeout focus để tránh editor tự động focus lại
+    nodeFocusTimeouts.forEach(timeoutId => clearTimeout(timeoutId))
+    nodeFocusTimeouts = []
+    
+    // Set flag để các timeout đang chạy biết rằng không nên focus nữa
+    if (typeof window !== 'undefined') {
+      window.__shouldClearFocusTimeouts = true
+      // Clear flag sau 1 giây để không ảnh hưởng đến các lần tạo node sau
+      setTimeout(() => {
+        window.__shouldClearFocusTimeouts = false
+      }, 1000)
+    }
+    
+    // Deselect node
+    selectedNode.value = null
+    if (d3Renderer) {
+      // Gọi selectNode để update visual state (stroke, fill, buttons, etc.)
+      d3Renderer.selectNode(null, true) // skipCallback = true để tránh vòng lặp
     }
   }
 

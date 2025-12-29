@@ -1449,6 +1449,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
     success_files = []  # Danh sách file xử lý thành công
     failed_files = []  # Danh sách file không có quyền
+    storage_error_files = []  # Danh sách file lỗi do hết storage
     is_restore_operation = False  # Flag để track operation type
 
     # ✅ Hàm đệ quy để lấy tất cả children
@@ -1501,9 +1502,18 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                     }
                 ).insert()
         else:  # Restore
-            # Check storage limit
-            storage_data_limit = storage_data["limit"] * 1024 * 1024
-            if (storage_data_limit - storage_data["total_size"]) < doc.file_size:
+            # ✅ FIX: Lấy team từ doc để kiểm tra storage limit
+            file_team = doc.team
+            file_storage_data = storage_bar_data(file_team)
+
+            # ✅ FIX: Chuyển đổi đơn vị đúng
+            # limit từ storage_bar_data là GB, total_size là bytes
+            # Cần chuyển limit từ GB sang bytes: GB * 1024^3 = bytes
+            storage_data_limit_bytes = file_storage_data["limit"] * 1024 * 1024 * 1024
+
+            # Kiểm tra: (limit_bytes - total_size_bytes) < file_size_bytes
+            available_space = storage_data_limit_bytes - file_storage_data["total_size"]
+            if available_space < doc.file_size:
                 frappe.throw("You're out of storage!", ValueError)
 
             # Xóa khỏi global trash
@@ -1626,22 +1636,82 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                         doc, "write", frappe.session.user
                     )
                 else:  # Restore operation
-                    # User có thể restore nếu họ là người xóa (modified_by) hoặc owner
-                    has_permission = (
-                        doc.modified_by == frappe.session.user
-                        or doc.owner == frappe.session.user
-                        or user_has_permission(doc, "write", frappe.session.user)
+                    # ✅ FIX: Kiểm tra quyền restore dựa trên Drive Trash
+                    # User có thể restore nếu:
+                    # 1. Họ là người xóa file (có record trong Drive Trash)
+                    # 2. Họ là owner của file
+                    # 3. Họ có write permission
+
+                    # Kiểm tra trong Drive Trash xem user có phải là người xóa không
+                    trash_record = frappe.db.exists(
+                        {
+                            "doctype": "Drive Trash",
+                            "entity": doc.name,
+                            "user": frappe.session.user,
+                        }
                     )
 
+                    has_permission = (
+                        bool(trash_record)  # User là người xóa file
+                        or doc.owner == frappe.session.user  # User là owner
+                        or user_has_permission(
+                            doc, "write", frappe.session.user
+                        )  # User có write permission
+                    )
+                print(has_permission, "has_permission")
+                print(trash_record, "trash_record")
+                print(doc.owner, "doc.owner")
+                print(frappe.session.user, "frappe.session.user")
+                print(
+                    user_has_permission(doc, "write", frappe.session.user),
+                    "user_has_permission",
+                )
                 if has_permission:
                     # Toggle entity và tất cả children
-                    toggle_entity_and_children(doc, flag)
-                    success_files.append(doc.name)
+                    try:
+                        print(
+                            f"🔄 Starting toggle_entity_and_children for {doc.name} (flag={flag})"
+                        )
+                        toggle_entity_and_children(doc, flag)
+                        print(f"✅ Successfully processed {doc.name}")
+                        success_files.append(doc.name)
+                    except ValueError as e:
+                        # ✅ FIX: Phân biệt lỗi "out of storage" với các lỗi khác
+                        error_str = str(e)
+                        if "out of storage" in error_str.lower():
+                            storage_error_files.append(
+                                doc.title.strip()[:30] if doc.title else entity
+                            )
+                            print(f"⚠️ Storage error for {doc.name}: {error_str}")
+                        else:
+                            failed_files.append(
+                                doc.title.strip()[:30] if doc.title else entity
+                            )
+                            print(f"❌ ValueError for {doc.name}: {error_str}")
+                    except Exception as e:
+                        # Log lỗi chi tiết khi restore/xóa
+                        import traceback
+
+                        error_msg = (
+                            f"Error processing entity {entity} ({doc.title}): {str(e)}"
+                        )
+                        error_traceback = traceback.format_exc()
+                        frappe.log_error(
+                            f"{error_msg}\n{error_traceback}", "remove_or_restore_error"
+                        )
+                        print(f"❌ {error_msg}")
+                        print(f"❌ Traceback: {error_traceback}")
+                        failed_files.append(
+                            doc.title.strip()[:30] if doc.title else entity
+                        )
                 else:
-                    failed_files.append(doc.title.strip()[:30])
+                    failed_files.append(doc.title.strip()[:30] if doc.title else entity)
 
             except Exception as e:
-                frappe.log_error(f"Error processing entity {entity}: {str(e)}")
+                # Log lỗi khi không thể get doc hoặc kiểm tra quyền
+                error_msg = f"Error processing entity {entity}: {str(e)}"
+                frappe.log_error(error_msg, "remove_or_restore_error")
+                print(f"❌ {error_msg}")  # Debug log
                 failed_files.append(entity)
                 continue
 
@@ -1730,7 +1800,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
     frappe.db.commit()
 
-    # ✅ FIX: Trả về message phù hợp với operation
+    # ✅ FIX: Trả về message phù hợp với operation và loại lỗi
     result = {
         "success": len(success_files) > 0,
         "message": "",
@@ -1742,8 +1812,22 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
     operation_name = "khôi phục" if is_restore_operation else "xóa"
     operation_name_past = "khôi phục" if is_restore_operation else "xóa"
 
-    if len(failed_files) > 0:
-        # Nếu có file thất bại
+    # ✅ FIX: Xử lý storage error riêng
+    if len(storage_error_files) > 0:
+        if len(success_files) > 0:
+            result["message"] = (
+                f"Đã {operation_name_past} {len(success_files)} file thành công. "
+                f"{len(storage_error_files)} file không thể {operation_name} do hết dung lượng lưu trữ: {', '.join(storage_error_files)}"
+            )
+        else:
+            result["message"] = (
+                f"Không thể {operation_name} các file do hết dung lượng lưu trữ: {', '.join(storage_error_files)}"
+            )
+        # Thêm storage_error_files vào failed_files để hiển thị
+        failed_files.extend(storage_error_files)
+        result["failed_files"] = failed_files
+    elif len(failed_files) > 0:
+        # Nếu có file thất bại (không phải do storage)
         if len(success_files) > 0:
             # Có cả file thành công và thất bại
             result["message"] = (
