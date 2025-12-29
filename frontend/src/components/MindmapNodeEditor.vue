@@ -1127,6 +1127,7 @@ function updateImageLayout(view) {
   let newGap = '0px'
   let newHeight = 'auto' // ⚠️ FIX: Luôn dùng auto để ảnh hiển thị đầy đủ
   let newObjectFit = 'contain' // ⚠️ FIX: Dùng contain thay vì cover để không crop ảnh
+  let useAspectRatio = false // ⚠️ NEW: Dùng aspect-ratio để tạo hình vuông cho 2+ ảnh
   
   // ⚠️ FIX: Tính toán width chính xác dựa trên số lượng ảnh
   // Với gap 12px giữa các ảnh:
@@ -1137,16 +1138,19 @@ function updateImageLayout(view) {
     newWidth = '100%' // ⚠️ CRITICAL: 1 ảnh = 100% width
     newGap = '0px'
     newHeight = 'auto' // ⚠️ FIX: Height auto để ảnh hiển thị đầy đủ
+    useAspectRatio = false // 1 ảnh không cần hình vuông
     
   } else if (count === 2) {
     newWidth = 'calc(50% - 14px)' // 50% trừ đi nửa gap (12px / 2)
     newGap = '12px'
     newHeight = 'auto' // ⚠️ FIX: Thay vì 150px, dùng auto để ảnh hiển thị đầy đủ
+    useAspectRatio = true // ⚠️ NEW: 2 ảnh trở lên dùng hình vuông
     
   } else if (count >= 3) {
     newWidth = 'calc(33.333% - 14px)' // 33.333% trừ đi 2/3 gap (24px / 3)
     newGap = '12px'
     newHeight = 'auto' // ⚠️ FIX: Thay vì 100px, dùng auto để ảnh hiển thị đầy đủ
+    useAspectRatio = true // ⚠️ NEW: 2 ảnh trở lên dùng hình vuông
     
   }
   
@@ -1171,6 +1175,15 @@ function updateImageLayout(view) {
       wrapper.style.setProperty('max-width', newWidth === '100%' ? '100%' : newWidth, 'important')
     }
     
+    // ⚠️ NEW: Set aspect-ratio để tạo hình vuông cho 2+ ảnh
+    if (useAspectRatio) {
+      wrapper.style.setProperty('aspect-ratio', '1', 'important')
+      wrapper.style.setProperty('height', 'auto', 'important')
+    } else {
+      wrapper.style.removeProperty('aspect-ratio')
+      wrapper.style.setProperty('height', 'auto', 'important')
+    }
+    
     const expectedMarginRight = ((index + 1) % 3 === 0 || count === 1) ? '0' : newGap
     const currentMarginRight = wrapper.style.marginRight || getComputedStyle(wrapper).marginRight
     if (currentMarginRight !== expectedMarginRight) {
@@ -1183,16 +1196,26 @@ function updateImageLayout(view) {
       const currentHeight = img.style.height
       const currentObjectFit = img.style.objectFit || getComputedStyle(img).objectFit
       
-      // Thống nhất chiều cao cho tất cả ảnh
-      if (currentHeight !== newHeight) {
-        img.style.setProperty('height', newHeight, 'important')
-        img.style.setProperty('max-height', '200px', 'important') // Chiều cao tối đa thống nhất
+      // ⚠️ NEW: Với 2+ ảnh, ảnh phải fill toàn bộ wrapper (hình vuông)
+      // Với 1 ảnh, giữ nguyên height auto
+      if (useAspectRatio) {
+        // Ảnh fill toàn bộ wrapper hình vuông, dùng contain để giữ tỉ lệ
+        img.style.setProperty('width', '100%', 'important')
+        img.style.setProperty('height', '100%', 'important')
+        img.style.setProperty('object-fit', 'contain', 'important')
+        img.style.removeProperty('max-height')
+      } else {
+        // 1 ảnh: giữ nguyên logic cũ
+        if (currentHeight !== newHeight) {
+          img.style.setProperty('height', newHeight, 'important')
+          img.style.setProperty('max-height', '200px', 'important') // Chiều cao tối đa thống nhất
+        }
+        if (currentObjectFit !== newObjectFit) {
+          img.style.setProperty('object-fit', newObjectFit, 'important')
+        }
+        img.style.setProperty('width', '100%', 'important')
+        img.style.setProperty('max-width', '100%', 'important')
       }
-      if (currentObjectFit !== newObjectFit) {
-        img.style.setProperty('object-fit', newObjectFit, 'important')
-      }
-      img.style.setProperty('width', '100%', 'important')
-      img.style.setProperty('max-width', '100%', 'important')
     }
   })
   
@@ -1288,10 +1311,13 @@ const ImageWithMenuExtension = Extension.create({
                 
               }
               
+              // ⚠️ NEW: Từ 2 ảnh trở lên, dùng hình vuông (aspect-ratio: 1)
+              const useAspectRatio = totalImages >= 2
+              
               // Thống nhất chiều cao cho tất cả ảnh để không bị cao thấp không thống nhất
               // Dùng max-height cố định để tất cả ảnh có cùng chiều cao tối đa
               let imageHeight = 'auto'
-              let maxHeight = '200px' // Chiều cao tối đa thống nhất cho tất cả ảnh
+              let maxHeight = '200px' // Chiều cao tối đa thống nhất cho tất cả ảnh (chỉ dùng cho 1 ảnh)
               let objectFit = 'contain' // Dùng contain để không crop ảnh, giữ tỷ lệ
               
               dom.style.cssText = `
@@ -1301,6 +1327,7 @@ const ImageWithMenuExtension = Extension.create({
                 margin: 12px ${gap} 12px 0;
                 box-sizing: border-box;
                 vertical-align: top;
+                ${useAspectRatio ? 'aspect-ratio: 1;' : ''}
               `
               
               // Layout sẽ được update tự động bởi Plugin.view.update()
@@ -1313,15 +1340,27 @@ const ImageWithMenuExtension = Extension.create({
               if (node.attrs.width) img.width = node.attrs.width
               if (node.attrs.height) img.height = node.attrs.height
               
-              img.style.cssText = `
-                display: block;
-                width: 100%;
-                height: ${imageHeight} !important;
-                max-height: ${maxHeight} !important;
-                object-fit: ${objectFit};
-                border-radius: 5px;
-                cursor: zoom-in;
-              `
+              // ⚠️ NEW: Với 2+ ảnh, ảnh fill toàn bộ wrapper (hình vuông)
+              if (useAspectRatio) {
+                img.style.cssText = `
+                  display: block;
+                  width: 100%;
+                  height: 100%;
+                  object-fit: contain;
+                  border-radius: 5px;
+                  cursor: zoom-in;
+                `
+              } else {
+                img.style.cssText = `
+                  display: block;
+                  width: 100%;
+                  height: ${imageHeight} !important;
+                  max-height: ${maxHeight} !important;
+                  object-fit: ${objectFit};
+                  border-radius: 5px;
+                  cursor: zoom-in;
+                `
+              }
               
               // ⚠️ CRITICAL: Khi ảnh load xong, trigger updateNodeHeight()
               // Dispatch custom event để component có thể lắng nghe và gọi updateNodeHeight()
@@ -5380,6 +5419,17 @@ export default {
   max-width: 100% !important;
   display: block !important;
   box-sizing: border-box !important;
+}
+
+/* ⚠️ NEW: Từ 2 ảnh trở lên, wrapper phải có hình vuông (aspect-ratio: 1) */
+:deep(.mindmap-editor-prose .image-wrapper-node:nth-of-type(n+2)) {
+  aspect-ratio: 1 !important;
+}
+
+/* ⚠️ NEW: Ảnh trong wrapper hình vuông phải fill toàn bộ wrapper */
+:deep(.mindmap-editor-prose .image-wrapper-node:nth-of-type(n+2) img) {
+  height: 100% !important;
+  object-fit: contain !important;
 }
 
 /* Đảm bảo image node được render đúng */
