@@ -69,3 +69,13 @@ body {
 .fade-in-leave-to {
   opacity: 0;
 }
+
+
+.no-popover-arrow-by-hung::before,
+.no-popover-arrow-by-hung::after {
+  display: none !important;
+}
+
+.no-popover-arrow-by-hung.right-align {
+  transform: translateX(-100%);
+}

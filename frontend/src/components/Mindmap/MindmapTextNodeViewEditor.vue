@@ -84,7 +84,7 @@ function syncFromEditorDebounced(editor) {
   clearTimeout(syncTimer)
   syncTimer = setTimeout(() => {
     syncFromEditor(editor)
-  }, 300)
+  }, 500)
 }
 
 /* ================================
@@ -97,6 +97,8 @@ onMounted(() => {
     content: props.initialContent,
     editable: canEdit,
     autofocus: "start",
+    syncFromEditor,
+    syncFromEditorDebounced,
     onOpenComment(nodeId, options = {}) {
       emit("open-comment", {
         nodeId,
@@ -177,8 +179,13 @@ onMounted(() => {
     },
 
 
-    onUpdate({ editor }) {
+    onUpdate({ editor, transaction }) {
       if (isComposing) return
+
+      if (transaction?.getMeta("ui-only")) {
+        return
+      }
+
       syncFromEditorDebounced(editor)
     },
   })
@@ -287,12 +294,12 @@ watch(
 }
 
 
-.prose :deep(.mm-node.is-comment-hover span) {
+.prose :deep(.mm-node.is-comment-hover > div span[data-inline-root] > span) {
   background-color: #faedc2;
   border-radius: 3px;
 }
 
-.prose :deep(.mm-node.is-comment-hover:not(:has(span))) {
+.prose :deep(.mm-node.is-comment-hover:not(:has(span[data-inline-root]))) {
   background-color: #faedc2;
   border-radius: 3px;
 }
@@ -358,5 +365,19 @@ watch(
   margin: 0;
   color: #1d4ed8;
   font-size: 13px;
+}
+
+.prose :deep(.mindmap-dot) {
+  width: 6px;
+  height: 6px;
+  background-color: #383838;
+  border-radius: 50%;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.prose :deep(blockquote .mm-node),
+.prose :deep(blockquote .mm-node *){
+  background: transparent !important;
 }
 </style>
