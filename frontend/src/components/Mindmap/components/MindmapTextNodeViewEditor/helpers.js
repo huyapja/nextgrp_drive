@@ -12,27 +12,64 @@ function extractParagraphAndBlock(el) {
   let blockHTML = ""
 
   /* =========================
+   * 0. RESOLVE HIGHLIGHT
+   * ========================= */
+  let highlight = el.getAttribute("data-highlight") || null
+
+
+  /* =========================
    * 1. INLINE PARAGRAPH
    * ========================= */
   const p =
-    el.querySelector(":scope > p") ||
-    el.querySelector(":scope > div > p")
+    el.querySelector(":scope > p") || el.querySelector(":scope > div > p")
 
   if (p) {
-    p.querySelectorAll("ul, li").forEach(e => e.remove())
-    p.querySelectorAll("[data-node-id]").forEach(e => {
+    // 🔹 lấy highlight từ inline span (text mode)
+    if (!highlight) {
+      const spanBg = p.querySelector("span[style*='background-color']")
+      if (spanBg) {
+        const style = spanBg.getAttribute("style") || ""
+        const m = style.match(/background-color\s*:\s*([^;]+)/)
+        if (m) highlight = m[1].trim()
+      }
+    }
+
+    // =========================
+    // CLEANUP (GIỮ LOGIC CŨ)
+    // =========================
+    p.querySelectorAll("ul, li").forEach((e) => e.remove())
+    p.querySelectorAll("[data-node-id]").forEach((e) => {
       e.removeAttribute("data-node-id")
       e.removeAttribute("data-has-count")
     })
 
-    const content = p.innerHTML.trim()
-    if (content && content !== "<br>") {
-      inlineHTML = `<p>${content}</p>`
+    p.querySelectorAll("span[style*='background-color']").forEach((span) => {
+      span.replaceWith(...span.childNodes)
+    })
+
+    // bỏ luôn inline-root
+    p.querySelectorAll("span[data-inline-root]").forEach((span) => {
+      span.replaceWith(...span.childNodes)
+    })
+
+    const contentHTML = p.innerHTML.trim()
+    if (contentHTML && contentHTML !== "<br>") {
+      if (highlight) {
+        inlineHTML = `
+<p>
+  <span style="background-color: ${highlight}">
+    ${contentHTML}
+  </span>
+</p>
+        `.replace(/\s*\n\s*/g, "").trim()
+      } else {
+        inlineHTML = `<p>${contentHTML}</p>`
+      }
     }
   }
 
   /* =========================
-   * 2. TASK LINK
+   * 2. TASK LINK (GIỮ NGUYÊN)
    * ========================= */
   const taskLink =
     el.querySelector(":scope > a[data-task-link]") ||
@@ -44,19 +81,21 @@ function extractParagraphAndBlock(el) {
 
     blockHTML += `
 <p>
-  ${contentHTML.includes("<a")
-        ? contentHTML
-        : `<a href="${href}">${contentHTML}</a>`}
+  ${
+    contentHTML.includes("<a")
+      ? contentHTML
+      : `<a href="${href}">${contentHTML}</a>`
+  }
 </p>
     `.trim()
   }
 
   /* =========================
-   * 3. IMAGE → image-wrapper
+   * 3. IMAGE (GIỮ NGUYÊN)
    * ========================= */
   const images = el.querySelectorAll(":scope img")
 
-  images.forEach(img => {
+  images.forEach((img) => {
     const src = img.getAttribute("src")
     if (!src) return
 
@@ -71,14 +110,14 @@ function extractParagraphAndBlock(el) {
   })
 
   /* =========================
-   * 4. BLOCKQUOTE
+   * 4. BLOCKQUOTE (GIỮ NGUYÊN)
    * ========================= */
   const blockquote =
     el.querySelector(":scope > blockquote") ||
     el.querySelector(":scope > div > blockquote")
 
   if (blockquote) {
-    blockquote.querySelectorAll("[data-node-id]").forEach(e => {
+    blockquote.querySelectorAll("[data-node-id]").forEach((e) => {
       e.removeAttribute("data-node-id")
       e.removeAttribute("data-has-count")
     })
@@ -96,7 +135,7 @@ export function extractNodeEditsFromHTML(html) {
 
   const edits = []
 
-  container.querySelectorAll("[data-node-id]").forEach(el => {
+  container.querySelectorAll("[data-node-id]").forEach((el) => {
     const nodeId = el.getAttribute("data-node-id")
     if (!nodeId) return
 

@@ -95,43 +95,51 @@ export function createEditorKeyDown({ editor, flags }) {
         const current = getCurrentListItem($from, schema)
         if (!current) return false
 
-        if (current.node.attrs.hasChildren) {
+        const hasChildren = !!current.node.attrs.hasChildren
+        const isCollapsed = !!current.node.attrs.collapsed
+
+        if (hasChildren && !isCollapsed) {
+          // =========================
+          // CASE: có con + đang mở → thêm CON
+          // =========================
           const parentNode = current.node
           const parentPos = current.pos
 
           const paragraph = parentNode.child(0)
           const bulletList = parentNode.child(1)
 
-          let tr = state.tr
-
-          const inlineRootMark = schema.marks.inlineRoot.create()
-          const text = schema.text("Nhánh mới", [inlineRootMark])
-          const p = schema.nodes.paragraph.create({}, text)
-          const li = schema.nodes.listItem.create(
-            { nodeId: newNodeId, hasCount: false },
-            p
-          )
-
           if (bulletList && bulletList.type === schema.nodes.bulletList) {
-            // pos bắt đầu của bulletList
+            let tr = state.tr
+
+            const inlineRootMark = schema.marks.inlineRoot.create()
+            const text = schema.text("Nhánh mới", [inlineRootMark])
+            const p = schema.nodes.paragraph.create({}, text)
+            const li = schema.nodes.listItem.create(
+              { nodeId: newNodeId, hasCount: false },
+              p
+            )
+
+            // vị trí bắt đầu của bulletList
             const bulletListPos = parentPos + 1 + paragraph.nodeSize
 
-            // insert vào đầu list
+            // insert vào đầu children
             tr = tr.insert(bulletListPos + 1, li)
 
             const caretPos = bulletListPos + 1 + 2 + text.nodeSize
-
             tr = tr.setSelection(TextSelection.create(tr.doc, caretPos))
+
+            dispatch(tr)
+
+            editor.value?.options?.onAddChildNode?.({
+              anchorNodeId: nodeId,
+              newNodeId,
+              position: "inside_child",
+            })
           }
-
-          dispatch(tr)
-
-          editor.value?.options?.onAddChildNode?.({
-            anchorNodeId: nodeId,
-            newNodeId,
-            position: "inside_child",
-          })
         } else {
+          // =========================
+          // CASE: không có con OR đang collapsed → thêm DƯỚI
+          // =========================
           insertTempChildNode(editor.value, newNodeId)
 
           editor.value?.options?.onAddChildNode?.({
@@ -213,6 +221,7 @@ export function createEditorKeyDown({ editor, flags }) {
         editor.value?.options?.onAddChildNode?.({
           anchorNodeId: nodeId,
           newNodeId,
+          // position: "split_with_children",
         })
 
         requestAnimationFrame(() => {

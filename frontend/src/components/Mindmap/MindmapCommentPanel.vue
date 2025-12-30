@@ -244,8 +244,9 @@
                     Huỷ
                   </button>
                   <button comment-add-form-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
-                    @click="handleSubmitSafe">
-                    Đăng
+                    :disabled="submittingMap[activeGroupKey]"
+                    :class="submittingMap[activeGroupKey] && 'opacity-50 cursor-not-allowed'" @click="handleSubmitSafe">
+                    {{ submittingMap[activeGroupKey] ? 'Đang gửi…' : 'Đăng' }}
                   </button>
                 </div>
               </div>
@@ -270,9 +271,10 @@
                     if (editingCommentId === activeEditingComment?.name) {
                       commentEditorRef.value['edit-' + editingCommentId] = el
                     }
-                  }" v-model="editingValue" :previewImages="previewImages" @submit="submitEdit(activeEditingComment)"
-                    :members="members" @navigate="handleNavigate" :nodeId="'edit-' + groupKeyOf(group)"
-                    @open-gallery="openGalleryFromEditor" @paste-images="handlePasteImages" />
+                  }" v-model="editingValue" :previewImages="previewImages"
+                    @submit="submitEditSafe(activeEditingComment)" :members="members" @navigate="handleNavigate"
+                    :nodeId="'edit-' + groupKeyOf(group)" @open-gallery="openGalleryFromEditor"
+                    @paste-images="handlePasteImages" />
                 </div>
 
                 <!-- ICON UPLOAD (TÙY CHỌN) -->
@@ -285,8 +287,10 @@
                   Huỷ
                 </button>
 
-                <button comment-edit-submit class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white"
-                  @click.stop="submitEdit(activeEditingComment)">
+                <button :disabled="editingSubmittingMap[activeEditingComment?.name]"
+                  :class="editingSubmittingMap[activeEditingComment?.name] && 'opacity-50 cursor-not-allowed'"
+                  @click.stop="submitEditSafe(activeEditingComment)" comment-edit-submit
+                  class="px-3 py-2 text-xs rounded bg-[#3B82F6] text-white">
                   Lưu
                 </button>
               </div>
@@ -297,52 +301,53 @@
         </div>
       </div>
     </div>
-    <Teleport to="body">
-      <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
-        class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
-        <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2" @click="handleEditAndFocus">
-          <span>Chỉnh sửa</span>
-        </div>
+    <Teleport to=" body">
+                  <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
+                    class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
+                    <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2"
+                      @click="handleEditAndFocus">
+                      <span>Chỉnh sửa</span>
+                    </div>
 
-        <div class="px-3 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-2"
-          @click="handleDeleteComment(deleteComment)">
-          <span>Xoá</span>
-        </div>
-      </div>
-    </Teleport>
+                    <div class="px-3 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-2"
+                      @click="handleDeleteComment(deleteComment)">
+                      <span>Xoá</span>
+                    </div>
+                  </div>
+  </Teleport>
 
-    <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header"
-      contentClass="!p-0">
-      <Galleria :value="galleryItems" v-model:activeIndex="galleryIndex" :responsiveOptions="[
-        { breakpoint: '1400px', numVisible: 5 },
-        { breakpoint: '1024px', numVisible: 4 },
-        { breakpoint: '768px', numVisible: 3 },
-        { breakpoint: '560px', numVisible: 2 }
-      ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false"
-        containerStyle="width: 100%; height: 100%;" class="w-full h-full">
-        <!-- Ảnh full -->
-        <template #item="{ item }">
-          <div class="flex items-center justify-center w-full h-full overflow-hidden">
-            <!-- ROTATE LAYER -->
-            <div class="flex items-center justify-center transition-transform duration-200" :style="{
-              transform: `rotate(${rotateDeg}deg)`
-            }">
-              <!-- SCALE LAYER -->
-              <div class="transition-transform duration-150" :style="{
-                transform: `scale(${imageScale})`,
-                transformOrigin: `${originX}% ${originY}%`
-              }" @wheel="handleImageWheel">
-                <img :src="item.itemImageSrc" draggable="false"
-                  class="max-w-full max-h-[70vh] object-contain select-none pointer-events-none" />
-              </div>
+  <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header"
+    contentClass="!p-0">
+    <Galleria :value="galleryItems" v-model:activeIndex="galleryIndex" :responsiveOptions="[
+      { breakpoint: '1400px', numVisible: 5 },
+      { breakpoint: '1024px', numVisible: 4 },
+      { breakpoint: '768px', numVisible: 3 },
+      { breakpoint: '560px', numVisible: 2 }
+    ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false"
+      containerStyle="width: 100%; height: 100%;" class="w-full h-full">
+      <!-- Ảnh full -->
+      <template #item="{ item }">
+        <div class="flex items-center justify-center w-full h-full overflow-hidden">
+          <!-- ROTATE LAYER -->
+          <div class="flex items-center justify-center transition-transform duration-200" :style="{
+            transform: `rotate(${rotateDeg}deg)`
+          }">
+            <!-- SCALE LAYER -->
+            <div class="transition-transform duration-150" :style="{
+              transform: `scale(${imageScale})`,
+              transformOrigin: `${originX}% ${originY}%`
+            }" @wheel="handleImageWheel">
+              <img :src="item.itemImageSrc" draggable="false"
+                class="max-w-full max-h-[70vh] object-contain select-none pointer-events-none" />
             </div>
           </div>
-        </template>
+        </div>
+      </template>
 
 
 
-      </Galleria>
-      <div v-if="galleryVisible" class="
+    </Galleria>
+    <div v-if="galleryVisible" class="
   absolute top-4 right-6 z-20
   flex items-center gap-2
   px-3 py-1
@@ -351,16 +356,15 @@
   bg-black/60 text-white
   select-none
 ">
-        {{ galleryCounterText }}
+      {{ galleryCounterText }}
 
-        <div class="flex gap-2 ml-2 border-l border-white/30 pl-2">
-          <i class="pi pi-refresh cursor-pointer hover:text-blue-400" title="Xoay trái" @click="rotateLeft" />
-          <i class="pi pi-refresh cursor-pointer rotate-180 hover:text-blue-400" title="Xoay phải"
-            @click="rotateRight" />
-        </div>
+      <div class="flex gap-2 ml-2 border-l border-white/30 pl-2">
+        <i class="pi pi-refresh cursor-pointer hover:text-blue-400" title="Xoay trái" @click="rotateLeft" />
+        <i class="pi pi-refresh cursor-pointer rotate-180 hover:text-blue-400" title="Xoay phải" @click="rotateRight" />
       </div>
+    </div>
 
-    </Dialog>
+  </Dialog>
 
   </Teleport>
 
@@ -438,7 +442,6 @@ const isUploadingImage = ref(false)
 const pendingScroll = ref(null)
 const hasConsumedRouteNode = ref(false)
 const isNavigatingByKeyboard = ref(false)
-const isSubmitting = ref(false)
 const suppressAutoScroll = ref(false)
 const op = ref(null)
 const historyIconRef = ref(null)
@@ -501,7 +504,6 @@ const { deleteComment } = useMindmapAPI({
   entityName
 })
 
-
 function setGroupRef(key, el) {
   if (el) {
     groupRefs.value[key] = el
@@ -520,9 +522,7 @@ const mindmap_comment_list = createResource({
     hasData.value = true
   },
   onError(error) {
-    // Xử lý lỗi khi DocType chưa tồn tại hoặc lỗi khác
     console.warn('⚠️ Failed to load comments:', error)
-    // Không set comments để tránh crash, chỉ log warning
     comments.value = []
   }
 })
@@ -596,19 +596,24 @@ const {
   commentEditorRef
 })
 
+const submittingMap = ref({})
+
 async function handleSubmitSafe() {
-  isSubmitting.value = true
+  const key = activeGroupKey.value
+  if (!key) return
+
+  if (submittingMap.value[key]) return
+
+  submittingMap.value[key] = true
+
   try {
     await handleSubmit()
+  } catch (e) {
+    console.error("submit comment failed", e)
   } finally {
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        isSubmitting.value = false
-      })
-    })
+    submittingMap.value[key] = false
   }
 }
-
 
 const {
   editingCommentId,
@@ -625,6 +630,30 @@ const {
     commentEditorRef.value?.[activeGroupKey.value]?.clearValues?.()
   }
 })
+
+const editingSubmittingMap = ref({})
+
+function isEditingSubmitting(commentId) {
+  return !!editingSubmittingMap.value[commentId]
+}
+
+async function submitEditSafe(comment) {
+  if (!comment?.name) return
+
+  const id = comment.name
+
+  if (editingSubmittingMap.value[id]) return
+
+  editingSubmittingMap.value[id] = true
+
+  try {
+    await submitEdit(comment)
+  } catch (e) {
+    console.error("submit edit failed", e)
+  } finally {
+    editingSubmittingMap.value[id] = false
+  }
+}
 
 
 const isEditing = computed(() => !!editingCommentId.value)

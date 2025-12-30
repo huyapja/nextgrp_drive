@@ -43,7 +43,6 @@ function extractBlockHTML(html) {
     if (p.closest("blockquote")) return
 
     const a = p.querySelector("a")
-    const text = p.textContent?.trim()
 
     if (a) {
       blocks.push(`
@@ -81,8 +80,6 @@ function extractBlockHTML(html) {
 
   return blocks.join("\n")
 }
-
-
 
 /**
  * Build HTML cho editor từ mindmap

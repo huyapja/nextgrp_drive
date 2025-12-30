@@ -264,7 +264,7 @@
         </MindmapCommentPanel>      
 
         <div
-          v-if="currentView === 'text'"
+          v-show="currentView === 'text'"
           class="w-full h-[calc(100vh-84px)] flex items-center justify-center text-gray-400"
         >
           <MindmapTextModeView 
@@ -5645,6 +5645,55 @@ function addChildToNodeTextMode(payload) {
 
   let parentId
   let newOrder
+
+  if (position === "split_with_children") {
+    return
+    // newNode sẽ đứng CÙNG CẤP với anchorNode
+    const parentId = anchorNode.data.parentId
+    if (!parentId) return
+
+    const newOrder = computeInsertAfterAnchor({
+      nodes: nodes.value,
+      anchorNodeId,
+      parentId,
+      orderStore: nodeCreationOrder.value,
+    })
+
+    if (newOrder == null) return
+
+    nodeCreationOrder.value.set(newNodeId, newOrder)
+
+    nodes.value.push({
+      id: newNodeId,
+      node_key: crypto.randomUUID(),
+      data: {
+        parentId,
+        label: `<p>Nhánh mới</p>`,
+        order: newOrder,
+      },
+    })
+
+    edges.value.push({
+      id: `edge-${parentId}-${newNodeId}`,
+      source: parentId,
+      target: newNodeId,
+    })
+
+    nodes.value.forEach(n => {
+      if (n.data.parentId === anchorNodeId) {
+        n.data.parentId = newNodeId
+
+        const edge = edges.value.find(e => e.target === n.id)
+        if (edge) {
+          edge.source = newNodeId
+        }
+      }
+    })
+
+    d3Renderer.render()
+    scheduleSave()
+    return
+  }
 
   if (position === "tab_add_child") {
     const result = moveNodeAsFirstChild({

@@ -73,6 +73,12 @@ export const ListItemWithNodeId = ListItem.extend({
         renderHTML: (attrs) =>
           attrs.collapsed ? { "data-collapsed": "true" } : {},
       },
+      highlight: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-highlight"),
+        renderHTML: (attrs) =>
+          attrs.highlight ? { "data-highlight": attrs.highlight } : {},
+      },
     }
   },
 
