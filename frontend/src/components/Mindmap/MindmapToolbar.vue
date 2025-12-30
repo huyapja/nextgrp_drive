@@ -3,7 +3,11 @@
 		<!-- Thanh công cụ dưới: Các tùy chọn khác (luôn hiển thị) -->
 		<div class="toolbar-bottom">
 			<!-- Hand icon (icon đầu tiên) - khi hover sẽ hiển thị toolbar-top -->
-			<div class="toolbar-item-wrapper" @mouseenter="handleWrapperMouseEnter" @mouseleave="handleMouseLeave" @click.stop>
+			<div class="toolbar-item-wrapper" 
+				:class="{ 'toolbar-item-disabled': !permissions.write }"
+				@mouseenter="permissions.write && handleWrapperMouseEnter" 
+				@mouseleave="handleMouseLeave" 
+				@click.stop>
 				<button
 					class="toolbar-btn"
 					title="Tùy chọn định dạng"
@@ -19,9 +23,10 @@
 				<!-- Bold -->
 				<button
 					class="toolbar-btn"
-					:class="{ active: isBold }"
-					@mousedown.prevent="saveSelection"
-					@click.stop="toggleBold"
+					:class="{ active: isBold, 'toolbar-btn-disabled': !permissions.write }"
+					@mousedown.prevent="permissions.write && saveSelection"
+					@click.stop="permissions.write && toggleBold"
+					:disabled="!permissions.write"
 					title="In đậm (Ctrl+B)"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -32,9 +37,10 @@
 				<!-- Italic -->
 				<button
 					class="toolbar-btn"
-					:class="{ active: isItalic }"
-					@mousedown.prevent="saveSelection"
-					@click.stop="toggleItalic"
+					:class="{ active: isItalic, 'toolbar-btn-disabled': !permissions.write }"
+					@mousedown.prevent="permissions.write && saveSelection"
+					@click.stop="permissions.write && toggleItalic"
+					:disabled="!permissions.write"
 					title="In nghiêng (Ctrl+I)"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -45,9 +51,10 @@
 				<!-- Underline -->
 				<button
 					class="toolbar-btn"
-					:class="{ active: isUnderline }"
-					@mousedown.prevent="saveSelection"
-					@click.stop="toggleUnderline"
+					:class="{ active: isUnderline, 'toolbar-btn-disabled': !permissions.write }"
+					@mousedown.prevent="permissions.write && saveSelection"
+					@click.stop="permissions.write && toggleUnderline"
+					:disabled="!permissions.write"
 					title="Gạch chân (Ctrl+U)"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -65,9 +72,10 @@
 						:key="color.value"
 						class="toolbar-btn color-btn"
 						:style="{ backgroundColor: color.bg }"
-						:class="{ active: currentHighlightColor === color.value }"
-						@mousedown.prevent="saveSelection"
-						@click.stop="setHighlightColor(color.value)"
+						:class="{ active: currentHighlightColor === color.value, 'toolbar-btn-disabled': !permissions.write }"
+						@mousedown.prevent="permissions.write && saveSelection"
+						@click.stop="permissions.write && setHighlightColor(color.value)"
+						:disabled="!permissions.write"
 						:title="color.label"
 					>
 						<span class="color-label" :style="{ color: color.text }">A</span>
@@ -79,8 +87,9 @@
 			<!-- Checkmark (Done) -->
 			<button
 				class="toolbar-btn toolbar-btn-done"
-				:class="{ active: isCompleted }"
-				@click.stop="handleDone"
+				:class="{ active: isCompleted, 'toolbar-btn-disabled': !permissions.write }"
+				@click.stop="permissions.write && handleDone"
+				:disabled="!permissions.write"
 				title="Hoàn thành (Ctrl+Enter)"
 			>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -91,8 +100,10 @@
 			<!-- List with pen -->
 			<button
 				class="toolbar-btn"
-				@mousedown.prevent="saveSelection"
-				@click.stop="handleListAction"
+				:class="{ 'toolbar-btn-disabled': !permissions.write }"
+				@mousedown.prevent="permissions.write && saveSelection"
+				@click.stop="permissions.write && handleListAction"
+				:disabled="!permissions.write"
 				title="Mô tả (Shift+Enter)"
 			>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -103,10 +114,11 @@
 			<!-- Insert image -->
 			<button
 				class="toolbar-btn"
-				@mousedown.prevent="saveSelection"
-				@click.stop.prevent="handleInsertImage"
+				:class="{ 'toolbar-btn-disabled': !permissions.write }"
+				@mousedown.prevent="permissions.write && saveSelection"
+				@click.stop.prevent="permissions.write && handleInsertImage"
 				title="Chèn hình ảnh"
-				:disabled="!props.selectedNode"
+				:disabled="!props.selectedNode || !permissions.write"
 			>
 				<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
 					<path d="m10.141 17.988-4.275-.01a.3.3 0 0 1-.212-.512l4.133-4.133a.4.4 0 0 1 .566 0l1.907 1.907 5.057-5.057a.4.4 0 0 1 .683.283V17.7a.3.3 0 0 1-.3.3h-7.476a.301.301 0 0 1-.083-.012ZM4 22c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2v16c0 1.1-.9 2-2 2H4Zm0-2h16V4H4v16ZM6 6h3v3H6V6Z" fill="currentColor"></path>
@@ -114,7 +126,11 @@
 			</button>
 
 			<!-- More options (ellipsis) -->
-			<div class="toolbar-item-wrapper" @mouseenter="handleMoreOptionsWrapperEnter" @mouseleave="handleMoreOptionsWrapperLeave" @click.stop>
+			<div class="toolbar-item-wrapper" 
+				:class="{ 'toolbar-item-disabled': !permissions.write }"
+				@mouseenter="permissions.write && handleMoreOptionsWrapperEnter" 
+				@mouseleave="handleMoreOptionsWrapperLeave" 
+				@click.stop>
 				<button
 					ref="moreOptionsBtnRef"
 					class="toolbar-btn"
@@ -130,7 +146,9 @@
 				<div v-if="showMoreOptionsMenu && props.selectedNode" class="toolbar-top-popup toolbar-context-menu-popup" @mouseenter="handleMoreOptionsPopupEnter" @mouseleave="handleMoreOptionsPopupLeave" @click.stop>
 					<!-- Context menu items -->
 					<!-- Add Child -->
-					<div class="context-menu-item" @click.stop="handleContextAction('add-child')">
+					<div class="context-menu-item" 
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('add-child')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M12 5v14M5 12h14"/>
 						</svg>
@@ -138,7 +156,9 @@
 					</div>
 					
 					<!-- Add Sibling -->
-					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('add-sibling')">
+					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('add-sibling')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<line x1="12" y1="5" x2="12" y2="19"/>
 							<line x1="5" y1="12" x2="19" y2="12"/>
@@ -149,7 +169,9 @@
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
 					
 					<!-- Copy -->
-					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('copy')">
+					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('copy')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
 							<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -158,7 +180,9 @@
 					</div>
 					
 					<!-- Cut -->
-					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('cut')">
+					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('cut')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<circle cx="6" cy="6" r="3"/>
 							<circle cx="6" cy="18" r="3"/>
@@ -169,7 +193,9 @@
 					</div>
 					
 					<!-- Paste - Luôn hiển thị để có thể dán từ clipboard hệ thống -->
-					<div class="context-menu-item" @click.stop="handleContextAction('paste')">
+					<div class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('paste')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
 							<rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
@@ -180,7 +206,9 @@
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
 					
 					<!-- Copy Link -->
-					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('copy-link')">
+					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('copy-link')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
 							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -191,7 +219,9 @@
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
 
 					<!-- Link task -->
-					<div v-if="props.selectedNode?.id !== 'root' && !props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item" @click.stop="handleContextAction('link-task')">
+					<div v-if="props.selectedNode?.id !== 'root' && !props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('link-task')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
 							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -200,7 +230,9 @@
 					</div>
 					
 					<!-- Delete task link -->
-					<div v-if="props.selectedNode?.id !== 'root' && props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item" @click.stop="handleContextAction('delete-task-link')">
+					<div v-if="props.selectedNode?.id !== 'root' && props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('delete-task-link')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
 							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -212,8 +244,10 @@
 					
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
 					
-					<!-- Add Comment -->
-					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item" @click.stop="handleContextAction('add-comment')">
+					<!-- Add Comment - Chỉ active khi có quyền comment -->
+					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
+						:class="{ 'context-menu-item-disabled': !permissions.comment }"
+						@click.stop="permissions.comment && handleContextAction('add-comment')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
 						</svg>
@@ -223,7 +257,9 @@
 					<div v-if="props.selectedNode?.id !== 'root'" class="toolbar-separator"></div>
 					
 					<!-- Delete -->
-					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item context-menu-item-danger" @click.stop="handleContextAction('delete')">
+					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item context-menu-item-danger"
+						:class="{ 'context-menu-item-disabled': !permissions.write }"
+						@click.stop="permissions.write && handleContextAction('delete')">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<polyline points="3 6 5 6 21 6"/>
 							<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -236,10 +272,12 @@
 			<!-- Separator -->
 			<div class="toolbar-separator"></div>
 
-			<!-- Comments -->
+			<!-- Comments - Chỉ active khi có quyền comment -->
 			<button
 				class="toolbar-btn"
-				@click.stop="handleComments"
+				:class="{ 'toolbar-btn-disabled': !permissions.comment }"
+				@click.stop="permissions.comment && handleComments"
+				:disabled="!permissions.comment"
 				title="Bình luận"
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
@@ -275,6 +313,10 @@ const props = defineProps({
 	renderer: {
 		type: Object,
 		default: null
+	},
+	permissions: {
+		type: Object,
+		default: () => ({ read: 0, write: 0, comment: 0, share: 0 })
 	}
 })
 
@@ -1850,6 +1892,24 @@ onBeforeUnmount(() => {
 
 .context-menu-item-danger:hover {
 	background: rgba(239, 68, 68, 0.1);
+}
+
+.context-menu-item-disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	pointer-events: none;
+}
+
+.toolbar-btn-disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	pointer-events: none;
+}
+
+.toolbar-item-disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+	pointer-events: none;
 }
 
 .context-menu-item .menu-icon {

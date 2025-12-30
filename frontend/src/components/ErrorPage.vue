@@ -10,7 +10,7 @@
     <!-- <h1 class="text-3xl font-bold text-ink-gray-8 mt-4">Uh oh!</h1> -->
     <p
       class="text-lg text-ink-gray-5 mt-6"
-      v-html="error.messages?.join?.('\n') || error"
+      v-html="formatErrorMessage(error)"
     />
     <div class="w-50 flex gap-10 my-6">
       <!-- <Button
@@ -35,5 +35,32 @@
 
 <script setup>
 import { Button } from "frappe-ui";
-defineProps({ error: Object })
+import { computed } from "vue";
+
+const props = defineProps({ error: Object })
+
+// Format error message to avoid duplicates and translate
+const formatErrorMessage = (error) => {
+  if (!error) return ""
+  
+  // If error has messages array
+  if (error.messages && Array.isArray(error.messages)) {
+    // Remove duplicates and join
+    const uniqueMessages = [...new Set(error.messages)]
+    return uniqueMessages.join('<br>')
+  }
+  
+  // If error is a string
+  if (typeof error === 'string') {
+    return error
+  }
+  
+  // If error has a message property
+  if (error.message) {
+    return error.message
+  }
+  
+  // Fallback
+  return String(error)
+}
 </script>

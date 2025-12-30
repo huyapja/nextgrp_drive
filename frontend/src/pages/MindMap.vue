@@ -233,11 +233,13 @@
 
         <MindmapContextMenu @mousedown.stop @click.stop :visible="showContextMenu" :node="contextMenuNode"
           :position="contextMenuPos" :has-clipboard="hasClipboard" :center="contextMenuCentered"
+          :permissions="permissions"
           @action="handleContextMenuAction" @close="showContextMenu = false" />
 
         <!-- Mindmap Toolbar -->
         <MindmapToolbar ref="toolbarRef" :visible="!!selectedNode" :selected-node="selectedNode"
           :editor-instance="currentEditorInstance" :is-editing="editingNode === selectedNode?.id" :renderer="d3Renderer"
+          :permissions="permissions"
           @comments="handleToolbarComments" @done="handleToolbarDone" @insert-image="handleInsertImage"
           @more-options="handleToolbarMoreOptions" @context-action="handleToolbarContextAction" :nodeActive="activeCommentNode" :showPanel="showPanel"/>
 
@@ -261,7 +263,20 @@
         <MindmapCommentPanel :current-view="currentView" @open-history="showPanel = true" :visible="showPanel" :node="activeCommentNode" :mindmap="realtimeMindmapNodes"
           @close="showPanel = false" ref="commentPanelRef" @update:input="commentInputValue = $event"
           @cancel="onCancelComment" @update:node="handleSelectCommentNode" @highlight:node="handleHighlightNode" :userAddComment="isFromUI">
-        </MindmapCommentPanel>      
+        </MindmapCommentPanel>
+        
+        <!-- Permission Modal -->
+        <div v-if="showPermissionModal" class="permission-modal-overlay">
+          <div class="permission-modal">
+            <div class="modal-header">
+              <h3>⚠️ Quyền truy cập đã thay đổi</h3>
+            </div>
+            <div class="modal-body">
+              <p>{{ permissionModalMessage }}</p>
+              <p>Trang sẽ tải lại trong <strong>{{ permissionModalCountdown }}</strong> giây...</p>
+            </div>
+          </div>
+        </div>
 
         <div
           v-if="currentView === 'text'"
@@ -290,7 +305,7 @@ import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 import { setBreadCrumbs } from "@/utils/files"
 import { toast } from "@/utils/toasts"
 import { call, createResource } from "frappe-ui"
-import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, defineProps, inject, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
 
 import { useRoute } from "vue-router"
@@ -304,7 +319,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import { provide } from "vue"
-import { computeInsertAfterAnchor, computeInsertBeforeAnchor, computeInsertAsFirstChild, moveNodeAsFirstChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchor, moveNodeAsFirstChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 
@@ -351,6 +366,21 @@ const activeCommentNode = ref(null)
 const commentPanelRef = ref(null)
 const commentInputValue = ref("")
 const isFromUI = ref(false)
+
+// Permissions state
+const permissions = ref({
+  read: 0,
+  write: 0,
+  comment: 0,
+  share: 0
+})
+
+// Permission check state
+const showPermissionModal = ref(false)
+const permissionModalTimer = ref(null)
+const permissionModalCountdown = ref(5)
+const permissionModalMessage = ref("")
+const cachedPermissionVersion = ref(null)
 // Liên kết công việc
 const showTaskLinkModal = ref(false)
 const taskLinkNode = ref(null)
@@ -668,6 +698,14 @@ const mindmapEntity = createResource({
     entity_name: props.entityName,
   },
   onSuccess(data) {
+    // Lưu quyền từ API response
+    permissions.value = {
+      read: data.read || 0,
+      write: data.write || 0,
+      comment: data.comment || 0,
+      share: data.share || 0
+    }
+    
     // Chỉ dùng để thiết lập breadcrumbs, tránh ghi đè logic mindmap khác
     if (data.breadcrumbs && Array.isArray(data.breadcrumbs)) {
       setBreadCrumbs(data.breadcrumbs, data.is_private, () => {
@@ -767,8 +805,18 @@ const initD3Renderer = () => {
     nodeSpacing: 20,
     layerSpacing: 40,
     padding: 20,
-    nodeCreationOrder: nodeCreationOrder
+    nodeCreationOrder: nodeCreationOrder,
+    permissions: permissions.value
   })
+  
+  // Watch permissions để cập nhật khi quyền thay đổi
+  watch(permissions, (newPermissions) => {
+    if (d3Renderer) {
+      d3Renderer.options.permissions = newPermissions
+      // Re-render để cập nhật UI (ẩn/hiện nút add-child, disable/enable editor)
+      d3Renderer.render(false)
+    }
+  }, { deep: true })
 
   // Lưu uploadImage function vào renderer để có thể dùng trong node editor
   d3Renderer.uploadImage = async (file) => {
@@ -810,6 +858,20 @@ const initD3Renderer = () => {
       // sửa lại để update sort dựa trên root/ position cho bên comment panel
       const node = nodes.value.find(n => n.id === nodeId)
       if (!node) return
+
+      // Kiểm tra quyền write cho các thao tác edit và drag
+      if (!permissions.value.write) {
+        // Chặn edit label
+        if (updates.label !== undefined) {
+          toast.error("Bạn không có quyền chỉnh sửa node")
+          return
+        }
+        // Chặn drag & drop
+        if (updates.parentId !== undefined) {
+          toast.error("Bạn không có quyền di chuyển node")
+          return
+        }
+      }
 
       // 1. label
       if (updates.label !== undefined) {
@@ -1081,6 +1143,12 @@ const zoomOut = () => {
 
 // Add child to specific node
 const addChildToNode = async (parentId) => {
+  // Kiểm tra quyền write
+  if (!permissions.value.write) {
+    toast.error("Bạn không có quyền thêm node mới")
+    return
+  }
+  
   // ⚠️ FIX: Clear tất cả các timeout focus trước đó để tránh focus bị nhảy khi tạo node liên tục
   nodeFocusTimeouts.forEach(timeoutId => clearTimeout(timeoutId))
   nodeFocusTimeouts = []
@@ -1436,6 +1504,12 @@ const countChildren = (nodeId) => {
 // Delete node with cascade
 const deleteSelectedNode = () => {
   if (!selectedNode.value) return
+
+  // Kiểm tra quyền write
+  if (!permissions.value.write) {
+    toast.error("Bạn không có quyền xóa node")
+    return
+  }
 
   if (selectedNode.value.id === 'root') {
     
@@ -3516,6 +3590,11 @@ const handleKeyDown = (event) => {
       return
     }
     
+    // Kiểm tra quyền write
+    if (!permissions.value.write) {
+      toast.error("Bạn không có quyền xóa node")
+      return
+    }
     
     event.preventDefault()
     event.stopPropagation()
@@ -3623,6 +3702,11 @@ const saveLayoutResource = createResource({
 // Schedule save
 const scheduleSave = () => {
   if (!mindmap.data) return
+  
+  // Kiểm tra quyền write trước khi lưu
+  if (!permissions.value.write) {
+    return
+  }
 
   if (saveTimeout) {
     clearTimeout(saveTimeout)
@@ -3672,6 +3756,146 @@ const handleImportComplete = async () => {
   }
 }
 
+// ⭐ Initialize permission version on mount
+async function initializePermissionVersion(entityName) {
+  try {
+    const response = await fetch(
+      `/api/method/drive.api.mindmap.get_mindmap_permission_status?entity_name=${entityName}`,
+      {
+        headers: {
+          "X-Frappe-CSRF-Token": window.csrf_token || "",
+        },
+      }
+    )
+    
+    const result = await response.json()
+    const data = result.message
+    
+    if (data.current_version) {
+      cachedPermissionVersion.value = data.current_version
+      console.log(`✅ Initialized mindmap permission version: ${cachedPermissionVersion.value}`)
+    }
+  } catch (err) {
+    console.error("❌ Failed to initialize mindmap permission version:", err)
+  }
+}
+
+// ⭐ Check permission status (only called on mount to initialize)
+async function checkPermissionStatus() {
+  try {
+    const response = await fetch(
+      `/api/method/drive.api.mindmap.get_mindmap_permission_status?entity_name=${props.entityName}`,
+      {
+        headers: {
+          "X-Frappe-CSRF-Token": window.csrf_token || "",
+        },
+      }
+    )
+    
+    const result = await response.json()
+    const data = result.message
+    
+    // Only check on initial load, not periodically
+    // Real-time updates will come via socket
+    if (data.current_version) {
+      cachedPermissionVersion.value = data.current_version
+    }
+  } catch (err) {
+    console.error("❌ Failed to check permission status:", err)
+  }
+}
+
+// ⭐ Handle permission changed
+function handlePermissionChanged(data) {
+  console.log("🚫 Permission changed handler called", data)
+  
+  // Determine message based on type
+  if (data.deleted) {
+    permissionModalMessage.value = "Tệp này đã bị xóa. Bạn không còn có quyền truy cập."
+  } else if (data.unshared) {
+    permissionModalMessage.value = "Tệp này đã được gỡ chia sẻ với bạn. Bạn không còn có quyền truy cập."
+  } else if (data.reason && data.reason.includes("Quyền sở hữu đã được chuyển")) {
+    // Ownership transfer message
+    permissionModalMessage.value = "Quyền sở hữu của tệp này đã được chuyển. Vui lòng tải lại trang để cập nhật quyền truy cập."
+  } else if (data.can_edit !== permissions.value.write) {
+    if (data.can_edit) {
+      permissionModalMessage.value = "Quyền truy cập của bạn đã được nâng cấp. Vui lòng tải lại trang để sử dụng các tính năng chỉnh sửa."
+    } else {
+      permissionModalMessage.value = "Quyền truy cập của bạn đã thay đổi."
+    }
+  } else {
+    permissionModalMessage.value = "Quyền truy cập của bạn đã thay đổi."
+  }
+  
+  // Show modal
+  showPermissionModal.value = true
+  permissionModalCountdown.value = 5
+  
+  // Start countdown
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+  }
+  
+  permissionModalTimer.value = setInterval(() => {
+    permissionModalCountdown.value--
+    if (permissionModalCountdown.value <= 0) {
+      reloadPageNow()
+    }
+  }, 1000)
+}
+
+// ⭐ Reload page
+function reloadPageNow() {
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+    permissionModalTimer.value = null
+  }
+  window.location.reload()
+}
+
+// ⭐ Handle socket permission revoked event
+function handleSocketPermissionRevoked(message) {
+  console.log("📡 Socket permission_revoked event received for mindmap:", message)
+  console.log("   Current entityName:", props.entityName)
+  console.log("   Message entity_name:", message?.entity_name)
+  
+  // Kiểm tra xem event có phải cho file hiện tại không
+  if (!message || !message.entity_name) {
+    console.log("⚠️ Invalid message format:", message)
+    return
+  }
+  
+  if (message.entity_name !== props.entityName) {
+    console.log(`⚠️ Event for different file: ${message.entity_name} (current: ${props.entityName})`)
+    return
+  }
+  
+  console.log("✅ Event matches current file, processing...")
+  
+  // Cập nhật cached version
+  if (message.new_version) {
+    cachedPermissionVersion.value = message.new_version
+  }
+  
+  // Xác định thông điệp dựa trên action
+  const isUnshared = message.action === "unshared" || message.unshared === true
+  const isDeleted = message.action === "deleted" || message.deleted === true
+  const canEdit = message.new_permission === "edit" || message.can_edit === true
+  
+  console.log("   Action:", message.action)
+  console.log("   isUnshared:", isUnshared)
+  console.log("   isDeleted:", isDeleted)
+  console.log("   canEdit:", canEdit)
+  
+  handlePermissionChanged({
+    reason: message.reason || "Your permission was changed",
+    entity_name: message.entity_name,
+    can_edit: canEdit,
+    unshared: isUnshared,
+    deleted: isDeleted,
+  })
+}
+
 onMounted(() => {
   if (!store.getters.isLoggedIn) {
     sessionStorage.setItem("sharedFileInfo", JSON.stringify({
@@ -3689,6 +3913,32 @@ onMounted(() => {
 
   // ⚠️ NEW: Handle copy event để lưu text vào clipboard
   window.addEventListener('copy', handleCopy, true)
+
+  // ⭐ Initialize permission version (only once on mount)
+  initializePermissionVersion(props.entityName)
+
+  // ⭐ Listen for permission revoked event via socket (realtime)
+  if (socket) {
+    console.log("📡 Registering socket listener for permission_revoked (mindmap)")
+    console.log("   Current entityName:", props.entityName)
+    
+    // Register listener
+    socket.on("permission_revoked", (message) => {
+      console.log("📨 Raw permission_revoked event received:", message)
+      handleSocketPermissionRevoked(message)
+    })
+    
+    // Re-register listener on reconnect
+    socket.on("connect", () => {
+      console.log("🔄 Socket reconnected, re-registering permission_revoked listener (mindmap)")
+      socket.on("permission_revoked", (message) => {
+        console.log("📨 Raw permission_revoked event received (after reconnect):", message)
+        handleSocketPermissionRevoked(message)
+      })
+    })
+  } else {
+    console.warn("⚠️ Socket is not available, permission changes will not be detected in real-time")
+  }
 
   // Handle window resize
   window.addEventListener('resize', () => {
@@ -3762,6 +4012,8 @@ onBeforeUnmount(() => {
   // ⚠️ NEW: Cleanup socket listeners với safety check
   if (socket) {
     socket.off('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
+    socket.off("permission_revoked", handleSocketPermissionRevoked)
+    socket.off("connect")
   }
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
   socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
@@ -3769,6 +4021,14 @@ onBeforeUnmount(() => {
   socket.off('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
 
   window.removeEventListener("click", handleClickOutside, true)
+})
+
+onUnmounted(() => {
+  // ⭐ Clear permission modal timer
+  if (permissionModalTimer.value) {
+    clearInterval(permissionModalTimer.value)
+    permissionModalTimer.value = null
+  }
 })
 
 
@@ -5630,7 +5890,14 @@ function onOpenComment(payload) {
   openCommentPanel(nodeId, options);
 }
 
-function addChildToNodeTextMode(payload) {
+function addChildToNodeTextMode(anchorNodeId) {
+  // Kiểm tra quyền write
+  if (!permissions.value.write) {
+    toast.error("Bạn không có quyền thêm node mới")
+    return
+  }
+  
+  // Lưu snapshot trước khi thêm node
   saveSnapshot()
 
   const {
@@ -5965,5 +6232,69 @@ kbd {
   border-right: 4px solid transparent;
   border-top: 4px solid #facc15;
   /* cùng màu badge */
+}
+/* Permission Modal */
+.permission-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+}
+
+.permission-modal {
+  background: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
+  width: 90%;
+  max-width: 32rem;
+  animation: slideIn 0.3s ease-out;
+}
+
+.permission-modal .modal-header {
+  padding: 1.5rem;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.permission-modal .modal-header h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #111827;
+}
+
+.permission-modal .modal-body {
+  padding: 1.5rem;
+  color: #374151;
+}
+
+.permission-modal .modal-body p {
+  margin: 0 0 1rem;
+  line-height: 1.5;
+}
+
+.permission-modal .modal-body p:last-child {
+  margin-bottom: 0;
+}
+
+.permission-modal .modal-body strong {
+  color: #dc2626;
+  font-weight: 600;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 </style>
