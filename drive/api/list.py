@@ -953,7 +953,9 @@ def files_multi_team(
 
                 # Apply search filtering
                 if search:
-                    search_str = str(search).strip() if isinstance(search, str) else str(search)
+                    search_str = (
+                        str(search).strip() if isinstance(search, str) else str(search)
+                    )
                     if search_str:
                         # Search in title field (case-insensitive)
                         q = q.where(DriveFile.title.like(f"%{search_str}%"))
@@ -1842,13 +1844,13 @@ def shared_multi_team(
         else:
             order_clause = f"ORDER BY {order_field} {direction}"
 
-    # ✅ QUERY SIÊU TỐI ƯU với xử lý duplicate cho by=1
-    # Khi by=1 (owner), có thể có nhiều bản ghi vì 1 file được share cho nhiều user
-    # Dùng MIN để lấy 1 permission record (tương thích với MySQL cũ hơn)
+    # ✅ QUERY TỐI ƯU với indexes phù hợp cho 1 triệu file
+    # MySQL sẽ tự động chọn index tốt nhất dựa trên WHERE và ORDER BY
+    # Không force index để tránh lỗi nếu index chưa được tạo
 
     if by:
         # by=1: Lấy files mà current_user là owner (share cho người khác)
-        # Dùng MIN để lấy 1 permission record
+        # ✅ Tối ưu: Dùng subquery để tránh GROUP BY nhiều cột
         main_query = f"""
         SELECT 
             df.name,
@@ -1865,34 +1867,45 @@ def shared_multi_team(
             df.is_link,
             df.document,
             df.color,
-            COALESCE(MAX(del.last_interaction), df.modified) as accessed,
-            MIN(dp.user) as user,
-            MIN(dp.owner) as sharer,
-            MAX(dp.read) as `read`,
-            MAX(dp.share) as `share`,
-            MAX(dp.comment) as `comment`,
-            MAX(dp.write) as `write`
+            COALESCE(del.max_last_interaction, df.modified) as accessed,
+            dp_sub.user,
+            dp_sub.owner as sharer,
+            dp_sub.`read`,
+            dp_sub.`share`,
+            dp_sub.`comment`,
+            dp_sub.`write`
         FROM `tabDrive File` df
-        FORCE INDEX (modified)
-        INNER JOIN `tabDrive Permission` dp 
-            ON dp.entity = df.name 
-            AND dp.read = 1
-            AND dp.owner = %(current_user)s
-        LEFT JOIN `tabDrive Entity Log` del 
-            ON del.entity_name = df.name
+        INNER JOIN (
+            SELECT 
+                entity,
+                MIN(user) as user,
+                MIN(owner) as owner,
+                MAX(`read`) as `read`,
+                MAX(`share`) as `share`,
+                MAX(`comment`) as `comment`,
+                MAX(`write`) as `write`
+            FROM `tabDrive Permission`
+            WHERE `read` = 1
+              AND owner = %(current_user)s
+            GROUP BY entity
+        ) dp_sub ON dp_sub.entity = df.name
+        LEFT JOIN (
+            SELECT 
+                entity_name,
+                MAX(last_interaction) as max_last_interaction
+            FROM `tabDrive Entity Log`
+            GROUP BY entity_name
+        ) del ON del.entity_name = df.name
         {tag_join}
         WHERE df.is_active = 1
           {where_clause}
-        GROUP BY df.name, df.team, df.title, df.creation, df.modified, 
-                 df.owner, df.mime_type, df.file_size, df.parent_entity, 
-                 df.is_group, df.is_active, df.is_link, df.document, 
-                 df.color
         {order_clause}
         LIMIT %(limit)s
         """
     else:
         # by=0: Lấy files được share cho current_user
-        # Không bị duplicate vì mỗi user chỉ có 1 permission record
+        # ✅ Tối ưu: Không cần GROUP BY vì mỗi user chỉ có 1 permission record
+        # ✅ Dùng subquery cho Entity Log để tối ưu
         main_query = f"""
         SELECT 
             df.name,
@@ -1909,29 +1922,28 @@ def shared_multi_team(
             df.is_link,
             df.document,
             df.color,
-            COALESCE(MAX(del.last_interaction), df.modified) as accessed,
+            COALESCE(del.max_last_interaction, df.modified) as accessed,
             dp.user,
             dp.owner as sharer,
-            dp.read,
-            dp.share,
-            dp.comment,
-            dp.write
+            dp.`read`,
+            dp.`share`,
+            dp.`comment`,
+            dp.`write`
         FROM `tabDrive File` df
-        FORCE INDEX (modified)
         INNER JOIN `tabDrive Permission` dp 
             ON dp.entity = df.name 
-            AND dp.read = 1
+            AND dp.`read` = 1
             AND dp.user = %(current_user)s
-        LEFT JOIN `tabDrive Entity Log` del 
-            ON del.entity_name = df.name
+        LEFT JOIN (
+            SELECT 
+                entity_name,
+                MAX(last_interaction) as max_last_interaction
+            FROM `tabDrive Entity Log`
+            GROUP BY entity_name
+        ) del ON del.entity_name = df.name
         {tag_join}
         WHERE df.is_active = 1
           {where_clause}
-        GROUP BY df.name, df.team, df.title, df.creation, df.modified, 
-                 df.owner, df.mime_type, df.file_size, df.parent_entity, 
-                 df.is_group, df.is_active, df.is_link, df.document, 
-                 df.color,
-                 dp.user, dp.owner, dp.read, dp.share, dp.comment, dp.write
         {order_clause}
         LIMIT %(limit)s
         """

@@ -150,5 +150,28 @@
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],
- "title_field": "title"
+ "title_field": "title",
+ "indexes": [
+  {
+   "index_name": "idx_is_active_modified",
+   "index_fields": [
+    "is_active",
+    "modified"
+   ]
+  },
+  {
+   "index_name": "idx_is_active_title",
+   "index_fields": [
+    "is_active",
+    "title"
+   ]
+  },
+  {
+   "index_name": "idx_parent_entity_is_active",
+   "index_fields": [
+    "parent_entity",
+    "is_active"
+   ]
+  }
+ ]
 }
