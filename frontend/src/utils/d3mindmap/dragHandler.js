@@ -11,16 +11,30 @@ import { cleanupDragBranchEffects, getDescendantIds, getParentNodeId, getSibling
  * Handle mousedown event to setup drag delay
  */
 export function handleMouseDown(renderer, event, d) {
-  // ⚠️ CRITICAL: Chỉ cho phép drag với left mouse button
+  // ⚠️ CRITICAL: Cho phép drag với left mouse button (buttons === 1) hoặc right mouse button (buttons === 2)
   // Ngăn drag khi giữ con lăn chuột hoặc các button khác
-  // Kiểm tra buttons property (bitmask) - chỉ cho phép khi buttons === 1 (left button)
+  // Kiểm tra buttons property (bitmask) - cho phép khi buttons === 1 (left button) hoặc buttons === 2 (right button)
   const isLeftButton = event.buttons !== undefined 
     ? event.buttons === 1
     : (event.button !== undefined && event.button === 0)
+  const isRightButton = event.buttons !== undefined 
+    ? event.buttons === 2
+    : (event.button !== undefined && event.button === 2)
   
-  if (!isLeftButton) {
-    // Không cho phép drag với middle mouse button, right mouse button, hoặc wheel
+  if (!isLeftButton && !isRightButton) {
+    // Không cho phép drag với middle mouse button hoặc wheel
     return
+  }
+  
+  // Lưu flag để biết đang drag với right button
+  if (isRightButton) {
+    renderer.isRightButtonDrag = true
+    // KHÔNG preventDefault ở đây - sẽ preventDefault trong contextmenu handler nếu đã drag
+    // Chỉ lưu vị trí để kiểm tra xem có di chuyển không
+    renderer._rightButtonDownPos = { x: event.clientX, y: event.clientY }
+    renderer.shouldPreventContextMenu = false // Reset trước, sẽ set lại khi di chuyển đủ
+  } else {
+    renderer.isRightButtonDrag = false
   }
   
   // Bắt đầu delay drag - chỉ cho phép drag sau 200ms
@@ -213,15 +227,15 @@ export function createDragFilter(renderer) {
     
     // ⚠️ CRITICAL: Kiểm tra buttons property (bitmask) để xác định button nào đang được nhấn
     // buttons: 0 = không có, 1 = left, 2 = right, 4 = middle
-    // Chỉ cho phép khi buttons === 1 (chỉ left button được nhấn)
+    // Cho phép khi buttons === 1 (left button) hoặc buttons === 2 (right button)
     if (event.sourceEvent.buttons !== undefined) {
-      return event.sourceEvent.buttons === 1
+      return event.sourceEvent.buttons === 1 || event.sourceEvent.buttons === 2
     }
     
     // Fallback: Kiểm tra button property nếu buttons không có
     // button: 0 = left, 1 = middle, 2 = right
     if (event.sourceEvent.button !== undefined) {
-      return event.sourceEvent.button === 0
+      return event.sourceEvent.button === 0 || event.sourceEvent.button === 2
     }
     
     // Nếu không có cả buttons và button, không cho phép (có thể là wheel event)
@@ -233,16 +247,19 @@ export function createDragFilter(renderer) {
  * Handle drag start event
  */
 export function handleDragStart(nodeElement, renderer, event, d) {
-  // ⚠️ CRITICAL: Chỉ cho phép drag với left mouse button
+  // ⚠️ CRITICAL: Cho phép drag với left mouse button hoặc right mouse button
   // Ngăn drag khi giữ con lăn chuột hoặc các button khác
   if (event.sourceEvent) {
-    // Kiểm tra buttons property (bitmask) - chỉ cho phép khi buttons === 1 (left button)
+    // Kiểm tra buttons property (bitmask) - cho phép khi buttons === 1 (left button) hoặc buttons === 2 (right button)
     const isLeftButton = event.sourceEvent.buttons !== undefined 
       ? event.sourceEvent.buttons === 1
       : (event.sourceEvent.button !== undefined && event.sourceEvent.button === 0)
+    const isRightButton = event.sourceEvent.buttons !== undefined 
+      ? event.sourceEvent.buttons === 2
+      : (event.sourceEvent.button !== undefined && event.sourceEvent.button === 2)
     
-    if (!isLeftButton) {
-      // Không cho phép drag với middle mouse button, right mouse button, hoặc wheel
+    if (!isLeftButton && !isRightButton) {
+      // Không cho phép drag với middle mouse button hoặc wheel
       if (event.sourceEvent) {
         event.sourceEvent.preventDefault()
         event.sourceEvent.stopPropagation()
@@ -254,7 +271,19 @@ export function handleDragStart(nodeElement, renderer, event, d) {
       renderer.mouseUpOccurred = false
       renderer.dragStartPosition = null
       renderer.dragStartNodeInfo = null
+      renderer.isRightButtonDrag = false
       return
+    }
+    
+    // Lưu flag để biết đang drag với right button
+    if (isRightButton) {
+      renderer.isRightButtonDrag = true
+      // Ngăn context menu khi đang drag với right button
+      if (event.sourceEvent) {
+        event.sourceEvent.preventDefault()
+      }
+    } else {
+      renderer.isRightButtonDrag = false
     }
   }
   
@@ -451,16 +480,19 @@ function calculateTargetEdgePath(sourcePos, targetPos, sourceSize, targetSize) {
 export function handleDrag(nodeElement, renderer, event, d) {
   // Khi đang drag
   
-  // ⚠️ CRITICAL: Chỉ cho phép drag với left mouse button
+  // ⚠️ CRITICAL: Cho phép drag với left mouse button hoặc right mouse button
   // Ngăn drag khi giữ con lăn chuột hoặc các button khác
   if (event.sourceEvent) {
-    // Kiểm tra buttons property (bitmask) - chỉ cho phép khi buttons === 1 (left button)
+    // Kiểm tra buttons property (bitmask) - cho phép khi buttons === 1 (left button) hoặc buttons === 2 (right button)
     const isLeftButton = event.sourceEvent.buttons !== undefined 
       ? event.sourceEvent.buttons === 1
       : (event.sourceEvent.button !== undefined && event.sourceEvent.button === 0)
+    const isRightButton = event.sourceEvent.buttons !== undefined 
+      ? event.sourceEvent.buttons === 2
+      : (event.sourceEvent.button !== undefined && event.sourceEvent.button === 2)
     
-    if (!isLeftButton) {
-      // Không cho phép drag với middle mouse button, right mouse button, hoặc wheel
+    if (!isLeftButton && !isRightButton) {
+      // Không cho phép drag với middle mouse button hoặc wheel
       if (event.sourceEvent) {
         event.sourceEvent.preventDefault()
         event.sourceEvent.stopPropagation()
@@ -485,7 +517,16 @@ export function handleDrag(nodeElement, renderer, event, d) {
       renderer.dragStartTime = null
       renderer.dragStartNodeInfo = null
       renderer.taskLinkDragChecked = false
+      renderer.isRightButtonDrag = false
       return
+    }
+    
+    // Ngăn context menu khi đang drag với right button
+    if (isRightButton || renderer.isRightButtonDrag) {
+      renderer.isRightButtonDrag = true
+      if (event.sourceEvent) {
+        event.sourceEvent.preventDefault()
+      }
     }
   }
   
@@ -498,6 +539,10 @@ export function handleDrag(nodeElement, renderer, event, d) {
     const deltaY = Math.abs(currentY - renderer.dragStartPosition.y)
     if (deltaX > 10 || deltaY > 10) {
       renderer.hasMovedEnough = true
+      // ⚠️ CRITICAL: Nếu đã di chuyển đủ và đang drag với right button, set flag để ngăn context menu
+      if (renderer.isRightButtonDrag) {
+        renderer.shouldPreventContextMenu = true
+      }
     }
   }
   
@@ -1533,6 +1578,16 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
     
   }
   
+  // ⚠️ CRITICAL: Nếu đã drag với right button và đã di chuyển đủ, set flag để ngăn context menu
+  // Flag này sẽ được reset sau một khoảng thời gian ngắn để đảm bảo contextmenu event đã được xử lý
+  if (renderer.isRightButtonDrag && actuallyMoved) {
+    renderer.shouldPreventContextMenu = true
+    // Reset flag sau 200ms để đảm bảo contextmenu event đã được xử lý
+    setTimeout(() => {
+      renderer.shouldPreventContextMenu = false
+    }, 200)
+  }
+  
   // Reset drag state
   renderer.draggedNode = null
   renderer.taskLinkDragChecked = false // Reset flag để có thể kiểm tra lại lần sau
@@ -1549,6 +1604,7 @@ export function handleDragEnd(nodeElement, renderer, event, d) {
   renderer.dragSiblingParentId = null
   renderer.dragSortedSiblingIds = null // ⚠️ CRITICAL: Reset danh sách siblings đã sắp xếp
   renderer.dragFinalY = undefined // ⚠️ CRITICAL: Reset vị trí Y cuối cùng
+  // KHÔNG reset isRightButtonDrag ngay lập tức - sẽ được reset sau khi contextmenu được xử lý
 }
 
 /**

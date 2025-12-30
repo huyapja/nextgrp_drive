@@ -257,6 +257,100 @@ export class D3MindmapRenderer {
         },
         true
       ) // Dùng capture phase để bắt event trước
+
+      // ⚠️ CRITICAL: Ngăn context menu khi đang drag với right mouse button
+      // Thêm listener ở cả SVG level và document level để chắc chắn bắt được
+      const contextMenuHandler = (event) => {
+        // Kiểm tra xem event có phải từ mindmap container không
+        const target = event.target
+        const isInMindmap = target && (
+          target.closest('.d3-mindmap-container') ||
+          target.closest('.d3-mindmap-wrapper') ||
+          svgNode.contains(target)
+        )
+        
+        // Chỉ ngăn context menu nếu event từ mindmap
+        if (isInMindmap) {
+          // Kiểm tra xem có đã di chuyển đủ không
+          let hasMoved = this.hasMovedEnough
+          
+          // Nếu chưa có flag hasMovedEnough, kiểm tra vị trí thực tế
+          if (!hasMoved && this._rightButtonDownPos) {
+            const deltaX = Math.abs(event.clientX - this._rightButtonDownPos.x)
+            const deltaY = Math.abs(event.clientY - this._rightButtonDownPos.y)
+            hasMoved = deltaX > 10 || deltaY > 10
+          }
+          
+          // Nếu đang drag với right button và đã di chuyển đủ, ngăn context menu
+          // Sử dụng flag shouldPreventContextMenu để đảm bảo ngăn context menu sau khi drag end
+          if (this.shouldPreventContextMenu || (this.isRightButtonDrag && hasMoved)) {
+            event.preventDefault()
+            event.stopPropagation()
+            // Reset flag sau khi đã ngăn context menu
+            this.isRightButtonDrag = false
+            this._rightButtonDownPos = null
+            return false
+          } else if (this.isRightButtonDrag && !hasMoved) {
+            // Chỉ click, không drag - cho phép context menu, reset flag
+            this.isRightButtonDrag = false
+            this._rightButtonDownPos = null
+          }
+        }
+      }
+      
+      svgNode.addEventListener("contextmenu", contextMenuHandler, true)
+      
+      // Thêm listener ở document level với capture để chắc chắn bắt được context menu trước
+      document.addEventListener("contextmenu", contextMenuHandler, true)
+      
+      // Lưu handler để có thể remove sau
+      this._contextMenuHandler = contextMenuHandler
+      
+      // ⚠️ CRITICAL: Thêm listener mousedown ở document level để track right button drag
+      // Không preventDefault ở đây để cho phép context menu nếu chỉ click (không drag)
+      const mouseDownHandler = (event) => {
+        // Chỉ xử lý nếu là right button và trong mindmap container
+        if (event.button === 2) {
+          const target = event.target
+          const isInMindmap = target && (
+            target.closest('.d3-mindmap-container') ||
+            target.closest('.d3-mindmap-wrapper') ||
+            svgNode.contains(target)
+          )
+          
+          if (isInMindmap) {
+            // Set flag ngay khi mousedown với right button
+            // Nhưng chưa preventDefault - sẽ preventDefault trong contextmenu nếu đã drag
+            this.isRightButtonDrag = true
+            this._rightButtonDownTime = Date.now()
+            this._rightButtonDownPos = { x: event.clientX, y: event.clientY }
+          }
+        }
+      }
+      
+      document.addEventListener("mousedown", mouseDownHandler, true)
+      this._mouseDownHandler = mouseDownHandler
+      
+      // Track mouseup để reset flag nếu không drag
+      const mouseUpHandler = (event) => {
+        if (event.button === 2 && this.isRightButtonDrag) {
+          // Nếu không di chuyển đủ, reset flag để cho phép context menu
+          if (!this.hasMovedEnough) {
+            // Kiểm tra lại xem có di chuyển không
+            if (this._rightButtonDownPos) {
+              const deltaX = Math.abs(event.clientX - this._rightButtonDownPos.x)
+              const deltaY = Math.abs(event.clientY - this._rightButtonDownPos.y)
+              if (deltaX <= 10 && deltaY <= 10) {
+                // Chỉ click, không drag - cho phép context menu
+                this.isRightButtonDrag = false
+              }
+            }
+          }
+        }
+      }
+      
+      document.addEventListener("mouseup", mouseUpHandler, true)
+      this._mouseUpHandler = mouseUpHandler
     }
 
     // Add background grid
@@ -534,6 +628,24 @@ export class D3MindmapRenderer {
   }
 
   destroy() {
+    // Remove context menu listener nếu có
+    if (this._contextMenuHandler) {
+      document.removeEventListener("contextmenu", this._contextMenuHandler, true)
+      this._contextMenuHandler = null
+    }
+    
+    // Remove mousedown listener nếu có
+    if (this._mouseDownHandler) {
+      document.removeEventListener("mousedown", this._mouseDownHandler, true)
+      this._mouseDownHandler = null
+    }
+    
+    // Remove mouseup listener nếu có
+    if (this._mouseUpHandler) {
+      document.removeEventListener("mouseup", this._mouseUpHandler, true)
+      this._mouseUpHandler = null
+    }
+    
     if (this.svg) {
       this.svg.remove()
     }
