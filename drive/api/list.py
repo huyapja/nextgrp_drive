@@ -1791,9 +1791,28 @@ def shared_multi_team(
     limit=1000,
     tag_list=[],
     mime_type_list=[],
+    page=None,
+    page_size=20,
 ):
     by = int(by)
     limit = int(limit)
+
+    # Adjust limit if pagination is requested
+    # Need to fetch enough records to cover pagination offset AND account for top-level filtering
+    # Top-level filtering may remove some items, so we need extra buffer
+    # For better accuracy, fetch more records when pagination is used
+    if page is not None:
+        try:
+            page = int(page)
+            page_size = int(page_size) if page_size else 50
+            # Fetch enough records: (page * page_size) + large buffer for top-level filtering
+            # Use larger buffer (3x) to ensure we have enough after filtering
+            # Cap at 10000 to avoid performance issues
+            required_limit = min((page * page_size) + (page_size * 3), 10000)
+            if limit < required_limit:
+                limit = required_limit
+        except (ValueError, TypeError):
+            pass
 
     # Parse tag_list và mime_type_list
     if tag_list and isinstance(tag_list, str):
@@ -1844,10 +1863,16 @@ def shared_multi_team(
         else:
             order_clause = f"ORDER BY {order_field} {direction}"
 
-    # ✅ QUERY TỐI ƯU với indexes phù hợp cho 1 triệu file
-    # MySQL sẽ tự động chọn index tốt nhất dựa trên WHERE và ORDER BY
-    # Không force index để tránh lỗi nếu index chưa được tạo
+    # ✅ QUERY TỐI ƯU: Tách Entity Log ra để tránh GROUP BY toàn bộ bảng
+    # Trên server có nhiều data, GROUP BY toàn bộ tabDrive Entity Log rất chậm (50-60s)
+    # Giải pháp: Query chính trước, sau đó chỉ query Entity Log cho các entity đã lấy được
+    # Thay vì GROUP BY toàn bộ bảng, chỉ GROUP BY các entity trong kết quả (rất nhanh)
 
+    # Kiểm tra xem có cần Entity Log không (khi ORDER BY accessed)
+    # Chỉ query Entity Log khi ORDER BY accessed để tối ưu performance
+    need_entity_log = order_by and "accessed" in order_by.lower()
+
+    # Query chính không có Entity Log JOIN (nhanh hơn)
     if by:
         # by=1: Lấy files mà current_user là owner (share cho người khác)
         # ✅ Tối ưu: Dùng subquery để tránh GROUP BY nhiều cột
@@ -1867,7 +1892,7 @@ def shared_multi_team(
             df.is_link,
             df.document,
             df.color,
-            COALESCE(del.max_last_interaction, df.modified) as accessed,
+            df.modified as accessed,
             dp_sub.user,
             dp_sub.owner as sharer,
             dp_sub.`read`,
@@ -1889,23 +1914,27 @@ def shared_multi_team(
               AND owner = %(current_user)s
             GROUP BY entity
         ) dp_sub ON dp_sub.entity = df.name
-        LEFT JOIN (
-            SELECT 
-                entity_name,
-                MAX(last_interaction) as max_last_interaction
-            FROM `tabDrive Entity Log`
-            GROUP BY entity_name
-        ) del ON del.entity_name = df.name
         {tag_join}
         WHERE df.is_active = 1
           {where_clause}
+        """
+        # Nếu không cần Entity Log, có thể ORDER BY và LIMIT ngay
+        if not need_entity_log:
+            main_query += f"""
         {order_clause}
         LIMIT %(limit)s
         """
+        else:
+            # Cần Entity Log, lấy nhiều hơn để sau khi merge và sort vẫn đủ
+            # Fetch 3x limit để đảm bảo có đủ sau khi filter
+            adjusted_limit = limit * 3
+            main_query += f"""
+        LIMIT %(adjusted_limit)s
+        """
+            query_params["adjusted_limit"] = adjusted_limit
     else:
         # by=0: Lấy files được share cho current_user
         # ✅ Tối ưu: Không cần GROUP BY vì mỗi user chỉ có 1 permission record
-        # ✅ Dùng subquery cho Entity Log để tối ưu
         main_query = f"""
         SELECT 
             df.name,
@@ -1922,7 +1951,7 @@ def shared_multi_team(
             df.is_link,
             df.document,
             df.color,
-            COALESCE(del.max_last_interaction, df.modified) as accessed,
+            df.modified as accessed,
             dp.user,
             dp.owner as sharer,
             dp.`read`,
@@ -1934,22 +1963,64 @@ def shared_multi_team(
             ON dp.entity = df.name 
             AND dp.`read` = 1
             AND dp.user = %(current_user)s
-        LEFT JOIN (
-            SELECT 
-                entity_name,
-                MAX(last_interaction) as max_last_interaction
-            FROM `tabDrive Entity Log`
-            GROUP BY entity_name
-        ) del ON del.entity_name = df.name
         {tag_join}
         WHERE df.is_active = 1
           {where_clause}
+        """
+        # Nếu không cần Entity Log, có thể ORDER BY và LIMIT ngay
+        if not need_entity_log:
+            main_query += f"""
         {order_clause}
         LIMIT %(limit)s
         """
+        else:
+            # Cần Entity Log, lấy nhiều hơn để sau khi merge và sort vẫn đủ
+            adjusted_limit = limit * 3
+            main_query += f"""
+        LIMIT %(adjusted_limit)s
+        """
+            query_params["adjusted_limit"] = adjusted_limit
 
     # Execute main query
     res = frappe.db.sql(main_query, query_params, as_dict=True)
+
+    # Nếu cần Entity Log, query chỉ cho các entity đã lấy được (rất nhanh)
+    if need_entity_log and res:
+        entity_names = tuple(r["name"] for r in res)
+        entity_log_query = """
+        SELECT 
+            entity_name,
+            MAX(last_interaction) as max_last_interaction
+        FROM `tabDrive Entity Log`
+        WHERE entity_name IN %(entity_names)s
+        GROUP BY entity_name
+        """
+        entity_log_results = frappe.db.sql(
+            entity_log_query, {"entity_names": entity_names}, as_dict=True
+        )
+
+        # Tạo dict để lookup nhanh
+        entity_log_map = {
+            row["entity_name"]: row["max_last_interaction"]
+            for row in entity_log_results
+        }
+
+        # Update accessed field cho các file có Entity Log
+        for r in res:
+            if r["name"] in entity_log_map:
+                r["accessed"] = entity_log_map[r["name"]]
+
+        # Sort lại theo accessed
+        order_parts = order_by.split()
+        order_field = order_parts[0]
+        is_desc = len(order_parts) > 1 and order_parts[1].lower() == "0"
+
+        res.sort(
+            key=lambda x: x.get("accessed") or x.get("modified") or "", reverse=is_desc
+        )
+
+        # Apply limit sau khi sort
+        res = res[:limit]
 
     if not res:
         return []
@@ -2093,11 +2164,44 @@ def shared_multi_team(
 
     # Return only top-level items
     parents = {r["name"] for r in res}
-    return [
+    all_results = [
         r
         for r in res
         if not r.get("parent_entity") or r["parent_entity"] not in parents
     ]
+
+    # Calculate total count before pagination
+    total_count = len(all_results)
+
+    # Apply page-based pagination if specified
+    if page is not None:
+        try:
+            page = int(page)
+            page_size = int(page_size) if page_size else 50
+
+            # Calculate offset
+            offset = (page - 1) * page_size
+
+            # Apply pagination
+            paginated_results = all_results[offset : offset + page_size]
+
+            # Return paginated response with total count
+            return {
+                "data": paginated_results,
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+            }
+        except (ValueError, TypeError):
+            # If page/page_size conversion fails, return all results as list
+            pass
+
+    # Apply limit if specified (for backward compatibility)
+    if limit:
+        all_results = all_results[: int(limit)]
+
+    # Return list for backward compatibility (when no pagination)
+    return all_results
 
 
 @frappe.whitelist()
