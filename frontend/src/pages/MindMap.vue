@@ -5890,7 +5890,7 @@ function onOpenComment(payload) {
   openCommentPanel(nodeId, options);
 }
 
-function addChildToNodeTextMode(anchorNodeId) {
+function addChildToNodeTextMode(payload) {
   // Kiểm tra quyền write
   if (!permissions.value.write) {
     toast.error("Bạn không có quyền thêm node mới")
