@@ -91,8 +91,9 @@ export function selectNode(renderer, nodeId, skipCallback = false) {
         .attr('opacity', 0)
         .style('pointer-events', 'none')
       
-      // 2. Nút thêm mới: chỉ khi selected và chưa collapse
-      if (isSelected && !isCollapsed) {
+      // 2. Nút thêm mới: chỉ khi selected và chưa collapse VÀ có quyền write
+      const hasWritePermission = renderer.options?.permissions?.write === 1
+      if (isSelected && !isCollapsed && hasWritePermission) {
         nodeGroup.select('.add-child-btn')
           .transition()
           .duration(150)

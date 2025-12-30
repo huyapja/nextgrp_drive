@@ -2897,6 +2897,10 @@ export default {
       type: String,
       default: null,
     },
+    editable: {
+      type: Boolean,
+      default: true,
+    },
   },
   emits: ["update:modelValue", "focus", "blur", "input", "create-description"],
 

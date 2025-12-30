@@ -662,11 +662,52 @@ class DriveFile(Document):
         if not (write_access or parent_write_access):
             frappe.throw("Not permitted", frappe.PermissionError)
 
+        # ✅ Lấy danh sách users có permission TRƯỚC KHI xóa file
+        # (vì on_trash sẽ xóa permissions)
+        users_with_access = frappe.db.get_all(
+            "Drive Permission",
+            filters={"entity": self.name},
+            fields=["user"],
+        )
+
+        # Thêm owner vào danh sách nếu chưa có
+        all_users = set()
+        for perm in users_with_access:
+            if perm.user:
+                all_users.add(perm.user)
+        if self.owner:
+            all_users.add(self.owner)
+
         self.is_active = -1
         if self.is_group:
             for child in self.get_children():
                 child.permanent_delete()
         self.save()
+        frappe.db.commit()  # Commit để đảm bảo file được đánh dấu xóa
+
+        # ✅ Emit socket event SAU KHI commit (broadcast để tất cả users nhận được)
+        try:
+            message = {
+                "entity_name": self.name,
+                "action": "deleted",
+                "deleted": True,
+                "unshared": False,
+                "reason": "File has been deleted",
+                "timestamp": frappe.utils.now(),
+            }
+            frappe.publish_realtime(
+                event="permission_revoked",
+                message=message,
+                after_commit=False,  # Already committed above
+            )
+            print(f"📡 Emitted deleted event for file {self.name}")
+            print(f"   Message: {message}")
+            print(f"   Users notified: {len(all_users)} users")
+        except Exception as e:
+            print(f"❌ Failed to emit deleted event: {str(e)}")
+            import traceback
+
+            traceback.print_exc()
 
     @frappe.whitelist()
     def share(
@@ -701,6 +742,7 @@ class DriveFile(Document):
 
         # ✅ Check nếu user đang có quyền write và bị giảm xuống
         old_write_permission = False
+        old_permission = None
         if permission:
             old_permission = frappe.get_doc("Drive Permission", permission)
             old_write_permission = old_permission.write
@@ -724,6 +766,68 @@ class DriveFile(Document):
         )
 
         permission.save(ignore_permissions=True)
+        frappe.db.commit()  # Commit để đảm bảo permission được lưu trước khi emit event
+
+        # ✅ Emit socket event khi quyền thay đổi
+        if user:
+            new_write_permission = permission.write
+            new_read_permission = permission.read
+            old_read_permission = old_permission.read if old_permission else True
+
+            # Check if permission actually changed
+            write_changed = old_write_permission != new_write_permission
+            read_changed = old_read_permission != new_read_permission
+
+            if (
+                write_changed
+                or read_changed
+                or read is not None
+                or comment is not None
+                or share is not None
+            ):
+                # Determine action type
+                if read is not None and not new_read_permission:
+                    action = "unshared"
+                    is_unshared = True
+                elif old_write_permission and not new_write_permission:
+                    action = "revoked"
+                    is_unshared = False
+                elif not old_write_permission and new_write_permission:
+                    action = "granted"
+                    is_unshared = False
+                else:
+                    action = "changed"
+                    is_unshared = False
+
+                # Prepare message
+                message = {
+                    "entity_name": self.name,
+                    "action": action,
+                    "new_permission": "edit" if new_write_permission else "view",
+                    "can_edit": bool(new_write_permission),
+                    "can_read": bool(new_read_permission),
+                    "unshared": is_unshared,
+                    "deleted": False,
+                    "reason": f"Owner changed your permission",
+                    "timestamp": frappe.utils.now(),
+                }
+
+                # Emit socket event (broadcast to all, frontend will filter by entity_name)
+                try:
+                    frappe.publish_realtime(
+                        event="permission_revoked",
+                        message=message,
+                        after_commit=True,  # Emit after commit to ensure data is saved
+                    )
+                    print(
+                        f"📡 Emitted permission_revoked event for user {user} on {self.name}, action: {action}"
+                    )
+                    print(f"   Message: {message}")
+                except Exception as e:
+                    print(f"❌ Failed to emit permission_revoked event: {str(e)}")
+                    import traceback
+
+                    traceback.print_exc()
 
         # ✅ Nếu đây là folder, tự động chia sẻ tất cả children
         revoke_editing_access(self.name, user)
@@ -921,7 +1025,9 @@ class DriveFile(Document):
             frappe.delete_doc("Drive Permission", perm_name, ignore_permissions=True)
 
     @frappe.whitelist()
-    def move_owner(self, new_owner, old_owner_permissions=0, transfer_child_files=False):
+    def move_owner(
+        self, new_owner, old_owner_permissions=0, transfer_child_files=False
+    ):
         """
         Move ownership of this file or folder to the specified user
 
@@ -945,13 +1051,17 @@ class DriveFile(Document):
             # Sử dụng frappe.db.set_value thay vì self.owner = new_owner
             frappe.db.set_value("Drive File", self.name, "owner", new_owner)
             frappe.db.commit()
-            
+
             # Nếu là folder và transfer_child_files=True, chuyển quyền sở hữu các file con thuộc sở hữu của old_owner
             if self.is_group and transfer_child_files:
                 for child in self.get_children():
                     # Chỉ chuyển quyền sở hữu các file thuộc sở hữu của old_owner
                     if child.owner == old_owner:
-                        child.move_owner(new_owner, old_owner_permissions=0, transfer_child_files=True)
+                        child.move_owner(
+                            new_owner,
+                            old_owner_permissions=0,
+                            transfer_child_files=True,
+                        )
 
             if self.document:
                 doc = frappe.get_doc("Drive Document", self.document)
@@ -989,13 +1099,85 @@ class DriveFile(Document):
                 {
                     "doctype": "Drive Permission",
                     "entity": self.name,
-                    "user": frappe.session.user,
+                    "user": old_owner,
                     "read": 1,
                     "write": permission_old,
                     "share": 1,
                     "comment": 1,
                 }
             ).insert(ignore_permissions=True)
+
+            frappe.db.commit()  # Commit để đảm bảo permissions được lưu trước khi emit event
+
+            # ✅ Emit socket event cho tất cả users có quyền truy cập file này khi ownership thay đổi
+            # Lấy danh sách tất cả users có permission (bao gồm old_owner, new_owner, và các users khác)
+            users_with_access = frappe.db.get_all(
+                "Drive Permission",
+                filters={"entity": self.name},
+                fields=["user"],
+            )
+
+            # Thêm old_owner và new_owner vào danh sách nếu chưa có
+            all_users = set()
+            for perm in users_with_access:
+                if perm.user:
+                    all_users.add(perm.user)
+            all_users.add(old_owner)
+            all_users.add(new_owner)
+
+            # Emit event cho từng user
+            for user_email in all_users:
+                if not user_email:
+                    continue
+
+                # Xác định quyền của user sau khi chuyển ownership
+                if user_email == new_owner:
+                    # New owner có full access
+                    can_edit = True
+                    can_read = True
+                    action = "ownership_granted"
+                elif user_email == old_owner:
+                    # Old owner có quyền theo old_owner_permissions
+                    can_edit = bool(permission_old)
+                    can_read = True
+                    action = "ownership_transferred"
+                else:
+                    # Các users khác - giữ nguyên quyền hiện tại (cần check lại)
+                    perm = frappe.db.get_value(
+                        "Drive Permission",
+                        {"entity": self.name, "user": user_email},
+                        ["read", "write"],
+                        as_dict=True,
+                    )
+                    can_edit = bool(perm.write) if perm else False
+                    can_read = bool(perm.read) if perm else False
+                    action = "ownership_changed"
+
+                try:
+                    message = {
+                        "entity_name": self.name,
+                        "action": action,
+                        "new_permission": "edit" if can_edit else "view",
+                        "can_edit": can_edit,
+                        "can_read": can_read,
+                        "unshared": False,
+                        "deleted": False,
+                        "reason": f"Quyền sở hữu đã được chuyển từ {old_owner} sang {new_owner}",
+                        "timestamp": frappe.utils.now(),
+                    }
+
+                    frappe.publish_realtime(
+                        event="permission_revoked",
+                        message=message,
+                        after_commit=True,
+                    )
+                    print(
+                        f"📡 Emitted ownership_transferred event for user {user_email} on {self.name}, action: {action}"
+                    )
+                except Exception as e:
+                    print(
+                        f"❌ Failed to emit ownership_transferred event for {user_email}: {str(e)}"
+                    )
 
             print(
                 frappe.db.get_value(

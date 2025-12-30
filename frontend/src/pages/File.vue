@@ -88,18 +88,22 @@ const route = useRoute()
 const store = useStore()
 const emitter = inject("emitter")
 const realtime = inject("realtime")
+const socket = inject("socket")
 const props = defineProps({
   entityName: String,
   team: String,
 })
 
-const permissionCheckInterval = ref(null)
 const showPermissionModal = ref(false)
 const permissionModalTimer = ref(null)
 const permissionModalCountdown = ref(5)
 const permissionModalMessage = ref("")
 const saveTimeoutRef = ref(null)
 const cachedPermissionVersion = ref(null)  // ✅ Lưu version quyền hiện tại
+
+// Store socket listener function reference for proper cleanup
+let permissionRevokedListener = null
+let connectListener = null
 
 const currentEntity = ref(props.entityName)
 
@@ -202,8 +206,15 @@ function handlePermissionRevoked(data) {
   console.log("Data:", data)
   
   // Determine message based on type
-  if (data.unshared) {
+  if (data.deleted) {
+    permissionModalMessage.value = "Tệp này đã bị xóa. Bạn không còn có quyền truy cập."
+  } else if (data.moved_to_trash) {
+    permissionModalMessage.value = "Tệp này đã được chuyển vào thùng rác. Vui lòng tải lại trang."
+  } else if (data.unshared) {
     permissionModalMessage.value = "Tệp này đã được gỡ chia sẻ với bạn. Bạn không còn có quyền truy cập."
+  } else if (data.reason && data.reason.includes("Quyền sở hữu đã được chuyển")) {
+    // Ownership transfer message
+    permissionModalMessage.value = "Quyền sở hữu của tệp này đã được chuyển. Vui lòng tải lại trang để cập nhật quyền truy cập."
   } else if (data.can_edit === false) {
     permissionModalMessage.value = "Quyền truy cập của bạn đã thay đổi."
   } else {
@@ -223,8 +234,8 @@ function handlePermissionRevoked(data) {
   }, 1000)
 }
 
-// ⭐ Check permission status via API
-async function checkPermissionStatus(entityName) {
+// ⭐ Initialize permission version on mount
+async function initializePermissionVersion(entityName) {
   try {
     const response = await fetch(
       `/api/method/drive.api.onlyoffice.get_permission_status?entity_name=${entityName}`,
@@ -238,42 +249,62 @@ async function checkPermissionStatus(entityName) {
     const result = await response.json()
     const data = result.message
     
-    console.log("📋 Permission check:", data)
-    console.log(`   Version: cached=${cachedPermissionVersion.value}, current=${data.current_version}`)
-    
-    // ✅ Lần đầu tiên: lưu version hiện tại
-    if (cachedPermissionVersion.value === null) {
+    if (data.current_version) {
       cachedPermissionVersion.value = data.current_version
-      console.log(`✅ Initialized cached version: ${cachedPermissionVersion.value}`)
-      return false
+      console.log(`✅ Initialized permission version: ${cachedPermissionVersion.value}`)
     }
-    
-    // ✅ So sánh: nếu version thay đổi = quyền bị đổi
-    if (data.current_version !== cachedPermissionVersion.value) {
-      console.log(`🚨 Version changed! ${cachedPermissionVersion.value} → ${data.current_version}`)
-      cachedPermissionVersion.value = data.current_version // Cập nhật cache
-      
-      handlePermissionRevoked({
-        reason: data.unshared ? "File was unshared" : "Your edit permission was revoked",
-        entity_name: entityName,
-        can_edit: data.can_edit,
-        unshared: data.unshared,
-      })
-      return true
-    }
-    
-    return false
   } catch (err) {
-    console.error("❌ Permission check failed:", err)
-    return false
+    console.error("❌ Failed to initialize permission version:", err)
   }
 }
 
+// ⭐ Handle permission revoked event from socket
+function handleSocketPermissionRevoked(message) {
+  console.log("📡 Socket permission_revoked event received:", message)
+  console.log("   Current entityName:", props.entityName)
+  console.log("   Message entity_name:", message?.entity_name)
+  
+  // Kiểm tra xem event có phải cho file hiện tại không
+  if (!message || !message.entity_name) {
+    console.log("⚠️ Invalid message format:", message)
+    return
+  }
+  
+  if (message.entity_name !== props.entityName) {
+    console.log(`⚠️ Event for different file: ${message.entity_name} (current: ${props.entityName})`)
+    return
+  }
+  
+  console.log("✅ Event matches current file, processing...")
+  
+  // Cập nhật cached version
+  if (message.new_version) {
+    cachedPermissionVersion.value = message.new_version
+  }
+  
+  // Xác định thông điệp dựa trên action
+  const isUnshared = message.action === "unshared" || message.unshared === true
+  const isDeleted = message.action === "deleted" || message.deleted === true
+  const isMovedToTrash = message.action === "moved_to_trash" || message.moved_to_trash === true
+  const canEdit = message.new_permission === "edit" || message.can_edit === true
+  
+  console.log("   Action:", message.action)
+  console.log("   isUnshared:", isUnshared)
+  console.log("   isDeleted:", isDeleted)
+  console.log("   isMovedToTrash:", isMovedToTrash)
+  console.log("   canEdit:", canEdit)
+  
+  handlePermissionRevoked({
+    reason: message.reason || "Your permission was changed",
+    entity_name: message.entity_name,
+    can_edit: canEdit,
+    unshared: isUnshared,
+    deleted: isDeleted,
+    moved_to_trash: isMovedToTrash,
+  })
+}
+
 onMounted(() => {
-  permissionCheckInterval.value = setInterval(() => {
-    console.log("🔄 [INTERVAL 10s] Permission check")
-    checkPermissionStatus(props.entityName)
-  }, 10000) 
   // Lưu thông tin file share nếu user chưa login
   if (!store.getters.isLoggedIn) {
     const sharedFileInfo = {
@@ -291,11 +322,44 @@ onMounted(() => {
     store.state.connectedUsers = data.users
     userInfo.submit({ users: JSON.stringify(data.users) })
   })
+  
+  // ⭐ Initialize permission version
+  initializePermissionVersion(props.entityName)
+  
+  // ⭐ Listen for permission revoked event via socket
+  if (socket) {
+    console.log("📡 Registering socket listener for permission_revoked (file)")
+    console.log("   Current entityName:", props.entityName)
+    
+    // Register listener with stored reference
+    permissionRevokedListener = (message) => {
+      console.log("📨 Raw permission_revoked event received:", message)
+      handleSocketPermissionRevoked(message)
+    }
+    socket.on("permission_revoked", permissionRevokedListener)
+    
+    // Re-register listener on reconnect
+    connectListener = () => {
+      console.log("🔄 Socket reconnected, re-registering permission_revoked listener (file)")
+      if (permissionRevokedListener) {
+        socket.on("permission_revoked", permissionRevokedListener)
+      }
+    }
+    socket.on("connect", connectListener)
+  } else {
+    console.warn("⚠️ Socket is not available, permission changes will not be detected in real-time")
+  }
 })
 
 onUnmounted(() => {
-  if (permissionCheckInterval.value) {
-    clearInterval(permissionCheckInterval.value)
+  // ⭐ Remove socket listener
+  if (socket) {
+    if (permissionRevokedListener) {
+      socket.off("permission_revoked", permissionRevokedListener)
+    }
+    if (connectListener) {
+      socket.off("connect", connectListener)
+    }
   }
   
   if (permissionModalTimer.value) {

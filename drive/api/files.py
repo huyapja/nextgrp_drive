@@ -1480,6 +1480,24 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
         nonlocal is_restore_operation
         is_restore_operation = flag == 1
 
+        # ✅ Lấy danh sách users có permission TRƯỚC KHI move to trash
+        # (để emit event sau khi commit)
+        users_with_access = []
+        if flag == 0:  # Chỉ lấy khi move to trash
+            users_with_access = frappe.db.get_all(
+                "Drive Permission",
+                filters={"entity": doc.name},
+                fields=["user"],
+            )
+            # Thêm owner vào danh sách
+            all_users = set()
+            for perm in users_with_access:
+                if perm.user:
+                    all_users.add(perm.user)
+            if doc.owner:
+                all_users.add(doc.owner)
+            users_with_access = list(all_users)
+
         # Xử lý entity hiện tại
         if flag == 0:  # Move to trash
             # Thêm vào global trash
@@ -1549,6 +1567,30 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
             doc.save(ignore_permissions=True)
         else:
             doc.save()
+        
+        # ✅ Emit socket event khi file bị move to trash (flag=0)
+        if flag == 0 and users_with_access:
+            try:
+                message = {
+                    "entity_name": doc.name,
+                    "action": "moved_to_trash",
+                    "deleted": False,  # Not permanently deleted, just moved to trash
+                    "unshared": False,
+                    "reason": "File has been moved to trash",
+                    "timestamp": frappe.utils.now(),
+                }
+                frappe.publish_realtime(
+                    event="permission_revoked",
+                    message=message,
+                    after_commit=True,
+                )
+                print(f"📡 Emitted moved_to_trash event for file {doc.name}")
+                print(f"   Message: {message}")
+                print(f"   Users notified: {len(users_with_access)} users")
+            except Exception as e:
+                print(f"❌ Failed to emit moved_to_trash event: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
         # ✅ Nếu là folder, xử lý tất cả children
         if doc.is_group:

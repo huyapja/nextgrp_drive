@@ -174,6 +174,12 @@ export function createDragFilter(renderer) {
     // Chỉ kiểm tra điều kiện cơ bản trong filter (button, không block delay)
     // Logic delay sẽ được xử lý trong on('start')
     
+    // Kiểm tra quyền write
+    const hasWritePermission = renderer.options?.permissions?.write === 1
+    if (!hasWritePermission) {
+      return false
+    }
+    
     // Kiểm tra nếu đang edit hoặc là root node thì không cho phép drag
     const isRoot = d.data?.isRoot || d.id === 'root'
     const isEditing = renderer.editingNode === d.id

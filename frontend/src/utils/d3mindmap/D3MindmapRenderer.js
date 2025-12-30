@@ -48,6 +48,7 @@ export class D3MindmapRenderer {
       nodeSpacing: options.nodeSpacing || 50, // Khoảng cách dọc giữa siblings
       layerSpacing: options.layerSpacing || 180, // Khoảng cách ngang giữa layers
       padding: options.padding || 20, // Padding chung
+      permissions: options.permissions || { read: 0, write: 0, comment: 0, share: 0 },
       ...options,
     }
 

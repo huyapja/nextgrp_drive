@@ -31,6 +31,7 @@ export function mountNodeEditor(renderer, nodeId, container, props = {}) {
 		isRoot: props.isRoot || false,
 		uploadImage: props.uploadImage || null, // Pass uploadImage function
 		nodeId: nodeId, // ⚠️ FIX: Pass nodeId để component có thể log trong debug
+		editable: props.editable !== undefined ? props.editable : (renderer.options?.permissions?.write === 1),
 	})
 	
 	// Mount vào container
