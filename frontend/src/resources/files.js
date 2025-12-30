@@ -111,18 +111,51 @@ export const getShared = createResource({
   url: "drive.api.list.shared_multi_team",
   cache: "shared-folder-contents",
   makeParams: (params) => {
+    // Merge với params hiện tại để giữ các params khác
+    const currentParams = getShared.params || {}
+    
+    // Luôn lấy 'by' từ store state để đảm bảo đúng giá trị
+    const shareView = store.state.shareView
+    const byValue = params?.by ?? currentParams?.by ?? (shareView === "with" ? 0 : 1)
+    
     return {
-      ...params,
-      order_by: "title 1"
+      ...currentParams, // Giữ params hiện tại
+      ...params, // Override với params mới
+      by: byValue, // Đảm bảo 'by' luôn có giá trị đúng từ store
+      order_by: params.order_by || currentParams.order_by || "title 1"
     }
   },
   transform(data) {
     if (!data) return data
-    const transformedData = data.map((item) => ({
-      ...item,
-      team_name: item.is_private === 1 ? null : item.team_name,
-    }))
-    return prettyData(transformedData)
+    
+    // Frappe-ui automatically extracts message field, but handle both cases
+    let actualData = data
+    if (data && typeof data === 'object' && 'message' in data && data.message) {
+      actualData = data.message
+    }
+    
+    // Handle paginated response
+    if (actualData && typeof actualData === 'object' && 'data' in actualData && Array.isArray(actualData.data)) {
+      const transformedData = actualData.data.map((item) => ({
+        ...item,
+        team_name: item.is_private === 1 ? null : item.team_name,
+      }))
+      return {
+        ...actualData,
+        data: prettyData(transformedData)
+      }
+    }
+    
+    // Handle non-paginated response (backward compatibility)
+    if (Array.isArray(actualData)) {
+      const transformedData = actualData.map((item) => ({
+        ...item,
+        team_name: item.is_private === 1 ? null : item.team_name,
+      }))
+      return prettyData(transformedData)
+    }
+    
+    return data
   },
 })
 

@@ -95,5 +95,23 @@
  "sort_field": "creation",
  "sort_order": "DESC",
  "states": [],
- "title_field": "entity"
+ "title_field": "entity",
+ "indexes": [
+  {
+   "index_name": "idx_entity_read_owner",
+   "index_fields": [
+    "entity",
+    "read",
+    "owner"
+   ]
+  },
+  {
+   "index_name": "idx_entity_read_user",
+   "index_fields": [
+    "entity",
+    "read",
+    "user"
+   ]
+  }
+ ]
 }

@@ -79,5 +79,14 @@
  "row_format": "Dynamic",
  "sort_field": "modified",
  "sort_order": "DESC",
- "states": []
+ "states": [],
+ "indexes": [
+  {
+   "index_name": "idx_entity_name_last_interaction",
+   "index_fields": [
+    "entity_name",
+    "last_interaction"
+   ]
+  }
+ ]
 }

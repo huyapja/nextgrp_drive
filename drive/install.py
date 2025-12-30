@@ -10,6 +10,10 @@ def after_install():
         frappe.db.sql(
             """ALTER TABLE `tabDrive File` ADD FULLTEXT INDEX drive_file_title_fts_idx (title)"""
         )
+    
+    # ✅ Performance indexes được định nghĩa trong file JSON của DocType
+    # Chạy: bench migrate để tạo indexes từ JSON
+    frappe.logger().info("💡 Chạy 'bench migrate' để tạo performance indexes từ JSON")
 
 
 def create_core_team():
@@ -78,7 +82,12 @@ def create_core_team():
             is_admin = 1 if i == 0 else 0
 
             team.append(
-                "users", {"user": user.email, "access_level": access_level, "is_admin": is_admin}
+                "users",
+                {
+                    "user": user.email,
+                    "access_level": access_level,
+                    "is_admin": is_admin,
+                },
             )
 
             # Tạo Drive Settings cho user
@@ -102,7 +111,9 @@ def create_core_team():
         }
 
     except Exception as e:
-        frappe.log_error(message=frappe.get_traceback(), title="create_core_team - Error")
+        frappe.log_error(
+            message=frappe.get_traceback(), title="create_core_team - Error"
+        )
         return {"status": "error", "message": str(e)}
 
 
@@ -135,3 +146,5 @@ def _create_drive_settings_for_user(user_email, default_team):
             message=f"Lỗi khi tạo Drive Settings cho user {user_email}: {frappe.get_traceback()}",
             title="Drive Settings Creation Error - Core Team",
         )
+
+
