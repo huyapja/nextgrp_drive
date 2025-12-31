@@ -161,30 +161,48 @@ export function createEditorKeyDown({ editor, flags }) {
       // CASE 2: CARET Ở ĐẦU → INSERT LI PHÍA TRÊN
       // ==============================
       if (isAtStart) {
+        const { state, dispatch } = view
+        const { schema } = state
+
         const newNodeId = crypto.randomUUID()
         flags.isCreatingDraftNode = true
 
+        // vị trí insert listItem mới
         const liPos = $from.before(liDepth)
 
-        const inlineRootMark = schema.marks.inlineRoot.create()
-        const text = schema.text("Nhánh mới", [inlineRootMark])
-        const p = schema.nodes.paragraph.create({}, text)
+        // tạo inlineRoot mark ở trạng thái CLEAN
+        // → KHÔNG inherit highlight / background
+        const inlineRootMark = schema.marks.inlineRoot.create({ clean: true })
 
-        const newLi = schema.nodes.listItem.create(
-          { nodeId: newNodeId, hasCount: false },
-          p
+        // ext mặc định cho node mới
+        const textNode = schema.text("Nhánh mới", [inlineRootMark])
+
+        // paragraph
+        const paragraph = schema.nodes.paragraph.create({}, textNode)
+
+        //listItem mới (KHÔNG có highlight)
+        const newListItem = schema.nodes.listItem.create(
+          {
+            nodeId: newNodeId,
+            hasCount: false,
+            highlight: null, // đảm bảo semantic highlight = null
+          },
+          paragraph
         )
 
-        const tr = state.tr.insert(liPos, newLi)
+        // nsert vào document
+        const tr = state.tr.insert(liPos, newListItem)
 
         dispatch(tr)
 
+        // 6️⃣ báo intent cho mindmap layer
         editor.value?.options?.onAddChildNode?.({
           anchorNodeId: nodeId,
           newNodeId,
           position: "before_carpet",
         })
 
+        // 7️⃣ reset flag
         requestAnimationFrame(() => {
           flags.isCreatingDraftNode = false
         })
@@ -194,13 +212,27 @@ export function createEditorKeyDown({ editor, flags }) {
       }
 
       // ==============================
-      // CASE 3: CARET Ở GIỮA → SPLIT LIST ITEM
+      // CASE 3: CARET Ở GIỮA → SPLIT WITH CHILDREN (HYBRID, SAFE)
       // ==============================
       if (isInMiddle) {
+        const { state, view } = editor.value
+        const { selection, schema } = state
+        const { $from } = selection
+
+        const parentNode = $from.parent
+        if (!parentNode || !parentNode.isTextblock) return false
+
+        const fullText = parentNode.textContent || ""
+        const cutPos = $from.parentOffset
+
+        const afterText = fullText.slice(cutPos)
+
+        if (!afterText.trim()) return false
+
         const newNodeId = crypto.randomUUID()
         flags.isCreatingDraftNode = true
 
-        splitListItem(schema.nodes.listItem)(state, dispatch)
+        splitListItem(schema.nodes.listItem)(state, view.dispatch)
 
         let tr = view.state.tr
         const $pos = view.state.selection.$from
@@ -216,12 +248,13 @@ export function createEditorKeyDown({ editor, flags }) {
           })
         }
 
-        dispatch(tr)
+        view.dispatch(tr)
 
         editor.value?.options?.onAddChildNode?.({
           anchorNodeId: nodeId,
           newNodeId,
-          // position: "split_with_children",
+          position: "split_with_children",
+          label: `<p>${afterText.trim()}</p>`,
         })
 
         requestAnimationFrame(() => {
@@ -269,11 +302,14 @@ export function createEditorKeyDown({ editor, flags }) {
       const sunk = sinkListItem(schema.nodes.listItem)(state, dispatch)
       if (!sunk) return false
 
+      const indexInParent = index
+
       // báo cho mindmap: MOVE node hiện tại vào node bên trên
       editor.value?.options?.onAddChildNode?.({
         nodeId: currentNodeId,
         anchorNodeId: parentNodeId,
         position: "tab_add_child",
+        childIndex: indexInParent,
       })
 
       event.preventDefault()
@@ -311,7 +347,6 @@ export function createEditorKeyDown({ editor, flags }) {
       event.preventDefault()
       return true
     }
-
     return false
   }
 }

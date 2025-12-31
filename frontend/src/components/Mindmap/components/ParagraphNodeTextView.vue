@@ -234,19 +234,36 @@ function normalizeColor(color) {
 }
 
 function getHighlightFromDOM(editor, pos) {
-  const dom = editor?.view?.nodeDOM?.(pos)
-  if (!dom || typeof dom.querySelector !== 'function') return null
+  if (!editor || typeof pos !== "number" || pos < 0) return null
 
-  const inlineSpan = dom.querySelector(
+  let rawDom = null
+  try {
+    rawDom = editor.view.nodeDOM(pos)
+  } catch {
+    return null
+  }
+
+  if (!rawDom) return null
+
+  // ✅ normalize về Element
+  const el =
+    rawDom instanceof Element
+      ? rawDom
+      : rawDom.nodeType === Node.TEXT_NODE
+        ? rawDom.parentElement
+        : null
+
+  if (!el || typeof el.querySelector !== "function") return null
+
+  const inlineSpan = el.querySelector(
     "span[data-inline-root] > span"
   )
   if (!inlineSpan) return null
 
   const bg = window.getComputedStyle(inlineSpan).backgroundColor
-  const normalized = normalizeColor(bg)
-
-  return normalized
+  return normalizeColor(bg)
 }
+
 
 const currentHighlight = computed(() => {
   const pos = props.getPos?.()
@@ -279,16 +296,16 @@ const highlightColors = [
 
 function applyHighlight(color) {
   const rootEl = props.editor?.view?.nodeDOM?.(props.getPos?.())
-  if (!rootEl || typeof rootEl.closest !== 'function') return
+  if (!rootEl) return
 
   const mmNode = rootEl.closest("p.mm-node")
-  if (!mmNode || typeof mmNode.querySelector !== 'function') return
+  if (!mmNode) return
 
   const li = mmNode.closest("li[data-node-id]")
   if (!li) return
 
   const inlineRoot = mmNode.querySelector("span[data-inline-root='true']")
-  if (!inlineRoot || typeof inlineRoot.querySelector !== 'function') return
+  if (!inlineRoot) return
 
   let innerSpan = inlineRoot.querySelector("span")
 
@@ -352,17 +369,26 @@ function applyHighlight(color) {
 }
 
 
-
-
 const highlightBg = computed(() => {
-  const pos = props.getPos?.()
-  if (pos == null) return null
+  if (!props.editor) return null
+  if (typeof props.getPos !== "function") return null
 
-  const state = props.editor.state
+  let pos
+  try {
+    pos = props.getPos()
+  } catch {
+    return null
+  }
+
+  if (typeof pos !== "number" || pos < 0) return null
+
+  const { state } = props.editor
+  const nodeAtPos = state.doc.nodeAt(pos)
+  if (!nodeAtPos) return null
+
   const $pos = state.doc.resolve(pos)
 
   let highlight = null
-
   for (let d = $pos.depth; d > 0; d--) {
     const node = $pos.node(d)
     if (node.type.name === "listItem") {
@@ -371,10 +397,26 @@ const highlightBg = computed(() => {
     }
   }
 
-  // nếu content đã có inline background → KHÔNG render bg ở NodeView
-  const dom = props.editor?.view?.nodeDOM?.(pos)
-  if (dom && typeof dom.querySelector === 'function') {
-    const hasInlineBg = dom.querySelector(
+  // ================================
+  // SAFE DOM CHECK
+  // ================================
+  let rawDom = null
+  try {
+    rawDom = props.editor.view.nodeDOM(pos)
+  } catch {
+    rawDom = null
+  }
+
+  // normalize về Element
+  const el =
+    rawDom instanceof Element
+      ? rawDom
+      : rawDom?.nodeType === Node.TEXT_NODE
+        ? rawDom.parentElement
+        : null
+
+  if (el) {
+    const hasInlineBg = el.querySelector(
       "span[style*='background-color']"
     )
     if (hasInlineBg) return null
@@ -382,6 +424,7 @@ const highlightBg = computed(() => {
 
   return highlight
 })
+
 
 const actionsPopover = ref(null)
 const { toggle } = useNodeActionPopover()
