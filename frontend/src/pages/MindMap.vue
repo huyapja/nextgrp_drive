@@ -300,6 +300,7 @@
 <script setup>
 import { rename } from "@/resources/files"
 import { D3MindmapRenderer } from '@/utils/d3mindmap'
+import { scrollToNode } from '@/utils/d3mindmap/viewUtils'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
 import { setBreadCrumbs } from "@/utils/files"
@@ -1106,6 +1107,28 @@ const updateD3RendererWithDelay = async (delay = 150) => {
   })
 }
 
+const scrollToNodeWithRetry = (nodeId, maxRetries = 10, delay = 100) => {
+  if (!d3Renderer || !nodeId) return
+  
+  let retries = 0
+  
+  const tryScroll = () => {
+    if (d3Renderer.positions && d3Renderer.positions.has(nodeId)) {
+      scrollToNode(d3Renderer, nodeId)
+      return
+    }
+    
+    retries++
+    if (retries < maxRetries) {
+      setTimeout(tryScroll, delay)
+    } else {
+      console.warn('Failed to scroll to node after retries:', nodeId)
+    }
+  }
+  
+  tryScroll()
+}
+
 // Helper: Get children of a node
 const getChildren = (nodeId) => {
   return edges.value
@@ -1228,6 +1251,8 @@ const addChildToNode = async (parentId) => {
       if (d3Renderer) {
         const timeoutId2 = setTimeout(() => {
           d3Renderer.selectNode(newNodeId)
+          
+          scrollToNodeWithRetry(newNodeId, 15, 150)
 
           // ⚠️ NEW: Tự động focus vào editor của node mới để có thể nhập ngay
           const timeoutId3 = setTimeout(() => {
@@ -4518,6 +4543,9 @@ function pasteToNode(targetNodeId) {
   nextTick(() => {
     void document.body.offsetHeight
     setTimeout(() => {
+      if (d3Renderer) {
+        scrollToNode(d3Renderer, newNodeId)
+      }
       const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newNodeId}"]`)
       if (nodeGroup && !nodeGroup.empty()) {
         setTimeout(() => {
@@ -4584,6 +4612,9 @@ async function pasteFromSystemClipboard(targetNodeId) {
     nextTick(() => {
       void document.body.offsetHeight
       setTimeout(() => {
+        if (d3Renderer) {
+          scrollToNode(d3Renderer, newNodeId)
+        }
         const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newNodeId}"]`)
         if (nodeGroup && !nodeGroup.empty()) {
           setTimeout(() => {
@@ -4651,6 +4682,10 @@ function openCommentPanel(input, options = {}) {
 
   nextTick(() => {
     d3Renderer?.selectCommentNode(nodeId, false)
+    
+    if (d3Renderer) {
+      scrollToNodeWithRetry(nodeId)
+    }
 
     if (focus) {
       suppressPanelAutoFocus && (suppressPanelAutoFocus.value = false)
@@ -4888,6 +4923,9 @@ function handlePasteEvent(event) {
         nextTick(() => {
           void document.body.offsetHeight
           setTimeout(() => {
+            if (d3Renderer) {
+              scrollToNodeWithRetry(newNodeId)
+            }
             const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newNodeId}"]`)
             if (nodeGroup && !nodeGroup.empty()) {
               setTimeout(() => {
