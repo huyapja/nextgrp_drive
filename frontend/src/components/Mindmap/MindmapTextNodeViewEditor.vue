@@ -294,8 +294,18 @@ watch(
 }
 
 
-.prose :deep(.mm-node.is-comment-hover > div span[data-inline-root] > span) {
-  background-color: #faedc2;
+.prose :deep(
+  .mm-node.is-comment-hover
+  span[data-inline-root] > span
+) {
+  background-color: #faedc2 !important;
+  border-radius: 3px;
+}
+
+
+
+.prose :deep(.mm-node.is-comment-hover > div span[data-inline-root]) {
+  background-color: #faedc2 !important;
   border-radius: 3px;
 }
 

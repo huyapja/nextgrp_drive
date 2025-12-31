@@ -148,7 +148,7 @@ export function computeInsertAsFirstChild({
   return minOrder - 1
 }
 
-export function moveNodeAsFirstChild({
+export function moveNodeAsLastChild({
   nodeId,
   newParentId,
   nodes,
@@ -160,15 +160,21 @@ export function moveNodeAsFirstChild({
   const oldParentId = node.data.parentId
   if (oldParentId === newParentId) return null
 
-  // 1️⃣ đổi parent
+  // đổi parent
   node.data.parentId = newParentId
 
-  // 2️⃣ tính order mới (lên đầu danh sách con)
-  const newOrder = computeInsertAsFirstChild({
-    nodes,
-    parentId: newParentId,
-    orderStore,
-  })
+  // lấy children hiện tại
+  const siblings = nodes
+    .filter(n => n.data.parentId === newParentId)
+    .sort((a, b) =>
+      (orderStore.get(a.id) ?? 0) - (orderStore.get(b.id) ?? 0)
+    )
+
+  // append cuối
+  const newOrder =
+    siblings.length === 0
+      ? 1
+      : (orderStore.get(siblings[siblings.length - 1].id) ?? 0) + 1
 
   orderStore.set(nodeId, newOrder)
   node.data.order = newOrder

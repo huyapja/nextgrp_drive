@@ -304,7 +304,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import { provide } from "vue"
-import { computeInsertAfterAnchor, computeInsertBeforeAnchor, computeInsertAsFirstChild, moveNodeAsFirstChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import { computeInsertAfterAnchor, computeInsertBeforeAnchor, computeInsertAsFirstChild, moveNodeAsLastChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 
@@ -5637,7 +5637,8 @@ function addChildToNodeTextMode(payload) {
     anchorNodeId,
     newNodeId,
     position = "after_carpet",
-    nodeId
+    nodeId,
+    label
   } = payload
 
   const anchorNode = nodes.value.find(n => n.id === anchorNodeId)
@@ -5646,76 +5647,104 @@ function addChildToNodeTextMode(payload) {
   let parentId
   let newOrder
 
-  if (position === "split_with_children") {
-    return
-    // newNode sẽ đứng CÙNG CẤP với anchorNode
-    const parentId = anchorNode.data.parentId
-    if (!parentId) return
+if (position === "split_with_children") {
+  const anchorNode = nodes.value.find(n => n.id === anchorNodeId)
+  if (!anchorNode) return
 
-    const newOrder = computeInsertAfterAnchor({
-      nodes: nodes.value,
-      anchorNodeId,
+  const parentId = anchorNode.data.parentId
+  if (!parentId) return
+
+  const newOrder = computeInsertAfterAnchor({
+    nodes: nodes.value,
+    anchorNodeId,
+    parentId,
+    orderStore: nodeCreationOrder.value,
+  })
+  if (newOrder == null) return
+
+  nodeCreationOrder.value.set(newNodeId, newOrder)
+
+  // Tạo node mới (label lấy từ text mode)
+  const newNode = {
+    id: newNodeId,
+    node_key: crypto.randomUUID(),
+    data: {
       parentId,
-      orderStore: nodeCreationOrder.value,
-    })
+      label: label || `<p>Nhánh mới</p>`,
+      order: newOrder,
+    },
+  }
 
-    if (newOrder == null) return
+  //huyển TOÀN BỘ children cũ của anchor → newNode
+  const movedChildren = nodes.value.filter(
+    n => n.data.parentId === anchorNodeId
+  )
 
-    nodeCreationOrder.value.set(newNodeId, newOrder)
-
-    nodes.value.push({
-      id: newNodeId,
-      node_key: crypto.randomUUID(),
-      data: {
-        parentId,
-        label: `<p>Nhánh mới</p>`,
-        order: newOrder,
-      },
-    })
-
-    edges.value.push({
-      id: `edge-${parentId}-${newNodeId}`,
-      source: parentId,
-      target: newNodeId,
-    })
-
-    nodes.value.forEach(n => {
-      if (n.data.parentId === anchorNodeId) {
-        n.data.parentId = newNodeId
-
-        const edge = edges.value.find(e => e.target === n.id)
-        if (edge) {
-          edge.source = newNodeId
-        }
+  const updatedNodes = nodes.value.map(n => {
+    if (n.data.parentId === anchorNodeId) {
+      return {
+        ...n,
+        data: {
+          ...n.data,
+          parentId: newNodeId,
+        },
       }
-    })
-
-    d3Renderer.render()
-    scheduleSave()
-    return
-  }
-
-  if (position === "tab_add_child") {
-    const result = moveNodeAsFirstChild({
-      nodeId: payload.nodeId,
-      newParentId: anchorNodeId,
-      nodes: nodes.value,
-      orderStore: nodeCreationOrder.value,
-    })
-
-    if (!result) return
-
-    const { nodeId, newParentId } = result
-
-    const edge = edges.value.find(e => e.target === nodeId)
-    if (edge) {
-      edge.source = newParentId
     }
+    return n
+  })
 
-    d3Renderer.render()
-    scheduleSave()
-    return
+  // Rebuild edges:
+  const updatedEdges = edges.value
+    // bỏ edge cũ anchor → child
+    .filter(e => e.source !== anchorNodeId)
+    // thêm edge mới newNode → child
+    .concat(
+      movedChildren.map(child => ({
+        id: `edge-${newNodeId}-${child.id}`,
+        source: newNodeId,
+        target: child.id,
+      }))
+    )
+
+  const newEdge = {
+    id: `edge-${parentId}-${newNodeId}`,
+    source: parentId,
+    target: newNodeId,
   }
+
+  elements.value = [
+    ...updatedNodes,
+    newNode,
+    ...updatedEdges,
+    newEdge,
+  ]
+
+  d3Renderer.render()
+  scheduleSave()
+  return
+}
+
+
+if (position === "tab_add_child") {
+  const result = moveNodeAsLastChild({
+    nodeId: payload.nodeId,
+    newParentId: anchorNodeId,
+    nodes: nodes.value,
+    orderStore: nodeCreationOrder.value,
+  })
+
+  if (!result) return
+
+  const edge = edges.value.find(e => e.target === payload.nodeId)
+  if (edge) {
+    edge.source = anchorNodeId
+  }
+
+  d3Renderer.render()
+  scheduleSave()
+  return
+}
+
   // ==============================
   // CASE: ADD INTO CHILD
   // ==============================
@@ -5757,7 +5786,7 @@ function addChildToNodeTextMode(payload) {
 
   nodeCreationOrder.value.set(newNodeId, newOrder)
 
-  nodes.value.push({
+  const newNode = {
     id: newNodeId,
     node_key: crypto.randomUUID(),
     data: {
@@ -5765,13 +5794,20 @@ function addChildToNodeTextMode(payload) {
       label: `<p>Nhánh mới</p>`,
       order: newOrder,
     },
-  })
+  }
 
-  edges.value.push({
+  const newEdge = {
     id: `edge-${parentId}-${newNodeId}`,
     source: parentId,
     target: newNodeId,
-  })
+  }
+
+  elements.value = [
+    ...nodes.value,
+    newNode,
+    ...edges.value,
+    newEdge
+  ]
 
   d3Renderer.render()
   scheduleSave()
