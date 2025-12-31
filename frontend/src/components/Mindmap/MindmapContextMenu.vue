@@ -6,7 +6,9 @@
             left: adjustedPosition.x + 'px'
         }">
         <!-- Add Child -->
-        <div class="menu-item menu-item-primary" @click="emitAction('add-child')">
+        <div class="menu-item menu-item-primary" 
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('add-child')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M12 5v14M5 12h14"/>
             </svg>
@@ -15,7 +17,8 @@
 
         <!-- Add Sibling -->
         <div v-if="node?.id !== 'root'" class="menu-item menu-item-primary"
-            @click="emitAction('add-sibling')">
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('add-sibling')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19"/>
                 <line x1="5" y1="12" x2="19" y2="12"/>
@@ -27,7 +30,9 @@
         <div class="menu-separator"></div>
 
         <!-- Copy -->
-        <div class="menu-item menu-item-default" @click="emitAction('copy')">
+        <div class="menu-item menu-item-default" 
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('copy')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                 <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -36,7 +41,9 @@
         </div>
 
         <!-- Cut -->
-        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default" @click="emitAction('cut')">
+        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default"
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('cut')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <circle cx="6" cy="6" r="3"/>
                 <circle cx="6" cy="18" r="3"/>
@@ -47,7 +54,9 @@
         </div>
 
         <!-- Paste - Luôn hiển thị để có thể dán từ clipboard hệ thống -->
-        <div class="menu-item menu-item-default" @click="emitAction('paste')">
+        <div class="menu-item menu-item-default"
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('paste')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
                 <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
@@ -59,7 +68,9 @@
         <div v-if="node?.id !== 'root'" class="menu-separator"></div>
 
         <!-- Copy Link -->
-        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default" @click="emitAction('copy-link')">
+        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default"
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('copy-link')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -71,7 +82,9 @@
         <div v-if="node?.id !== 'root'" class="menu-separator"></div>
 
         <!-- Link task -->
-        <div v-if="node?.id !== 'root' && !node?.data?.taskLink?.taskId" class="menu-item menu-item-default" @click="emitAction('link-task')">
+        <div v-if="node?.id !== 'root' && !node?.data?.taskLink?.taskId" class="menu-item menu-item-default"
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('link-task')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -80,7 +93,9 @@
         </div>
 
         <!-- Delete task link -->
-        <div v-if="node?.id !== 'root' && node?.data?.taskLink?.taskId" class="menu-item menu-item-default" @click="emitAction('delete-task-link')">
+        <div v-if="node?.id !== 'root' && node?.data?.taskLink?.taskId" class="menu-item menu-item-default"
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('delete-task-link')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
                 <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -92,8 +107,10 @@
 
         <div v-if="node?.id !== 'root'" class="menu-separator"></div>
 
-        <!-- Add Comment -->
-        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default" @click="emitAction('add-comment')">
+        <!-- Add Comment - Chỉ active khi có quyền comment -->
+        <div v-if="node?.id !== 'root'" class="menu-item menu-item-default" 
+            :class="{ 'menu-item-disabled': !permissions.comment }"
+            @click="permissions.comment && emitAction('add-comment')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
             </svg>
@@ -105,7 +122,8 @@
 
         <!-- Delete -->
         <div v-if="node?.id !== 'root'" class="menu-item menu-item-danger"
-            @click="emitAction('delete')">
+            :class="{ 'menu-item-disabled': !permissions.write }"
+            @click="permissions.write && emitAction('delete')">
             <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="3 6 5 6 21 6"/>
                 <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -126,6 +144,10 @@ const props = defineProps({
     center: {
         type: Boolean,
         default: false
+    },
+    permissions: {
+        type: Object,
+        default: () => ({ read: 0, write: 0, comment: 0, share: 0 })
     }
 });
 
@@ -363,5 +385,11 @@ onUnmounted(() => {
     height: 1px;
     background-color: #e5e7eb;
     margin: 4px 0;
+}
+
+.menu-item-disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
 }
 </style>

@@ -36,14 +36,11 @@
     <IconField
       v-else
       class="search-container p-inputtext p-component"
-      :disabled="!hasData"
-      :class="{ '!bg-[#e2e8f0]': !hasData }"
     >
       <InputIcon class="pi pi-search" />
       <InputText
         ref="search-input"
         v-model="search"
-        :disabled="!hasData"
         :placeholder="__('Tìm kiếm')"
         class="search-input"
       />
@@ -58,7 +55,6 @@
             icon="pi pi-filter"
             text
             severity="secondary"
-            :disabled="!hasData"
             class="control-btn"
             v-tooltip="__('Filter')"
             @click="showFilterMenu = !showFilterMenu"

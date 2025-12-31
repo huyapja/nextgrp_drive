@@ -62,7 +62,7 @@ watch(
 
 async function fetchContent() {
   const res = await fetch(
-    `/api/method/drive.api.files.?entity_name=${props.previewEntity.name}`,
+    `/api/method/drive.api.files.get_file_content?entity_name=${props.previewEntity.name}`,
     { method: "GET" }
   )
   if (res.ok) {

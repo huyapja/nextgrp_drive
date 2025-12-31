@@ -26,7 +26,7 @@ def get_mindmap_data(entity_name):
         # Check permission
         if not frappe.has_permission("Drive File", "read", doc_drive):
             frappe.throw(
-                _("No permission to access this mindmap"), frappe.PermissionError
+                _("Bạn không có quyền truy cập sơ đồ tư duy này"), frappe.PermissionError
             )
 
         # Get Drive Mindmap document
@@ -172,11 +172,37 @@ def save_mindmap_data(entity_name, mindmap_data, **kwargs):
 
         # Convert dict to JSON string
         if isinstance(mindmap_data, dict):
-            mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
+            mindmap_data_json = json.dumps(mindmap_data, ensure_ascii=False)
+        else:
+            mindmap_data_json = mindmap_data
+            mindmap_data = json.loads(mindmap_data) if isinstance(mindmap_data, str) else mindmap_data
 
-        doc.mindmap_data = mindmap_data
+        doc.mindmap_data = mindmap_data_json
         doc.save(ignore_permissions=True)
         frappe.db.commit()
+
+        nodes = mindmap_data.get("nodes", []) if isinstance(mindmap_data, dict) else []
+        edges = mindmap_data.get("edges", []) if isinstance(mindmap_data, dict) else []
+        layout = mindmap_data.get("layout", "horizontal") if isinstance(mindmap_data, dict) else "horizontal"
+
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": doc.name,
+            "nodes": nodes,
+            "edges": edges,
+            "layout": layout,
+            "modified": str(doc.modified),
+            "modified_by": frappe.session.user,
+        }
+        
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:updated",
+                message=message,
+                after_commit=True,
+            )
+        except Exception as e:
+            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event")
 
         return {
             "status": "success",
@@ -186,6 +212,119 @@ def save_mindmap_data(entity_name, mindmap_data, **kwargs):
 
     except Exception as e:
         frappe.log_error(frappe.get_traceback(), "Save Mindmap Data Error")
+        frappe.throw(str(e))
+
+
+@frappe.whitelist()
+def get_mindmap_permission_status(entity_name):
+    """
+    Check current permission status of a mindmap file for the logged-in user
+    Compares current version with cached version to detect permission changes
+    Also detects if file was deleted or unshared (no read access)
+
+    Returns:
+    {
+        "can_edit": bool,
+        "can_read": bool,
+        "permission_changed": bool,
+        "unshared": bool,  # True if file was unshared (no read access)
+        "deleted": bool,  # True if file was deleted
+        "current_version": int,
+        "cached_version": int
+    }
+    """
+    try:
+        print(f"🔍 Checking mindmap permission status for: {entity_name}")
+
+        # Check if file exists
+        if not frappe.db.exists("Drive File", entity_name):
+            print(f"❌ File not found - file deleted!")
+            return {
+                "can_edit": False,
+                "can_read": False,
+                "permission_changed": True,
+                "unshared": False,
+                "deleted": True,
+                "current_version": 0,
+                "cached_version": None,
+            }
+
+        # Check basic read permission
+        has_read = frappe.has_permission("Drive File", doc=entity_name, ptype="read")
+
+        # If no read permission, file was unshared
+        if not has_read:
+            print(f"❌ No read permission - file unshared!")
+            return {
+                "can_edit": False,
+                "can_read": False,
+                "permission_changed": True,
+                "unshared": True,
+                "deleted": False,
+                "current_version": 0,
+                "cached_version": None,
+            }
+
+        # Get entity details
+        entity = frappe.get_doc("Drive File", entity_name)
+        
+        # Check if file is active (not deleted)
+        if not entity.is_active:
+            print(f"❌ File is inactive - file deleted!")
+            return {
+                "can_edit": False,
+                "can_read": False,
+                "permission_changed": True,
+                "unshared": False,
+                "deleted": True,
+                "current_version": 0,
+                "cached_version": None,
+            }
+        
+        # Use entity.modified as version (or create a version field if needed)
+        # For now, we'll use a combination of modified timestamp and permissions
+        current_version = hash(f"{entity.modified}_{frappe.has_permission('Drive File', doc=entity_name, ptype='write')}")
+
+        # Check edit permission
+        can_edit = frappe.has_permission("Drive File", doc=entity_name, ptype="write")
+
+        # Get cached version from session (frontend passes this)
+        # We store it in session cache to detect permission changes
+        cache_key = f"mindmap_version_{entity_name}_{frappe.session.user}"
+        cached_version = frappe.cache().get_value(cache_key)
+
+        if cached_version is None:
+            # First check - initialize cache
+            frappe.cache().set_value(cache_key, current_version, expires_in_sec=86400)  # 24 hours
+            return {
+                "can_edit": can_edit,
+                "can_read": True,
+                "permission_changed": False,
+                "unshared": False,
+                "deleted": False,
+                "current_version": current_version,
+                "cached_version": None,
+            }
+
+        # Compare versions to detect changes
+        permission_changed = cached_version != current_version
+
+        if permission_changed:
+            # Update cache with new version
+            frappe.cache().set_value(cache_key, current_version, expires_in_sec=86400)
+
+        return {
+            "can_edit": can_edit,
+            "can_read": True,
+            "permission_changed": permission_changed,
+            "unshared": False,
+            "deleted": False,
+            "current_version": current_version,
+            "cached_version": cached_version,
+        }
+
+    except Exception as e:
+        frappe.log_error(f"❌ Error checking mindmap permission status: {str(e)}", "Get Mindmap Permission Status Error")
         frappe.throw(str(e))
 
 
@@ -206,6 +345,10 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
         if not doc_drive or not doc_drive.mindmap:
             frappe.throw(_("Mindmap not found"), frappe.DoesNotExistError)
 
+        # Check permission
+        if not frappe.has_permission("Drive File", "write", doc_drive):
+            frappe.throw(_("No permission to edit"), frappe.PermissionError)
+
         # Get Drive Mindmap
         mindmap_doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
 
@@ -221,6 +364,25 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
         mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
         mindmap_doc.save(ignore_permissions=True)
         frappe.db.commit()
+
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": mindmap_doc.name,
+            "nodes": nodes,
+            "edges": edges,
+            "layout": layout,
+            "modified": str(mindmap_doc.modified),
+            "modified_by": frappe.session.user,
+        }
+        
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:updated",
+                message=message,
+                after_commit=True,
+            )
+        except Exception as e:
+            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event")
 
         return {"success": True, "message": _("Layout saved successfully")}
 

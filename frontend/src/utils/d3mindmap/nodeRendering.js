@@ -128,8 +128,10 @@ export function renderNodes(renderer, positions) {
     .append('g')
     .attr('class', 'node-group')
     .attr('data-node-id', d => d.id)
+    .attr('transform', 'translate(0, 0)') // Đặt ở (0,0) tạm thời
     .style('cursor', 'pointer')
-    .style('pointer-events', 'auto') // Cho phép click vào node
+    .style('opacity', 0) // Ẩn node mới cho đến khi có position
+    .style('pointer-events', 'none') // Disable pointer events cho đến khi có position
   
   // Add node rectangle
   nodesEnter.append('rect')
@@ -339,6 +341,23 @@ export function renderNodes(renderer, positions) {
   
   // Update all nodes
   const nodesUpdate = nodesEnter.merge(nodes)
+  
+  // Thêm visual indication cho nodes bị disable (không có quyền write)
+  const hasWritePermission = renderer.options?.permissions?.write === 1
+  nodesUpdate
+    .style('cursor', d => {
+      // Root node hoặc không có quyền write -> cursor mặc định
+      const isRoot = d.data?.isRoot || d.id === 'root'
+      if (isRoot || !hasWritePermission) {
+        return 'default'
+      }
+      return 'pointer'
+    })
+    .style('opacity', d => {
+      // Không thay đổi opacity dựa trên quyền write (giữ logic completed/ancestor)
+      // Chỉ thay đổi cursor và pointer-events
+      return null
+    })
 
   const wrapper = nodesUpdate
   .select('.node-text')
@@ -387,18 +406,35 @@ export function renderNodes(renderer, positions) {
   nodesUpdate
     .attr('transform', d => {
       const pos = positions.get(d.id)
-      if (!pos) return 'translate(0, 0)'
+      if (!pos) {
+        // Nếu chưa có position, đặt ở (0,0) tạm thời nhưng sẽ bị ẩn hoàn toàn
+        // Sử dụng translate với giá trị rất xa để đảm bảo không nhìn thấy
+        return 'translate(-9999, -9999)'
+      }
       return `translate(${pos.x}, ${pos.y})`
     })
     // Hide collapsed nodes instead of removing them
     // Also apply opacity for completed nodes or nodes with completed ancestor
     .style('opacity', d => {
       if (renderer.isNodeHidden(d.id)) return 0
+      // Nếu chưa có position, ẩn node hoàn toàn để tránh hiển thị ở (0,0)
+      const pos = positions.get(d.id)
+      if (!pos) return 0
       // Làm mờ node khi completed hoặc có ancestor completed
       return getNodeOpacity(d)
     })
     .style('pointer-events', d => {
-      return renderer.isNodeHidden(d.id) ? 'none' : 'auto'
+      if (renderer.isNodeHidden(d.id)) return 'none'
+      // Nếu chưa có position, disable pointer events
+      const pos = positions.get(d.id)
+      if (!pos) return 'none'
+      return 'auto'
+    })
+    .style('visibility', d => {
+      // Ẩn hoàn toàn node nếu chưa có position
+      const pos = positions.get(d.id)
+      if (!pos && !renderer.isNodeHidden(d.id)) return 'hidden'
+      return 'visible'
     })
   
   // Đảm bảo toàn bộ node-group (bao gồm nút thu gọn) luôn nằm trên edge
@@ -407,6 +443,9 @@ export function renderNodes(renderer, positions) {
       handleMouseDown(that, event, d)
     })
     .on('click', function(event, d) {
+      // Kiểm tra quyền write - nếu không có quyền, chỉ cho phép select để xem comment
+      const hasWritePermission = renderer.options?.permissions?.write === 1
+      
       // Kiểm tra xem click có phải từ editor hoặc các nút không
       const target = event.target
       const isEditorClick = target && (
@@ -441,6 +480,12 @@ export function renderNodes(renderer, positions) {
         target.closest('.image-menu-button')
       )
       
+      // Kiểm tra click vào comment badge - vẫn cho phép khi không có quyền write
+      const isCommentBadgeClick = target && (
+        target.closest('.comment-count-badge') ||
+        target.classList?.contains('comment-count-badge')
+      )
+      
       // QUAN TRỌNG: Nếu click vào collapse button hoặc toolbar, KHÔNG BAO GIỜ xử lý ở đây
       // Collapse button và toolbar sẽ tự xử lý và stop propagation
       if (isEditorClick || isAddChildClick || isCollapseClick || isToolbarClick) {
@@ -449,6 +494,16 @@ export function renderNodes(renderer, positions) {
       }
 
       event.stopPropagation()
+      
+      // Nếu không có quyền write và không phải click vào comment badge, chỉ cho phép select để xem
+      if (!hasWritePermission && !isCommentBadgeClick) {
+        // Vẫn cho phép select node để xem comment, nhưng không cho phép edit
+        renderer.selectNode(d.id)
+        if (renderer.callbacks.onNodeClick) {
+          renderer.callbacks.onNodeClick(d, event)
+        }
+        return
+      }
       
       // Cleanup drag branch ghost nếu có (trường hợp click mà không drag)
       renderer.cleanupDragBranchEffects()
@@ -472,9 +527,14 @@ export function renderNodes(renderer, positions) {
       // Editor chỉ được enable khi double click hoặc click trực tiếp vào editor content
       const editorContainer = nodeGroup.select('.node-editor-container')
       if (editorContainer.node()) {
-        // Giữ nguyên pointer-events: none để ngăn click vào editor khi click 1 lần
-        // Chỉ cho phép click link trong chế độ view (nếu cần)
-        editorContainer.style('pointer-events', 'none')
+        // Nếu không có quyền write, luôn giữ pointer-events: none
+        if (!hasWritePermission) {
+          editorContainer.style('pointer-events', 'none')
+        } else {
+          // Giữ nguyên pointer-events: none để ngăn click vào editor khi click 1 lần
+          // Chỉ cho phép click link trong chế độ view (nếu cần)
+          editorContainer.style('pointer-events', 'none')
+        }
       }
       
       // CHỈ select node, KHÔNG BAO GIỜ gọi onNodeAdd ở đây
@@ -494,6 +554,14 @@ export function renderNodes(renderer, positions) {
       }, 50)
     })
     .on('dblclick', function(event, d) {
+      // Kiểm tra quyền write - không cho phép edit khi không có quyền
+      const hasWritePermission = renderer.options?.permissions?.write === 1
+      if (!hasWritePermission) {
+        event.preventDefault()
+        event.stopPropagation()
+        return
+      }
+      
       // Double click để edit - focus vào TipTap editor
       const target = event.target
       // Kiểm tra xem click có phải từ editor content không
@@ -520,18 +588,22 @@ export function renderNodes(renderer, positions) {
         nodeGroup.raise()
       }
       
-      // Enable pointer events cho editor container
+      // Enable pointer events cho editor container (chỉ khi có quyền write)
       const fo = nodeGroup.select('.node-text')
       const editorContainer = nodeGroup.select('.node-editor-container')
-      if (editorContainer.node()) {
+      if (editorContainer.node() && hasWritePermission) {
         editorContainer.style('pointer-events', 'auto')
+      } else if (editorContainer.node()) {
+        // Nếu không có quyền write, giữ pointer-events: none
+        editorContainer.style('pointer-events', 'none')
+        return // Không cho phép focus editor
       }
       
       // Lấy editor instance và focus vào nó
       // Delay để đảm bảo DOM đã được cập nhật
       setTimeout(() => {
         const editorInstance = renderer.getEditorInstance(d.id)
-        if (editorInstance) {
+        if (editorInstance && hasWritePermission) {
           // Gọi handleEditorFocus trước để setup đúng cách
           renderer.handleEditorFocus(d.id, fo.node(), d)
           
@@ -771,17 +843,28 @@ export function renderNodes(renderer, positions) {
         nodeGroup.select('.collapse-text-number').attr('opacity', 0)
         
         if (isSelected && !isCollapsed) {
-          // Trường hợp 3: Selected -> chỉ hiện nút thêm mới
-          nodeGroup.select('.add-child-btn')
-            .transition()
-            .duration(150)
-            .attr('opacity', 1)
-            .style('pointer-events', 'auto')
-          
-          nodeGroup.select('.add-child-text')
-            .transition()
-            .duration(150)
-            .attr('opacity', 1)
+          // Trường hợp 3: Selected -> chỉ hiện nút thêm mới (nếu có quyền write)
+          const hasWritePermission = renderer.options?.permissions?.write === 1
+          if (hasWritePermission) {
+            nodeGroup.select('.add-child-btn')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+              .style('pointer-events', 'auto')
+            
+            nodeGroup.select('.add-child-text')
+              .transition()
+              .duration(150)
+              .attr('opacity', 1)
+          } else {
+            // Ẩn nút add-child nếu không có quyền write
+            nodeGroup.select('.add-child-btn')
+              .attr('opacity', 0)
+              .style('pointer-events', 'none')
+            
+            nodeGroup.select('.add-child-text')
+              .attr('opacity', 0)
+          }
           
           // Ẩn nút thu gọn và tắt pointer-events để title không hiển thị
           nodeGroup.select('.collapse-btn-arrow')
@@ -1047,15 +1130,28 @@ export function renderNodes(renderer, positions) {
   nodesUpdate.select('.add-child-btn')
     .attr('cx', d => getNodeSize(d).width + 20) // Ra ngoài bên phải, cách 20px
     .attr('cy', d => getNodeSize(d).height / 2)
-    // Chỉ cho click khi nút đang hiển thị (selected + chưa collapse)
+    // Chỉ cho click khi nút đang hiển thị (selected + chưa collapse) và có quyền write
     .style('pointer-events', d => {
       const isSelected = renderer.selectedNode === d.id
       const isCollapsed = renderer.collapsedNodes.has(d.id)
-      return (isSelected && !isCollapsed) ? 'auto' : 'none'
+      const hasWritePermission = renderer.options?.permissions?.write === 1
+      return (isSelected && !isCollapsed && hasWritePermission) ? 'auto' : 'none'
+    })
+    .attr('opacity', d => {
+      const isSelected = renderer.selectedNode === d.id
+      const isCollapsed = renderer.collapsedNodes.has(d.id)
+      const hasWritePermission = renderer.options?.permissions?.write === 1
+      return (isSelected && !isCollapsed && hasWritePermission) ? 1 : 0
     })
     .on('click', function(event, d) {
       event.stopPropagation()
       event.preventDefault()
+      
+      // Kiểm tra quyền write
+      const hasWritePermission = renderer.options?.permissions?.write === 1
+      if (!hasWritePermission) {
+        return
+      }
       
       // Đảm bảo không trigger node group click
       if (event.cancelBubble !== undefined) {
@@ -1120,35 +1216,57 @@ export function renderNodes(renderer, positions) {
         
         const children = renderer.edges.filter(e => e.source === d.id).map(e => e.target)
         
+        // Ẩn tất cả node con trước khi render để tránh hiển thị ở (0,0)
+        children.forEach(childId => {
+          const childNode = renderer.g.select(`[data-node-id="${childId}"]`)
+          if (!childNode.empty()) {
+            childNode.style('opacity', 0).style('pointer-events', 'none')
+          }
+        })
+        
         // CHỈ gọi onNodeCollapse, KHÔNG gọi onNodeAdd
         if (renderer.callbacks.onNodeCollapse) {
           renderer.callbacks.onNodeCollapse(d.id, false)
         }
         
-        // Re-render để cập nhật layout và buttons
-        renderer.render()
-        
-        // Sau khi render xong, force update opacity một lần nữa để đảm bảo
-        requestAnimationFrame(() => {
-          renderer.g.selectAll('.node-group')
-            .each(function(nodeData) {
-              const isHidden = renderer.isNodeHidden(nodeData.id)
-              const nodeEl = d3.select(this)
-              const shouldBeVisible = !isHidden
+        // Re-render để cập nhật layout và buttons - đợi render xong
+        renderer.render().then(() => {
+          // Đợi thêm một chút để đảm bảo DOM đã được update
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              renderer.g.selectAll('.node-group')
+                .each(function(nodeData) {
+                  const isHidden = renderer.isNodeHidden(nodeData.id)
+                  const nodeEl = d3.select(this)
+                  const shouldBeVisible = !isHidden
+                  const pos = renderer.positions?.get(nodeData.id)
+                  
+                  // Chỉ hiển thị node nếu đã có position và không bị ẩn
+                  if (shouldBeVisible && pos) {
+                    // Đảm bảo transform đã được set đúng
+                    nodeEl.attr('transform', `translate(${pos.x}, ${pos.y})`)
+                    nodeEl
+                      .transition()
+                      .duration(200)
+                      .style('opacity', getNodeOpacity(nodeData))
+                      .style('pointer-events', 'auto')
+                  } else {
+                    // Nếu chưa có position, giữ ẩn
+                    nodeEl
+                      .style('opacity', 0)
+                      .style('pointer-events', 'none')
+                  }
+                })
               
-              nodeEl
-                // Giữ opacity theo completed/ancestor completed thay vì luôn =1
-                .style('opacity', shouldBeVisible ? getNodeOpacity(nodeData) : 0)
-                .style('pointer-events', shouldBeVisible ? 'auto' : 'none')
+              renderer.g.selectAll('.edge')
+                .each(function(edgeData) {
+                  const isHidden = renderer.isNodeHidden(edgeData.target)
+                  d3.select(this)
+                    .style('opacity', isHidden ? 0 : 1)
+                    .style('pointer-events', isHidden ? 'none' : 'auto')
+                })
             })
-          
-          renderer.g.selectAll('.edge')
-            .each(function(edgeData) {
-              const isHidden = renderer.isNodeHidden(edgeData.target)
-              d3.select(this)
-                .style('opacity', isHidden ? 0 : 1)
-                .style('pointer-events', isHidden ? 'none' : 'auto')
-            })
+          })
         })
       } else {
       }
@@ -1483,6 +1601,7 @@ export function renderNodes(renderer, positions) {
             height: 'auto',
             isRoot: isRootNode,
             uploadImage: renderer.uploadImage || null, // Pass uploadImage function
+            editable: renderer.options?.permissions?.write === 1, // Disable edit khi không có quyền write
             onInput: (value) => {
               // Handle input event - sẽ được cập nhật sau
               handleEditorInput(renderer, nodeData.id, value, nodeArray[idx], nodeData)

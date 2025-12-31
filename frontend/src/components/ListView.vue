@@ -8,12 +8,14 @@
     <!-- Data Table -->
     <div class="table-container">
       <DataTable
+        ref="dataTableRef"
+        :key="`table-${tableKey}`"
         v-model:selection="selectedRows"
-        :value="formattedRowsWithKeys"
+        :value="sortedRowsWithKeys"
         :loading="loading || !folderContents"
         paginator
         :rows="pageSize"
-        :first="first"
+        v-model:first="first"
         :totalRecords="computedTotalRecords"
         :lazy="true"
         template="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink"
@@ -22,11 +24,15 @@
         showGridlines
         class="file-table"
         dataKey="uniqueKey"
+        :sortField="localSortField"
+        :sortOrder="localSortOrder"
+        sortMode="single"
         @row-contextmenu="onRowContextMenu"
         @row-click="onRowClick"
         @row-dblclick="onRowDoubleClick"
         :rowClass="rowClass"
         @page="onPageChange"
+        @sort="onSort"
       >
         <!-- Selection Column -->
         <Column
@@ -319,11 +325,40 @@ const tooltipStyle = ref({})
 const tooltipOffset = 10
 const highlightedRow = ref(null)
 const isContextMenuOpen = ref(false)
+const dataTableRef = ref(null)
 
 // Pagination state
 const pageSize = ref(20)
 const first = ref(0)
 const currentPage = ref(1)
+
+// Table key để force re-render khi cần (nhưng không dùng khi sort để giữ pagination)
+const tableKey = ref(0)
+
+// Sort state - local frontend sorting (persisted in localStorage)
+const getLocalSort = () => {
+  try {
+    const saved = localStorage.getItem('listViewSort')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      return { field: parsed.field || null, order: parsed.order || null }
+    }
+  } catch (e) {
+    console.error('Error loading sort state:', e)
+  }
+  return { field: null, order: null }
+}
+
+const setLocalSort = (field, order) => {
+  try {
+    localStorage.setItem('listViewSort', JSON.stringify({ field, order }))
+  } catch (e) {
+    console.error('Error saving sort state:', e)
+  }
+}
+
+const localSortField = ref(getLocalSort().field)
+const localSortOrder = ref(getLocalSort().order)
 
 // Computed: Check if current page is Trash
 const isTrashPage = computed(() => route.name === 'Trash')
@@ -384,6 +419,61 @@ const formattedRows = computed(() => {
   return Object.keys(props.folderContents).flatMap(
     (k) => props.folderContents[k] || []
   )
+})
+
+// Sort rows based on local sort state
+const sortedRows = computed(() => {
+  if (!localSortField.value || !localSortOrder.value) {
+    return formattedRows.value
+  }
+  
+  const rows = [...formattedRows.value]
+  const field = localSortField.value
+  const order = localSortOrder.value // 1 = ascending, -1 = descending
+  
+  rows.sort((a, b) => {
+    let aVal = a[field]
+    let bVal = b[field]
+    
+    // Handle special fields
+    if (field === 'title') {
+      aVal = a.is_shortcut ? a.shortcut_title : a.title
+      bVal = b.is_shortcut ? b.shortcut_title : b.title
+    } else if (field === 'file_size_pretty') {
+      aVal = a.file_size || 0
+      bVal = b.file_size || 0
+    } else if (field === 'team_name') {
+      aVal = a.team_name || ''
+      bVal = b.team_name || ''
+    } else if (field === 'accessed') {
+      // Convert to timestamp for comparison
+      aVal = a.accessed ? new Date(a.accessed).getTime() : 0
+      bVal = b.accessed ? new Date(b.accessed).getTime() : 0
+    } else if (field === 'modified') {
+      aVal = a.modified ? new Date(a.modified).getTime() : 0
+      bVal = b.modified ? new Date(b.modified).getTime() : 0
+    }
+    
+    // Handle null/undefined values
+    if (aVal == null) aVal = ''
+    if (bVal == null) bVal = ''
+    
+    // Compare values
+    let comparison = 0
+    if (typeof aVal === 'string' && typeof bVal === 'string') {
+      // Case-insensitive string comparison
+      comparison = aVal.toLowerCase().localeCompare(bVal.toLowerCase(), 'vi')
+    } else if (typeof aVal === 'number' && typeof bVal === 'number') {
+      comparison = aVal - bVal
+    } else {
+      // Fallback: convert to string
+      comparison = String(aVal).localeCompare(String(bVal), 'vi')
+    }
+    
+    return order === 1 ? comparison : -comparison
+  })
+  
+  return rows
 })
 
 // Computed totalRecords - ALWAYS use props.totalRecords when available, never fallback to formattedRows.length
@@ -536,6 +626,48 @@ const handleClickOutside = (event) => {
   })
 }
 
+// Watch for data changes and reapply sort if needed
+watch(
+  () => formattedRows.value,
+  () => {
+    // If sort is active, it will be automatically applied via sortedRows computed
+    // This watch ensures sort state is maintained when new data arrives
+    if (localSortField.value && localSortOrder.value) {
+      console.log("Data changed, maintaining sort:", {
+        field: localSortField.value,
+        order: localSortOrder.value
+      })
+    }
+  },
+  { deep: false }
+)
+
+// Watch first to prevent reset when sort changes
+let isSorting = false
+let savedFirstOnSort = 0
+watch(
+  () => first.value,
+  (newFirst, oldFirst) => {
+    // Nếu đang sort và first bị reset về 0, restore lại ngay lập tức
+    if (isSorting && newFirst === 0 && oldFirst > 0 && savedFirstOnSort > 0) {
+      // Restore ngay lập tức, không đợi nextTick
+      // Sử dụng requestAnimationFrame để đảm bảo chạy trước render
+      requestAnimationFrame(() => {
+        first.value = savedFirstOnSort
+        console.log("⚠️ Prevented first reset during sort, restored to:", savedFirstOnSort)
+        
+        // Đảm bảo currentPage cũng được sync
+        const expectedPage = Math.floor(savedFirstOnSort / pageSize.value) + 1
+        if (currentPage.value !== expectedPage) {
+          currentPage.value = expectedPage
+          console.log("⚠️ Synced currentPage to:", expectedPage)
+        }
+      })
+    }
+  },
+  { flush: 'sync' } // Sync mode để chạy ngay lập tức
+)
+
 onMounted(() => {
   window.addEventListener("resize", handleResize)
   window.addEventListener("mousemove", handleMouseMove)
@@ -548,6 +680,14 @@ onMounted(() => {
   emitter.on("dialog-closed", () => {
     isContextMenuOpen.value = false
   })
+  
+  // Restore sort state from localStorage
+  const savedSort = getLocalSort()
+  if (savedSort.field && savedSort.order) {
+    localSortField.value = savedSort.field
+    localSortOrder.value = savedSort.order
+    console.log("Restored sort state:", savedSort)
+  }
 })
 
 onUnmounted(() => {
@@ -625,6 +765,14 @@ const getRowUniqueId = (row) => {
 
 const formattedRowsWithKeys = computed(() => {
   return formattedRows.value.map((row) => ({
+    ...row,
+    uniqueKey: getRowUniqueId(row),
+  }))
+})
+
+// Sorted rows with keys for display
+const sortedRowsWithKeys = computed(() => {
+  return sortedRows.value.map((row) => ({
     ...row,
     uniqueKey: getRowUniqueId(row),
   }))
@@ -807,6 +955,16 @@ onKeyDown("Escape", (e) => {
 // Handle page change
 const onPageChange = (event) => {
   console.log("Page change event:", event)
+  
+  // Nếu đang sort và event này là do sort trigger (first = 0), ignore nó
+  if (isSorting && event.first === 0 && savedFirstOnSort > 0) {
+    console.log("⚠️ Ignoring page change during sort, restoring saved state")
+    // Restore lại state đã lưu
+    first.value = savedFirstOnSort
+    currentPage.value = Math.floor(savedFirstOnSort / pageSize.value) + 1
+    return
+  }
+  
   // PrimeVue uses 0-based index, API uses 1-based
   currentPage.value = event.page + 1
   pageSize.value = event.rows
@@ -829,6 +987,157 @@ const onPageChange = (event) => {
       tableContainer.scrollTop = 0
     }
   })
+}
+
+// Handle sort change - frontend sorting only
+const onSort = (event) => {
+  console.log("Sort event:", event)
+  
+  // Lưu trang hiện tại trước khi sort để giữ nguyên sau khi sort
+  // CRITICAL: Tính first từ currentPage vì first.value có thể đã bị reset về 0
+  const savedPage = currentPage.value
+  // Tính first từ page: first = (page - 1) * pageSize
+  const calculatedFirst = (savedPage - 1) * pageSize.value
+  // Ưu tiên dùng first.value nếu nó hợp lệ (> 0), nếu không thì tính từ page
+  const savedFirst = first.value > 0 ? first.value : calculatedFirst
+  
+  console.log("Before sort - saved state:", {
+    page: savedPage,
+    first: savedFirst,
+    calculatedFirst: calculatedFirst,
+    currentFirst: first.value
+  })
+  
+  // Set flag để watch biết đang sort
+  isSorting = true
+  savedFirstOnSort = savedFirst
+  
+  // PrimeVue sort event: {sortField, sortOrder}
+  // sortOrder: 1 = ascending, -1 = descending, 0 = no sort
+  if (event.sortField) {
+    localSortField.value = event.sortField
+    localSortOrder.value = event.sortOrder || 1
+    
+    // Save to localStorage to persist across page changes
+    setLocalSort(event.sortField, event.sortOrder || 1)
+    
+    console.log("Local sort updated:", {
+      field: localSortField.value,
+      order: localSortOrder.value,
+      savedPage: savedPage,
+      savedFirst: savedFirst
+    })
+  } else {
+    // Clear sort
+    localSortField.value = null
+    localSortOrder.value = null
+    setLocalSort(null, null)
+  }
+  
+  // CRITICAL: Prevent DataTable from resetting pagination
+  // Restore ngay lập tức trước khi DataTable có cơ hội reset
+  if (savedPage > 1) {
+    // Use requestAnimationFrame để đảm bảo chạy trước khi DataTable render
+    requestAnimationFrame(() => {
+      first.value = savedFirst
+      currentPage.value = savedPage
+      console.log("RAF restore:", {
+        first: first.value,
+        page: currentPage.value,
+        savedFirst: savedFirst
+      })
+    })
+  }
+  
+  // Restore lại trang sau khi sort (DataTable có thể tự động reset về trang 1)
+  nextTick(() => {
+    if (savedPage > 1) {
+      // Force update lại để đảm bảo DataTable nhận được giá trị đúng
+      first.value = savedFirst
+      currentPage.value = savedPage
+      
+      console.log("NextTick restore:", {
+        first: first.value,
+        page: currentPage.value
+      })
+      
+      // Force update pagination bằng cách update DOM trực tiếp
+      nextTick(() => {
+        // Tìm pagination buttons và active page
+        const paginator = document.querySelector('.p-paginator')
+        if (paginator) {
+          // Remove active class từ tất cả pages
+          const pageLinks = paginator.querySelectorAll('.p-paginator-page')
+          pageLinks.forEach(link => {
+            link.classList.remove('p-highlight')
+          })
+          
+          // Add active class cho page đúng
+          const targetPageLink = Array.from(pageLinks).find(link => {
+            const pageNum = parseInt(link.textContent.trim())
+            return pageNum === savedPage
+          })
+          
+          if (targetPageLink) {
+            targetPageLink.classList.add('p-highlight')
+            console.log("✅ Manually activated page", savedPage, "in pagination")
+          } else {
+            // Nếu không tìm thấy, thử tìm bằng cách khác
+            const pageInput = paginator.querySelector('input[type="number"]')
+            if (pageInput) {
+              pageInput.value = savedPage
+              pageInput.dispatchEvent(new Event('change', { bubbles: true }))
+            }
+          }
+        }
+        
+        // Đảm bảo first value vẫn đúng
+        first.value = savedFirst
+        currentPage.value = savedPage
+        console.log("Force update pagination:", {
+          first: first.value,
+          page: currentPage.value
+        })
+      })
+    }
+    
+    // Reset flag sau khi sort xong
+    setTimeout(() => {
+      isSorting = false
+      savedFirstOnSort = 0
+    }, 300)
+  })
+  
+  // Triple check sau một delay ngắn để đảm bảo
+  setTimeout(() => {
+    if (savedPage > 1) {
+      // Tính lại first từ savedPage để đảm bảo đúng
+      const expectedFirst = (savedPage - 1) * pageSize.value
+      if (first.value !== expectedFirst) {
+        first.value = expectedFirst
+        currentPage.value = savedPage
+        
+        // Force update DataTable pagination nếu có ref
+        if (dataTableRef.value) {
+          // Access internal paginator và force update
+          const paginator = dataTableRef.value.$el?.querySelector('.p-paginator')
+          if (paginator) {
+            // Trigger update bằng cách dispatch event hoặc force re-render
+            const firstInput = paginator.querySelector('input[type="number"]')
+            if (firstInput) {
+              firstInput.value = savedPage
+              firstInput.dispatchEvent(new Event('input', { bubbles: true }))
+            }
+          }
+        }
+        
+        console.log("Final restore after delay:", {
+          first: first.value,
+          page: currentPage.value
+        })
+      }
+    }
+  }, 100)
 }
 </script>
 
