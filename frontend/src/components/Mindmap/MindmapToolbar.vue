@@ -5,7 +5,7 @@
 			<!-- Hand icon (icon đầu tiên) - khi hover sẽ hiển thị toolbar-top -->
 			<div class="toolbar-item-wrapper" 
 				:class="{ 'toolbar-item-disabled': !permissions.write }"
-				@mouseenter="permissions.write && handleWrapperMouseEnter" 
+				@mouseenter="permissions.write ? handleWrapperMouseEnter() : null" 
 				@mouseleave="handleMouseLeave" 
 				@click.stop>
 				<button
@@ -25,7 +25,7 @@
 					class="toolbar-btn"
 					:class="{ active: isBold, 'toolbar-btn-disabled': !permissions.write }"
 					@mousedown.prevent="permissions.write && saveSelection"
-					@click.stop="permissions.write && toggleBold"
+					@click.stop="handleToggleBold"
 					:disabled="!permissions.write"
 					title="In đậm (Ctrl+B)"
 				>
@@ -39,7 +39,7 @@
 					class="toolbar-btn"
 					:class="{ active: isItalic, 'toolbar-btn-disabled': !permissions.write }"
 					@mousedown.prevent="permissions.write && saveSelection"
-					@click.stop="permissions.write && toggleItalic"
+					@click.stop="handleToggleItalic"
 					:disabled="!permissions.write"
 					title="In nghiêng (Ctrl+I)"
 				>
@@ -53,7 +53,7 @@
 					class="toolbar-btn"
 					:class="{ active: isUnderline, 'toolbar-btn-disabled': !permissions.write }"
 					@mousedown.prevent="permissions.write && saveSelection"
-					@click.stop="permissions.write && toggleUnderline"
+					@click.stop="handleToggleUnderline"
 					:disabled="!permissions.write"
 					title="Gạch chân (Ctrl+U)"
 				>
@@ -74,7 +74,7 @@
 						:style="{ backgroundColor: color.bg }"
 						:class="{ active: currentHighlightColor === color.value, 'toolbar-btn-disabled': !permissions.write }"
 						@mousedown.prevent="permissions.write && saveSelection"
-						@click.stop="permissions.write && setHighlightColor(color.value)"
+						@click.stop="() => handleSetHighlightColor(color.value)"
 						:disabled="!permissions.write"
 						:title="color.label"
 					>
@@ -88,7 +88,7 @@
 			<button
 				class="toolbar-btn toolbar-btn-done"
 				:class="{ active: isCompleted, 'toolbar-btn-disabled': !permissions.write }"
-				@click.stop="permissions.write && handleDone"
+				@click.stop="permissions.write ? handleDone() : null"
 				:disabled="!permissions.write"
 				title="Hoàn thành (Ctrl+Enter)"
 			>
@@ -102,7 +102,7 @@
 				class="toolbar-btn"
 				:class="{ 'toolbar-btn-disabled': !permissions.write }"
 				@mousedown.prevent="permissions.write && saveSelection"
-				@click.stop="permissions.write && handleListAction"
+				@click.stop="permissions.write ? handleListAction() : null"
 				:disabled="!permissions.write"
 				title="Mô tả (Shift+Enter)"
 			>
@@ -116,7 +116,7 @@
 				class="toolbar-btn"
 				:class="{ 'toolbar-btn-disabled': !permissions.write }"
 				@mousedown.prevent="permissions.write && saveSelection"
-				@click.stop.prevent="permissions.write && handleInsertImage"
+				@click.stop.prevent="permissions.write ? handleInsertImage() : null"
 				title="Chèn hình ảnh"
 				:disabled="!props.selectedNode || !permissions.write"
 			>
@@ -128,13 +128,14 @@
 			<!-- More options (ellipsis) -->
 			<div class="toolbar-item-wrapper" 
 				:class="{ 'toolbar-item-disabled': !permissions.write }"
-				@mouseenter="permissions.write && handleMoreOptionsWrapperEnter" 
+				@mouseenter="permissions.write ? handleMoreOptionsWrapperEnter() : null" 
 				@mouseleave="handleMoreOptionsWrapperLeave" 
 				@click.stop>
 				<button
 					ref="moreOptionsBtnRef"
 					class="toolbar-btn"
 					@mousedown.prevent="saveSelection"
+					@click.stop="permissions.write ? handleMoreOptionsClick() : null"
 					title="Tùy chọn khác"
 				>
 					<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -148,7 +149,7 @@
 					<!-- Add Child -->
 					<div class="context-menu-item" 
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('add-child')">
+						@click.stop="permissions.write ? handleContextAction('add-child') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M12 5v14M5 12h14"/>
 						</svg>
@@ -158,7 +159,7 @@
 					<!-- Add Sibling -->
 					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('add-sibling')">
+						@click.stop="permissions.write ? handleContextAction('add-sibling') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<line x1="12" y1="5" x2="12" y2="19"/>
 							<line x1="5" y1="12" x2="19" y2="12"/>
@@ -171,7 +172,7 @@
 					<!-- Copy -->
 					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('copy')">
+						@click.stop="permissions.write ? handleContextAction('copy') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
 							<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
@@ -182,7 +183,7 @@
 					<!-- Cut -->
 					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('cut')">
+						@click.stop="permissions.write ? handleContextAction('cut') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<circle cx="6" cy="6" r="3"/>
 							<circle cx="6" cy="18" r="3"/>
@@ -195,7 +196,7 @@
 					<!-- Paste - Luôn hiển thị để có thể dán từ clipboard hệ thống -->
 					<div class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('paste')">
+						@click.stop="permissions.write ? handleContextAction('paste') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
 							<rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
@@ -208,7 +209,7 @@
 					<!-- Copy Link -->
 					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('copy-link')">
+						@click.stop="permissions.write ? handleContextAction('copy-link') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
 							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -221,7 +222,7 @@
 					<!-- Link task -->
 					<div v-if="props.selectedNode?.id !== 'root' && !props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('link-task')">
+						@click.stop="permissions.write ? handleContextAction('link-task') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
 							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -232,7 +233,7 @@
 					<!-- Delete task link -->
 					<div v-if="props.selectedNode?.id !== 'root' && props.selectedNode?.data?.taskLink?.taskId" class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('delete-task-link')">
+						@click.stop="permissions.write ? handleContextAction('delete-task-link') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
 							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -247,7 +248,7 @@
 					<!-- Add Comment - Chỉ active khi có quyền comment -->
 					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item"
 						:class="{ 'context-menu-item-disabled': !permissions.comment }"
-						@click.stop="permissions.comment && handleContextAction('add-comment')">
+						@click.stop="permissions.comment ? handleContextAction('add-comment') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
 						</svg>
@@ -259,7 +260,7 @@
 					<!-- Delete -->
 					<div v-if="props.selectedNode?.id !== 'root'" class="context-menu-item context-menu-item-danger"
 						:class="{ 'context-menu-item-disabled': !permissions.write }"
-						@click.stop="permissions.write && handleContextAction('delete')">
+						@click.stop="permissions.write ? handleContextAction('delete') : null">
 						<svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 							<polyline points="3 6 5 6 21 6"/>
 							<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -276,7 +277,7 @@
 			<button
 				class="toolbar-btn"
 				:class="{ 'toolbar-btn-disabled': !permissions.comment }"
-				@click.stop="permissions.comment && handleComments"
+				@click.stop="permissions.comment ? handleComments() : null"
 				:disabled="!permissions.comment"
 				title="Bình luận"
 			>
@@ -814,28 +815,24 @@ const applyStyleToTitle = (editor, markType, attrs = {}) => {
 	}
 }
 
+const handleToggleBold = () => {
+	if (!props.permissions.write) return
+	toggleBold()
+}
+
 // Toggle Bold
 const toggleBold = () => {
+	if (!props.permissions.write) return
 	
-	
-	
-	
-	
-	// ⚠️ FIX: Retry lấy editor instance nếu chưa có (quan trọng với node mới)
 	let editorInstance = props.editorInstance
 	if (!editorInstance && props.selectedNode && props.renderer) {
-		
-		// Thử lấy trực tiếp từ renderer
 		editorInstance = props.renderer.getEditorInstance(props.selectedNode.id)
 		if (editorInstance) {
 			
 		} else {
-			// Nếu vẫn chưa có, đợi một chút rồi thử lại
 			setTimeout(() => {
 				const retryInstance = props.renderer?.getEditorInstance(props.selectedNode?.id)
 				if (retryInstance) {
-					
-					// Gọi lại hàm với editor instance mới
 					executeToggleBold(retryInstance)
 				} else {
 					
@@ -846,7 +843,6 @@ const toggleBold = () => {
 	}
 	
 	if (!editorInstance) {
-		
 		return
 	}
 	
@@ -995,11 +991,14 @@ const getEditorInstanceWithRetry = (callback) => {
 	callback(editorInstance)
 }
 
+const handleToggleItalic = () => {
+	if (!props.permissions.write) return
+	toggleItalic()
+}
+
 // Toggle Italic
 const toggleItalic = () => {
-	
-	
-	
+	if (!props.permissions.write) return
 	
 	getEditorInstanceWithRetry((editorInstance) => {
 		executeToggleItalic(editorInstance)
@@ -1109,11 +1108,14 @@ const executeToggleItalic = (editorInstance) => {
 	emit('italic')
 }
 
+const handleToggleUnderline = () => {
+	if (!props.permissions.write) return
+	toggleUnderline()
+}
+
 // Toggle Underline
 const toggleUnderline = () => {
-	
-	
-	
+	if (!props.permissions.write) return
 	
 	getEditorInstanceWithRetry((editorInstance) => {
 		executeToggleUnderline(editorInstance)
@@ -1376,14 +1378,15 @@ const applyHighlightToAllTitle = (editorInstance, hexColor, colorName) => {
 	}
 }
 
+const handleSetHighlightColor = (colorName) => {
+	if (!props.permissions.write) return
+	setHighlightColor(colorName)
+}
+
 // Set highlight color
 const setHighlightColor = (colorName) => {
+	if (!props.permissions.write) return
 	
-	
-	
-	
-	
-	// Không cho phép highlight nếu đang ở trong blockquote
 	if (isInBlockquote.value) {
 		return
 	}
@@ -1753,6 +1756,16 @@ const clearMoreOptionsMenuTimeout = () => {
 	if (moreOptionsMenuTimeout) {
 		clearTimeout(moreOptionsMenuTimeout)
 		moreOptionsMenuTimeout = null
+	}
+}
+
+// Handle More Options Click
+const handleMoreOptionsClick = () => {
+	if (!props.permissions.write || !props.selectedNode) return
+	clearMoreOptionsMenuTimeout()
+	showMoreOptionsMenu.value = !showMoreOptionsMenu.value
+	if (showMoreOptionsMenu.value) {
+		emit('more-options', { node: props.selectedNode })
 	}
 }
 
