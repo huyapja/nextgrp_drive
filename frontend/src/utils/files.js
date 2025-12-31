@@ -234,10 +234,16 @@ export const MIME_LIST_MAP = {
   ],
   Archive: [
     "application/zip",
+    "application/x-zip-compressed",
     "application/x-rar-compressed",
+    "application/vnd.rar",
     "application/x-tar",
     "application/gzip",
+    "application/x-gzip",
     "application/x-bzip2",
+    "application/x-7z-compressed",
+    "application/x-compressed",
+    "application/zip-compressed",
   ],
   MindMap: ["mindmap"],
 }
