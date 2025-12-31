@@ -93,10 +93,16 @@ MIME_LIST_MAP = {
     ],
     "Archive": [
         "application/zip",
+        "application/x-zip-compressed",
         "application/x-rar-compressed",
+        "application/vnd.rar",
         "application/x-tar",
         "application/gzip",
+        "application/x-gzip",
         "application/x-bzip2",
+        "application/x-7z-compressed",
+        "application/x-compressed",
+        "application/zip-compressed",
     ],
     "MindMap": [
         "mindmap",
@@ -110,9 +116,21 @@ def get_file_type(r):
     elif r["is_link"]:
         return "Link"
     else:
+        mime_type = r["mime_type"]
         try:
-            return next(k for (k, v) in MIME_LIST_MAP.items() if r["mime_type"] in v)
+            return next(k for (k, v) in MIME_LIST_MAP.items() if mime_type in v)
         except StopIteration:
+            if mime_type and "+zip" in mime_type:
+                return "Archive"
+            if mime_type and "+xml" in mime_type:
+                if "spreadsheetml" in mime_type:
+                    return "Spreadsheet"
+                elif "presentationml" in mime_type:
+                    return "Presentation"
+                elif "wordprocessingml" in mime_type:
+                    return "Document"
+                else:
+                    return "XML Data"
             return "Unknown"
 
 

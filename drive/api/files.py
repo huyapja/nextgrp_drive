@@ -145,6 +145,11 @@ def upload_file(
     mime_type = mimemapper.get_mime_type(str(temp_path), native_first=False)
     if mime_type is None:
         mime_type = magic.from_buffer(open(temp_path, "rb").read(2048), mime=True)
+    if not mime_type:
+        import mimetypes
+        mime_type, _ = mimetypes.guess_type(str(temp_path))
+        if not mime_type:
+            mime_type = "application/octet-stream"
 
     # Create DB record
     drive_file = create_drive_file(
@@ -231,6 +236,10 @@ def upload_chunked_file(personal=0, parent=None, last_modified=None):
 
     if not mime_type:
         mime_type = magic.from_buffer(open(save_path, "rb").read(2048), mime=True)
+    if not mime_type:
+        mime_type, _ = mimetypes.guess_type(str(save_path))
+        if not mime_type:
+            mime_type = "application/octet-stream"
 
     with save_path.open("ab") as f:
         f.seek(int(frappe.form_dict.chunk_byte_offset))

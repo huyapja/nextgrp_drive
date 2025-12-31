@@ -212,12 +212,17 @@ def files(
     )
     if file_kinds:
         mime_types = []
+        criterion = []
         for kind in file_kinds:
             mime_types.extend(MIME_LIST_MAP.get(kind, []))
-        criterion = [DriveFile.mime_type == mime_type for mime_type in mime_types]
+        if mime_types:
+            criterion = [DriveFile.mime_type == mime_type for mime_type in mime_types]
+        if "Archive" in file_kinds:
+            criterion.append(DriveFile.mime_type.like("%+zip%"))
         if "Folder" in file_kinds:
             criterion.append(DriveFile.is_group == 1)
-        query = query.where(Criterion.any(criterion))
+        if criterion:
+            query = query.where(Criterion.any(criterion))
 
     if folders:
         query = query.where(DriveFile.is_group == 1)
@@ -261,6 +266,23 @@ def files(
             r["share_count"] = -1
         else:
             r["share_count"] = share_count.get(r["name"], 0)
+    
+    if field in ["modified", "creation", "title", "file_size", "accessed"]:
+        reverse = not ascending
+        if field == "title":
+            res.sort(
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    (x.get(field) or "").lower()
+                ),
+                reverse=reverse
+            )
+        else:
+            res.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
+    
     return res
 
 
@@ -864,6 +886,9 @@ def files_multi_team(
                             ]
                         )
 
+                    if "Archive" in file_kinds_parsed:
+                        criterion.append(DriveFile.mime_type.like("%+zip%"))
+
                     if "Folder" in file_kinds_parsed:
                         criterion.append(DriveFile.is_group == 1)
 
@@ -1107,24 +1132,34 @@ def files_multi_team(
         reverse = not ascending
 
         if field == "title":
-            # ✅ Sort theo title case-insensitive
             all_results.sort(
-                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    (x.get(field) or "").lower()
+                ),
+                reverse=reverse
             )
         elif field == "accessed":
             print("DEBUG - Sorting by accessed with special None handling", field)
-            # Tách riêng các record có và không có accessed
             has_accessed = [r for r in all_results if r.get(field) is not None]
             no_accessed = [r for r in all_results if r.get(field) is None]
 
-            # Sort phần có accessed
-            has_accessed.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            has_accessed.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
+            no_accessed.sort(
+                key=lambda x: not x.get("is_group", 0),
+                reverse=False
+            )
             print("DEBUG - has_accessed count:", len(has_accessed))
             print("DEBUG - no_accessed count:", len(no_accessed))
-            # Gộp lại: phần có accessed trước, phần None sau
             all_results = has_accessed + no_accessed
         else:
-            all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
 
     # Apply cursor pagination if specified
     if cursor and all_results:
@@ -1274,6 +1309,9 @@ def get_recent_files_multi_team(
                     [DriveFile.mime_type == mime_type for mime_type in mime_types]
                 )
 
+            if "Archive" in file_kinds_parsed:
+                criterion.append(DriveFile.mime_type.like("%+zip%"))
+
             if "Folder" in file_kinds_parsed:
                 criterion.append(DriveFile.is_group == 1)
 
@@ -1395,16 +1433,27 @@ def get_recent_files_multi_team(
     if field == "accessed":
         reverse = not ascending
         all_results.sort(
-            key=lambda x: x.get("accessed") or datetime.min, reverse=reverse
+            key=lambda x: (
+                not x.get("is_group", 0),
+                x.get("accessed") or datetime.min
+            ),
+            reverse=reverse
         )
     elif field in ["modified", "creation", "title", "file_size"]:
         reverse = not ascending
         if field == "title":
             all_results.sort(
-                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    (x.get(field) or "").lower()
+                ),
+                reverse=reverse
             )
         else:
-            all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
 
     # Apply cursor pagination
     if cursor and all_results:
@@ -1535,6 +1584,9 @@ def get_favourites_multi_team(
                     criterion.extend(
                         [DriveFile.mime_type == mime_type for mime_type in mime_types]
                     )
+
+                if "Archive" in file_kinds_parsed:
+                    criterion.append(DriveFile.mime_type.like("%+zip%"))
 
                 if "Folder" in file_kinds_parsed:
                     criterion.append(DriveFile.is_group == 1)
@@ -1759,10 +1811,17 @@ def get_favourites_multi_team(
         reverse = not ascending
         if field == "title":
             all_results.sort(
-                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    (x.get(field) or "").lower()
+                ),
+                reverse=reverse
             )
         else:
-            all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
 
     # Apply cursor pagination
     if cursor and all_results:
@@ -2414,6 +2473,8 @@ def get_personal_files(
                                     for mime_type in mime_types
                                 ]
                             )
+                        if "Archive" in file_kinds_parsed:
+                            criterion.append(DriveFile.mime_type.like("%+zip%"))
                         if "Folder" in file_kinds_parsed:
                             criterion.append(DriveFile.is_group == 1)
                         if criterion:
@@ -2595,15 +2656,29 @@ def get_personal_files(
 
         if field == "title":
             all_results.sort(
-                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    (x.get(field) or "").lower()
+                ),
+                reverse=reverse
             )
         elif field == "accessed":
             has_accessed = [r for r in all_results if r.get(field) is not None]
             no_accessed = [r for r in all_results if r.get(field) is None]
-            has_accessed.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            has_accessed.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
+            no_accessed.sort(
+                key=lambda x: not x.get("is_group", 0),
+                reverse=False
+            )
             all_results = has_accessed + no_accessed
         else:
-            all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
 
     # ✅ Apply cursor pagination
     if cursor and all_results:
@@ -2767,6 +2842,9 @@ def get_trash_files(
                 [DriveFile.mime_type == mime_type for mime_type in mime_types]
             )
 
+        if "Archive" in file_kinds_parsed:
+            criterion.append(DriveFile.mime_type.like("%+zip%"))
+
         if "Folder" in file_kinds_parsed:
             criterion.append(DriveFile.is_group == 1)
 
@@ -2928,10 +3006,17 @@ def get_trash_files(
 
         if field == "title":
             all_results.sort(
-                key=lambda x: (x.get(field) or "").lower(), reverse=reverse
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    (x.get(field) or "").lower()
+                ),
+                reverse=reverse
             )
         else:
-            all_results.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+            all_results.sort(
+                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
+                reverse=reverse
+            )
 
     # ✅ BƯỚC 8: Apply cursor pagination
     if cursor and all_results:
