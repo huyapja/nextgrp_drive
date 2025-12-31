@@ -172,11 +172,37 @@ def save_mindmap_data(entity_name, mindmap_data, **kwargs):
 
         # Convert dict to JSON string
         if isinstance(mindmap_data, dict):
-            mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
+            mindmap_data_json = json.dumps(mindmap_data, ensure_ascii=False)
+        else:
+            mindmap_data_json = mindmap_data
+            mindmap_data = json.loads(mindmap_data) if isinstance(mindmap_data, str) else mindmap_data
 
-        doc.mindmap_data = mindmap_data
+        doc.mindmap_data = mindmap_data_json
         doc.save(ignore_permissions=True)
         frappe.db.commit()
+
+        nodes = mindmap_data.get("nodes", []) if isinstance(mindmap_data, dict) else []
+        edges = mindmap_data.get("edges", []) if isinstance(mindmap_data, dict) else []
+        layout = mindmap_data.get("layout", "horizontal") if isinstance(mindmap_data, dict) else "horizontal"
+
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": doc.name,
+            "nodes": nodes,
+            "edges": edges,
+            "layout": layout,
+            "modified": str(doc.modified),
+            "modified_by": frappe.session.user,
+        }
+        
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:updated",
+                message=message,
+                after_commit=True,
+            )
+        except Exception as e:
+            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event")
 
         return {
             "status": "success",
@@ -338,6 +364,25 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
         mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
         mindmap_doc.save(ignore_permissions=True)
         frappe.db.commit()
+
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": mindmap_doc.name,
+            "nodes": nodes,
+            "edges": edges,
+            "layout": layout,
+            "modified": str(mindmap_doc.modified),
+            "modified_by": frappe.session.user,
+        }
+        
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:updated",
+                message=message,
+                after_commit=True,
+            )
+        except Exception as e:
+            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event")
 
         return {"success": True, "message": _("Layout saved successfully")}
 

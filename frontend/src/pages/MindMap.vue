@@ -300,6 +300,7 @@
 <script setup>
 import { rename } from "@/resources/files"
 import { D3MindmapRenderer } from '@/utils/d3mindmap'
+import { calculateNodeHeightWithImages } from '@/utils/d3mindmap/nodeSize.js'
 import { scrollToNode } from '@/utils/d3mindmap/viewUtils'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
@@ -360,6 +361,8 @@ const taskLinkDragNodeId = ref(null)
 const taskLinkDragResolve = ref(null) // Promise resolve function để trả kết quả từ dialog
 let saveTimeout = null
 const SAVE_DELAY = 2000
+let textInputSaveTimeout = null
+const TEXT_INPUT_SAVE_DELAY = 300
 // Tracking timeouts cho việc focus node mới để tránh focus bị nhảy khi tạo node liên tục
 let nodeFocusTimeouts = []
 const showPanel = ref(false);
@@ -640,9 +643,13 @@ const hasClipboard = computed(() => clipboard.value !== null)
 const historyStack = ref([]) // Array of snapshots
 const historyIndex = ref(-1) // Current position in history (-1 means no history)
 const MAX_HISTORY_SIZE = 50 // Giới hạn số lượng history entries
+const isRestoringSnapshot = ref(false) // Flag để prevent watch khi đang restore snapshot
 
 // ✅ Watch elements to ensure root node is NEVER deleted
 watch(elements, (newElements) => {
+  if (isRestoringSnapshot.value) {
+    return
+  }
   const nodes = newElements.filter(el => el.id && !el.source && !el.target)
   const hasRoot = nodes.some(el => el.id === 'root')
 
@@ -920,9 +927,14 @@ const initD3Renderer = () => {
       }
 
       // 4. lưu mindmap (text content updates)
-      // ⚠️ NOTE: Không lưu snapshot ở đây vì text content changes được xử lý
-      // trong onNodeEditingEnd khi user kết thúc edit (blur)
-      scheduleSave()
+      // ⚠️ NEW: Auto-save sau 300ms khi nhập text, không cần click ra ngoài
+      if (textInputSaveTimeout) {
+        clearTimeout(textInputSaveTimeout)
+      }
+      textInputSaveTimeout = setTimeout(() => {
+        scheduleSave()
+        textInputSaveTimeout = null
+      }, TEXT_INPUT_SAVE_DELAY)
     },
     onNodeReorder: (nodeId, newOrder) => {
       // ⚠️ FIX: Lưu snapshot trước khi reorder
@@ -1714,429 +1726,167 @@ const restoreSnapshot = async (snapshot) => {
     return
   }
   
-  console.log('[Undo/Redo] 🔄 Bắt đầu restore snapshot:', {
-    timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
-    elementsCount: snapshot.elements.length
-  })
+  isRestoringSnapshot.value = true
   
-  // ⚠️ Lấy lại nodes từ JSON snapshot
-  const restoredElements = JSON.parse(JSON.stringify(snapshot.elements))
-  const restoredNodes = restoredElements.filter(el => el.id && !el.source && !el.target)
-  
-  console.log('[Undo/Redo] 📦 Nodes được khôi phục:', {
-    nodesCount: restoredNodes.length,
-    nodes: restoredNodes.map(n => ({
-      id: n.id,
-      label: n.data?.label ? n.data.label.substring(0, 50) + '...' : '(empty)',
-      hasLabel: !!n.data?.label,
-      labelLength: n.data?.label?.length || 0
-    }))
-  })
-  
-  // Khôi phục elements
-  elements.value = restoredElements
-  
-  // Khôi phục nodeCreationOrder
-  nodeCreationOrder.value = new Map(snapshot.nodeCreationOrder)
-  
-  // ⚠️ FIX: Sau undo/redo, KHÔNG focus vào node nào cả
-  selectedNode.value = null
-  if (d3Renderer) {
-    d3Renderer.selectedNode = null
-  }
-  
-  // Update renderer
-  await nextTick()
-  if (d3Renderer) {
-    d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
-    
-    // ⚠️ OPTIMIZATION: So sánh snapshot để chỉ unmount các node thay đổi
-    // Tìm các node đã thay đổi (thêm, xóa, hoặc thay đổi nội dung)
-    const previousNodes = new Map()
-    d3Renderer.nodes.forEach(node => {
-      previousNodes.set(node.id, node)
+  try {
+    console.log('[Undo/Redo] 🔄 Bắt đầu restore snapshot:', {
+      timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
+      elementsCount: snapshot.elements.length
     })
     
-    const changedNodeIds = new Set()
-    const newNodes = new Map()
-    nodes.value.forEach(node => {
-      newNodes.set(node.id, node)
-      const prevNode = previousNodes.get(node.id)
-      if (!prevNode) {
-        // Node mới được thêm
-        changedNodeIds.add(node.id)
-      } else if (prevNode.data?.label !== node.data?.label) {
-        // Node đã thay đổi nội dung
-        changedNodeIds.add(node.id)
-      }
+    // ⚠️ Lấy lại nodes từ JSON snapshot
+    const restoredElements = JSON.parse(JSON.stringify(snapshot.elements))
+    const restoredNodes = restoredElements.filter(el => el.id && !el.source && !el.target)
+    
+    console.log('[Undo/Redo] 📦 Nodes được khôi phục:', {
+      nodesCount: restoredNodes.length
     })
     
-    // Tìm các node đã bị xóa
-    previousNodes.forEach((node, id) => {
-      if (!newNodes.has(id)) {
-        changedNodeIds.add(id)
-      }
-    })
+    // Khôi phục elements
+    elements.value = restoredElements
     
-    // ⚠️ CRITICAL: Chỉ unmount các Vue components của node thay đổi
-    // Để tránh re-mount không cần thiết
-    changedNodeIds.forEach(nodeId => {
-      if (nodeId !== 'root') {
-        d3Renderer.unmountNodeEditor(nodeId)
-      }
-    })
+    // Khôi phục nodeCreationOrder
+    nodeCreationOrder.value = new Map(snapshot.nodeCreationOrder)
     
-    // ⚠️ OPTIMIZATION: Chỉ update data và render lại (không force full re-render)
-    // Nếu chỉ có một vài node thay đổi, có thể chỉ update chúng
-    const hasStructuralChanges = changedNodeIds.size > nodes.value.length * 0.3 // Nếu > 30% node thay đổi
-    
-    if (hasStructuralChanges || changedNodeIds.size === 0) {
-      // Nhiều node thay đổi hoặc không xác định được -> full re-render
-      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
-    } else {
-      // Chỉ update data và render lại (không force full re-render)
-      d3Renderer.nodes = nodes.value
-      d3Renderer.edges = edges.value
-      // Chỉ render lại (không phải initial render)
-      d3Renderer.render(false)
+    // ⚠️ FIX: Sau undo/redo, KHÔNG focus vào node nào cả
+    selectedNode.value = null
+    if (d3Renderer) {
+      d3Renderer.selectedNode = null
     }
     
-    // ⚠️ OPTIMIZATION: Giảm delay - chỉ đợi Vue components của node thay đổi mount
+    // Update renderer
     await nextTick()
-    // Chỉ đợi 100ms thay vì 800ms
-    await new Promise(resolve => setTimeout(resolve, 100))
-    await nextTick()
-    
-    // ⚠️ CRITICAL: Insert nội dung từ JSON vào editor instances
-    // Kiểm tra xem Vue components đã được mount chưa bằng cách kiểm tra DOM
-    console.log('[Undo/Redo] 🔍 Bắt đầu kiểm tra và insert nội dung vào editor instances')
-    restoredNodes.forEach(restoredNode => {
-      if (restoredNode.id !== 'root' && restoredNode.data?.label) {
-        console.log(`[Undo/Redo] 📝 Xử lý node ${restoredNode.id}:`, {
-          labelLength: restoredNode.data.label.length,
-          labelPreview: restoredNode.data.label.substring(0, 50) + '...'
-        })
-        
-        // Đợi Vue component được mount (kiểm tra DOM)
-        const checkAndInsert = (retries = 20) => {
-          if (retries <= 0) {
-            console.warn(`[Undo/Redo] ⚠️ Không thể mount editor cho node ${restoredNode.id} sau ${20 * 150}ms`)
-            return
-          }
-          
-          // Kiểm tra xem Vue component đã được mount chưa bằng cách kiểm tra DOM
-          const container = document.querySelector(`[data-node-id="${restoredNode.id}"]`)
-          const hasVueComponent = container && container.querySelector('.mindmap-node-editor')
-          
-          if (hasVueComponent) {
-            console.log(`[Undo/Redo] ✅ Vue component đã mount cho node ${restoredNode.id}`)
-            const editor = d3Renderer.getEditorInstance(restoredNode.id)
-            if (editor && typeof editor.commands?.setContent === 'function') {
-              try {
-                // Đảm bảo editor đã sẵn sàng trước khi setContent
-                if (editor.view && editor.view.state && editor.view.state.doc) {
-                  console.log(`[Undo/Redo] ✏️ Insert nội dung vào editor cho node ${restoredNode.id}`)
-                  
-                  const content = restoredNode.data.label || ''
-                  
-                  // Đợi một chút để đảm bảo editor hoàn toàn sẵn sàng và không có transaction đang chạy
-                  setTimeout(() => {
-                    try {
-                      // Kiểm tra lại state sau khi đợi
-                      if (editor.view && editor.view.state && editor.view.state.doc) {
-                        // Kiểm tra xem document có hợp lệ không
-                        const docSize = editor.view.state.doc.content.size
-                        if (docSize >= 0) {
-                          // Đợi thêm một chút để đảm bảo không có transaction đang pending
-                          setTimeout(() => {
-                            try {
-                              // Kiểm tra lại state một lần nữa
-                              if (editor.view && editor.view.state && editor.view.state.doc) {
-                                const currentDocSize = editor.view.state.doc.content.size
-                                if (currentDocSize >= 0) {
-                                  // Sử dụng requestAnimationFrame để đảm bảo setContent được gọi khi không có transaction đang chạy
-                                  requestAnimationFrame(() => {
-                                    try {
-                                      // Kiểm tra lại state lần cuối
-                                      if (editor.view && editor.view.state && editor.view.state.doc) {
-                                        // Set content trực tiếp mà không dùng chain để tránh conflict
-                                        // Sử dụng emitUpdate = false để tránh trigger các event không cần thiết
-                                        editor.commands.setContent(content, false)
-                                        
-                                        // ⚠️ CRITICAL: Xóa fixedWidth để node tự động tính lại chiều rộng
-                                        const node = nodes.value.find(n => n.id === restoredNode.id)
-                                        if (node && node.data) {
-                                          delete node.data.fixedWidth
-                                        }
-                                        
-                                        // Cập nhật node trong renderer để xóa fixedWidth
-                                        const d3Node = d3Renderer.nodes.find(n => n.id === restoredNode.id)
-                                        if (d3Node && d3Node.data) {
-                                          delete d3Node.data.fixedWidth
-                                        }
-                                        
-                                        // ⚠️ CRITICAL: Clear size cache để force tính lại width từ DOM
-                                        if (d3Renderer?.nodeSizeCache) {
-                                          d3Renderer.nodeSizeCache.delete(restoredNode.id)
-                                        }
-                                        
-                                        // ⚠️ CRITICAL: Xóa inline style width của tiptap editor để CSS tự động tính lại
-                                        const editorContent = editor.view.dom.querySelector('.mindmap-editor-prose')
-                                        if (editorContent) {
-                                          // Xóa inline style width để CSS tự động tính
-                                          editorContent.style.removeProperty('width')
-                                          editorContent.style.width = '100%'
-                                          editorContent.style.maxWidth = '100%'
-                                        }
-                                        
-                                        // ⚠️ CRITICAL: Tính lại width ngay lập tức từ content (không cần đợi DOM update)
-                                        // Sử dụng content đã set để tính width trước, sau đó cập nhật DOM
-                                        const calculateAndUpdateWidth = () => {
-                                          try {
-                                            // Lấy HTML content từ editor hoặc từ content đã set
-                                            const finalValue = editor.getHTML ? editor.getHTML() : content
-                                            
-                                            // Parse HTML để lấy title và description (tương tự handleEditorBlur)
-                                            let titleText = ''
-                                            let descriptionText = ''
-                                            
-                                            if (finalValue && finalValue.trim()) {
-                                              const tempDiv = document.createElement('div')
-                                              tempDiv.innerHTML = finalValue
-                                              const paragraphs = tempDiv.querySelectorAll('p')
-                                              paragraphs.forEach(p => {
-                                                let inBlockquote = false
-                                                let parent = p.parentElement
-                                                while (parent && parent !== tempDiv) {
-                                                  if (parent.tagName === 'BLOCKQUOTE') {
-                                                    inBlockquote = true
-                                                    break
-                                                  }
-                                                  parent = parent.parentElement
-                                                }
-                                                if (!inBlockquote) {
-                                                  const paraText = (p.textContent || p.innerText || '').trim()
-                                                  if (paraText) {
-                                                    titleText += (titleText ? '\n' : '') + paraText
-                                                  }
-                                                }
-                                              })
-                                              const blockquotes = tempDiv.querySelectorAll('blockquote')
-                                              blockquotes.forEach(bq => {
-                                                const bqText = (bq.textContent || bq.innerText || '').trim()
-                                                if (bqText) {
-                                                  descriptionText += (descriptionText ? '\n' : '') + bqText
-                                                }
-                                              })
-                                              if (!titleText && !descriptionText) {
-                                                titleText = (tempDiv.textContent || tempDiv.innerText || '').trim()
-                                              }
-                                            } else {
-                                              titleText = finalValue.trim()
-                                            }
-                                            
-                                            // Đo width của title (font-size 19px) - tương tự handleEditorBlur
-                                            let maxTitleWidth = 0
-                                            if (titleText) {
-                                              const titleLines = titleText.split('\n')
-                                              titleLines.forEach(line => {
-                                                if (line.trim()) {
-                                                  const lineSpan = document.createElement('span')
-                                                  lineSpan.style.cssText = `
-                                                    position: absolute;
-                                                    visibility: hidden;
-                                                    white-space: nowrap;
-                                                    font-size: 19px;
-                                                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                                                  `
-                                                  lineSpan.textContent = line.trim()
-                                                  document.body.appendChild(lineSpan)
-                                                  void lineSpan.offsetHeight
-                                                  maxTitleWidth = Math.max(maxTitleWidth, lineSpan.offsetWidth)
-                                                  document.body.removeChild(lineSpan)
-                                                }
-                                              })
-                                            }
-                                            
-                                            // Đo width của description (font-size 16px) - tương tự handleEditorBlur
-                                            let maxDescWidth = 0
-                                            if (descriptionText) {
-                                              const descLines = descriptionText.split('\n')
-                                              descLines.forEach(line => {
-                                                if (line.trim()) {
-                                                  const lineSpan = document.createElement('span')
-                                                  lineSpan.style.cssText = `
-                                                    position: absolute;
-                                                    visibility: hidden;
-                                                    white-space: nowrap;
-                                                    font-size: 16px;
-                                                    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-                                                  `
-                                                  lineSpan.textContent = line.trim()
-                                                  document.body.appendChild(lineSpan)
-                                                  void lineSpan.offsetHeight
-                                                  maxDescWidth = Math.max(maxDescWidth, lineSpan.offsetWidth)
-                                                  document.body.removeChild(lineSpan)
-                                                }
-                                              })
-                                            }
-                                            
-                                            // Lấy width lớn nhất giữa title và description
-                                            const maxTextWidth = Math.max(maxTitleWidth, maxDescWidth)
-                                            
-                                            // Kiểm tra xem có ảnh không
-                                            const hasImagesInFinalValue = finalValue && (
-                                              finalValue.includes('<img') || 
-                                              finalValue.includes('image-wrapper') ||
-                                              finalValue.includes('image-wrapper-node')
-                                            )
-                                            
-                                            // Tính width mới
-                                            const absoluteMinWidth = 130
-                                            const maxWidth = 400
-                                            let newWidth
-                                            
-                                            if (hasImagesInFinalValue) {
-                                              // Nếu có ảnh, luôn dùng maxWidth
-                                              newWidth = maxWidth
-                                            } else {
-                                              // Nếu không có ảnh, tính từ text width
-                                              if (maxTextWidth === 0) {
-                                                newWidth = absoluteMinWidth
-                                              } else {
-                                                // Padding: 16px mỗi bên = 32px, border: 2px mỗi bên = 4px
-                                                const requiredWidth = maxTextWidth + 32 + 6
-                                                const minRequiredWidth = 40
-                                                if (requiredWidth < minRequiredWidth) {
-                                                  newWidth = Math.max(requiredWidth, absoluteMinWidth)
-                                                } else {
-                                                  newWidth = requiredWidth // Dùng trực tiếp để fit chính xác
-                                                }
-                                                // Clamp giữa absoluteMinWidth và maxWidth
-                                                newWidth = Math.min(newWidth, maxWidth)
-                                              }
-                                            }
-                                            
-                                            const borderOffset = 4
-                                            
-                                            // Cập nhật rect và foreignObject width ngay lập tức
-                                            const nodeGroup = d3Renderer.g.select(`[data-node-id="${restoredNode.id}"]`)
-                                            let currentHeight = 43 // Default height
-                                            
-                                            if (!nodeGroup.empty()) {
-                                              const rect = nodeGroup.select('.node-rect')
-                                              const fo = nodeGroup.select('.node-text')
-                                              
-                                              if (!rect.empty() && !fo.empty()) {
-                                                // Lấy currentHeight trước khi cập nhật width
-                                                currentHeight = parseFloat(rect.attr('height')) || 43
-                                                
-                                                rect.attr('width', newWidth)
-                                                fo.attr('width', Math.max(0, newWidth - borderOffset))
-                                              }
-                                            }
-                                            
-                                            // Cập nhật lại inline style của editorContent với width mới
-                                            if (editorContent) {
-                                              editorContent.style.width = `${newWidth - borderOffset}px`
-                                            }
-                                            
-                                            // Cập nhật cache
-                                            if (d3Renderer?.nodeSizeCache) {
-                                              d3Renderer.nodeSizeCache.set(restoredNode.id, {
-                                                width: newWidth,
-                                                height: currentHeight
-                                              })
-                                            }
-                                            
-                                            // Cập nhật fixedWidth trong node data
-                                            if (d3Node && d3Node.data) {
-                                              d3Node.data.fixedWidth = newWidth
-                                            }
-                                            if (node && node.data) {
-                                              node.data.fixedWidth = newWidth
-                                            }
-                                            
-                                            console.log(`[Undo/Redo] ✅ Đã cập nhật width cho node ${restoredNode.id}: ${newWidth}px (maxTextWidth: ${maxTextWidth}px)`)
-                                            
-                                            // Render lại ngay để cập nhật layout
-                                            if (d3Renderer) {
-                                              d3Renderer.render(false)
-                                            }
-                                            
-                                            // Gọi updateNodeHeight sau khi đã cập nhật width
-                                            requestAnimationFrame(() => {
-                                              const vueAppEntry = d3Renderer?.vueApps?.get(restoredNode.id)
-                                              if (vueAppEntry?.instance && typeof vueAppEntry.instance.updateNodeHeight === 'function') {
-                                                vueAppEntry.instance.updateNodeHeight()
-                                              }
-                                            })
-                                          } catch (e) {
-                                            console.error(`[Undo/Redo] ❌ Lỗi khi tính width cho node ${restoredNode.id}:`, e)
-                                          }
-                                        }
-                                        
-                                        // Tính và cập nhật width ngay lập tức (không đợi DOM update)
-                                        calculateAndUpdateWidth()
-                                        
-                                        console.log(`[Undo/Redo] ✅ Đã insert nội dung cho node ${restoredNode.id}`)
-                                      } else {
-                                        console.warn(`[Undo/Redo] ⚠️ Editor state không hợp lệ sau requestAnimationFrame cho node ${restoredNode.id}`)
-                                      }
-                                    } catch (e) {
-                                      console.error(`[Undo/Redo] ❌ Lỗi khi setContent trong requestAnimationFrame cho node ${restoredNode.id}:`, e)
-                                    }
-                                  })
-                                } else {
-                                  console.warn(`[Undo/Redo] ⚠️ Document size không hợp lệ cho node ${restoredNode.id} (${currentDocSize})`)
-                                }
-                              } else {
-                                console.warn(`[Undo/Redo] ⚠️ Editor state không hợp lệ sau setTimeout cho node ${restoredNode.id}`)
-                              }
-                            } catch (e) {
-                              console.error(`[Undo/Redo] ❌ Lỗi khi setContent trong setTimeout cho node ${restoredNode.id}:`, e)
-                            }
-                          }, 100) // Đợi 100ms để đảm bảo không có transaction đang pending
-                        } else {
-                          console.warn(`[Undo/Redo] ⚠️ Document size không hợp lệ cho node ${restoredNode.id}`)
-                        }
-                      } else {
-                        console.warn(`[Undo/Redo] ⚠️ Editor state không hợp lệ sau khi đợi cho node ${restoredNode.id}`)
-                      }
-                    } catch (e) {
-                      console.error(`[Undo/Redo] ❌ Lỗi khi setContent cho node ${restoredNode.id}:`, e)
-                    }
-                  }, 200) // Tăng delay lên 200ms để đảm bảo editor sẵn sàng
-                } else {
-                  console.warn(`[Undo/Redo] ⚠️ Editor chưa sẵn sàng cho node ${restoredNode.id}, thử lại sau`)
-                  setTimeout(() => checkAndInsert(retries - 1), 150)
-                }
-              } catch (error) {
-                console.error(`[Undo/Redo] ❌ Lỗi khi insert nội dung cho node ${restoredNode.id}:`, error)
-                // Thử lại sau một chút
-                if (retries > 5) {
-                  setTimeout(() => checkAndInsert(retries - 1), 200)
-                }
-              }
-            } else {
-              console.warn(`[Undo/Redo] ⚠️ Editor instance không tồn tại hoặc không có setContent cho node ${restoredNode.id}`)
-            }
-          } else {
-            // Vue component chưa mount, thử lại sau
-            if (retries % 5 === 0) {
-              console.log(`[Undo/Redo] ⏳ Đợi Vue component mount cho node ${restoredNode.id}, còn ${retries} lần thử`)
-            }
-            setTimeout(() => checkAndInsert(retries - 1), 150)
-          }
+    if (d3Renderer) {
+      d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
+      
+      // ⚠️ OPTIMIZATION: So sánh snapshot để chỉ unmount các node thay đổi
+      // Tìm các node đã thay đổi (thêm, xóa, hoặc thay đổi nội dung)
+      const previousNodes = new Map()
+      d3Renderer.nodes.forEach(node => {
+        previousNodes.set(node.id, node)
+      })
+      
+      const changedNodeIds = new Set()
+      const newNodes = new Map()
+      nodes.value.forEach(node => {
+        newNodes.set(node.id, node)
+        const prevNode = previousNodes.get(node.id)
+        if (!prevNode) {
+          // Node mới được thêm
+          changedNodeIds.add(node.id)
+        } else if (prevNode.data?.label !== node.data?.label) {
+          // Node đã thay đổi nội dung
+          changedNodeIds.add(node.id)
+        }
+      })
+      
+      // Tìm các node đã bị xóa
+      previousNodes.forEach((node, id) => {
+        if (!newNodes.has(id)) {
+          changedNodeIds.add(id)
+        }
+      })
+      
+      // ⚠️ CRITICAL: Chỉ unmount các Vue components của node thay đổi
+      // Để tránh re-mount không cần thiết
+      changedNodeIds.forEach(nodeId => {
+        if (nodeId !== 'root') {
+          d3Renderer.unmountNodeEditor(nodeId)
+        }
+      })
+      
+      // ⚠️ OPTIMIZATION: Chỉ update data và render lại (không force full re-render)
+      // Nếu chỉ có một vài node thay đổi, có thể chỉ update chúng
+      const hasStructuralChanges = changedNodeIds.size > nodes.value.length * 0.3 // Nếu > 30% node thay đổi
+      
+      if (hasStructuralChanges || changedNodeIds.size === 0) {
+        // Nhiều node thay đổi hoặc không xác định được -> full re-render
+        d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+      } else {
+        // Chỉ update data và render lại (không force full re-render)
+        d3Renderer.nodes = nodes.value
+        d3Renderer.edges = edges.value
+        // Chỉ render lại (không phải initial render)
+        d3Renderer.render(false)
+      }
+      
+      await nextTick()
+      await new Promise(resolve => setTimeout(resolve, 200))
+      await nextTick()
+      
+      const nodesToUpdate = restoredNodes.filter(n => n.id !== 'root' && n.data?.label)
+      
+      if (nodesToUpdate.length > 0) {
+        const batchSize = 50
+        const batches = []
+        for (let i = 0; i < nodesToUpdate.length; i += batchSize) {
+          batches.push(nodesToUpdate.slice(i, i + batchSize))
         }
         
-        // Bắt đầu kiểm tra và insert
-        setTimeout(() => checkAndInsert(), 100)
+        for (const batch of batches) {
+          await Promise.all(batch.map(async (restoredNode) => {
+            const maxRetries = 10
+            let retries = maxRetries
+            
+            while (retries > 0) {
+              const container = document.querySelector(`[data-node-id="${restoredNode.id}"]`)
+              const hasVueComponent = container && container.querySelector('.mindmap-node-editor')
+              
+              if (hasVueComponent) {
+                const editor = d3Renderer.getEditorInstance(restoredNode.id)
+                if (editor && typeof editor.commands?.setContent === 'function' && editor.view?.state?.doc) {
+                  try {
+                    const content = restoredNode.data.label || ''
+                    editor.commands.setContent(content, false)
+                    
+                    const node = nodes.value.find(n => n.id === restoredNode.id)
+                    if (node && node.data) {
+                      delete node.data.fixedWidth
+                    }
+                    
+                    const d3Node = d3Renderer.nodes.find(n => n.id === restoredNode.id)
+                    if (d3Node && d3Node.data) {
+                      delete d3Node.data.fixedWidth
+                    }
+                    
+                    if (d3Renderer?.nodeSizeCache) {
+                      d3Renderer.nodeSizeCache.delete(restoredNode.id)
+                    }
+                    
+                    const editorContent = editor.view.dom.querySelector('.mindmap-editor-prose')
+                    if (editorContent) {
+                      editorContent.style.removeProperty('width')
+                      editorContent.style.width = '100%'
+                      editorContent.style.maxWidth = '100%'
+                    }
+                    
+                    break
+                  } catch (e) {
+                    console.error(`[Undo/Redo] ❌ Lỗi khi setContent cho node ${restoredNode.id}:`, e)
+                  }
+                }
+              }
+              
+              retries--
+              if (retries > 0) {
+                await new Promise(resolve => setTimeout(resolve, 50))
+              }
+            }
+          }))
+          
+          await new Promise(resolve => setTimeout(resolve, 50))
+        }
+        
+        await nextTick()
+        if (d3Renderer) {
+          d3Renderer.render(false)
+        }
       }
-    })
+    }
+  } finally {
+    isRestoringSnapshot.value = false
   }
   
-  // Lưu lại sau khi restore
   scheduleSave()
 }
 
@@ -3704,6 +3454,9 @@ const edges = computed(() => elements.value.filter(el => el.source && el.target)
 // Watch nodes/edges changes to update D3 renderer
 // KHÔNG update khi đang edit để tránh node nháy và text nhảy dòng
 watch([nodes, edges], () => {
+  if (isRestoringSnapshot.value) {
+    return
+  }
   if (d3Renderer && !editingNode.value) {
     updateD3Renderer()
   }
@@ -3724,11 +3477,44 @@ const saveLayoutResource = createResource({
   }
 })
 
+// Save immediately (synchronous)
+const saveImmediately = () => {
+  if (!mindmap.data || elements.value.length === 0) return
+  
+  if (!permissions.value.write) {
+    return
+  }
+
+  const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
+    const nodeWithPos = { ...node }
+    if (d3Renderer && d3Renderer.positions) {
+      const pos = d3Renderer.positions.get(node.id)
+      if (pos) {
+        nodeWithPos.position = { ...pos }
+      }
+    }
+    if (nodeCreationOrder.value.has(node.id)) {
+      const order = nodeCreationOrder.value.get(node.id)
+      if (!nodeWithPos.data) {
+        nodeWithPos.data = {}
+      }
+      nodeWithPos.data.order = order
+    }
+    return nodeWithPos
+  })
+
+  saveLayoutResource.submit({
+    entity_name: props.entityName,
+    nodes: JSON.stringify(nodesWithPositions),
+    edges: JSON.stringify(edges.value),
+    layout: "horizontal"
+  })
+}
+
 // Schedule save
 const scheduleSave = () => {
   if (!mindmap.data) return
   
-  // Kiểm tra quyền write trước khi lưu
   if (!permissions.value.write) {
     return
   }
@@ -3739,34 +3525,7 @@ const scheduleSave = () => {
 
   saveTimeout = setTimeout(() => {
     isSaving.value = true
-
-    // Get positions from D3 renderer if available
-    // ⚠️ CRITICAL: Lưu cả order từ nodeCreationOrder để giữ thứ tự các node cùng cấp
-    const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
-      const nodeWithPos = { ...node }
-      if (d3Renderer && d3Renderer.positions) {
-        const pos = d3Renderer.positions.get(node.id)
-        if (pos) {
-          nodeWithPos.position = { ...pos }
-        }
-      }
-      // ⚠️ CRITICAL: Lưu order từ nodeCreationOrder vào node data
-      if (nodeCreationOrder.value.has(node.id)) {
-        const order = nodeCreationOrder.value.get(node.id)
-        if (!nodeWithPos.data) {
-          nodeWithPos.data = {}
-        }
-        nodeWithPos.data.order = order
-      }
-      return nodeWithPos
-    })
-
-    saveLayoutResource.submit({
-      entity_name: props.entityName,
-      nodes: JSON.stringify(nodesWithPositions),
-      edges: JSON.stringify(edges.value),
-      layout: "horizontal"
-    })
+    saveImmediately()
   }, SAVE_DELAY)
 }
 
@@ -3876,6 +3635,36 @@ function reloadPageNow() {
     permissionModalTimer.value = null
   }
   window.location.reload()
+}
+
+const handleBeforeUnload = (e) => {
+  if (textInputSaveTimeout || saveTimeout) {
+    if (textInputSaveTimeout) {
+      clearTimeout(textInputSaveTimeout)
+      textInputSaveTimeout = null
+    }
+    if (saveTimeout) {
+      clearTimeout(saveTimeout)
+      saveTimeout = null
+    }
+    saveImmediately()
+  }
+}
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'hidden') {
+    if (textInputSaveTimeout || saveTimeout) {
+      if (textInputSaveTimeout) {
+        clearTimeout(textInputSaveTimeout)
+        textInputSaveTimeout = null
+      }
+      if (saveTimeout) {
+        clearTimeout(saveTimeout)
+        saveTimeout = null
+      }
+      saveImmediately()
+    }
+  }
 }
 
 // ⭐ Handle socket permission revoked event
@@ -3995,10 +3784,12 @@ onMounted(() => {
     socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
     socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
     socket.on('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
+    socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
     
     // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
     socket.on('connect', () => {
       socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
+      socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
     })
     
     
@@ -4007,6 +3798,10 @@ onMounted(() => {
   }
 
   window.addEventListener("click", handleClickOutside, true)
+  window.addEventListener("paste", handlePasteEvent, true)
+  
+  window.addEventListener('beforeunload', handleBeforeUnload)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
@@ -4034,11 +3829,18 @@ onBeforeUnmount(() => {
       })
     }
   }
+  
+  if (textInputSaveTimeout) {
+    clearTimeout(textInputSaveTimeout)
+    saveImmediately()
+    textInputSaveTimeout = null
+  }
   // ⚠️ NEW: Cleanup socket listeners với safety check
   if (socket) {
     socket.off('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
     socket.off("permission_revoked", handleSocketPermissionRevoked)
     socket.off("connect")
+    socket.off('drive_mindmap:updated', handleRealtimeMindmapUpdate)
   }
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
   socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
@@ -4046,6 +3848,9 @@ onBeforeUnmount(() => {
   socket.off('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
 
   window.removeEventListener("click", handleClickOutside, true)
+  window.removeEventListener("paste", handlePasteEvent, true)
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onUnmounted(() => {
@@ -4760,16 +4565,6 @@ function handleContextMenuAction({ type, node }) {
   }
 }
 
-onMounted(() => {
-  window.addEventListener("click", handleClickOutside, true)
-  // ⚠️ NEW: Thêm event listener cho paste event để xử lý paste từ clipboard hệ thống
-  window.addEventListener("paste", handlePasteEvent, true)
-})
-
-onBeforeUnmount(() => {
-  window.removeEventListener("click", handleClickOutside, true)
-  window.removeEventListener("paste", handlePasteEvent, true)
-})
 
 function handleClickOutside(e) {
   // Đóng context menu khi click outside (trừ khi click vào context menu)
@@ -4807,6 +4602,13 @@ function handleClickOutside(e) {
       }
       // Clear editingNode ngay lập tức để đảm bảo editor được đóng
       editingNode.value = null
+      
+      // ⚠️ NEW: Lưu ngay khi click ra ngoài (nếu có thay đổi chưa lưu)
+      if (textInputSaveTimeout) {
+        clearTimeout(textInputSaveTimeout)
+        scheduleSave()
+        textInputSaveTimeout = null
+      }
     }
   }
 
@@ -5874,6 +5676,519 @@ function handleRealtimeUnresolvedComment(payload){
           li.setAttribute("data-has-count", "true")
         }      
     }
+  }
+}
+
+function handleRealtimeMindmapUpdate(payload) {
+  if (!payload) return
+  
+  if (payload.entity_name !== props.entityName) return
+  
+  const currentUser = store.state.user.id
+  if (payload.modified_by === currentUser) {
+    return
+  }
+  
+  if (isSaving.value) {
+    console.log('⏸️ Đang lưu, bỏ qua update từ remote')
+    return
+  }
+  
+  console.log('📡 Nhận update mindmap từ remote:', payload.modified_by)
+  
+  const remoteNodes = payload.nodes || []
+  const remoteEdges = payload.edges || []
+  
+  if (!Array.isArray(remoteNodes) || !Array.isArray(remoteEdges)) {
+    console.warn('⚠️ Invalid remote data format')
+    return
+  }
+  
+  const localNodesMap = new Map(nodes.value.map(n => [n.id, n]))
+  const localEdgesMap = new Map(edges.value.map(e => [`${e.source}-${e.target}`, e]))
+  
+  const editingNodeId = editingNode.value
+  const selectedNodeId = selectedNode.value?.id
+  
+  const updatedNodes = []
+  const updatedEdges = []
+  
+  remoteNodes.forEach(remoteNode => {
+    const localNode = localNodesMap.get(remoteNode.id)
+    
+    if (!localNode) {
+      const newNode = { ...remoteNode }
+      if (remoteNode.data?.order !== undefined) {
+        if (!nodeCreationOrder.value.has(remoteNode.id)) {
+          nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
+        }
+      }
+      updatedNodes.push(newNode)
+    } else {
+      const isNodeBeingEdited = remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId
+      
+      if (isNodeBeingEdited) {
+        const mergedNode = { ...localNode }
+        if (remoteNode.data && !localNode.data) {
+          mergedNode.data = { ...remoteNode.data }
+        } else if (remoteNode.data && localNode.data) {
+          mergedNode.data = { ...localNode.data, ...remoteNode.data }
+          if (localNode.data.label && remoteNode.data.label !== localNode.data.label) {
+            mergedNode.data.label = localNode.data.label
+          }
+          if (localNode.data.order !== undefined) {
+            mergedNode.data.order = localNode.data.order
+          }
+        }
+        if (remoteNode.position && !localNode.position) {
+          mergedNode.position = { ...remoteNode.position }
+        } else if (remoteNode.position && localNode.position) {
+          mergedNode.position = { ...localNode.position }
+        }
+        updatedNodes.push(mergedNode)
+      } else {
+        const mergedNode = { ...remoteNode }
+        if (localNode.position && d3Renderer?.positions?.get(remoteNode.id)) {
+          mergedNode.position = { ...localNode.position }
+        }
+        if (remoteNode.data?.order !== undefined) {
+          if (!nodeCreationOrder.value.has(remoteNode.id)) {
+            nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
+          }
+        }
+        updatedNodes.push(mergedNode)
+      }
+    }
+  })
+  
+  remoteEdges.forEach(remoteEdge => {
+    const edgeKey = `${remoteEdge.source}-${remoteEdge.target}`
+    const localEdge = localEdgesMap.get(edgeKey)
+    
+    if (!localEdge) {
+      updatedEdges.push({ ...remoteEdge })
+    } else {
+      updatedEdges.push({ ...localEdge, ...remoteEdge })
+    }
+  })
+  
+  const rootNode = updatedNodes.find(n => n.id === 'root' || n.data?.isRoot)
+  if (!rootNode) {
+    const existingRoot = nodes.value.find(n => n.id === 'root' || n.data?.isRoot)
+    if (existingRoot) {
+      updatedNodes.unshift(existingRoot)
+    }
+  }
+  
+  elements.value = [...updatedNodes, ...updatedEdges]
+  
+  if (d3Renderer) {
+    nextTick(() => {
+      // ⚠️ NEW: Xóa cache kích thước của các node có nội dung thay đổi để tính toán lại
+      updatedNodes.forEach(updatedNode => {
+        const localNode = localNodesMap.get(updatedNode.id)
+        if (localNode && localNode.data?.label !== updatedNode.data?.label) {
+          // Nội dung đã thay đổi → xóa cache để tính toán lại kích thước
+          d3Renderer.nodeSizeCache.delete(updatedNode.id)
+        }
+      })
+      
+      const nodesToUpdate = []
+      updatedNodes.forEach(updatedNode => {
+        const isNodeBeingEdited = updatedNode.id === editingNodeId || updatedNode.id === selectedNodeId
+        if (!isNodeBeingEdited && updatedNode.data?.label) {
+          const localNode = localNodesMap.get(updatedNode.id)
+          if (localNode && localNode.data?.label !== updatedNode.data.label) {
+            nodesToUpdate.push(updatedNode)
+            const node = d3Renderer.nodes.find((n) => n.id === updatedNode.id)
+            if (node) {
+              node.data.label = updatedNode.data.label
+              if (node.data.fixedWidth || node.data.fixedHeight) {
+                delete node.data.fixedWidth
+                delete node.data.fixedHeight
+              }
+              d3Renderer.nodeSizeCache.delete(updatedNode.id)
+            }
+          }
+        }
+      })
+      
+      d3Renderer.setData(updatedNodes, updatedEdges, nodeCreationOrder.value)
+      d3Renderer.render()
+      
+      nodesToUpdate.forEach(updatedNode => {
+        const editorInstance = d3Renderer.getEditorInstance(updatedNode.id)
+        if (editorInstance && !editorInstance.isDestroyed) {
+          try {
+            editorInstance.commands.setContent(updatedNode.data.label, false)
+            
+            requestAnimationFrame(() => {
+              setTimeout(() => {
+                requestAnimationFrame(() => {
+                  const nodeGroup = d3Renderer.g.select(`[data-node-id="${updatedNode.id}"]`)
+                  if (!nodeGroup.empty()) {
+                    const rect = nodeGroup.select('.node-rect')
+                    const fo = nodeGroup.select('.node-text')
+                    
+                    if (!rect.empty() && !fo.empty()) {
+                      const editorDOM = editorInstance.view?.dom
+                      const editorContent = editorDOM?.querySelector('.mindmap-editor-prose') || editorDOM
+                      const isRootNode = updatedNode.data?.isRoot || updatedNode.id === 'root'
+                      
+                      if (editorContent) {
+                        const borderOffset = 4
+                        const maxWidth = 400
+                        const singleLineHeight = Math.ceil(19 * 1.4) + 16
+                        const currentWidth = parseFloat(rect.attr('width')) || 0
+                        const currentHeight = parseFloat(rect.attr('height')) || 0
+                        
+                        const hasImages = updatedNode.data?.label?.includes('<img') || updatedNode.data?.label?.includes('image-wrapper')
+                        
+                        let newSize
+                        if (hasImages) {
+                          newSize = { width: maxWidth, height: singleLineHeight }
+                        } else {
+                          newSize = d3Renderer.estimateNodeSize(updatedNode)
+                        }
+                        
+                        const foWidth = Math.max(0, newSize.width - borderOffset)
+                        
+                        rect.attr('width', newSize.width)
+                        rect.node()?.setAttribute('width', newSize.width)
+                        fo.attr('width', foWidth)
+                        fo.node()?.setAttribute('width', foWidth)
+                        
+                        editorContent.style.setProperty('box-sizing', 'border-box', 'important')
+                        editorContent.style.setProperty('width', `${foWidth}px`, 'important')
+                        editorContent.style.setProperty('height', 'auto', 'important')
+                        editorContent.style.setProperty('min-height', `${singleLineHeight}px`, 'important')
+                        editorContent.style.setProperty('max-height', 'none', 'important')
+                        editorContent.style.setProperty('overflow', 'visible', 'important')
+                        editorContent.style.setProperty('padding', '8px 16px', 'important')
+                        
+                        const whiteSpaceValue = (newSize.width >= maxWidth || hasImages) ? 'pre-wrap' : 'nowrap'
+                        editorContent.style.setProperty('white-space', whiteSpaceValue, 'important')
+                        editorContent.style.setProperty('overflow-wrap', 'break-word', 'important')
+                        
+                        const wrapperNode = fo.select('.node-content-wrapper').node()
+                        if (wrapperNode) {
+                          wrapperNode.style.setProperty('width', '100%', 'important')
+                          wrapperNode.style.setProperty('height', 'auto', 'important')
+                          wrapperNode.style.setProperty('min-height', '0', 'important')
+                          wrapperNode.style.setProperty('max-height', 'none', 'important')
+                          wrapperNode.style.setProperty('overflow', 'visible', 'important')
+                        }
+                        
+                        const containerNode = fo.select('.node-editor-container').node()
+                        if (containerNode) {
+                          containerNode.style.setProperty('width', '100%', 'important')
+                          containerNode.style.setProperty('height', 'auto', 'important')
+                          containerNode.style.setProperty('min-height', '0', 'important')
+                          containerNode.style.setProperty('max-height', 'none', 'important')
+                          containerNode.style.setProperty('overflow', 'visible', 'important')
+                        }
+                        
+                        void editorContent.offsetWidth
+                        void editorContent.offsetHeight
+                        void editorContent.scrollHeight
+                        
+                        setTimeout(() => {
+                          if (hasImages) {
+                            const images = editorContent.querySelectorAll('img')
+                            const allImagesLoaded = Array.from(images).every(img => img.complete && img.naturalHeight > 0)
+                            
+                            if (allImagesLoaded) {
+                              const heightResult = calculateNodeHeightWithImages({
+                                editorContent,
+                                nodeWidth: newSize.width,
+                                htmlContent: updatedNode.data.label,
+                                singleLineHeight
+                              })
+                              newSize.height = heightResult.height
+                            } else {
+                              const imageLoadPromises = Array.from(images)
+                                .filter(img => !img.complete || img.naturalHeight === 0)
+                                .map(img => new Promise((resolve) => {
+                                  if (img.complete && img.naturalHeight > 0) {
+                                    resolve()
+                                  } else {
+                                    img.addEventListener('load', resolve, { once: true })
+                                    img.addEventListener('error', () => {
+                                      resolve()
+                                    }, { once: true })
+                                  }
+                                }))
+                              
+                              Promise.all(imageLoadPromises).then(() => {
+                                setTimeout(() => {
+                                  const heightResult = calculateNodeHeightWithImages({
+                                    editorContent,
+                                    nodeWidth: newSize.width,
+                                    htmlContent: updatedNode.data.label,
+                                    singleLineHeight
+                                  })
+                                  newSize.height = heightResult.height
+                                  
+                                  d3Renderer.nodeSizeCache.set(updatedNode.id, newSize)
+                                  
+                                  const node = d3Renderer.nodes.find((n) => n.id === updatedNode.id)
+                                  if (node) {
+                                    if (!node.data) node.data = {}
+                                    if (!isRootNode) {
+                                      node.data.fixedWidth = newSize.width
+                                      node.data.fixedHeight = newSize.height
+                                    }
+                                  }
+                                  
+                                  if (!updatedNode.data) updatedNode.data = {}
+                                  if (!isRootNode) {
+                                    updatedNode.data.fixedWidth = newSize.width
+                                    updatedNode.data.fixedHeight = newSize.height
+                                  }
+                                  
+                                  rect.attr('height', newSize.height)
+                                  rect.node()?.setAttribute('height', newSize.height)
+                                  
+                                  const foHeight = Math.max(0, newSize.height - borderOffset)
+                                  fo.attr('height', foHeight)
+                                  fo.node()?.setAttribute('height', foHeight)
+                                  
+                                  if (wrapperNode) {
+                                    wrapperNode.style.setProperty('height', `${foHeight}px`, 'important')
+                                    wrapperNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                                  }
+                                  
+                                  if (containerNode) {
+                                    containerNode.style.setProperty('height', `${foHeight}px`, 'important')
+                                    containerNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                                  }
+                                  
+                                  editorContent.style.setProperty('width', `${foWidth}px`, 'important')
+                                  
+                                  nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                                  nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                                  nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                                  nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                                  nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                                  nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                                  nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
+                                  nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+                                  
+                                  updateD3RendererWithDelay()
+                                }, 20)
+                              })
+                              return
+                            }
+                          } else {
+                            const contentScrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
+                            newSize.height = Math.max(contentScrollHeight, singleLineHeight)
+                          }
+                          
+                          d3Renderer.nodeSizeCache.set(updatedNode.id, newSize)
+                          
+                          const node = d3Renderer.nodes.find((n) => n.id === updatedNode.id)
+                          if (node) {
+                            if (!node.data) node.data = {}
+                            if (!isRootNode) {
+                              node.data.fixedWidth = newSize.width
+                              node.data.fixedHeight = newSize.height
+                            }
+                          }
+                          
+                          if (!updatedNode.data) updatedNode.data = {}
+                          if (!isRootNode) {
+                            updatedNode.data.fixedWidth = newSize.width
+                            updatedNode.data.fixedHeight = newSize.height
+                          }
+                          
+                          rect.attr('width', newSize.width)
+                          rect.attr('height', newSize.height)
+                          rect.node()?.setAttribute('width', newSize.width)
+                          rect.node()?.setAttribute('height', newSize.height)
+                          
+                          const foWidth = Math.max(0, newSize.width - borderOffset)
+                          const foHeight = Math.max(0, newSize.height - borderOffset)
+                          fo.attr('width', foWidth)
+                          fo.attr('height', foHeight)
+                          fo.node()?.setAttribute('width', foWidth)
+                          fo.node()?.setAttribute('height', foHeight)
+                          
+                          const wrapperNode = fo.select('.node-content-wrapper').node()
+                          if (wrapperNode) {
+                            wrapperNode.style.setProperty('width', '100%', 'important')
+                            wrapperNode.style.setProperty('height', `${foHeight}px`, 'important')
+                            wrapperNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                            wrapperNode.style.setProperty('max-height', 'none', 'important')
+                            wrapperNode.style.setProperty('overflow', 'visible', 'important')
+                          }
+                          
+                          const containerNode = fo.select('.node-editor-container').node()
+                          if (containerNode) {
+                            containerNode.style.setProperty('width', '100%', 'important')
+                            containerNode.style.setProperty('height', `${foHeight}px`, 'important')
+                            containerNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                            containerNode.style.setProperty('max-height', 'none', 'important')
+                            containerNode.style.setProperty('overflow', 'visible', 'important')
+                          }
+                          
+                          editorContent.style.setProperty('width', `${foWidth}px`, 'important')
+                          
+                          nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                          nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                          nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                          nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                          nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                          nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                          nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
+                          nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+                          
+                          updateD3RendererWithDelay()
+                        }, 50)
+                      } else {
+                        const hasImages = updatedNode.data?.label?.includes('<img') || updatedNode.data?.label?.includes('image-wrapper')
+                        const maxWidth = 400
+                        const singleLineHeight = Math.ceil(19 * 1.4) + 16
+                        
+                        let newSize
+                        if (hasImages) {
+                          newSize = { width: maxWidth, height: singleLineHeight }
+                        } else {
+                          newSize = d3Renderer.estimateNodeSize(updatedNode)
+                        }
+                        
+                        const node = d3Renderer.nodes.find((n) => n.id === updatedNode.id)
+                        if (node) {
+                          if (!node.data) node.data = {}
+                          if (!isRootNode) {
+                            node.data.fixedWidth = newSize.width
+                            if (hasImages) {
+                              setTimeout(() => {
+                                const updatedSize = d3Renderer.estimateNodeSize(updatedNode)
+                                node.data.fixedHeight = updatedSize.height
+                                if (!updatedNode.data) updatedNode.data = {}
+                                updatedNode.data.fixedWidth = updatedSize.width
+                                updatedNode.data.fixedHeight = updatedSize.height
+                                d3Renderer.nodeSizeCache.set(updatedNode.id, updatedSize)
+                                
+                                const borderOffset = 4
+                                rect.attr('width', updatedSize.width)
+                                rect.attr('height', updatedSize.height)
+                                fo.attr('width', Math.max(0, updatedSize.width - borderOffset))
+                                fo.attr('height', Math.max(0, updatedSize.height - borderOffset))
+                                
+                                nodeGroup.select('.add-child-btn').attr('cx', updatedSize.width + 20).attr('cy', updatedSize.height / 2)
+                                nodeGroup.select('.add-child-text').attr('x', updatedSize.width + 20).attr('y', updatedSize.height / 2)
+                                nodeGroup.select('.collapse-btn-number').attr('cx', updatedSize.width + 20).attr('cy', updatedSize.height / 2)
+                                nodeGroup.select('.collapse-text-number').attr('x', updatedSize.width + 20).attr('y', updatedSize.height / 2)
+                                nodeGroup.select('.collapse-btn-arrow').attr('cx', updatedSize.width + 20).attr('cy', updatedSize.height / 2)
+                                nodeGroup.select('.collapse-arrow').attr('transform', `translate(${updatedSize.width + 20}, ${updatedSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                                nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', updatedSize.width).attr('height', updatedSize.height)
+                                nodeGroup.select('.node-hover-layer').attr('width', updatedSize.width + 40).attr('height', updatedSize.height)
+                                
+                                updateD3RendererWithDelay()
+                              }, 200)
+                            } else {
+                              node.data.fixedHeight = newSize.height
+                            }
+                          }
+                        }
+                        
+                        if (!updatedNode.data) updatedNode.data = {}
+                        if (!isRootNode) {
+                          updatedNode.data.fixedWidth = newSize.width
+                          if (!hasImages) {
+                            updatedNode.data.fixedHeight = newSize.height
+                          }
+                        }
+                        
+                        d3Renderer.nodeSizeCache.set(updatedNode.id, newSize)
+                        
+                        const borderOffset = 4
+                        rect.attr('width', newSize.width)
+                        rect.attr('height', newSize.height)
+                        fo.attr('width', Math.max(0, newSize.width - borderOffset))
+                        fo.attr('height', Math.max(0, newSize.height - borderOffset))
+                        
+                        nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                        nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                        nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                        nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                        nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                        nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                        nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
+                        nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+                        
+                        if (!hasImages) {
+                          updateD3RendererWithDelay()
+                        }
+                      }
+                    }
+                  }
+                })
+              }, 150)
+            })
+          } catch (err) {
+            console.error('Error updating editor from remote:', err)
+          }
+        } else {
+          d3Renderer.updateNodeLabelFromExternal(updatedNode.id, updatedNode.data.label)
+          
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              const nodeGroup = d3Renderer.g.select(`[data-node-id="${updatedNode.id}"]`)
+              if (!nodeGroup.empty()) {
+                const rect = nodeGroup.select('.node-rect')
+                const fo = nodeGroup.select('.node-text')
+                
+                if (!rect.empty() && !fo.empty()) {
+                  const newSize = d3Renderer.estimateNodeSize(updatedNode)
+                  
+                  const node = d3Renderer.nodes.find((n) => n.id === updatedNode.id)
+                  if (node) {
+                    if (!node.data) node.data = {}
+                    const isRootNode = updatedNode.data?.isRoot || updatedNode.id === 'root'
+                    if (!isRootNode) {
+                      node.data.fixedWidth = newSize.width
+                      node.data.fixedHeight = newSize.height
+                    }
+                  }
+                  
+                  if (!updatedNode.data) updatedNode.data = {}
+                  const isRootNode = updatedNode.data?.isRoot || updatedNode.id === 'root'
+                  if (!isRootNode) {
+                    updatedNode.data.fixedWidth = newSize.width
+                    updatedNode.data.fixedHeight = newSize.height
+                  }
+                  
+                  d3Renderer.nodeSizeCache.set(updatedNode.id, newSize)
+                  
+                  const borderOffset = 4
+                  rect.attr('width', newSize.width)
+                  rect.attr('height', newSize.height)
+                  fo.attr('width', Math.max(0, newSize.width - borderOffset))
+                  fo.attr('height', Math.max(0, newSize.height - borderOffset))
+                  
+                  nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                  nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                  nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                  nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                  nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                  nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                  nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
+                  nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+                  
+                  updateD3RendererWithDelay()
+                }
+              }
+            }, 200)
+          })
+        }
+      })
+    })
+  }
+  
+  if (currentView.value === 'text') {
+    textViewVersion.value++
   }
 }
 

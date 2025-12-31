@@ -235,7 +235,7 @@ function normalizeColor(color) {
 
 function getHighlightFromDOM(editor, pos) {
   const dom = editor?.view?.nodeDOM?.(pos)
-  if (!dom) return null
+  if (!dom || typeof dom.querySelector !== 'function') return null
 
   const inlineSpan = dom.querySelector(
     "span[data-inline-root] > span"
@@ -279,16 +279,16 @@ const highlightColors = [
 
 function applyHighlight(color) {
   const rootEl = props.editor?.view?.nodeDOM?.(props.getPos?.())
-  if (!rootEl) return
+  if (!rootEl || typeof rootEl.closest !== 'function') return
 
   const mmNode = rootEl.closest("p.mm-node")
-  if (!mmNode) return
+  if (!mmNode || typeof mmNode.querySelector !== 'function') return
 
   const li = mmNode.closest("li[data-node-id]")
   if (!li) return
 
   const inlineRoot = mmNode.querySelector("span[data-inline-root='true']")
-  if (!inlineRoot) return
+  if (!inlineRoot || typeof inlineRoot.querySelector !== 'function') return
 
   let innerSpan = inlineRoot.querySelector("span")
 
@@ -373,7 +373,7 @@ const highlightBg = computed(() => {
 
   // nếu content đã có inline background → KHÔNG render bg ở NodeView
   const dom = props.editor?.view?.nodeDOM?.(pos)
-  if (dom) {
+  if (dom && typeof dom.querySelector === 'function') {
     const hasInlineBg = dom.querySelector(
       "span[style*='background-color']"
     )
