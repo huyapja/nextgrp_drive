@@ -851,34 +851,19 @@ class DriveFile(Document):
         self, user=None, read=None, comment=None, share=None, write=None, valid_until=""
     ):
         """
-        Share all children of this folder using SQL (non-recursive, much faster).
-        Uses a single query with path-based filtering to get all descendants.
+        Share all children of this folder recursively using parent_entity relationship.
+        Uses recursive CTE to get all descendants efficiently.
         """
-        # ✅ CÁCH 1: Dùng path để lấy tất cả descendants (Khuyến nghị)
-        # Path format: /parent1/parent2/current_folder/
-        # Tất cả children sẽ có path bắt đầu bằng path của folder hiện tại
+        try:
+            child_names = self._get_all_descendants_recursive(self.name)
+        except Exception as e:
+            print(f"WARNING: Recursive query failed, using iterative approach: {e}")
+            child_names = self._get_all_descendants_iterative(self.name)
 
-        if not self.path:
-            print(f"WARNING: Folder {self.name} has no path, skipping children share")
+        if not child_names:
+            print(f"DEBUG - No children found for folder {self.name}")
             return
 
-        # Lấy tất cả children trong một query
-        children = frappe.db.sql(
-            """
-            SELECT name 
-            FROM `tabDrive File`
-            WHERE path LIKE %s 
-            AND name != %s
-            AND is_active = 1
-            """,
-            (f"{self.path}%", self.name),
-            as_dict=1,
-        )
-
-        if not children:
-            return
-
-        child_names = [c.name for c in children]
         print(f"DEBUG - Sharing {len(child_names)} children of {self.name}")
 
         # ✅ Chuẩn bị dữ liệu để bulk insert/update
@@ -999,6 +984,70 @@ class DriveFile(Document):
 
         frappe.db.commit()
         print(f"DEBUG - Successfully shared {len(child_names)} children")
+
+    def _get_all_descendants_recursive(self, parent_name):
+        """
+        Get all descendants using recursive CTE (Common Table Expression).
+        Much faster than iterative approach for deep folder structures.
+        """
+        try:
+            result = frappe.db.sql(
+                """
+                WITH RECURSIVE descendants AS (
+                    SELECT name, parent_entity, is_group
+                    FROM `tabDrive File`
+                    WHERE parent_entity = %(parent)s
+                    AND is_active = 1
+                    
+                    UNION ALL
+                    
+                    SELECT f.name, f.parent_entity, f.is_group
+                    FROM `tabDrive File` f
+                    INNER JOIN descendants d ON f.parent_entity = d.name
+                    WHERE f.is_active = 1
+                )
+                SELECT name FROM descendants
+                """,
+                {"parent": parent_name},
+                as_list=True,
+            )
+            return [row[0] for row in result]
+        except Exception as e:
+            raise e
+
+    def _get_all_descendants_iterative(self, parent_name, max_depth=50):
+        """
+        Fallback: Get all descendants iteratively using parent_entity.
+        Used when recursive CTE is not supported or fails.
+        """
+        all_descendants = []
+        current_level = [parent_name]
+        level = 0
+
+        while current_level and level < max_depth:
+            children = frappe.db.sql(
+                """
+                SELECT name, is_group
+                FROM `tabDrive File`
+                WHERE parent_entity IN ({})
+                AND is_active = 1
+                """.format(
+                    ",".join(["%s"] * len(current_level))
+                ),
+                current_level,
+                as_dict=True,
+            )
+
+            if not children:
+                break
+
+            child_names = [c["name"] for c in children]
+            all_descendants.extend(child_names)
+
+            current_level = [c["name"] for c in children if c["is_group"]]
+            level += 1
+
+        return all_descendants
 
     @frappe.whitelist()
     def unshare(self, user=None):
