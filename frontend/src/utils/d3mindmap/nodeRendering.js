@@ -128,8 +128,10 @@ export function renderNodes(renderer, positions) {
     .append('g')
     .attr('class', 'node-group')
     .attr('data-node-id', d => d.id)
+    .attr('transform', 'translate(0, 0)') // Đặt ở (0,0) tạm thời
     .style('cursor', 'pointer')
-    .style('pointer-events', 'auto') // Cho phép click vào node
+    .style('opacity', 0) // Ẩn node mới cho đến khi có position
+    .style('pointer-events', 'none') // Disable pointer events cho đến khi có position
   
   // Add node rectangle
   nodesEnter.append('rect')
@@ -404,18 +406,35 @@ export function renderNodes(renderer, positions) {
   nodesUpdate
     .attr('transform', d => {
       const pos = positions.get(d.id)
-      if (!pos) return 'translate(0, 0)'
+      if (!pos) {
+        // Nếu chưa có position, đặt ở (0,0) tạm thời nhưng sẽ bị ẩn hoàn toàn
+        // Sử dụng translate với giá trị rất xa để đảm bảo không nhìn thấy
+        return 'translate(-9999, -9999)'
+      }
       return `translate(${pos.x}, ${pos.y})`
     })
     // Hide collapsed nodes instead of removing them
     // Also apply opacity for completed nodes or nodes with completed ancestor
     .style('opacity', d => {
       if (renderer.isNodeHidden(d.id)) return 0
+      // Nếu chưa có position, ẩn node hoàn toàn để tránh hiển thị ở (0,0)
+      const pos = positions.get(d.id)
+      if (!pos) return 0
       // Làm mờ node khi completed hoặc có ancestor completed
       return getNodeOpacity(d)
     })
     .style('pointer-events', d => {
-      return renderer.isNodeHidden(d.id) ? 'none' : 'auto'
+      if (renderer.isNodeHidden(d.id)) return 'none'
+      // Nếu chưa có position, disable pointer events
+      const pos = positions.get(d.id)
+      if (!pos) return 'none'
+      return 'auto'
+    })
+    .style('visibility', d => {
+      // Ẩn hoàn toàn node nếu chưa có position
+      const pos = positions.get(d.id)
+      if (!pos && !renderer.isNodeHidden(d.id)) return 'hidden'
+      return 'visible'
     })
   
   // Đảm bảo toàn bộ node-group (bao gồm nút thu gọn) luôn nằm trên edge
@@ -1197,35 +1216,57 @@ export function renderNodes(renderer, positions) {
         
         const children = renderer.edges.filter(e => e.source === d.id).map(e => e.target)
         
+        // Ẩn tất cả node con trước khi render để tránh hiển thị ở (0,0)
+        children.forEach(childId => {
+          const childNode = renderer.g.select(`[data-node-id="${childId}"]`)
+          if (!childNode.empty()) {
+            childNode.style('opacity', 0).style('pointer-events', 'none')
+          }
+        })
+        
         // CHỈ gọi onNodeCollapse, KHÔNG gọi onNodeAdd
         if (renderer.callbacks.onNodeCollapse) {
           renderer.callbacks.onNodeCollapse(d.id, false)
         }
         
-        // Re-render để cập nhật layout và buttons
-        renderer.render()
-        
-        // Sau khi render xong, force update opacity một lần nữa để đảm bảo
-        requestAnimationFrame(() => {
-          renderer.g.selectAll('.node-group')
-            .each(function(nodeData) {
-              const isHidden = renderer.isNodeHidden(nodeData.id)
-              const nodeEl = d3.select(this)
-              const shouldBeVisible = !isHidden
+        // Re-render để cập nhật layout và buttons - đợi render xong
+        renderer.render().then(() => {
+          // Đợi thêm một chút để đảm bảo DOM đã được update
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              renderer.g.selectAll('.node-group')
+                .each(function(nodeData) {
+                  const isHidden = renderer.isNodeHidden(nodeData.id)
+                  const nodeEl = d3.select(this)
+                  const shouldBeVisible = !isHidden
+                  const pos = renderer.positions?.get(nodeData.id)
+                  
+                  // Chỉ hiển thị node nếu đã có position và không bị ẩn
+                  if (shouldBeVisible && pos) {
+                    // Đảm bảo transform đã được set đúng
+                    nodeEl.attr('transform', `translate(${pos.x}, ${pos.y})`)
+                    nodeEl
+                      .transition()
+                      .duration(200)
+                      .style('opacity', getNodeOpacity(nodeData))
+                      .style('pointer-events', 'auto')
+                  } else {
+                    // Nếu chưa có position, giữ ẩn
+                    nodeEl
+                      .style('opacity', 0)
+                      .style('pointer-events', 'none')
+                  }
+                })
               
-              nodeEl
-                // Giữ opacity theo completed/ancestor completed thay vì luôn =1
-                .style('opacity', shouldBeVisible ? getNodeOpacity(nodeData) : 0)
-                .style('pointer-events', shouldBeVisible ? 'auto' : 'none')
+              renderer.g.selectAll('.edge')
+                .each(function(edgeData) {
+                  const isHidden = renderer.isNodeHidden(edgeData.target)
+                  d3.select(this)
+                    .style('opacity', isHidden ? 0 : 1)
+                    .style('pointer-events', isHidden ? 'none' : 'auto')
+                })
             })
-          
-          renderer.g.selectAll('.edge')
-            .each(function(edgeData) {
-              const isHidden = renderer.isNodeHidden(edgeData.target)
-              d3.select(this)
-                .style('opacity', isHidden ? 0 : 1)
-                .style('pointer-events', isHidden ? 'none' : 'auto')
-            })
+          })
         })
       } else {
       }
