@@ -26,7 +26,8 @@ def get_mindmap_data(entity_name):
         # Check permission
         if not frappe.has_permission("Drive File", "read", doc_drive):
             frappe.throw(
-                _("Bạn không có quyền truy cập sơ đồ tư duy này"), frappe.PermissionError
+                _("Bạn không có quyền truy cập sơ đồ tư duy này"),
+                frappe.PermissionError,
             )
 
         # Get Drive Mindmap document
@@ -175,7 +176,11 @@ def save_mindmap_data(entity_name, mindmap_data, **kwargs):
             mindmap_data_json = json.dumps(mindmap_data, ensure_ascii=False)
         else:
             mindmap_data_json = mindmap_data
-            mindmap_data = json.loads(mindmap_data) if isinstance(mindmap_data, str) else mindmap_data
+            mindmap_data = (
+                json.loads(mindmap_data)
+                if isinstance(mindmap_data, str)
+                else mindmap_data
+            )
 
         doc.mindmap_data = mindmap_data_json
         doc.save(ignore_permissions=True)
@@ -183,7 +188,11 @@ def save_mindmap_data(entity_name, mindmap_data, **kwargs):
 
         nodes = mindmap_data.get("nodes", []) if isinstance(mindmap_data, dict) else []
         edges = mindmap_data.get("edges", []) if isinstance(mindmap_data, dict) else []
-        layout = mindmap_data.get("layout", "horizontal") if isinstance(mindmap_data, dict) else "horizontal"
+        layout = (
+            mindmap_data.get("layout", "horizontal")
+            if isinstance(mindmap_data, dict)
+            else "horizontal"
+        )
 
         message = {
             "entity_name": entity_name,
@@ -194,7 +203,7 @@ def save_mindmap_data(entity_name, mindmap_data, **kwargs):
             "modified": str(doc.modified),
             "modified_by": frappe.session.user,
         }
-        
+
         try:
             frappe.publish_realtime(
                 event="drive_mindmap:updated",
@@ -202,7 +211,9 @@ def save_mindmap_data(entity_name, mindmap_data, **kwargs):
                 after_commit=True,
             )
         except Exception as e:
-            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event")
+            frappe.log_error(
+                f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event"
+            )
 
         return {
             "status": "success",
@@ -267,7 +278,7 @@ def get_mindmap_permission_status(entity_name):
 
         # Get entity details
         entity = frappe.get_doc("Drive File", entity_name)
-        
+
         # Check if file is active (not deleted)
         if not entity.is_active:
             print(f"❌ File is inactive - file deleted!")
@@ -280,10 +291,12 @@ def get_mindmap_permission_status(entity_name):
                 "current_version": 0,
                 "cached_version": None,
             }
-        
+
         # Use entity.modified as version (or create a version field if needed)
         # For now, we'll use a combination of modified timestamp and permissions
-        current_version = hash(f"{entity.modified}_{frappe.has_permission('Drive File', doc=entity_name, ptype='write')}")
+        current_version = hash(
+            f"{entity.modified}_{frappe.has_permission('Drive File', doc=entity_name, ptype='write')}"
+        )
 
         # Check edit permission
         can_edit = frappe.has_permission("Drive File", doc=entity_name, ptype="write")
@@ -295,7 +308,9 @@ def get_mindmap_permission_status(entity_name):
 
         if cached_version is None:
             # First check - initialize cache
-            frappe.cache().set_value(cache_key, current_version, expires_in_sec=86400)  # 24 hours
+            frappe.cache().set_value(
+                cache_key, current_version, expires_in_sec=86400
+            )  # 24 hours
             return {
                 "can_edit": can_edit,
                 "can_read": True,
@@ -324,7 +339,10 @@ def get_mindmap_permission_status(entity_name):
         }
 
     except Exception as e:
-        frappe.log_error(f"❌ Error checking mindmap permission status: {str(e)}", "Get Mindmap Permission Status Error")
+        frappe.log_error(
+            f"❌ Error checking mindmap permission status: {str(e)}",
+            "Get Mindmap Permission Status Error",
+        )
         frappe.throw(str(e))
 
 
@@ -374,7 +392,7 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
             "modified": str(mindmap_doc.modified),
             "modified_by": frappe.session.user,
         }
-        
+
         try:
             frappe.publish_realtime(
                 event="drive_mindmap:updated",
@@ -382,7 +400,9 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
                 after_commit=True,
             )
         except Exception as e:
-            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event")
+            frappe.log_error(
+                f"Error emitting realtime event: {str(e)}", "Emit Mindmap Update Event"
+            )
 
         return {"success": True, "message": _("Layout saved successfully")}
 
@@ -392,60 +412,80 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
 
 
 @frappe.whitelist()
-def save_mindmap_node(entity_name, node_id, node_data):
+def save_mindmap_node(entity_name, node_id, node_data, edge_data=None):
     """
     Lưu một node cụ thể trong mindmap
-    
+
     :param entity_name: Drive File entity name
     :param node_id: ID của node cần cập nhật
     :param node_data: Dữ liệu node (dict hoặc JSON string)
+    :param edge_data: Dữ liệu edge mới (optional, cho node mới tạo)
     """
     try:
         doc_drive = frappe.get_doc("Drive File", entity_name)
-        
+
         if not doc_drive or not doc_drive.mindmap:
             frappe.throw(_("Mindmap not found"), frappe.DoesNotExistError)
-        
+
         if not frappe.has_permission("Drive File", "write", doc_drive):
             frappe.throw(_("No permission to edit"), frappe.PermissionError)
-        
+
         mindmap_doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
-        
+
         if isinstance(node_data, str):
             node_data = json.loads(node_data)
-        
+
+        if edge_data and isinstance(edge_data, str):
+            edge_data = json.loads(edge_data)
+
         current_data = {}
         if mindmap_doc.mindmap_data:
-            current_data = json.loads(mindmap_doc.mindmap_data) if isinstance(mindmap_doc.mindmap_data, str) else mindmap_doc.mindmap_data
-        
+            current_data = (
+                json.loads(mindmap_doc.mindmap_data)
+                if isinstance(mindmap_doc.mindmap_data, str)
+                else mindmap_doc.mindmap_data
+            )
+
         nodes = current_data.get("nodes", [])
         edges = current_data.get("edges", [])
         layout = current_data.get("layout", "horizontal")
-        
+
         node_found = False
         for i, node in enumerate(nodes):
             if node.get("id") == node_id:
                 nodes[i] = node_data
                 node_found = True
                 break
-        
+
         if not node_found:
             nodes.append(node_data)
-        
+
+            if edge_data:
+                edge_found = False
+                for i, edge in enumerate(edges):
+                    if edge.get("id") == edge_data.get("id"):
+                        edges[i] = edge_data
+                        edge_found = True
+                        break
+
+                if not edge_found:
+                    edges.append(edge_data)
+
         mindmap_data = {"nodes": nodes, "edges": edges, "layout": layout}
         mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
         mindmap_doc.save(ignore_permissions=True)
         frappe.db.commit()
-        
+
         message = {
             "entity_name": entity_name,
             "mindmap_id": mindmap_doc.name,
             "node_id": node_id,
             "node": node_data,
+            "edge": edge_data,
             "modified": str(mindmap_doc.modified),
             "modified_by": frappe.session.user,
         }
-        
+
         try:
             frappe.publish_realtime(
                 event="drive_mindmap:node_updated",
@@ -453,12 +493,96 @@ def save_mindmap_node(entity_name, node_id, node_data):
                 after_commit=True,
             )
         except Exception as e:
-            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Node Update Event")
-        
-        return {"success": True, "message": _("Node saved successfully"), "node": node_data}
-    
+            frappe.log_error(
+                f"Error emitting realtime event: {str(e)}", "Emit Node Update Event"
+            )
+
+        return {
+            "success": True,
+            "message": _("Node saved successfully"),
+            "node": node_data,
+        }
+
     except Exception as e:
         frappe.log_error(f"Save node error: {str(e)}", "Save Mindmap Node")
+        frappe.throw(str(e))
+
+
+@frappe.whitelist()
+def delete_mindmap_nodes(entity_name, node_ids):
+    """
+    Xóa nhiều nodes trong mindmap (dùng khi xóa node và subtree của nó)
+
+    :param entity_name: Drive File entity name
+    :param node_ids: List IDs của các nodes cần xóa (JSON string hoặc list)
+    """
+    try:
+        doc_drive = frappe.get_doc("Drive File", entity_name)
+
+        if not doc_drive or not doc_drive.mindmap:
+            frappe.throw(_("Mindmap not found"), frappe.DoesNotExistError)
+
+        if not frappe.has_permission("Drive File", "write", doc_drive):
+            frappe.throw(_("No permission to edit"), frappe.PermissionError)
+
+        mindmap_doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
+
+        if isinstance(node_ids, str):
+            node_ids = json.loads(node_ids)
+
+        current_data = {}
+        if mindmap_doc.mindmap_data:
+            current_data = (
+                json.loads(mindmap_doc.mindmap_data)
+                if isinstance(mindmap_doc.mindmap_data, str)
+                else mindmap_doc.mindmap_data
+            )
+
+        nodes = current_data.get("nodes", [])
+        edges = current_data.get("edges", [])
+        layout = current_data.get("layout", "horizontal")
+
+        # Xóa các nodes
+        nodes = [node for node in nodes if node.get("id") not in node_ids]
+
+        # Xóa tất cả edges liên quan đến các nodes này
+        edges = [
+            edge
+            for edge in edges
+            if edge.get("source") not in node_ids and edge.get("target") not in node_ids
+        ]
+
+        mindmap_data = {"nodes": nodes, "edges": edges, "layout": layout}
+        mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
+        mindmap_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": mindmap_doc.name,
+            "node_ids": node_ids,
+            "modified": str(mindmap_doc.modified),
+            "modified_by": frappe.session.user,
+        }
+
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:nodes_deleted",
+                message=message,
+                after_commit=True,
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Error emitting realtime event: {str(e)}", "Emit Nodes Delete Event"
+            )
+
+        return {
+            "success": True,
+            "message": _("Nodes deleted successfully"),
+        }
+
+    except Exception as e:
+        frappe.log_error(f"Delete nodes error: {str(e)}", "Delete Mindmap Nodes")
         frappe.throw(str(e))
 
 

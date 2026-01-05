@@ -1227,6 +1227,8 @@ const addChildToNode = async (parentId) => {
   // Để snapshot có node mới, tránh mất node khi undo sau formatting
   saveSnapshot()
 
+  changedNodeIds.value.add(newNodeId)
+
   selectedNode.value = newNode
 
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
@@ -1400,6 +1402,7 @@ const addSiblingToNode = async (nodeId) => {
 
   // ✅ FIX: Store creation order
   nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+  changedNodeIds.value.add(newNodeId)
 
   // Add node and edge
   elements.value = [
@@ -1947,7 +1950,11 @@ const performDelete = async (nodeId) => {
 
   // Update D3 renderer after deletion
   updateD3Renderer()
-  scheduleSave()
+  
+  deleteNodesResource.submit({
+    entity_name: props.entityName,
+    node_ids: JSON.stringify(Array.from(nodesToDelete))
+  })
 }
 
 // Đóng dialog xóa
@@ -3466,22 +3473,20 @@ watch([nodes, edges], () => {
 }, { deep: true })
 
 // Save resource
-const saveLayoutResource = createResource({
-  url: "drive.api.mindmap.save_mindmap_layout",
+const saveNodeResource = createResource({
+  url: "drive.api.mindmap.save_mindmap_node",
   method: "POST",
   onSuccess(response) {
     isSaving.value = false
     lastSaved.value = formatTime(new Date())
-    
   },
   onError(error) {
     isSaving.value = false
-    
   }
 })
 
-const saveNodeResource = createResource({
-  url: "drive.api.mindmap.save_mindmap_node",
+const deleteNodesResource = createResource({
+  url: "drive.api.mindmap.delete_mindmap_nodes",
   method: "POST",
   onSuccess(response) {
     isSaving.value = false
@@ -3516,11 +3521,19 @@ const saveNode = (nodeId) => {
     nodeWithPos.data.order = order
   }
   
-  saveNodeResource.submit({
+  const edge = edges.value.find(e => e.target === nodeId)
+  
+  const params = {
     entity_name: props.entityName,
     node_id: nodeId,
     node_data: JSON.stringify(nodeWithPos)
-  })
+  }
+  
+  if (edge) {
+    params.edge_data = JSON.stringify(edge)
+  }
+  
+  saveNodeResource.submit(params)
   
   changedNodeIds.value.delete(nodeId)
 }
@@ -3535,31 +3548,6 @@ const saveImmediately = () => {
   if (changedNodeIds.value.size > 0) {
     changedNodeIds.value.forEach(nodeId => {
       saveNode(nodeId)
-    })
-  } else {
-    const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
-      const nodeWithPos = { ...node }
-      if (d3Renderer && d3Renderer.positions) {
-        const pos = d3Renderer.positions.get(node.id)
-        if (pos) {
-          nodeWithPos.position = { ...pos }
-        }
-      }
-      if (nodeCreationOrder.value.has(node.id)) {
-        const order = nodeCreationOrder.value.get(node.id)
-        if (!nodeWithPos.data) {
-          nodeWithPos.data = {}
-        }
-        nodeWithPos.data.order = order
-      }
-      return nodeWithPos
-    })
-
-    saveLayoutResource.submit({
-      entity_name: props.entityName,
-      nodes: JSON.stringify(nodesWithPositions),
-      edges: JSON.stringify(edges.value),
-      layout: "horizontal"
     })
   }
 }
@@ -3839,12 +3827,14 @@ onMounted(() => {
     socket.on('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
     // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
     socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
+    socket.on('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
     
     // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
     socket.on('connect', () => {
       socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
       // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
       socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
+      socket.on('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
     })
     
     
@@ -3874,15 +3864,7 @@ onBeforeUnmount(() => {
 
   if (saveTimeout) {
     clearTimeout(saveTimeout)
-
-    if (mindmap.data && elements.value.length > 0) {
-      saveLayoutResource.submit({
-        entity_name: props.entityName,
-        nodes: JSON.stringify(nodes.value),
-        edges: JSON.stringify(edges.value),
-        layout: "horizontal"
-      })
-    }
+    saveImmediately()
   }
   
   if (textInputSaveTimeout) {
@@ -3897,6 +3879,7 @@ onBeforeUnmount(() => {
     socket.off("connect")
     socket.off('drive_mindmap:updated', handleRealtimeMindmapUpdate)
     socket.off('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
+    socket.off('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
   }
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
   socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
@@ -4258,6 +4241,7 @@ function pasteToNode(targetNodeId) {
     // Store creation order cho tất cả nodes mới
     newNodes.forEach(node => {
       nodeCreationOrder.value.set(node.id, creationOrderCounter++)
+      changedNodeIds.value.add(node.id)
     })
 
     // Add nodes and edges
@@ -4372,6 +4356,7 @@ function pasteToNode(targetNodeId) {
 
   // Store creation order
   nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+  changedNodeIds.value.add(newNodeId)
 
   // Add node and edge
   elements.value = [
@@ -5774,6 +5759,16 @@ function handleRealtimeNodeUpdate(payload) {
     nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
   }
   
+  if (payload.edge) {
+    const remoteEdge = payload.edge
+    const edgeIndex = edges.value.findIndex(e => e.id === remoteEdge.id)
+    if (edgeIndex !== -1) {
+      edges.value[edgeIndex] = { ...remoteEdge }
+    } else {
+      edges.value.push({ ...remoteEdge })
+    }
+  }
+  
   if (d3Renderer) {
     nextTick(() => {
       d3Renderer.nodeSizeCache.delete(remoteNode.id)
@@ -6000,6 +5995,55 @@ function handleRealtimeNodeUpdate(payload) {
           console.error('Error updating node content:', err)
         }
       }
+    })
+  }
+}
+
+function handleRealtimeNodesDeleted(payload) {
+  if (!payload) return
+  
+  if (payload.entity_name !== props.entityName) return
+  
+  const currentUser = store.state.user.id
+  if (payload.modified_by === currentUser) {
+    return
+  }
+  
+  if (isSaving.value) {
+    console.log('⏸️ Đang lưu, bỏ qua delete từ remote')
+    return
+  }
+  
+  console.log('📡 Nhận xóa nodes từ remote:', payload.node_ids)
+  
+  const nodeIdsToDelete = payload.node_ids || []
+  if (!Array.isArray(nodeIdsToDelete) || nodeIdsToDelete.length === 0) {
+    return
+  }
+  
+  const editingNodeId = editingNode.value
+  const selectedNodeId = selectedNode.value?.id
+  
+  if (nodeIdsToDelete.includes(editingNodeId) || nodeIdsToDelete.includes(selectedNodeId)) {
+    selectedNode.value = null
+    editingNode.value = null
+  }
+  
+  const newNodes = nodes.value.filter(n => !nodeIdsToDelete.includes(n.id))
+  const newEdges = edges.value.filter(e => 
+    !nodeIdsToDelete.includes(e.source) && !nodeIdsToDelete.includes(e.target)
+  )
+  
+  nodeIdsToDelete.forEach(nodeId => {
+    nodeCreationOrder.value.delete(nodeId)
+  })
+  
+  elements.value = [...newNodes, ...newEdges]
+  
+  if (d3Renderer) {
+    nextTick(() => {
+      d3Renderer.setData(newNodes, newEdges, nodeCreationOrder.value)
+      d3Renderer.render()
     })
   }
 }
@@ -6730,6 +6774,7 @@ if (position === "tab_add_child") {
   if (newOrder == null) return
 
   nodeCreationOrder.value.set(newNodeId, newOrder)
+  changedNodeIds.value.add(newNodeId)
 
   const newNode = {
     id: newNodeId,
