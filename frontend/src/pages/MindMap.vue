@@ -353,6 +353,8 @@ const selectedNode = ref(null)
 const changedNodeIds = ref(new Set())
 const hoveredNode = ref(null)
 const editingNode = ref(null)
+const nodeEditingUsers = ref(new Map())
+const lastBroadcastState = ref(new Map())
 const showDeleteDialog = ref(false)
 const nodeToDelete = ref(null)
 const childCount = ref(0)
@@ -958,7 +960,20 @@ const initD3Renderer = () => {
       // textViewVersion.value++
     },
     onNodeEditingStart: (nodeId) => {
+      const editingUser = nodeEditingUsers.value.get(nodeId)
+      if (editingUser) {
+        toast({
+          title: `${editingUser.userName} đang chỉnh sửa node này`,
+          text: "Vui lòng đợi họ hoàn thành",
+          indicator: "orange",
+          timeout: 3
+        })
+        return false
+      }
+      
       editingNode.value = nodeId
+      broadcastNodeEditing(nodeId, true)
+      return true
     },
     onNodeEditingEnd: (nodeId) => {
       // Chỉ khi KẾT THÚC edit mới đổi tên file nếu là node root
@@ -988,11 +1003,15 @@ const initD3Renderer = () => {
             renameMindmapTitle(newTitle)
           }
 
-          // Lưu layout/nội dung node (scheduleSave đã có debounce)
-          scheduleSave()
+          // Chỉ lưu nếu node thực sự có thay đổi
+          if (changedNodeIds.value.has(finishedNodeId)) {
+            scheduleSave()
+          }
         }
       }
 
+      broadcastNodeEditing(finishedNodeId, false)
+      
       // Clear editingNode trước khi update để watch không bị trigger
       editingNode.value = null
 
@@ -3535,6 +3554,31 @@ const saveNodesBatchResource = createResource({
   }
 })
 
+const broadcastEditingResource = createResource({
+  url: "drive.api.mindmap.broadcast_node_editing",
+  method: "POST"
+})
+
+const broadcastNodeEditing = (nodeId, isEditing) => {
+  if (!mindmap.data) return
+  
+  const lastState = lastBroadcastState.value.get(nodeId)
+  
+  if (lastState === isEditing) {
+    console.log(`⏭️ Bỏ qua broadcast duplicate cho node ${nodeId}, state=${isEditing}`)
+    return
+  }
+  
+  console.log(`📡 Broadcasting editing state: node=${nodeId}, isEditing=${isEditing}`)
+  lastBroadcastState.value.set(nodeId, isEditing)
+  
+  broadcastEditingResource.submit({
+    entity_name: props.entityName,
+    node_id: nodeId,
+    is_editing: isEditing
+  })
+}
+
 const saveNode = (nodeId) => {
   if (!mindmap.data || !permissions.value.write) return
   
@@ -3585,6 +3629,8 @@ const saveImmediately = () => {
   }
 
   if (changedNodeIds.value.size > 0) {
+    isSaving.value = true
+    
     const nodeIdsArray = Array.from(changedNodeIds.value)
     
     if (nodeIdsArray.length > 3) {
@@ -3628,6 +3674,8 @@ const saveImmediately = () => {
           nodes_data: JSON.stringify(nodesToSave),
           edges_data: edgesToSave.length > 0 ? JSON.stringify(edgesToSave) : null
         })
+      } else {
+        isSaving.value = false
       }
       
       changedNodeIds.value.clear()
@@ -3636,6 +3684,8 @@ const saveImmediately = () => {
         saveNode(nodeId)
       })
     }
+  } else {
+    console.log('⏭️ Không có node nào thay đổi, bỏ qua save')
   }
 }
 
@@ -3652,7 +3702,6 @@ const scheduleSave = () => {
   }
 
   saveTimeout = setTimeout(() => {
-    isSaving.value = true
     saveImmediately()
   }, SAVE_DELAY)
 }
@@ -3916,15 +3965,16 @@ onMounted(() => {
     socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
     socket.on('drive_mindmap:nodes_updated_batch', handleRealtimeNodesBatchUpdate)
     socket.on('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
+    socket.on('drive_mindmap:node_editing', handleRealtimeNodeEditing)
     
     // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
-    socket.on('connect', () => {
-      socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
-      // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
-      socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
-      socket.on('drive_mindmap:nodes_updated_batch', handleRealtimeNodesBatchUpdate)
-      socket.on('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
-    })
+    // socket.on('connect', () => {
+    //   socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
+    //   // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
+    //   socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
+    //   socket.on('drive_mindmap:nodes_updated_batch', handleRealtimeNodesBatchUpdate)
+    //   socket.on('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
+    // })
     
     
   } else {
@@ -3970,11 +4020,18 @@ onBeforeUnmount(() => {
     socket.off('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
     socket.off('drive_mindmap:nodes_updated_batch', handleRealtimeNodesBatchUpdate)
     socket.off('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
+    socket.off('drive_mindmap:node_editing', handleRealtimeNodeEditing)
   }
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
   socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
   socket.off('drive_mindmap:node_resolved', handleRealtimeResolvedComment)
   socket.off('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
+  
+  if (editingNode.value) {
+    broadcastNodeEditing(editingNode.value, false)
+  }
+  
+  lastBroadcastState.value.clear()
 
   window.removeEventListener("click", handleClickOutside, true)
   window.removeEventListener("paste", handlePasteEvent, true)
@@ -5817,6 +5874,7 @@ function handleRealtimeNodeUpdate(payload) {
   
   const currentUser = store.state.user.id
   if (payload.modified_by === currentUser) {
+    console.log('⏸️ Bỏ qua update từ chính mình')
     return
   }
   
@@ -5825,28 +5883,42 @@ function handleRealtimeNodeUpdate(payload) {
     return
   }
   
-  console.log('📡 Nhận update node từ remote:', payload.node_id)
+  console.log('📡 Nhận update node từ remote:', payload.node_id, 'từ user:', payload.modified_by)
   
   const remoteNode = payload.node
-  if (!remoteNode) return
+  if (!remoteNode) {
+    console.log('❌ Remote node không tồn tại')
+    return
+  }
   
   const editingNodeId = editingNode.value
   const selectedNodeId = selectedNode.value?.id
   
-  if (remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId) {
-    console.log('⏸️ Node đang được edit, bỏ qua update')
-    return
-  }
+  console.log('🔍 Check editing state:', {
+    remoteNodeId: remoteNode.id,
+    editingNodeId,
+    selectedNodeId,
+    isLocalEditing: remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId
+  })
   
   const nodeIndex = nodes.value.findIndex(n => n.id === remoteNode.id)
+  const isNodeBeingEdited = remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId
+  
   if (nodeIndex !== -1) {
     nodes.value[nodeIndex] = { ...remoteNode }
+    console.log('✅ Đã cập nhật node vào nodes.value:', remoteNode.id)
   } else {
     nodes.value.push({ ...remoteNode })
+    console.log('✅ Đã thêm node mới vào nodes.value:', remoteNode.id)
   }
   
   if (remoteNode.data?.order !== undefined) {
     nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
+  }
+  
+  if (isNodeBeingEdited) {
+    console.log('⚠️ Node đang được LOCAL USER edit, bỏ qua render để không gián đoạn user')
+    return
   }
   
   if (payload.edge) {
@@ -6096,6 +6168,7 @@ function handleRealtimeNodesBatchUpdate(payload) {
   
   const currentUser = store.state.user.id
   if (payload.modified_by === currentUser) {
+    console.log('⏸️ Bỏ qua batch update từ chính mình')
     return
   }
   
@@ -6104,32 +6177,46 @@ function handleRealtimeNodesBatchUpdate(payload) {
     return
   }
   
-  console.log('📡 Nhận batch update nodes từ remote:', payload.node_ids)
+  console.log('📡 Nhận batch update nodes từ remote:', payload.node_ids, 'từ user:', payload.modified_by)
   
   const remoteNodes = payload.nodes || []
   const remoteEdges = payload.edges || []
   
   if (!Array.isArray(remoteNodes) || remoteNodes.length === 0) {
+    console.log('❌ Remote nodes rỗng hoặc không phải array')
     return
   }
   
   const editingNodeId = editingNode.value
   const selectedNodeId = selectedNode.value?.id
   
+  console.log('🔍 Check editing state (batch):', {
+    editingNodeId,
+    selectedNodeId
+  })
+  
+  const nodesToRender = []
+  
   remoteNodes.forEach(remoteNode => {
-    if (remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId) {
-      return
-    }
-    
+    const isNodeBeingEdited = remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId
     const nodeIndex = nodes.value.findIndex(n => n.id === remoteNode.id)
+    
     if (nodeIndex !== -1) {
       nodes.value[nodeIndex] = { ...remoteNode }
+      console.log('✅ Đã cập nhật node (batch):', remoteNode.id)
     } else {
       nodes.value.push({ ...remoteNode })
+      console.log('✅ Đã thêm node mới (batch):', remoteNode.id)
     }
     
     if (remoteNode.data?.order !== undefined) {
       nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
+    }
+    
+    if (!isNodeBeingEdited) {
+      nodesToRender.push(remoteNode)
+    } else {
+      console.log('⚠️ Node đang được LOCAL USER edit (batch), bỏ qua render:', remoteNode.id)
     }
   })
   
@@ -6144,9 +6231,9 @@ function handleRealtimeNodesBatchUpdate(payload) {
     })
   }
   
-  if (d3Renderer) {
+  if (d3Renderer && nodesToRender.length > 0) {
     nextTick(() => {
-      remoteNodes.forEach(remoteNode => {
+      nodesToRender.forEach(remoteNode => {
         d3Renderer.nodeSizeCache.delete(remoteNode.id)
       })
       
@@ -6202,6 +6289,79 @@ function handleRealtimeNodesDeleted(payload) {
       d3Renderer.setData(newNodes, newEdges, nodeCreationOrder.value)
       d3Renderer.render()
     })
+  }
+}
+
+function handleRealtimeNodeEditing(payload) {
+  if (!payload) return
+  
+  if (payload.entity_name !== props.entityName) return
+  
+  const currentUser = store.state.user.id
+  if (payload.user_id === currentUser) {
+    return
+  }
+  
+  console.log(`📝 User ${payload.user_name} ${payload.is_editing ? 'bắt đầu' : 'kết thúc'} edit node:`, payload.node_id)
+  
+  if (payload.is_editing) {
+    nodeEditingUsers.value.set(payload.node_id, {
+      userId: payload.user_id,
+      userName: payload.user_name
+    })
+  } else {
+    nodeEditingUsers.value.delete(payload.node_id)
+  }
+  
+  if (d3Renderer) {
+    const nodeGroup = d3Renderer.g.select(`[data-node-id="${payload.node_id}"]`)
+    if (!nodeGroup.empty()) {
+      const rect = nodeGroup.select('.node-rect')
+      if (!rect.empty()) {
+        if (payload.is_editing) {
+          rect
+            .style('stroke', '#f59e0b')
+            .style('stroke-width', '2px')
+            .attr('stroke-dasharray', '4 2')
+          
+          const existingBadge = nodeGroup.select('.editing-badge')
+          if (existingBadge.empty()) {
+            const badge = nodeGroup.append('g')
+              .attr('class', 'editing-badge')
+              .attr('transform', 'translate(10, -15)')
+            
+            const text = badge.append('text')
+              .attr('x', 0)
+              .attr('y', 14)
+              .style('fill', 'white')
+              .style('font-size', '11px')
+              .style('font-weight', 'bold')
+              .text(`${payload.user_name}`)
+            
+            const textBBox = text.node().getBBox()
+            const padding = 12
+            const badgeWidth = textBBox.width + padding * 2
+            
+            badge.insert('rect', 'text')
+              .attr('width', badgeWidth)
+              .attr('height', 20)
+              .attr('rx', 10)
+              .style('fill', '#f59e0b')
+            
+            text
+              .attr('x', badgeWidth / 2)
+              .attr('text-anchor', 'middle')
+          }
+        } else {
+          rect
+            .style('stroke', null)
+            .style('stroke-width', null)
+            .attr('stroke-dasharray', null)
+          
+          nodeGroup.select('.editing-badge').remove()
+        }
+      }
+    }
   }
 }
 

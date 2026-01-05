@@ -873,8 +873,13 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
 		}, 100) // Tăng delay lên 100ms để đảm bảo editor đã sẵn sàng
 	}
 	
-	if (renderer.callbacks.onNodeEditingStart) {
-		renderer.callbacks.onNodeEditingStart(nodeId)
+	// Chỉ gọi callback nếu chưa đang edit node này
+	if (renderer.callbacks.onNodeEditingStart && renderer.editingNode !== nodeId) {
+		const canEdit = renderer.callbacks.onNodeEditingStart(nodeId)
+		if (canEdit === false) {
+			editorInstance.blur()
+			return
+		}
 		renderer.editingNode = nodeId
 	}
 }
@@ -2012,11 +2017,14 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	// Update cache TRƯỚC KHI clear editingNode để đảm bảo cache được cập nhật
 	renderer.nodeSizeCache.set(nodeId, { width: finalWidth, height: finalHeight })
 	
+	// Trigger callback CHỈ NẾU node này đang được edit
+	const wasEditing = renderer.editingNode === nodeId
+	
 	// Clear editingNode SAU KHI update cache để tránh nháy
 	renderer.editingNode = null
 	
-	// Trigger callback
-	if (renderer.callbacks.onNodeEditingEnd) {
+	// Trigger callback chỉ khi thực sự đang edit node này (tránh gọi nhiều lần)
+	if (wasEditing && renderer.callbacks.onNodeEditingEnd) {
 		renderer.callbacks.onNodeEditingEnd(nodeId, finalValue)
 	}
 	

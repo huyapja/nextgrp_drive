@@ -524,6 +524,52 @@ def save_mindmap_node(entity_name, node_id, node_data, edge_data=None):
 
 
 @frappe.whitelist()
+def broadcast_node_editing(entity_name, node_id, is_editing):
+    """
+    Broadcast trạng thái editing của node đến các users khác
+
+    :param entity_name: Drive File entity name
+    :param node_id: ID của node đang được edit
+    :param is_editing: True nếu bắt đầu edit, False nếu kết thúc
+    """
+    try:
+        doc_drive = frappe.get_doc("Drive File", entity_name)
+
+        if not doc_drive or not doc_drive.mindmap:
+            return {"success": False}
+
+        if not frappe.has_permission("Drive File", "read", doc_drive):
+            return {"success": False}
+
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": doc_drive.mindmap,
+            "node_id": node_id,
+            "is_editing": is_editing,
+            "user_id": frappe.session.user,
+            "user_name": frappe.get_value("User", frappe.session.user, "full_name")
+            or frappe.session.user,
+        }
+
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:node_editing",
+                message=message,
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Error broadcasting editing status: {str(e)[:100]}",
+                "Broadcast Editing",
+            )
+
+        return {"success": True}
+
+    except Exception as e:
+        frappe.log_error(f"Broadcast editing: {str(e)[:100]}", "Broadcast Editing")
+        return {"success": False}
+
+
+@frappe.whitelist()
 def save_mindmap_nodes_batch(entity_name, nodes_data, edges_data=None):
     """
     Lưu nhiều nodes cùng lúc (batch operation)
