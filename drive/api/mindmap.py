@@ -475,7 +475,18 @@ def save_mindmap_node(entity_name, node_id, node_data, edge_data=None):
                             break
 
                     if not edge_found:
-                        edges.append(edge_data)
+                        # Validate: check for circular reference
+                        source = edge_data.get("source")
+                        target = edge_data.get("target")
+
+                        if source == target:
+                            frappe.log_error(
+                                f"Circular edge detected: {source} -> {target}",
+                                "Save Mindmap Node",
+                            )
+                            # Skip this edge
+                        else:
+                            edges.append(edge_data)
 
             mindmap_data = {"nodes": nodes, "edges": edges, "layout": layout}
             mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)

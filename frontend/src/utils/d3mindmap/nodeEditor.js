@@ -877,7 +877,14 @@ export function handleEditorFocus(renderer, nodeId, foElement, nodeData) {
 	if (renderer.callbacks.onNodeEditingStart && renderer.editingNode !== nodeId) {
 		const canEdit = renderer.callbacks.onNodeEditingStart(nodeId)
 		if (canEdit === false) {
-			editorInstance.blur()
+			// Blur editor và remove focus
+			if (editorInstance && editorInstance.commands) {
+				editorInstance.commands.blur()
+			}
+			// Blur DOM element để remove focus ngay lập tức
+			if (editorInstance.view && editorInstance.view.dom) {
+				editorInstance.view.dom.blur()
+			}
 			return
 		}
 		renderer.editingNode = nodeId
