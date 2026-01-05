@@ -84,7 +84,7 @@ export const getPersonal = createResource({
   url: "drive.api.list.files_multi_team",
   cache: "personal-folder-contents",
   makeParams: (params) => {
-    return { ...params, personal: 1 }
+    return { ...params, personal: 1, order_by: "title 1" }
   },
 })
 
