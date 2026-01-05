@@ -287,10 +287,15 @@
           :edges="edges" 
           :version="textViewVersion"
           :active-comment-node="activeCommentNode"
+          :permissions="permissions"
           @rename-title="renameMindmapTitle"
           @update-nodes="applyTextEdits"
           @open-comment="onOpenComment"
           @add-child-node="addChildToNodeTextMode"
+          @done-node="handleTextModeDone"
+          @copy-node="handleTextModeCopy"
+          @task-link-node="handleTextModeTaskLink"
+          @delete-node="handleTextModeDeleteNode"
           />
         </div>
     </div>
@@ -7118,6 +7123,35 @@ if (position === "tab_add_child") {
 
   d3Renderer.render()
   scheduleSave()
+}
+
+function handleTextModeDone(payload) {
+  const node = nodes.value.find(n => n.id === payload)
+  
+  if (!node) return
+
+  handleToolbarDone(node)
+}
+
+function handleTextModeCopy(payload) {
+  handleContextMenuAction({
+    type: 'copy-link',
+    node: nodes.value.find(n => n.id === payload),
+  })
+}
+
+function handleTextModeTaskLink(payload) {
+  handleContextMenuAction({
+    type: 'link-task',
+    node: nodes.value.find(n => n.id === payload),
+  })
+}
+
+function handleTextModeDeleteNode(payload) {
+  handleContextMenuAction({
+    type: 'delete',
+    node: nodes.value.find(n => n.id === payload),
+  })
 }
 
 
