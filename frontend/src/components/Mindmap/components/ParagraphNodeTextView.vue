@@ -9,10 +9,12 @@
           }" @mousedown.prevent @click.stop="toggleCollapse" />
       </div>
 
-      <i v-if="isMindmapParagraph" class="mindmap-dot ml-1" v-tooltip.top="{
+      <i v-if="isMindmapParagraph && canEditContent" class="mindmap-dot ml-1" v-tooltip.top="{
         value: 'Bấm hiển thị thêm hành động',
         pt: { text: { class: ['text-[12px]'] } }
       }" @mousedown.prevent @click.stop="toggleActions" />
+
+      <i v-else-if="isMindmapParagraph" class="mindmap-dot ml-1" @mousedown.prevent />
 
       <Popover ref="actionsPopover" :dismissable="true" class="node-action-popover"
         :pt="{ root: { class: 'no-popover-arrow-by-hung right-align' } }">
@@ -143,6 +145,12 @@ const suppressPanelAutoFocus = inject(
   "suppressPanelAutoFocus",
   null
 )
+
+const permissions = inject('editorPermissions')
+
+const canEditContent = computed(() => {
+  return permissions.value?.write === 1
+})
 
 const {
   isBoldActive,
@@ -319,6 +327,11 @@ const actionsPopover = ref(null)
 const { toggle } = useNodeActionPopover()
 
 function toggleActions(event) {
+
+  if (!canEditContent.value) {
+    return
+  }
+
   const editor = props.editor
   const getPos = props.getPos
   if (!editor || !getPos) return

@@ -1,5 +1,5 @@
 <template>
-    <MindmapTextNodeViewEditor :initial-content="content" @rename-title="onRenameTitle" @update-nodes="onUpdateNodes"
+    <MindmapTextNodeViewEditor :permissions="props.permissions" :initial-content="content" @rename-title="onRenameTitle" @update-nodes="onUpdateNodes"
         @open-comment="onOpenComment" @add-child-node="onAddChildFromText" @done-node="onDoneNode" />
 </template>
 
@@ -13,6 +13,9 @@ const props = defineProps({
     edges: Array,
     version: Number,
     activeCommentNode: Object,
+	permissions: {
+		type: Object,
+	}
 })
 
 const emit = defineEmits([

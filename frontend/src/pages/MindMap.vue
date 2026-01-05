@@ -287,6 +287,7 @@
           :edges="edges" 
           :version="textViewVersion"
           :active-comment-node="activeCommentNode"
+          :permissions="permissions"
           @rename-title="renameMindmapTitle"
           @update-nodes="applyTextEdits"
           @open-comment="onOpenComment"

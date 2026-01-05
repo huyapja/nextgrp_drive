@@ -7,7 +7,7 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch } from "vue"
+import { onMounted, onBeforeUnmount, ref, watch, computed, provide } from "vue"
 import { Editor, EditorContent } from "@tiptap/vue-3"
 import StarterKit from "@tiptap/starter-kit"
 import { InlineStyle } from "./components/extensions/InlineStyle"
@@ -31,9 +31,9 @@ const props = defineProps({
     type: String,
     default: "",
   },
-  editable: {
-    type: Boolean,
-    default: true,
+  permissions: {
+    type: Object,
+    required: true,
   },
 })
 
@@ -51,7 +51,12 @@ const emit = defineEmits([
   "done-node",
 ])
 
-const canEdit = hasMmNode(props.initialContent)
+const canEdit = computed(() => {
+  return hasMmNode(props.initialContent)
+})
+const canEditContent = computed(() => {
+  return props.permissions?.write === 1
+})
 
 /* ================================
  * Helpers
@@ -103,12 +108,15 @@ function isEmptyBlockquote(node) {
  * Editor
  * ================================ */
 const editor = ref(null)
+provide('editorPermissions', computed(() => props.permissions))
+
 
 onMounted(() => {
   editor.value = new Editor({
     content: props.initialContent,
-    editable: canEdit,
+    editable: canEdit.value && canEditContent.value,
     autofocus: "start",
+    permissions: {},
     syncFromEditor,
     syncFromEditorDebounced,
     onOpenComment(nodeId, options = {}) {
@@ -285,10 +293,11 @@ watch(
     if (!editor.value) return
     if (isEditorFocused) return
     if (isCreatingDraftNode) return
-    const canEdit = hasMmNode(val)
+    const nextEditable =
+      hasMmNode(val) && props.permissions?.write === 1
 
-    if (editor.value.isEditable !== canEdit) {
-      editor.value.setEditable(canEdit)
+    if (editor.value.isEditable !== nextEditable) {
+      editor.value.setEditable(nextEditable)
     }
 
     if (editor.value.getHTML() !== val) {
@@ -296,6 +305,35 @@ watch(
     }
   }
 )
+
+watch(
+  () => [canEdit.value, canEditContent.value],
+  ([canEditVal, canEditContentVal]) => {
+    if (!editor.value) return
+
+    const nextEditable = canEditVal && canEditContentVal
+
+    if (editor.value.isEditable !== nextEditable) {
+      editor.value.setEditable(nextEditable)
+    }
+  },
+  { immediate: true }
+)
+
+
+watch(
+  () => props.permissions,
+  (perms) => {
+    if (!editor.value || !perms) return
+
+    editor.value.options.permissions = perms
+
+    editor.value.setEditable(perms.write === 1)
+  },
+  { immediate: true, deep: true }
+)
+
+
 </script>
 
 <style scoped>
