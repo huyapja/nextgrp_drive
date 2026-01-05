@@ -20,6 +20,7 @@ import { extractNodeEditsFromHTML, hasMmNode } from "./components/MindmapTextNod
 import { HeadingWithNodeId, ListItemWithNodeId, ParagraphWithNodeId } from "./components/MindmapTextNodeViewEditor/extensions"
 import { createEditorKeyDown } from "./components/MindmapTextNodeViewEditor/editorKeymap"
 import { ListItemChildrenSync } from "./components/extensions/ListItemChildrenSync"
+import { TextSelection } from "@tiptap/pm/state"
 
 
 /* ================================
@@ -47,6 +48,7 @@ const emit = defineEmits([
   "update-nodes",
   "open-comment",
   "add-child-node",
+  "done-node",
 ])
 
 const canEdit = hasMmNode(props.initialContent)
@@ -87,6 +89,16 @@ function syncFromEditorDebounced(editor) {
   }, 500)
 }
 
+function isEmptyBlockquote(node) {
+  if (!node || node.type.name !== "blockquote") return false
+  if (node.childCount !== 1) return false
+
+  const p = node.child(0)
+  if (p.type.name !== "paragraph") return false
+
+  return p.textContent.trim().length === 0
+}
+
 /* ================================
  * Editor
  * ================================ */
@@ -107,6 +119,9 @@ onMounted(() => {
     },
     onAddChildNode(payload) {
       emit("add-child-node", payload)
+    },
+    onDoneNode(payload) {
+      emit('done-node', payload)
     },
     extensions: [
       StarterKit.configure({
@@ -177,17 +192,85 @@ onMounted(() => {
         },
       },
     },
-
-
     onUpdate({ editor, transaction }) {
       if (isComposing) return
+      if (transaction?.getMeta("ui-only")) return
 
-      if (transaction?.getMeta("ui-only")) {
+      const { state, view } = editor
+      const { selection } = state
+
+      if (!(selection instanceof TextSelection)) {
+        syncFromEditorDebounced(editor)
         return
       }
 
+      const $from = selection.$from
+
+      // tìm blockquote + listItem cha
+      let bqDepth = null
+      let liDepth = null
+
+      for (let d = $from.depth; d > 0; d--) {
+        const node = $from.node(d)
+        if (node.type.name === "blockquote") {
+          bqDepth = d
+        }
+        if (node.type.name === "listItem") {
+          liDepth = d
+          break
+        }
+      }
+
+      if (!bqDepth || !liDepth) {
+        syncFromEditorDebounced(editor)
+        return
+      }
+
+      const blockquoteNode = $from.node(bqDepth)
+      if (!isEmptyBlockquote(blockquoteNode)) {
+        syncFromEditorDebounced(editor)
+        return
+      }
+
+      const bqStart = $from.before(bqDepth)
+      const bqEnd = $from.after(bqDepth)
+
+      const liStart = $from.before(liDepth)
+      const liNode = $from.node(liDepth)
+
+      let focusPos = null
+      let offset = 1
+
+      for (let i = 0; i < liNode.childCount; i++) {
+        const child = liNode.child(i)
+
+        if (child.type.name === "paragraph") {
+          focusPos =
+            liStart +
+            offset +
+            child.nodeSize -
+            1
+          break
+        }
+
+        offset += child.nodeSize
+      }
+
+
+      let tr = state.tr.delete(bqStart, bqEnd)
+
+      if (focusPos != null) {
+        tr = tr.setSelection(
+          TextSelection.create(tr.doc, focusPos)
+        )
+      }
+
+      tr.setMeta("ui-only", true)
+      view.dispatch(tr)
+
       syncFromEditorDebounced(editor)
-    },
+    }
+
   })
 })
 
@@ -294,10 +377,7 @@ watch(
 }
 
 
-.prose :deep(
-  .mm-node.is-comment-hover
-  span[data-inline-root] > span
-) {
+.prose :deep(.mm-node.is-comment-hover span[data-inline-root] > span) {
   background-color: #faedc2 !important;
   border-radius: 3px;
 }
@@ -361,6 +441,10 @@ watch(
   white-space: normal;
 }
 
+.prose :deep(blockquote) {
+  margin-left: 28px;
+}
+
 .prose :deep(blockquote .mm-node) {
   margin-top: 0px;
   margin-bottom: 0px;
@@ -387,7 +471,11 @@ watch(
 }
 
 .prose :deep(blockquote .mm-node),
-.prose :deep(blockquote .mm-node *){
+.prose :deep(blockquote .mm-node *) {
   background: transparent !important;
+}
+
+.prose :deep(s) {
+  opacity: 0.5;
 }
 </style>

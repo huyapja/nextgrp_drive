@@ -291,6 +291,7 @@
           @update-nodes="applyTextEdits"
           @open-comment="onOpenComment"
           @add-child-node="addChildToNodeTextMode"
+          @done-node="handleTextModeDone"
           />
         </div>
     </div>
@@ -6431,6 +6432,14 @@ if (position === "tab_add_child") {
 
   d3Renderer.render()
   scheduleSave()
+}
+
+function handleTextModeDone(payload) {
+  const node = nodes.value.find(n => n.id === payload)
+  
+  if (!node) return
+
+  handleToolbarDone(node)
 }
 
 

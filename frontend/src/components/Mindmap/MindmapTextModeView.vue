@@ -1,6 +1,6 @@
 <template>
     <MindmapTextNodeViewEditor :initial-content="content" @rename-title="onRenameTitle" @update-nodes="onUpdateNodes"
-        @open-comment="onOpenComment" @add-child-node="onAddChildFromText"/>
+        @open-comment="onOpenComment" @add-child-node="onAddChildFromText" @done-node="onDoneNode" />
 </template>
 
 <script setup>
@@ -20,6 +20,7 @@ const emit = defineEmits([
     "update-nodes",
     "open-comment",
     "add-child-node",
+    "done-node",
 ])
 
 const content = ref("")
@@ -33,17 +34,21 @@ function onUpdateNodes(edits) {
 }
 
 function onOpenComment(payload) {
-  if (!payload) return
+    if (!payload) return
 
-  const { nodeId, options = {} } = payload
-  emit("open-comment", {
-    nodeId,
-    options,
-  })
+    const { nodeId, options = {} } = payload
+    emit("open-comment", {
+        nodeId,
+        options,
+    })
 }
 
-function onAddChildFromText(payload) {    
-  emit("add-child-node", payload)
+function onAddChildFromText(payload) {
+    emit("add-child-node", payload)
+}
+
+function onDoneNode(payload) {
+    emit('done-node', payload)
 }
 
 provide("activeCommentNode", toRef(props, "activeCommentNode"))

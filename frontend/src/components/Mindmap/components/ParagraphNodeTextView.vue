@@ -14,55 +14,89 @@
         pt: { text: { class: ['text-[12px]'] } }
       }" @mousedown.prevent @click.stop="toggleActions" />
 
-      <Popover ref="actionsPopover" :dismissable="true" class="node-action-popover" @mousedown.prevent @click.stop
+      <Popover ref="actionsPopover" :dismissable="true" class="node-action-popover"
         :pt="{ root: { class: 'no-popover-arrow-by-hung right-align' } }">
-        <p class="!text-[12px] mb-2">Kiểu</p>
+        <div>
+          <p class="!text-[14px] mb-2 text-[#646a73]">Kiểu</p>
 
-        <div class="color-grid flex gap-2">
-          <button v-for="c in highlightColors" :key="c.value" class="color-item"
-            :class="{ 'is-active': currentHighlight === c.bg }" :style="{ backgroundColor: c.bg }" @mousedown.prevent
-            @click.stop="applyHighlight(c)">
-            <span class="color-dot" :style="{ color: c.text }">A</span>
-          </button>
+          <div v-show="!isSelectionInBlockquote" class="color-grid flex gap-2">
+            <button v-for="c in highlightColors" :key="c.value" class="color-item"
+              :class="{ 'is-active': currentHighlight === c.bg }" :style="{ backgroundColor: c.bg }" @mousedown.prevent
+              @click.stop="applyHighlight(c)">
+              <span class="color-dot" :style="{ color: c.text }">A</span>
+            </button>
+          </div>
+
+          <div class="flex gap-2 mt-4">
+            <!-- Bold -->
+            <button class="toolbar-btn" :class="{ 'is-active': isBoldActive }" @mousedown.prevent
+              @click.stop="toggleBold" v-tooltip.top="{
+                value: 'In đậm (Ctrl+B)',
+                pt: { text: { class: ['text-[12px]'] } }
+              }">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M5 2.709C5 2.317 5.317 2 5.709 2h6.734a5.317 5.317 0 0 1 3.686 9.148 5.671 5.671 0 0 1-2.623 10.7H5.71a.709.709 0 0 1-.71-.707V2.71Zm2 7.798h5.443a3.19 3.19 0 0 0 3.19-3.19c0-1.762-1.428-3.317-3.19-3.317H7v6.507Zm0 2.126v7.09h6.507a3.544 3.544 0 0 0 0-7.09H7Z"
+                  fill="currentColor"></path>
+              </svg>
+            </button>
+
+            <!-- Italic -->
+            <button class="toolbar-btn" :class="{ 'is-active': isItalicActive }" @mousedown.prevent
+              @click.stop="toggleItalic" v-tooltip.top="{
+                value: 'In nghiêng (Ctrl+I)',
+                pt: { text: { class: ['text-[12px]'] } }
+              }">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M14.825 5.077 11.19 18.923h4.052a1.038 1.038 0 1 1 0 2.077H4.954a1.038 1.038 0 1 1 0-2.077h4.053l3.636-13.846H8.591A1.038 1.038 0 1 1 8.59 3h10.287a1.038 1.038 0 0 1 0 2.077h-4.053Z"
+                  fill="currentColor"></path>
+              </svg>
+            </button>
+
+            <!-- Underline -->
+            <button class="toolbar-btn" :class="{ 'is-active': isUnderlineActive }" @mousedown.prevent
+              @click.stop="toggleUnderline" v-tooltip.top="{
+                value: 'Gạch chân (Ctrl+U)',
+                pt: { text: { class: ['text-[12px]'] } }
+              }">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M7.361 3.052a.99.99 0 0 0-.989-.994.998.998 0 0 0-.999.994v5.765c0 4.205 2.601 7.29 6.627 7.29s6.627-3.085 6.627-7.29V3.052a.996.996 0 0 0-.996-.994.992.992 0 0 0-.992.994v5.765c0 3.003-1.763 5.302-4.639 5.302-2.876 0-4.639-2.299-4.639-5.302V3.052ZM3.054 19.42a.988.988 0 0 0-.994.988 1 1 0 0 0 .994 1h17.892a1 1 0 0 0 .994-1.002.987.987 0 0 0-.994-.986H3.054Z"
+                  fill="currentColor"></path>
+              </svg>
+            </button>
+          </div>
         </div>
-
-        <div class="flex gap-2 mt-4">
-          <!-- Bold -->
-          <button class="toolbar-btn" :class="{ 'is-active': isBoldActive }" @mousedown.prevent @click.stop="toggleBold"
-            v-tooltip.top="{
-              value: 'In đậm (Ctrl+B)',
-              pt: { text: { class: ['text-[12px]'] } }
-            }">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M5 2.709C5 2.317 5.317 2 5.709 2h6.734a5.317 5.317 0 0 1 3.686 9.148 5.671 5.671 0 0 1-2.623 10.7H5.71a.709.709 0 0 1-.71-.707V2.71Zm2 7.798h5.443a3.19 3.19 0 0 0 3.19-3.19c0-1.762-1.428-3.317-3.19-3.317H7v6.507Zm0 2.126v7.09h6.507a3.544 3.544 0 0 0 0-7.09H7Z"
-                fill="currentColor"></path>
-            </svg>
-          </button>
-
-          <!-- Italic -->
-          <button class="toolbar-btn" :class="{ 'is-active': isItalicActive }" @mousedown.prevent @click.stop="toggleItalic" v-tooltip.top="{
-            value: 'In nghiêng (Ctrl+I)',
-            pt: { text: { class: ['text-[12px]'] } }
-          }">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M14.825 5.077 11.19 18.923h4.052a1.038 1.038 0 1 1 0 2.077H4.954a1.038 1.038 0 1 1 0-2.077h4.053l3.636-13.846H8.591A1.038 1.038 0 1 1 8.59 3h10.287a1.038 1.038 0 0 1 0 2.077h-4.053Z"
-                fill="currentColor"></path>
-            </svg>
-          </button>
-
-          <!-- Underline -->
-          <button class="toolbar-btn" :class="{ 'is-active': isUnderlineActive }" @mousedown.prevent @click.stop="toggleUnderline" v-tooltip.top="{
-            value: 'Gạch chân (Ctrl+U)',
-            pt: { text: { class: ['text-[12px]'] } }
-          }">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path
-                d="M7.361 3.052a.99.99 0 0 0-.989-.994.998.998 0 0 0-.999.994v5.765c0 4.205 2.601 7.29 6.627 7.29s6.627-3.085 6.627-7.29V3.052a.996.996 0 0 0-.996-.994.992.992 0 0 0-.992.994v5.765c0 3.003-1.763 5.302-4.639 5.302-2.876 0-4.639-2.299-4.639-5.302V3.052ZM3.054 19.42a.988.988 0 0 0-.994.988 1 1 0 0 0 .994 1h17.892a1 1 0 0 0 .994-1.002.987.987 0 0 0-.994-.986H3.054Z"
-                fill="currentColor"></path>
-            </svg>
-          </button>
+        <div v-if="!isSelectionInBlockquote">
+          <p class="!text-[14px] my-2 mt-3 text-[#646a73]">Thông thường</p>
+          <ul class="more-actions !text-[14px]">
+            <li @click.stop="
+              insertDescriptionBlockquote();
+            closeActionsPopover();
+            ">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M19.602 3.06a1.5 1.5 0 1 1 2.898.777l-.388 1.449-2.898-.776.388-1.45Zm-.774 2.888 2.898.777-3.897 14.543c-.076.285-.24.54-.468.727l-1.48 1.218a.17.17 0 0 1-.268-.073l-.65-1.798a1.394 1.394 0 0 1-.036-.835l3.901-14.559ZM3 3a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2H3Zm-1 9a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2H3a1 1 0 0 1-1-1Zm1 7a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H3Z"
+                  fill="currentColor"></path>
+              </svg>
+              Mô tả
+            </li>
+            <li @click.stop="
+              toggleDone($event);
+            closeActionsPopover();
+            " :class="{ 'is-active': isDone }">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 2C5.925 23 1 18.075 1 12S5.925 1 12 1s11 4.925 11 11-4.925 11-11 11Zm-1.16-8.72 4.952-4.952a.996.996 0 0 1 1.409.005 1 1 0 0 1 .007 1.41c-1.888 1.905-3.752 3.842-5.685 5.7a.98.98 0 0 1-1.364-.001c-1.01-.98-1.993-1.992-2.983-2.993a1.003 1.003 0 0 1 .005-1.414.998.998 0 0 1 1.412-.002l2.247 2.247Z"
+                  fill="currentColor"></path>
+              </svg>
+              {{ isDone ? 'Kích hoạt' : 'Xong' }}
+            </li>
+            <li>Thêm hình ảnh</li>
+            <li>Sao chép liên kết</li>
+            <li>Liên kết công việc từ nhánh</li>
+          </ul>
         </div>
       </Popover>
 
@@ -91,9 +125,11 @@ import { ref, computed, inject, watchEffect, onMounted } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 import Popover from 'primevue/popover'
 import { useNodeActionPopover } from './MindmapTextNodeViewEditor/useNodeActionPopover'
+import { useNodeDone } from "./MindmapTextNodeViewEditor/useNodeDone"
+import { useNodeBoldItaliceUnderline } from "./MindmapTextNodeViewEditor/useNodeBoldItaliceUnderline"
+
 import { TextSelection } from "@tiptap/pm/state"
-
-
+import { useNodeHighlight } from "./MindmapTextNodeViewEditor/useNodeHighlight"
 
 const props = defineProps({
   editor: Object,
@@ -108,321 +144,174 @@ const suppressPanelAutoFocus = inject(
   null
 )
 
-const isBoldActive = computed(() => {
-  return props.editor?.isActive("bold")
+const {
+  isBoldActive,
+  isItalicActive,
+  isUnderlineActive,
+  toggleBold,
+  toggleItalic,
+  toggleUnderline,
+} = useNodeBoldItaliceUnderline({
+  editor: props.editor,
+  node: props.node,
+  getPos: props.getPos,
 })
 
-const isItalicActive = computed(() => {
-  return props.editor?.isActive("italic")
+const { isDone, toggleDone } = useNodeDone({
+  editor: props.editor,
+  node: props.node,
+  getPos: props.getPos,
+  onDoneNode: props.editor?.options?.onDoneNode,
+  resolveNodeIdFromDOM,
 })
 
-const isUnderlineActive = computed(() => {
-  return props.editor?.isActive("underline")
+const {
+  highlightColors,
+  currentHighlight,
+  highlightBg,
+  applyHighlight,
+} = useNodeHighlight({
+  editor: props.editor,
+  node: props.node,
+  getPos: props.getPos,
 })
 
-function toggleMarkForWholeNode(editor, node, getPos, markName) {
-  const pos = getPos?.()
+function insertDescriptionBlockquote() {
+  const editor = props.editor
+  const getPos = props.getPos
+  if (!editor || !getPos) return
+
+  const pos = getPos()
   if (pos == null) return
 
   const { state, view } = editor
-  const { schema, tr } = state
+  const { schema } = state
 
-  const markType = schema.marks[markName]
-  if (!markType) return
-
-  const from = pos + 1
-  const to = pos + node.nodeSize - 1
-
-  let hasMark = false
-  state.doc.nodesBetween(from, to, node => {
-    if (markType.isInSet(node.marks)) {
-      hasMark = true
-    }
-  })
-
-  if (hasMark) {
-    tr.removeMark(from, to, markType)
-  } else {
-    tr.addMark(from, to, markType.create())
-  }
-
-  view.dispatch(tr)
-}
-
-
-function toggleBold() {
-  const editor = props.editor
-  if (!editor) return
-
-  const { selection } = editor.state
-
-  if (!selection.empty) {
-    editor.chain().focus().toggleBold().run()
-    return
-  }
-
-  toggleMarkForWholeNode(
-    editor,
-    props.node,
-    props.getPos,
-    "bold"
-  )
-}
-
-
-function toggleItalic() {
-  const editor = props.editor
-  if (!editor) return
-
-  const { selection } = editor.state
-
-  if (!selection.empty) {
-    editor.chain().focus().toggleItalic().run()
-    return
-  }
-  
-  toggleMarkForWholeNode(
-    editor,
-    props.node,
-    props.getPos,
-    "italic"
-  )
-}
-
-function toggleUnderline() {
-  const editor = props.editor
-  if (!editor) return
-
-  const { selection } = editor.state
-
-  if (!selection.empty) {
-    editor.chain().focus().toggleUnderline().run()
-    return
-  }
-  
-  toggleMarkForWholeNode(
-    editor,
-    props.node,
-    props.getPos,
-    "underline"
-  )
-}
-
-
-function normalizeColor(color) {
-  if (!color) return null
-
-  // rgb(...) → hex
-  if (color.startsWith("rgb")) {
-    const nums = color.match(/\d+/g)
-    if (!nums || nums.length < 3) return null
-    return (
-      "#" +
-      nums
-        .slice(0, 3)
-        .map(n => Number(n).toString(16).padStart(2, "0"))
-        .join("")
-    ).toLowerCase()
-  }
-
-  // hex → lower
-  if (color.startsWith("#")) {
-    return color.toLowerCase()
-  }
-
-  return color.toLowerCase()
-}
-
-function getHighlightFromDOM(editor, pos) {
-  if (!editor || typeof pos !== "number" || pos < 0) return null
-
-  let rawDom = null
-  try {
-    rawDom = editor.view.nodeDOM(pos)
-  } catch {
-    return null
-  }
-
-  if (!rawDom) return null
-
-  // ✅ normalize về Element
-  const el =
-    rawDom instanceof Element
-      ? rawDom
-      : rawDom.nodeType === Node.TEXT_NODE
-        ? rawDom.parentElement
-        : null
-
-  if (!el || typeof el.querySelector !== "function") return null
-
-  const inlineSpan = el.querySelector(
-    "span[data-inline-root] > span"
-  )
-  if (!inlineSpan) return null
-
-  const bg = window.getComputedStyle(inlineSpan).backgroundColor
-  return normalizeColor(bg)
-}
-
-
-const currentHighlight = computed(() => {
-  const pos = props.getPos?.()
-  if (pos == null) return null
-
-  const state = props.editor.state
-  const $pos = state.doc.resolve(pos)
-
-  for (let d = $pos.depth; d > 0; d--) {
-    const node = $pos.node(d)
-    if (node.type.name === "listItem") {
-      return normalizeColor(node.attrs.highlight)
-    }
-  }
-
-  return null
-})
-
-
-
-const highlightColors = [
-  { value: 'pink', label: 'Hồng', bg: '#fce7f3', text: '#ec4899' },
-  { value: 'yellow', label: 'Vàng', bg: '#fef3c7', text: '#f59e0b' },
-  { value: 'purple', label: 'Tím', bg: '#f3e8ff', text: '#a855f7' },
-  { value: 'blue', label: 'Xanh dương', bg: '#dbeafe', text: '#3b82f6' },
-  { value: 'teal', label: 'Xanh ngọc', bg: '#ccfbf1', text: '#14b8a6' },
-  { value: 'green', label: 'Xanh lá', bg: '#d1fae5', text: '#10b981' },
-  { value: 'grey', label: 'Xám', bg: '#d1d5db', text: '#374151' }
-]
-
-function applyHighlight(color) {
-  const rootEl = props.editor?.view?.nodeDOM?.(props.getPos?.())
-  if (!rootEl) return
-
-  const mmNode = rootEl.closest("p.mm-node")
-  if (!mmNode) return
-
-  const li = mmNode.closest("li[data-node-id]")
-  if (!li) return
-
-  const inlineRoot = mmNode.querySelector("span[data-inline-root='true']")
-  if (!inlineRoot) return
-
-  let innerSpan = inlineRoot.querySelector("span")
-
-  const pos = props.getPos?.()
-  if (pos == null) return
-
-  const currentBg = normalizeColor(
-    getHighlightFromDOM(props.editor, pos)
-  )
-
-  const isSame = currentBg === normalizeColor(color.bg)
-
-  props.editor
-    .chain()
-    .command(({ tr, state }) => {
-      const $pos = state.doc.resolve(pos)
-
-      for (let d = $pos.depth; d > 0; d--) {
-        const node = $pos.node(d)
-        if (node.type.name === "listItem") {
-          const nodePos = $pos.before(d)
-          const next = isSame ? null : color.bg
-
-          tr.setNodeMarkup(nodePos, undefined, {
-            ...node.attrs,
-            highlight: next,
-          })
-
-          tr.setMeta("ui-only", true)
-          return true
-        }
-      }
-      return false
-    })
-    .run()
-
-  if (isSame) {
-    if (innerSpan) {
-      innerSpan.style.backgroundColor = ""
-      if (!innerSpan.getAttribute("style")) {
-        innerSpan.replaceWith(...innerSpan.childNodes)
-      }
-    }
-
-    li.removeAttribute("data-highlight")
-  } else {
-    if (!innerSpan) {
-      innerSpan = document.createElement("span")
-      while (inlineRoot.firstChild) {
-        innerSpan.appendChild(inlineRoot.firstChild)
-      }
-      inlineRoot.appendChild(innerSpan)
-    }
-
-    innerSpan.style.backgroundColor = color.bg
-
-    li.setAttribute("data-highlight", color.bg)
-  }
-
-  props.editor?.options?.syncFromEditorDebounced?.(props.editor)
-}
-
-
-const highlightBg = computed(() => {
-  if (!props.editor) return null
-  if (typeof props.getPos !== "function") return null
-
-  let pos
-  try {
-    pos = props.getPos()
-  } catch {
-    return null
-  }
-
-  if (typeof pos !== "number" || pos < 0) return null
-
-  const { state } = props.editor
-  const nodeAtPos = state.doc.nodeAt(pos)
-  if (!nodeAtPos) return null
+  const blockquote = schema.nodes.blockquote
+  const paragraph = schema.nodes.paragraph
+  if (!blockquote || !paragraph) return
 
   const $pos = state.doc.resolve(pos)
 
-  let highlight = null
+  let liDepth = null
   for (let d = $pos.depth; d > 0; d--) {
-    const node = $pos.node(d)
-    if (node.type.name === "listItem") {
-      highlight = node.attrs.highlight || null
+    if ($pos.node(d).type.name === "listItem") {
+      liDepth = d
       break
     }
   }
+  if (!liDepth) return
+
+  const liNode = $pos.node(liDepth)
+  const liStartPos = $pos.before(liDepth)
 
   // ================================
-  // SAFE DOM CHECK
+  // 1️⃣ TÌM BLOCKQUOTE (NẾU CÓ)
   // ================================
-  let rawDom = null
-  try {
-    rawDom = props.editor.view.nodeDOM(pos)
-  } catch {
-    rawDom = null
-  }
+  let blockquoteIndex = -1
+  let blockquoteNode = null
 
-  // normalize về Element
-  const el =
-    rawDom instanceof Element
-      ? rawDom
-      : rawDom?.nodeType === Node.TEXT_NODE
-        ? rawDom.parentElement
-        : null
+  liNode.content.forEach((child, i) => {
+    if (child.type.name === "blockquote") {
+      blockquoteIndex = i
+      blockquoteNode = child
+    }
+  })
 
-  if (el) {
-    const hasInlineBg = el.querySelector(
-      "span[style*='background-color']"
+  if (blockquoteIndex !== -1 && blockquoteNode) {
+    const { doc } = state
+
+    let blockquotePos = null
+
+    // 1️⃣ Tìm position thật của blockquote trong document
+    doc.nodesBetween(
+      liStartPos,
+      liStartPos + liNode.nodeSize,
+      (node, pos) => {
+        if (node === blockquoteNode) {
+          blockquotePos = pos
+          return false
+        }
+      }
     )
-    if (hasInlineBg) return null
+
+    if (blockquotePos == null) return
+
+    // 2️⃣ Lấy paragraph con
+    const paragraphNode = blockquoteNode.firstChild
+    if (!paragraphNode) return
+
+    // 3️⃣ paragraph bắt đầu ngay sau blockquotePos + 1
+    const paragraphPos = blockquotePos + 1
+
+    // 4️⃣ Focus cuối text thật sự
+    const focusPos =
+      paragraphPos + paragraphNode.nodeSize - 1
+
+    // 🔒 SAFETY CHECK
+    if (focusPos < 0 || focusPos > state.doc.content.size) {
+      return
+    }
+
+    const tr = state.tr.setSelection(
+      TextSelection.create(state.doc, focusPos)
+    )
+
+    tr.setMeta("ui-only", true)
+    view.dispatch(tr)
+    view.focus()
+    return
   }
 
-  return highlight
+
+  // ================================
+  // 3️⃣ CHƯA CÓ → INSERT BLOCKQUOTE
+  // ================================
+  const insertPos = liStartPos + liNode.nodeSize - 1
+
+  const descNode = blockquote.create(
+    {},
+    paragraph.create()
+  )
+
+  let tr = state.tr.insert(insertPos, descNode)
+
+  const $after = tr.doc.resolve(insertPos + 1)
+  tr = tr.setSelection(
+    TextSelection.near($after, 1)
+  )
+
+  tr.setMeta("ui-only", true)
+
+  view.dispatch(tr)
+  view.focus()
+}
+
+
+
+const isSelectionInBlockquote = computed(() => {
+  const editor = props.editor
+  if (!editor) return false
+
+  const { selection } = editor.state
+
+  if (selection.empty) return false
+
+  const { $from, $to } = selection
+
+  for (let d = $from.depth; d > 0; d--) {
+    if ($from.node(d).type.name === "blockquote") {
+      return true
+    }
+  }
+
+  for (let d = $to.depth; d > 0; d--) {
+    if ($to.node(d).type.name === "blockquote") {
+      return true
+    }
+  }
+
+  return false
 })
 
 
@@ -430,11 +319,49 @@ const actionsPopover = ref(null)
 const { toggle } = useNodeActionPopover()
 
 function toggleActions(event) {
+  const editor = props.editor
+  const getPos = props.getPos
+  if (!editor || !getPos) return
+
+  const pos = getPos()
+  if (pos == null) return
+
+  const { state, view } = editor
+  const { selection } = state
+
+  const endPos = pos + props.node.nodeSize - 1
+
+  // ================================
+  // ƯU TIÊN SELECTION (BÔI ĐEN)
+  // ================================
+  if (
+    selection instanceof TextSelection &&
+    !selection.empty
+  ) {
+  } else {
+    // ================================
+    // KHÔNG CÓ SELECTION → ĐƯA CARET VỀ CUỐI NODE
+    // ================================
+    const tr = state.tr.setSelection(
+      TextSelection.create(state.doc, endPos)
+    )
+    tr.setMeta("ui-only", true)
+    view.dispatch(tr)
+  }
+
+  // ================================
+  // 3️⃣ TOGGLE ACTION POPOVER
+  // ================================
   const nodeId = resolveNodeIdFromDOM(event.currentTarget)
   if (!nodeId) return
 
   toggle(nodeId, actionsPopover.value, event)
 }
+
+function closeActionsPopover() {
+  actionsPopover.value?.hide?.()
+}
+
 
 const liState = computed(() => {
   try {
@@ -586,39 +513,6 @@ watchEffect(() => {
   isActive.value = selfId === activeId
 })
 
-onMounted(() => {
-  const pos = props.getPos?.()
-  if (pos == null) return
-
-  const editor = props.editor
-  const domBg = normalizeColor(
-    getHighlightFromDOM(editor, pos)
-  )
-  if (!domBg) return
-
-  const state = editor.state
-  const $pos = state.doc.resolve(pos)
-
-  for (let d = $pos.depth; d > 0; d--) {
-    const node = $pos.node(d)
-    if (node.type.name === "listItem") {
-      if (!node.attrs.highlight) {
-        editor
-          .chain()
-          .command(({ tr }) => {
-            tr.setNodeMarkup($pos.before(d), undefined, {
-              ...node.attrs,
-              highlight: domBg,
-            })
-            tr.setMeta("ui-only", true)
-            return true
-          })
-          .run()
-      }
-      break
-    }
-  }
-})
 </script>
 
 
@@ -640,5 +534,19 @@ onMounted(() => {
 
 .color-item.is-active {
   outline: 1px solid #111827;
+}
+
+.more-actions li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+ul.more-actions li:hover {
+  background: #eff6ff;
+  color: #2563EB;
 }
 </style>
