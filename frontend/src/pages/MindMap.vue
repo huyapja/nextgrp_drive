@@ -349,6 +349,7 @@ const props = defineProps({
 const isSaving = ref(false)
 const lastSaved = ref(null)
 const selectedNode = ref(null)
+const changedNodeIds = ref(new Set())
 const hoveredNode = ref(null)
 const editingNode = ref(null)
 const showDeleteDialog = ref(false)
@@ -884,6 +885,7 @@ const initD3Renderer = () => {
       // 1. label
       if (updates.label !== undefined) {
         node.data.label = updates.label
+        changedNodeIds.value.add(nodeId)
       }
 
       // 2. parentId (re-parent khi drag & drop)
@@ -894,6 +896,7 @@ const initD3Renderer = () => {
         // 🔴 QUAN TRỌNG: giữ data.parentId luôn sync với edges
         node.data = node.data || {}
         node.data.parentId = updates.parentId
+        changedNodeIds.value.add(nodeId)
 
         // update edge parent -> child
         const edgeIndex = edges.value.findIndex(e => e.target === nodeId)
@@ -3477,7 +3480,51 @@ const saveLayoutResource = createResource({
   }
 })
 
-// Save immediately (synchronous)
+const saveNodeResource = createResource({
+  url: "drive.api.mindmap.save_mindmap_node",
+  method: "POST",
+  onSuccess(response) {
+    isSaving.value = false
+    lastSaved.value = formatTime(new Date())
+  },
+  onError(error) {
+    isSaving.value = false
+  }
+})
+
+const saveNode = (nodeId) => {
+  if (!mindmap.data || !permissions.value.write) return
+  
+  const node = nodes.value.find(n => n.id === nodeId)
+  if (!node) return
+  
+  const { count, ...nodeData } = node
+  const nodeWithPos = { ...nodeData }
+  
+  if (d3Renderer && d3Renderer.positions) {
+    const pos = d3Renderer.positions.get(nodeId)
+    if (pos) {
+      nodeWithPos.position = { ...pos }
+    }
+  }
+  
+  if (nodeCreationOrder.value.has(nodeId)) {
+    const order = nodeCreationOrder.value.get(nodeId)
+    if (!nodeWithPos.data) {
+      nodeWithPos.data = {}
+    }
+    nodeWithPos.data.order = order
+  }
+  
+  saveNodeResource.submit({
+    entity_name: props.entityName,
+    node_id: nodeId,
+    node_data: JSON.stringify(nodeWithPos)
+  })
+  
+  changedNodeIds.value.delete(nodeId)
+}
+
 const saveImmediately = () => {
   if (!mindmap.data || elements.value.length === 0) return
   
@@ -3485,30 +3532,36 @@ const saveImmediately = () => {
     return
   }
 
-  const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
-    const nodeWithPos = { ...node }
-    if (d3Renderer && d3Renderer.positions) {
-      const pos = d3Renderer.positions.get(node.id)
-      if (pos) {
-        nodeWithPos.position = { ...pos }
+  if (changedNodeIds.value.size > 0) {
+    changedNodeIds.value.forEach(nodeId => {
+      saveNode(nodeId)
+    })
+  } else {
+    const nodesWithPositions = nodes.value.map(({ count, ...node }) => {
+      const nodeWithPos = { ...node }
+      if (d3Renderer && d3Renderer.positions) {
+        const pos = d3Renderer.positions.get(node.id)
+        if (pos) {
+          nodeWithPos.position = { ...pos }
+        }
       }
-    }
-    if (nodeCreationOrder.value.has(node.id)) {
-      const order = nodeCreationOrder.value.get(node.id)
-      if (!nodeWithPos.data) {
-        nodeWithPos.data = {}
+      if (nodeCreationOrder.value.has(node.id)) {
+        const order = nodeCreationOrder.value.get(node.id)
+        if (!nodeWithPos.data) {
+          nodeWithPos.data = {}
+        }
+        nodeWithPos.data.order = order
       }
-      nodeWithPos.data.order = order
-    }
-    return nodeWithPos
-  })
+      return nodeWithPos
+    })
 
-  saveLayoutResource.submit({
-    entity_name: props.entityName,
-    nodes: JSON.stringify(nodesWithPositions),
-    edges: JSON.stringify(edges.value),
-    layout: "horizontal"
-  })
+    saveLayoutResource.submit({
+      entity_name: props.entityName,
+      nodes: JSON.stringify(nodesWithPositions),
+      edges: JSON.stringify(edges.value),
+      layout: "horizontal"
+    })
+  }
 }
 
 // Schedule save
@@ -3784,12 +3837,14 @@ onMounted(() => {
     socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
     socket.on('drive_mindmap:new_comment', handleRealtimeNewComment)
     socket.on('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
-    socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
+    // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
+    socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
     
     // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
     socket.on('connect', () => {
       socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
-      socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
+      // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
+      socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
     })
     
     
@@ -3841,6 +3896,7 @@ onBeforeUnmount(() => {
     socket.off("permission_revoked", handleSocketPermissionRevoked)
     socket.off("connect")
     socket.off('drive_mindmap:updated', handleRealtimeMindmapUpdate)
+    socket.off('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
   }
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
   socket.off('drive_mindmap:comment_deleted', handleRealtimeDeleteOneComment)
@@ -5679,6 +5735,275 @@ function handleRealtimeUnresolvedComment(payload){
   }
 }
 
+function handleRealtimeNodeUpdate(payload) {
+  if (!payload) return
+  
+  if (payload.entity_name !== props.entityName) return
+  
+  const currentUser = store.state.user.id
+  if (payload.modified_by === currentUser) {
+    return
+  }
+  
+  if (isSaving.value) {
+    console.log('⏸️ Đang lưu, bỏ qua update từ remote')
+    return
+  }
+  
+  console.log('📡 Nhận update node từ remote:', payload.node_id)
+  
+  const remoteNode = payload.node
+  if (!remoteNode) return
+  
+  const editingNodeId = editingNode.value
+  const selectedNodeId = selectedNode.value?.id
+  
+  if (remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId) {
+    console.log('⏸️ Node đang được edit, bỏ qua update')
+    return
+  }
+  
+  const nodeIndex = nodes.value.findIndex(n => n.id === remoteNode.id)
+  if (nodeIndex !== -1) {
+    nodes.value[nodeIndex] = { ...remoteNode }
+  } else {
+    nodes.value.push({ ...remoteNode })
+  }
+  
+  if (remoteNode.data?.order !== undefined) {
+    nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
+  }
+  
+  if (d3Renderer) {
+    nextTick(() => {
+      d3Renderer.nodeSizeCache.delete(remoteNode.id)
+      
+      const d3Node = d3Renderer.nodes.find(n => n.id === remoteNode.id)
+      if (d3Node) {
+        d3Node.data.label = remoteNode.data.label
+        if (d3Node.data.fixedWidth || d3Node.data.fixedHeight) {
+          delete d3Node.data.fixedWidth
+          delete d3Node.data.fixedHeight
+        }
+      }
+      
+      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+      d3Renderer.render()
+      
+      const editorInstance = d3Renderer.getEditorInstance(remoteNode.id)
+      if (editorInstance && !editorInstance.isDestroyed) {
+        try {
+          editorInstance.commands.setContent(remoteNode.data.label, false)
+          
+          requestAnimationFrame(() => {
+            setTimeout(() => {
+              requestAnimationFrame(() => {
+                const nodeGroup = d3Renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+                if (!nodeGroup.empty()) {
+                  const rect = nodeGroup.select('.node-rect')
+                  const fo = nodeGroup.select('.node-text')
+                  
+                  if (!rect.empty() && !fo.empty()) {
+                    const editorDOM = editorInstance.view?.dom
+                    const editorContent = editorDOM?.querySelector('.mindmap-editor-prose') || editorDOM
+                    
+                    if (editorContent) {
+                      const borderOffset = 4
+                      const maxWidth = 400
+                      const singleLineHeight = Math.ceil(19 * 1.4) + 16
+                      
+                      const hasImages = remoteNode.data?.label?.includes('<img') || remoteNode.data?.label?.includes('image-wrapper')
+                      
+                      let newSize
+                      if (hasImages) {
+                        newSize = { width: maxWidth, height: singleLineHeight }
+                      } else {
+                        newSize = d3Renderer.estimateNodeSize(remoteNode)
+                      }
+                      
+                      const foWidth = Math.max(0, newSize.width - borderOffset)
+                      
+                      rect.attr('width', newSize.width)
+                      rect.node()?.setAttribute('width', newSize.width)
+                      fo.attr('width', foWidth)
+                      fo.node()?.setAttribute('width', foWidth)
+                      
+                      editorContent.style.setProperty('box-sizing', 'border-box', 'important')
+                      editorContent.style.setProperty('width', `${foWidth}px`, 'important')
+                      editorContent.style.setProperty('height', 'auto', 'important')
+                      editorContent.style.setProperty('min-height', `${singleLineHeight}px`, 'important')
+                      editorContent.style.setProperty('max-height', 'none', 'important')
+                      editorContent.style.setProperty('overflow', 'visible', 'important')
+                      editorContent.style.setProperty('padding', '8px 16px', 'important')
+                      
+                      const whiteSpaceValue = (newSize.width >= maxWidth || hasImages) ? 'pre-wrap' : 'nowrap'
+                      editorContent.style.setProperty('white-space', whiteSpaceValue, 'important')
+                      editorContent.style.setProperty('overflow-wrap', 'break-word', 'important')
+                      
+                      const wrapperNode = fo.select('.node-content-wrapper').node()
+                      if (wrapperNode) {
+                        wrapperNode.style.setProperty('width', '100%', 'important')
+                        wrapperNode.style.setProperty('height', 'auto', 'important')
+                        wrapperNode.style.setProperty('min-height', '0', 'important')
+                        wrapperNode.style.setProperty('max-height', 'none', 'important')
+                        wrapperNode.style.setProperty('overflow', 'visible', 'important')
+                      }
+                      
+                      const containerNode = fo.select('.node-editor-container').node()
+                      if (containerNode) {
+                        containerNode.style.setProperty('width', '100%', 'important')
+                        containerNode.style.setProperty('height', 'auto', 'important')
+                        containerNode.style.setProperty('min-height', '0', 'important')
+                        containerNode.style.setProperty('max-height', 'none', 'important')
+                        containerNode.style.setProperty('overflow', 'visible', 'important')
+                      }
+                      
+                      void editorContent.offsetWidth
+                      void editorContent.offsetHeight
+                      void editorContent.scrollHeight
+                      
+                      setTimeout(() => {
+                        if (hasImages) {
+                          const images = editorContent.querySelectorAll('img')
+                          const allImagesLoaded = Array.from(images).every(img => img.complete && img.naturalHeight > 0)
+                          
+                          if (allImagesLoaded) {
+                            const heightResult = calculateNodeHeightWithImages({
+                              editorContent,
+                              nodeWidth: newSize.width,
+                              htmlContent: remoteNode.data.label,
+                              singleLineHeight
+                            })
+                            newSize.height = heightResult.height
+                          } else {
+                            const imageLoadPromises = Array.from(images)
+                              .filter(img => !img.complete || img.naturalHeight === 0)
+                              .map(img => new Promise((resolve) => {
+                                if (img.complete && img.naturalHeight > 0) {
+                                  resolve()
+                                } else {
+                                  img.addEventListener('load', resolve, { once: true })
+                                  img.addEventListener('error', () => {
+                                    resolve()
+                                  }, { once: true })
+                                }
+                              }))
+                            
+                            Promise.all(imageLoadPromises).then(() => {
+                              setTimeout(() => {
+                                const heightResult = calculateNodeHeightWithImages({
+                                  editorContent,
+                                  nodeWidth: newSize.width,
+                                  htmlContent: remoteNode.data.label,
+                                  singleLineHeight
+                                })
+                                newSize.height = heightResult.height
+                                
+                                d3Renderer.nodeSizeCache.set(remoteNode.id, newSize)
+                                
+                                const node = d3Renderer.nodes.find((n) => n.id === remoteNode.id)
+                                if (node && !node.data) node.data = {}
+                                
+                                rect.attr('height', newSize.height)
+                                rect.node()?.setAttribute('height', newSize.height)
+                                
+                                const foHeight = Math.max(0, newSize.height - borderOffset)
+                                fo.attr('height', foHeight)
+                                fo.node()?.setAttribute('height', foHeight)
+                                
+                                if (wrapperNode) {
+                                  wrapperNode.style.setProperty('height', `${foHeight}px`, 'important')
+                                  wrapperNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                                }
+                                
+                                if (containerNode) {
+                                  containerNode.style.setProperty('height', `${foHeight}px`, 'important')
+                                  containerNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                                }
+                                
+                                editorContent.style.setProperty('width', `${foWidth}px`, 'important')
+                                
+                                nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                                nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                                nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                                nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                                nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                                nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                                nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
+                                nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+                                
+                                updateD3RendererWithDelay()
+                              }, 20)
+                            })
+                            return
+                          }
+                        } else {
+                          const contentScrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
+                          newSize.height = Math.max(contentScrollHeight, singleLineHeight)
+                        }
+                        
+                        d3Renderer.nodeSizeCache.set(remoteNode.id, newSize)
+                        
+                        const node = d3Renderer.nodes.find((n) => n.id === remoteNode.id)
+                        if (node && !node.data) node.data = {}
+                        
+                        rect.attr('width', newSize.width)
+                        rect.attr('height', newSize.height)
+                        rect.node()?.setAttribute('width', newSize.width)
+                        rect.node()?.setAttribute('height', newSize.height)
+                        
+                        const foWidth = Math.max(0, newSize.width - borderOffset)
+                        const foHeight = Math.max(0, newSize.height - borderOffset)
+                        fo.attr('width', foWidth)
+                        fo.attr('height', foHeight)
+                        fo.node()?.setAttribute('width', foWidth)
+                        fo.node()?.setAttribute('height', foHeight)
+                        
+                        const wrapperNode = fo.select('.node-content-wrapper').node()
+                        if (wrapperNode) {
+                          wrapperNode.style.setProperty('width', '100%', 'important')
+                          wrapperNode.style.setProperty('height', `${foHeight}px`, 'important')
+                          wrapperNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                          wrapperNode.style.setProperty('max-height', 'none', 'important')
+                          wrapperNode.style.setProperty('overflow', 'visible', 'important')
+                        }
+                        
+                        const containerNode = fo.select('.node-editor-container').node()
+                        if (containerNode) {
+                          containerNode.style.setProperty('width', '100%', 'important')
+                          containerNode.style.setProperty('height', `${foHeight}px`, 'important')
+                          containerNode.style.setProperty('min-height', `${foHeight}px`, 'important')
+                          containerNode.style.setProperty('max-height', 'none', 'important')
+                          containerNode.style.setProperty('overflow', 'visible', 'important')
+                        }
+                        
+                        editorContent.style.setProperty('width', `${foWidth}px`, 'important')
+                        
+                        nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                        nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                        nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                        nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+                        nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+                        nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                        nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
+                        nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+                        
+                        updateD3RendererWithDelay()
+                      }, 50)
+                    }
+                  }
+                }
+              })
+            }, 10)
+          })
+        } catch (err) {
+          console.error('Error updating node content:', err)
+        }
+      }
+    })
+  }
+}
+
 function handleRealtimeMindmapUpdate(payload) {
   if (!payload) return
   
@@ -5817,24 +6142,24 @@ function handleRealtimeMindmapUpdate(payload) {
       d3Renderer.render()
       
       nodesToUpdate.forEach(updatedNode => {
-        const editorInstance = d3Renderer.getEditorInstance(updatedNode.id)
-        if (editorInstance && !editorInstance.isDestroyed) {
-          try {
+            const editorInstance = d3Renderer.getEditorInstance(updatedNode.id)
+            if (editorInstance && !editorInstance.isDestroyed) {
+              try {
             editorInstance.commands.setContent(updatedNode.data.label, false)
-            
-            requestAnimationFrame(() => {
-              setTimeout(() => {
+                
                 requestAnimationFrame(() => {
-                  const nodeGroup = d3Renderer.g.select(`[data-node-id="${updatedNode.id}"]`)
-                  if (!nodeGroup.empty()) {
-                    const rect = nodeGroup.select('.node-rect')
-                    const fo = nodeGroup.select('.node-text')
-                    
-                    if (!rect.empty() && !fo.empty()) {
+                  setTimeout(() => {
+                requestAnimationFrame(() => {
+                    const nodeGroup = d3Renderer.g.select(`[data-node-id="${updatedNode.id}"]`)
+                    if (!nodeGroup.empty()) {
+                      const rect = nodeGroup.select('.node-rect')
+                      const fo = nodeGroup.select('.node-text')
+                      
+                      if (!rect.empty() && !fo.empty()) {
                       const editorDOM = editorInstance.view?.dom
                       const editorContent = editorDOM?.querySelector('.mindmap-editor-prose') || editorDOM
                       const isRootNode = updatedNode.data?.isRoot || updatedNode.id === 'root'
-                      
+                        
                       if (editorContent) {
                         const borderOffset = 4
                         const maxWidth = 400
@@ -5929,8 +6254,8 @@ function handleRealtimeMindmapUpdate(payload) {
                                   })
                                   newSize.height = heightResult.height
                                   
-                                  d3Renderer.nodeSizeCache.set(updatedNode.id, newSize)
-                                  
+                          d3Renderer.nodeSizeCache.set(updatedNode.id, newSize)
+                          
                                   const node = d3Renderer.nodes.find((n) => n.id === updatedNode.id)
                                   if (node) {
                                     if (!node.data) node.data = {}
@@ -6103,33 +6428,33 @@ function handleRealtimeMindmapUpdate(payload) {
                         
                         d3Renderer.nodeSizeCache.set(updatedNode.id, newSize)
                         
-                        const borderOffset = 4
-                        rect.attr('width', newSize.width)
-                        rect.attr('height', newSize.height)
-                        fo.attr('width', Math.max(0, newSize.width - borderOffset))
-                        fo.attr('height', Math.max(0, newSize.height - borderOffset))
-                        
+                          const borderOffset = 4
+                          rect.attr('width', newSize.width)
+                          rect.attr('height', newSize.height)
+                          fo.attr('width', Math.max(0, newSize.width - borderOffset))
+                          fo.attr('height', Math.max(0, newSize.height - borderOffset))
+                          
                         nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
                         nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
                         nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
                         nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
                         nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
-                        nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                          nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
                         nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
-                        nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
-                        
+                          nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+                          
                         if (!hasImages) {
                           updateD3RendererWithDelay()
+                          }
                         }
                       }
                     }
-                  }
                 })
-              }, 150)
-            })
-          } catch (err) {
-            console.error('Error updating editor from remote:', err)
-          }
+                  }, 150)
+                })
+              } catch (err) {
+                console.error('Error updating editor from remote:', err)
+              }
         } else {
           d3Renderer.updateNodeLabelFromExternal(updatedNode.id, updatedNode.data.label)
           

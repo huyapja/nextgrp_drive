@@ -392,6 +392,77 @@ def save_mindmap_layout(entity_name, nodes, edges, layout="vertical"):
 
 
 @frappe.whitelist()
+def save_mindmap_node(entity_name, node_id, node_data):
+    """
+    Lưu một node cụ thể trong mindmap
+    
+    :param entity_name: Drive File entity name
+    :param node_id: ID của node cần cập nhật
+    :param node_data: Dữ liệu node (dict hoặc JSON string)
+    """
+    try:
+        doc_drive = frappe.get_doc("Drive File", entity_name)
+        
+        if not doc_drive or not doc_drive.mindmap:
+            frappe.throw(_("Mindmap not found"), frappe.DoesNotExistError)
+        
+        if not frappe.has_permission("Drive File", "write", doc_drive):
+            frappe.throw(_("No permission to edit"), frappe.PermissionError)
+        
+        mindmap_doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
+        
+        if isinstance(node_data, str):
+            node_data = json.loads(node_data)
+        
+        current_data = {}
+        if mindmap_doc.mindmap_data:
+            current_data = json.loads(mindmap_doc.mindmap_data) if isinstance(mindmap_doc.mindmap_data, str) else mindmap_doc.mindmap_data
+        
+        nodes = current_data.get("nodes", [])
+        edges = current_data.get("edges", [])
+        layout = current_data.get("layout", "horizontal")
+        
+        node_found = False
+        for i, node in enumerate(nodes):
+            if node.get("id") == node_id:
+                nodes[i] = node_data
+                node_found = True
+                break
+        
+        if not node_found:
+            nodes.append(node_data)
+        
+        mindmap_data = {"nodes": nodes, "edges": edges, "layout": layout}
+        mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
+        mindmap_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+        
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": mindmap_doc.name,
+            "node_id": node_id,
+            "node": node_data,
+            "modified": str(mindmap_doc.modified),
+            "modified_by": frappe.session.user,
+        }
+        
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:node_updated",
+                message=message,
+                after_commit=True,
+            )
+        except Exception as e:
+            frappe.log_error(f"Error emitting realtime event: {str(e)}", "Emit Node Update Event")
+        
+        return {"success": True, "message": _("Node saved successfully"), "node": node_data}
+    
+    except Exception as e:
+        frappe.log_error(f"Save node error: {str(e)}", "Save Mindmap Node")
+        frappe.throw(str(e))
+
+
+@frappe.whitelist()
 def get_mindmap_tree_with_positions(parent_mindmap=None, layout="vertical"):
     """
     Lấy tree structure với positions tự động tính toán
