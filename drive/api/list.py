@@ -266,23 +266,20 @@ def files(
             r["share_count"] = -1
         else:
             r["share_count"] = share_count.get(r["name"], 0)
-    
+
     if field in ["modified", "creation", "title", "file_size", "accessed"]:
         reverse = not ascending
         if field == "title":
             res.sort(
-                key=lambda x: (
-                    not x.get("is_group", 0),
-                    (x.get(field) or "").lower()
-                ),
-                reverse=reverse
+                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                reverse=reverse,
             )
         else:
             res.sort(
                 key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
+                reverse=reverse,
             )
-    
+
     return res
 
 
@@ -1127,39 +1124,59 @@ def files_multi_team(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
-    # Sort results
-    if field in ["modified", "creation", "title", "file_size", "accessed"]:
-        reverse = not ascending
+    # Sort results - always prioritize folders first, regardless of sort direction
+    reverse = not ascending
 
-        if field == "title":
-            all_results.sort(
-                key=lambda x: (
-                    not x.get("is_group", 0),
-                    (x.get(field) or "").lower()
-                ),
-                reverse=reverse
-            )
-        elif field == "accessed":
-            print("DEBUG - Sorting by accessed with special None handling", field)
-            has_accessed = [r for r in all_results if r.get(field) is not None]
-            no_accessed = [r for r in all_results if r.get(field) is None]
+    # Separate folders and files
+    folders = [r for r in all_results if r.get("is_group", 0) == 1]
+    files = [r for r in all_results if r.get("is_group", 0) == 0]
 
-            has_accessed.sort(
-                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
-            )
-            no_accessed.sort(
-                key=lambda x: not x.get("is_group", 0),
-                reverse=False
-            )
-            print("DEBUG - has_accessed count:", len(has_accessed))
-            print("DEBUG - no_accessed count:", len(no_accessed))
-            all_results = has_accessed + no_accessed
-        else:
-            all_results.sort(
-                key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
-            )
+    if field == "title":
+        folders.sort(
+            key=lambda x: (x.get(field) or "").lower(),
+            reverse=reverse,
+        )
+        files.sort(
+            key=lambda x: (x.get(field) or "").lower(),
+            reverse=reverse,
+        )
+    elif field == "accessed":
+        print("DEBUG - Sorting by accessed with special None handling", field)
+        folders_has = [r for r in folders if r.get(field) is not None]
+        folders_no = [r for r in folders if r.get(field) is None]
+        files_has = [r for r in files if r.get(field) is not None]
+        files_no = [r for r in files if r.get(field) is None]
+
+        folders_has.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+        folders_no.sort(key=lambda x: x.get("modified", ""), reverse=False)
+        files_has.sort(key=lambda x: x.get(field, ""), reverse=reverse)
+        files_no.sort(key=lambda x: x.get("modified", ""), reverse=False)
+
+        folders = folders_has + folders_no
+        files = files_has + files_no
+        print("DEBUG - folders count:", len(folders), "files count:", len(files))
+    elif field in ["modified", "creation", "file_size"]:
+        folders.sort(
+            key=lambda x: x.get(field, ""),
+            reverse=reverse,
+        )
+        files.sort(
+            key=lambda x: x.get(field, ""),
+            reverse=reverse,
+        )
+    else:
+        # For any other field, still prioritize folders
+        folders.sort(
+            key=lambda x: x.get(field, ""),
+            reverse=reverse,
+        )
+        files.sort(
+            key=lambda x: x.get(field, ""),
+            reverse=reverse,
+        )
+
+    # Always put folders first, then files
+    all_results = folders + files
 
     # Apply cursor pagination if specified
     if cursor and all_results:
@@ -1433,26 +1450,20 @@ def get_recent_files_multi_team(
     if field == "accessed":
         reverse = not ascending
         all_results.sort(
-            key=lambda x: (
-                not x.get("is_group", 0),
-                x.get("accessed") or datetime.min
-            ),
-            reverse=reverse
+            key=lambda x: (not x.get("is_group", 0), x.get("accessed") or datetime.min),
+            reverse=reverse,
         )
     elif field in ["modified", "creation", "title", "file_size"]:
         reverse = not ascending
         if field == "title":
             all_results.sort(
-                key=lambda x: (
-                    not x.get("is_group", 0),
-                    (x.get(field) or "").lower()
-                ),
-                reverse=reverse
+                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                reverse=reverse,
             )
         else:
             all_results.sort(
                 key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
+                reverse=reverse,
             )
 
     # Apply cursor pagination
@@ -1811,16 +1822,13 @@ def get_favourites_multi_team(
         reverse = not ascending
         if field == "title":
             all_results.sort(
-                key=lambda x: (
-                    not x.get("is_group", 0),
-                    (x.get(field) or "").lower()
-                ),
-                reverse=reverse
+                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                reverse=reverse,
             )
         else:
             all_results.sort(
                 key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
+                reverse=reverse,
             )
 
     # Apply cursor pagination
@@ -2656,28 +2664,22 @@ def get_personal_files(
 
         if field == "title":
             all_results.sort(
-                key=lambda x: (
-                    not x.get("is_group", 0),
-                    (x.get(field) or "").lower()
-                ),
-                reverse=reverse
+                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                reverse=reverse,
             )
         elif field == "accessed":
             has_accessed = [r for r in all_results if r.get(field) is not None]
             no_accessed = [r for r in all_results if r.get(field) is None]
             has_accessed.sort(
                 key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
+                reverse=reverse,
             )
-            no_accessed.sort(
-                key=lambda x: not x.get("is_group", 0),
-                reverse=False
-            )
+            no_accessed.sort(key=lambda x: not x.get("is_group", 0), reverse=False)
             all_results = has_accessed + no_accessed
         else:
             all_results.sort(
                 key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
+                reverse=reverse,
             )
 
     # ✅ Apply cursor pagination
@@ -3006,16 +3008,13 @@ def get_trash_files(
 
         if field == "title":
             all_results.sort(
-                key=lambda x: (
-                    not x.get("is_group", 0),
-                    (x.get(field) or "").lower()
-                ),
-                reverse=reverse
+                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                reverse=reverse,
             )
         else:
             all_results.sort(
                 key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
-                reverse=reverse
+                reverse=reverse,
             )
 
     # ✅ BƯỚC 8: Apply cursor pagination
