@@ -42,11 +42,29 @@ export function buildD3Hierarchy(nodes, edges, rootId = 'root') {
   
   if (!rootNode) return null
   
-  const buildNode = (nodeId) => {
+  const visited = new Set()
+  
+  const buildNode = (nodeId, depth = 0) => {
+    if (visited.has(nodeId)) {
+      console.warn(`Circular reference detected at node ${nodeId}`)
+      return null
+    }
+    
+    if (depth > 100) {
+      console.warn(`Maximum depth exceeded at node ${nodeId}`)
+      return null
+    }
+    
     const node = nodeMap.get(nodeId)
     if (!node) return null
     
-    const children = (childrenMap.get(nodeId) || []).map(childId => buildNode(childId)).filter(Boolean)
+    visited.add(nodeId)
+    
+    const children = (childrenMap.get(nodeId) || [])
+      .map(childId => buildNode(childId, depth + 1))
+      .filter(Boolean)
+    
+    visited.delete(nodeId)
     
     return {
       id: node.id,

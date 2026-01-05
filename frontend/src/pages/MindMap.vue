@@ -355,6 +355,7 @@ const hoveredNode = ref(null)
 const editingNode = ref(null)
 const nodeEditingUsers = ref(new Map())
 const lastBroadcastState = ref(new Map())
+const editingStartTime = ref(null)
 const showDeleteDialog = ref(false)
 const nodeToDelete = ref(null)
 const childCount = ref(0)
@@ -635,6 +636,18 @@ let d3Renderer = null
 // Node counter
 let nodeCounter = 0
 
+// Generate unique node ID để tránh conflict khi nhiều users cùng tạo node
+const generateNodeId = () => {
+  const timestamp = Date.now()
+  const random = Math.floor(Math.random() * 10000)
+  const userId = store.state.user?.id || 'anonymous'
+  const userHash = userId.split('').reduce((a, b) => {
+    a = ((a << 5) - a) + b.charCodeAt(0)
+    return a & a
+  }, 0)
+  return `node-${timestamp}-${Math.abs(userHash)}-${random}`
+}
+
 // Track node creation order
 const nodeCreationOrder = ref(new Map()) // Track when nodes were created
 let creationOrderCounter = 0
@@ -893,6 +906,27 @@ const initD3Renderer = () => {
 
       // 2. parentId (re-parent khi drag & drop)
       if (updates.parentId !== undefined) {
+        // Validate: Không cho phép node thành con của chính nó
+        if (nodeId === updates.parentId) {
+          console.warn(`Cannot make node ${nodeId} a child of itself`)
+          toast.error("Không thể di chuyển node thành con của chính nó")
+          return
+        }
+        
+        // Validate: Không cho phép tạo circular reference (node thành con của con của nó)
+        const isDescendant = (potentialParent, checkNodeId) => {
+          if (potentialParent === checkNodeId) return true
+          const parentEdge = edges.value.find(e => e.target === potentialParent)
+          if (!parentEdge) return false
+          return isDescendant(parentEdge.source, checkNodeId)
+        }
+        
+        if (isDescendant(updates.parentId, nodeId)) {
+          console.warn(`Circular reference detected: ${nodeId} -> ${updates.parentId}`)
+          toast.error("Không thể di chuyển node vào nhánh con của chính nó")
+          return
+        }
+        
         // Lưu snapshot trước khi thay đổi parent (drag & drop)
         saveSnapshot()
         
@@ -972,6 +1006,7 @@ const initD3Renderer = () => {
       }
       
       editingNode.value = nodeId
+      editingStartTime.value = Date.now()
       broadcastNodeEditing(nodeId, true)
       return true
     },
@@ -1003,17 +1038,22 @@ const initD3Renderer = () => {
             renameMindmapTitle(newTitle)
           }
 
-          // Chỉ lưu nếu node thực sự có thay đổi
+          // Lưu ngay lập tức nếu có thay đổi (không đợi debounce)
           if (changedNodeIds.value.has(finishedNodeId)) {
-            scheduleSave()
+            if (saveTimeout) {
+              clearTimeout(saveTimeout)
+              saveTimeout = null
+            }
+            saveImmediately()
           }
         }
       }
 
       broadcastNodeEditing(finishedNodeId, false)
       
-      // Clear editingNode trước khi update để watch không bị trigger
+      // Clear editingNode và editingStartTime
       editingNode.value = null
+      editingStartTime.value = null
 
       // Update layout sau khi edit xong để đảm bảo node size chính xác
       // Tăng delay lên 300ms để đảm bảo DOM đã update và node size đã được tính toán lại
@@ -1214,7 +1254,7 @@ const addChildToNode = async (parentId) => {
   const parent = nodes.value.find(n => n.id === parentId)
   if (!parent) return
 
-  const newNodeId = `node-${nodeCounter++}`
+  const newNodeId = generateNodeId()
 
   const newNode = {
     id: newNodeId,
@@ -1254,6 +1294,10 @@ const addChildToNode = async (parentId) => {
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
+    
+    // Xóa cache size để node mới được tính toán lại
+    d3Renderer.nodeSizeCache.delete(newNodeId)
+    
     // ⚠️ FIX: Đánh dấu node mới được tạo để prevent blur
     if (!d3Renderer.newlyCreatedNodes) {
       d3Renderer.newlyCreatedNodes = new Map()
@@ -1402,7 +1446,7 @@ const addSiblingToNode = async (nodeId) => {
 
   const parentId = parentEdge.source
 
-  const newNodeId = `node-${nodeCounter++}`
+  const newNodeId = generateNodeId()
 
   const newNode = {
     id: newNodeId,
@@ -1437,6 +1481,10 @@ const addSiblingToNode = async (nodeId) => {
   // Set selectedNode trong d3Renderer TRƯỚC KHI render để node có style selected ngay từ đầu
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
+    
+    // Xóa cache size để node mới được tính toán lại
+    d3Renderer.nodeSizeCache.delete(newNodeId)
+    
     // ⚠️ FIX: Đánh dấu node mới được tạo để prevent blur
     if (!d3Renderer.newlyCreatedNodes) {
       d3Renderer.newlyCreatedNodes = new Map()
@@ -1752,6 +1800,12 @@ const restoreSnapshot = async (snapshot) => {
     return
   }
   
+  // Lưu lại nodes hiện tại để so sánh (trước khi restore)
+  const oldNodesMap = new Map()
+  nodes.value.forEach(node => {
+    oldNodesMap.set(node.id, node)
+  })
+  
   isRestoringSnapshot.value = true
   
   try {
@@ -1913,6 +1967,54 @@ const restoreSnapshot = async (snapshot) => {
     isRestoringSnapshot.value = false
   }
   
+  // So sánh để tìm nodes deleted, added, updated
+  const newNodesMap = new Map()
+  nodes.value.forEach(node => {
+    newNodesMap.set(node.id, node)
+  })
+  
+  // Tìm nodes đã bị xóa (có trong old nhưng không có trong new)
+  const deletedNodeIds = []
+  oldNodesMap.forEach((node, id) => {
+    if (id !== 'root' && !newNodesMap.has(id)) {
+      deletedNodeIds.push(id)
+    }
+  })
+  
+  // Tìm nodes added hoặc updated
+  nodes.value.forEach(node => {
+    if (node.id === 'root') return
+    
+    const oldNode = oldNodesMap.get(node.id)
+    if (!oldNode) {
+      // Node mới được thêm
+      changedNodeIds.value.add(node.id)
+    } else {
+      // Kiểm tra xem node có thay đổi không
+      const oldLabel = oldNode.data?.label || ''
+      const newLabel = node.data?.label || ''
+      if (oldLabel !== newLabel) {
+        changedNodeIds.value.add(node.id)
+      }
+    }
+  })
+  
+  console.log('[Undo/Redo] 📊 Thay đổi phát hiện:', {
+    deleted: deletedNodeIds.length,
+    changedOrAdded: changedNodeIds.value.size
+  })
+  
+  // Broadcast nodes deleted nếu có
+  if (deletedNodeIds.length > 0 && permissions.value.write) {
+    savingCount.value++
+    deleteNodesResource.submit({
+      entity_name: props.entityName,
+      node_ids: JSON.stringify(deletedNodeIds)
+    })
+    console.log('[Undo/Redo] ✅ Đang broadcast xóa nodes:', deletedNodeIds)
+  }
+  
+  // Lưu và broadcast nodes updated/added
   scheduleSave()
 }
 
@@ -4460,7 +4562,7 @@ function pasteToNode(targetNodeId) {
   }
 
   // Trường hợp cũ: Paste node đơn lẻ hoặc text (backward compatibility)
-  const newNodeId = `node-${nodeCounter++}`
+  const newNodeId = generateNodeId()
   let newNodeLabel = 'Nhánh mới'
 
   let newNodeFixedWidth = null
@@ -4517,6 +4619,9 @@ function pasteToNode(targetNodeId) {
 
   if (d3Renderer) {
     d3Renderer.selectedNode = newNodeId
+    
+    // Xóa cache size để node mới được tính toán lại
+    d3Renderer.nodeSizeCache.delete(newNodeId)
   }
 
   // ⚠️ CRITICAL: Áp dụng strikethrough cho node đã completed sau khi paste
@@ -4570,7 +4675,7 @@ async function pasteFromSystemClipboard(targetNodeId) {
     }
 
     // Tạo node mới với nội dung từ clipboard
-    const newNodeId = `node-${nodeCounter++}`
+    const newNodeId = generateNodeId()
     const newNode = {
       id: newNodeId,
       data: {
@@ -4600,6 +4705,9 @@ async function pasteFromSystemClipboard(targetNodeId) {
 
     if (d3Renderer) {
       d3Renderer.selectedNode = newNodeId
+      
+      // Xóa cache size để node mới được tính toán lại
+      d3Renderer.nodeSizeCache.delete(newNodeId)
     }
     // Auto-focus new node's editor
     nextTick(() => {
@@ -4878,7 +4986,7 @@ function handlePasteEvent(event) {
       const text = clipboardData.getData('text/plain')
       if (text && text.trim()) {
         // Tạo node mới với nội dung từ clipboard
-        const newNodeId = `node-${nodeCounter++}`
+        const newNodeId = generateNodeId()
         const newNode = {
           id: newNodeId,
           data: {
@@ -5917,8 +6025,20 @@ function handleRealtimeNodeUpdate(payload) {
   }
   
   if (isNodeBeingEdited) {
-    console.log('⚠️ Node đang được LOCAL USER edit, bỏ qua render để không gián đoạn user')
-    return
+    const timeSinceEditStart = editingStartTime.value ? Date.now() - editingStartTime.value : Infinity
+    const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
+    
+    const shouldAllowUpdate = timeSinceEditStart < 2000 && !hasLocalChanges
+    
+    if (shouldAllowUpdate) {
+      console.log('✨ Cho phép update editor vì vừa mới bắt đầu edit (<2s) và chưa có thay đổi')
+    } else {
+      console.log('⚠️ Node đang được LOCAL USER edit, bỏ qua render để không gián đoạn user', {
+        timeSinceEditStart,
+        hasLocalChanges
+      })
+      return
+    }
   }
   
   if (payload.edge) {
