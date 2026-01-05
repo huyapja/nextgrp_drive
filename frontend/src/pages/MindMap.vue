@@ -347,6 +347,7 @@ const props = defineProps({
 
 // State
 const isSaving = ref(false)
+const savingCount = ref(0)
 const lastSaved = ref(null)
 const selectedNode = ref(null)
 const changedNodeIds = ref(new Set())
@@ -1951,6 +1952,7 @@ const performDelete = async (nodeId) => {
   // Update D3 renderer after deletion
   updateD3Renderer()
   
+  savingCount.value++
   deleteNodesResource.submit({
     entity_name: props.entityName,
     node_ids: JSON.stringify(Array.from(nodesToDelete))
@@ -3477,11 +3479,19 @@ const saveNodeResource = createResource({
   url: "drive.api.mindmap.save_mindmap_node",
   method: "POST",
   onSuccess(response) {
-    isSaving.value = false
+    savingCount.value--
+    if (savingCount.value <= 0) {
+      savingCount.value = 0
+      isSaving.value = false
+    }
     lastSaved.value = formatTime(new Date())
   },
   onError(error) {
-    isSaving.value = false
+    savingCount.value--
+    if (savingCount.value <= 0) {
+      savingCount.value = 0
+      isSaving.value = false
+    }
   }
 })
 
@@ -3489,11 +3499,39 @@ const deleteNodesResource = createResource({
   url: "drive.api.mindmap.delete_mindmap_nodes",
   method: "POST",
   onSuccess(response) {
-    isSaving.value = false
+    savingCount.value--
+    if (savingCount.value <= 0) {
+      savingCount.value = 0
+      isSaving.value = false
+    }
     lastSaved.value = formatTime(new Date())
   },
   onError(error) {
-    isSaving.value = false
+    savingCount.value--
+    if (savingCount.value <= 0) {
+      savingCount.value = 0
+      isSaving.value = false
+    }
+  }
+})
+
+const saveNodesBatchResource = createResource({
+  url: "drive.api.mindmap.save_mindmap_nodes_batch",
+  method: "POST",
+  onSuccess(response) {
+    savingCount.value--
+    if (savingCount.value <= 0) {
+      savingCount.value = 0
+      isSaving.value = false
+    }
+    lastSaved.value = formatTime(new Date())
+  },
+  onError(error) {
+    savingCount.value--
+    if (savingCount.value <= 0) {
+      savingCount.value = 0
+      isSaving.value = false
+    }
   }
 })
 
@@ -3533,6 +3571,7 @@ const saveNode = (nodeId) => {
     params.edge_data = JSON.stringify(edge)
   }
   
+  savingCount.value++
   saveNodeResource.submit(params)
   
   changedNodeIds.value.delete(nodeId)
@@ -3546,9 +3585,57 @@ const saveImmediately = () => {
   }
 
   if (changedNodeIds.value.size > 0) {
-    changedNodeIds.value.forEach(nodeId => {
-      saveNode(nodeId)
-    })
+    const nodeIdsArray = Array.from(changedNodeIds.value)
+    
+    if (nodeIdsArray.length > 3) {
+      const nodesToSave = []
+      const edgesToSave = []
+      
+      nodeIdsArray.forEach(nodeId => {
+        const node = nodes.value.find(n => n.id === nodeId)
+        if (!node) return
+        
+        const { count, ...nodeData } = node
+        const nodeWithPos = { ...nodeData }
+        
+        if (d3Renderer && d3Renderer.positions) {
+          const pos = d3Renderer.positions.get(nodeId)
+          if (pos) {
+            nodeWithPos.position = { ...pos }
+          }
+        }
+        
+        if (nodeCreationOrder.value.has(nodeId)) {
+          const order = nodeCreationOrder.value.get(nodeId)
+          if (!nodeWithPos.data) {
+            nodeWithPos.data = {}
+          }
+          nodeWithPos.data.order = order
+        }
+        
+        nodesToSave.push(nodeWithPos)
+        
+        const edge = edges.value.find(e => e.target === nodeId)
+        if (edge && !edgesToSave.find(e => e.id === edge.id)) {
+          edgesToSave.push(edge)
+        }
+      })
+      
+      if (nodesToSave.length > 0) {
+        savingCount.value++
+        saveNodesBatchResource.submit({
+          entity_name: props.entityName,
+          nodes_data: JSON.stringify(nodesToSave),
+          edges_data: edgesToSave.length > 0 ? JSON.stringify(edgesToSave) : null
+        })
+      }
+      
+      changedNodeIds.value.clear()
+    } else {
+      changedNodeIds.value.forEach(nodeId => {
+        saveNode(nodeId)
+      })
+    }
   }
 }
 
@@ -3827,6 +3914,7 @@ onMounted(() => {
     socket.on('drive_mindmap:node_unresolved', handleRealtimeUnresolvedComment)
     // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
     socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
+    socket.on('drive_mindmap:nodes_updated_batch', handleRealtimeNodesBatchUpdate)
     socket.on('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
     
     // ⚠️ NEW: Listen for socket connect để đảm bảo listeners được đăng ký lại nếu reconnect
@@ -3834,6 +3922,7 @@ onMounted(() => {
       socket.on('drive_mindmap:task_status_updated', handleRealtimeTaskStatusUpdate)
       // socket.on('drive_mindmap:updated', handleRealtimeMindmapUpdate)
       socket.on('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
+      socket.on('drive_mindmap:nodes_updated_batch', handleRealtimeNodesBatchUpdate)
       socket.on('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
     })
     
@@ -3879,6 +3968,7 @@ onBeforeUnmount(() => {
     socket.off("connect")
     socket.off('drive_mindmap:updated', handleRealtimeMindmapUpdate)
     socket.off('drive_mindmap:node_updated', handleRealtimeNodeUpdate)
+    socket.off('drive_mindmap:nodes_updated_batch', handleRealtimeNodesBatchUpdate)
     socket.off('drive_mindmap:nodes_deleted', handleRealtimeNodesDeleted)
   }
   socket.off('drive_mindmap:new_comment', handleRealtimeNewComment)
@@ -5995,6 +6085,73 @@ function handleRealtimeNodeUpdate(payload) {
           console.error('Error updating node content:', err)
         }
       }
+    })
+  }
+}
+
+function handleRealtimeNodesBatchUpdate(payload) {
+  if (!payload) return
+  
+  if (payload.entity_name !== props.entityName) return
+  
+  const currentUser = store.state.user.id
+  if (payload.modified_by === currentUser) {
+    return
+  }
+  
+  if (isSaving.value) {
+    console.log('⏸️ Đang lưu, bỏ qua batch update từ remote')
+    return
+  }
+  
+  console.log('📡 Nhận batch update nodes từ remote:', payload.node_ids)
+  
+  const remoteNodes = payload.nodes || []
+  const remoteEdges = payload.edges || []
+  
+  if (!Array.isArray(remoteNodes) || remoteNodes.length === 0) {
+    return
+  }
+  
+  const editingNodeId = editingNode.value
+  const selectedNodeId = selectedNode.value?.id
+  
+  remoteNodes.forEach(remoteNode => {
+    if (remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId) {
+      return
+    }
+    
+    const nodeIndex = nodes.value.findIndex(n => n.id === remoteNode.id)
+    if (nodeIndex !== -1) {
+      nodes.value[nodeIndex] = { ...remoteNode }
+    } else {
+      nodes.value.push({ ...remoteNode })
+    }
+    
+    if (remoteNode.data?.order !== undefined) {
+      nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
+    }
+  })
+  
+  if (remoteEdges && Array.isArray(remoteEdges)) {
+    remoteEdges.forEach(remoteEdge => {
+      const edgeIndex = edges.value.findIndex(e => e.id === remoteEdge.id)
+      if (edgeIndex !== -1) {
+        edges.value[edgeIndex] = { ...remoteEdge }
+      } else {
+        edges.value.push({ ...remoteEdge })
+      }
+    })
+  }
+  
+  if (d3Renderer) {
+    nextTick(() => {
+      remoteNodes.forEach(remoteNode => {
+        d3Renderer.nodeSizeCache.delete(remoteNode.id)
+      })
+      
+      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+      d3Renderer.render()
     })
   }
 }
