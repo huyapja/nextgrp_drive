@@ -49,6 +49,9 @@ const emit = defineEmits([
   "open-comment",
   "add-child-node",
   "done-node",
+  "copy-node",
+  "task-link-node",
+  "delete-node",
 ])
 
 const canEdit = computed(() => {
@@ -130,6 +133,15 @@ onMounted(() => {
     },
     onDoneNode(payload) {
       emit('done-node', payload)
+    },
+    onCopyLinkNode(payload) {
+      emit('copy-node', payload)
+    },
+    onTaskLinkNode(payload) {
+      emit('task-link-node', payload)
+    },
+    onDeleteNode(payload) {
+      emit('delete-node', payload)
     },
     extensions: [
       StarterKit.configure({
@@ -483,6 +495,7 @@ watch(
   margin-left: 28px;
 }
 
+
 .prose :deep(blockquote .mm-node) {
   margin-top: 0px;
   margin-bottom: 0px;
@@ -494,7 +507,7 @@ watch(
 
 .prose :deep(a.task-link) {
   padding: 0px;
-  margin: 0;
+  margin: 0 0 0 40px;
   color: #1d4ed8;
   font-size: 13px;
 }

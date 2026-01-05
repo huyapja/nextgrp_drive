@@ -95,9 +95,40 @@
               </svg>
               {{ isDone ? 'Kích hoạt' : 'Xong' }}
             </li>
-            <li>Thêm hình ảnh</li>
-            <li>Sao chép liên kết</li>
-            <li>Liên kết công việc từ nhánh</li>
+            <!-- <li>Thêm hình ảnh</li> -->
+            <li @click.stop="
+              copyLinkNode($event)
+            closeActionsPopover();
+            ">
+              <svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              Sao chép liên kết
+            </li>
+            <li @click.stop="
+              taskLinkNode($event)
+            closeActionsPopover();
+            ">
+              <svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              </svg>
+              Liên kết công việc từ nhánh
+            </li>
+            <li class="text-[#dc2626] delete-node" @click.stop="
+            deleteNode($event)
+            closeActionsPopover();
+            ">
+              <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+              Xóa nhánh
+            </li>
           </ul>
         </div>
       </Popover>
@@ -183,6 +214,25 @@ const {
   node: props.node,
   getPos: props.getPos,
 })
+
+function copyLinkNode(event) {
+  const nodeId = resolveNodeIdFromDOM(event.currentTarget)
+  if (!nodeId) return
+  props.editor?.options?.onCopyLinkNode?.(nodeId)
+}
+
+function taskLinkNode(event) {
+  const nodeId = resolveNodeIdFromDOM(event.currentTarget)
+  if (!nodeId) return
+  props.editor?.options?.onTaskLinkNode?.(nodeId)
+}
+
+function deleteNode(event) {
+  const nodeId = resolveNodeIdFromDOM(event.currentTarget)
+  if (!nodeId) return
+  props.editor?.options?.onDeleteNode?.(nodeId)
+}
+
 
 function insertDescriptionBlockquote() {
   const editor = props.editor
@@ -496,6 +546,7 @@ function onClickNode(e) {
  * - luôn mở comment
  */
 function onClickComment(e) {
+  closeActionsPopover()
   suppressPanelAutoFocus && (suppressPanelAutoFocus.value = false)
   openCommentFromEvent(e, { focus: true })
 }
@@ -561,5 +612,9 @@ watchEffect(() => {
 ul.more-actions li:hover {
   background: #eff6ff;
   color: #2563EB;
+}
+ul.more-actions li.delete-node:hover {
+  background: #fef2f2;
+  color: #dc2626
 }
 </style>

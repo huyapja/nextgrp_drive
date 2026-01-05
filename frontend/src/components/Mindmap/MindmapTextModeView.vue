@@ -1,6 +1,7 @@
 <template>
-    <MindmapTextNodeViewEditor :permissions="props.permissions" :initial-content="content" @rename-title="onRenameTitle" @update-nodes="onUpdateNodes"
-        @open-comment="onOpenComment" @add-child-node="onAddChildFromText" @done-node="onDoneNode" />
+    <MindmapTextNodeViewEditor :permissions="props.permissions" :initial-content="content" @rename-title="onRenameTitle"
+        @update-nodes="onUpdateNodes" @open-comment="onOpenComment" @add-child-node="onAddChildFromText"
+        @done-node="onDoneNode" @copy-node="onCopyNode" @task-link-node="onTaskLinkNode" @delete-node="onDeleteNode" />
 </template>
 
 <script setup>
@@ -13,9 +14,9 @@ const props = defineProps({
     edges: Array,
     version: Number,
     activeCommentNode: Object,
-	permissions: {
-		type: Object,
-	}
+    permissions: {
+        type: Object,
+    }
 })
 
 const emit = defineEmits([
@@ -24,6 +25,9 @@ const emit = defineEmits([
     "open-comment",
     "add-child-node",
     "done-node",
+    "copy-node",
+    "task-link-node",
+    "delete-node",
 ])
 
 const content = ref("")
@@ -52,6 +56,18 @@ function onAddChildFromText(payload) {
 
 function onDoneNode(payload) {
     emit('done-node', payload)
+}
+
+function onCopyNode(payload) {
+    emit('copy-node', payload)
+}
+
+function onTaskLinkNode(payload) {
+    emit('task-link-node', payload)
+}
+
+function onDeleteNode(payload) {
+    emit('delete-node', payload)
 }
 
 provide("activeCommentNode", toRef(props, "activeCommentNode"))
