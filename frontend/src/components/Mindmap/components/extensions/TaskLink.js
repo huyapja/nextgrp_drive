@@ -5,8 +5,9 @@ export const TaskLink = Node.create({
 
   group: "block",
   atom: true,
-  selectable: true,
-
+  selectable: false,
+  draggable: false,
+  
   addAttributes() {
     return {
       href: {
@@ -37,6 +38,7 @@ export const TaskLink = Node.create({
         target: "_top",
         rel: "noopener noreferrer",
         class: "task-link",
+        tabindex: "-1",
       },
       text || "Liên kết công việc",
     ]

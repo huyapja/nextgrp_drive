@@ -1,7 +1,7 @@
 <template>
     <MindmapTextNodeViewEditor :permissions="props.permissions" :initial-content="content" @rename-title="onRenameTitle"
         @update-nodes="onUpdateNodes" @open-comment="onOpenComment" @add-child-node="onAddChildFromText"
-        @done-node="onDoneNode" @copy-node="onCopyNode" @task-link-node="onTaskLinkNode" @delete-node="onDeleteNode" />
+        @done-node="onDoneNode" @copy-node="onCopyNode" @task-link-node="onTaskLinkNode" @delete-node="onDeleteNode" @unlink-task-node="onUnlinkTaskNode" @insert-images="onInsertImages"/>
 </template>
 
 <script setup>
@@ -28,6 +28,8 @@ const emit = defineEmits([
     "copy-node",
     "task-link-node",
     "delete-node",
+    "unlink-task-node",
+    "insert-images"
 ])
 
 const content = ref("")
@@ -68,6 +70,14 @@ function onTaskLinkNode(payload) {
 
 function onDeleteNode(payload) {
     emit('delete-node', payload)
+}
+
+function onUnlinkTaskNode(payload) {
+    emit('unlink-task-node', payload)
+}
+
+function onInsertImages(payload) {
+    emit('insert-images', payload)
 }
 
 provide("activeCommentNode", toRef(props, "activeCommentNode"))

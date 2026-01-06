@@ -296,6 +296,8 @@
           @copy-node="handleTextModeCopy"
           @task-link-node="handleTextModeTaskLink"
           @delete-node="handleTextModeDeleteNode"
+          @unlink-task-node="handleUnlinkTaskNode"
+          @insert-images="handleInsertImagesTextMode"
           />
         </div>
     </div>
@@ -7039,6 +7041,7 @@ function applyTextEdits(changes) {
     if (node.data?.label !== label) {
       changed = true
       d3Renderer?.updateNodeLabelFromExternal(nodeId, label)
+        changedNodeIds.value.add(nodeId)
     }
   })
 
@@ -7261,10 +7264,25 @@ function handleTextModeCopy(payload) {
 }
 
 function handleTextModeTaskLink(payload) {
+  const node = nodes.value.find(n => n.id === payload)
+  if (!node) return
+  const oldLabel = node.data.label
+  changedNodeIds.value.add(payload)
+
   handleContextMenuAction({
     type: 'link-task',
     node: nodes.value.find(n => n.id === payload),
   })
+
+  const unwatch = watch(
+  () => node.data.label,
+  (val) => {
+    if (val !== oldLabel) {
+      textViewVersion.value++
+      unwatch()
+    }
+  }
+  )
 }
 
 function handleTextModeDeleteNode(payload) {
@@ -7273,6 +7291,35 @@ function handleTextModeDeleteNode(payload) {
     node: nodes.value.find(n => n.id === payload),
   })
 }
+
+function handleUnlinkTaskNode(payload) {
+  handleContextMenuAction({
+    type: 'delete-task-link',
+    node: nodes.value.find(n => n.id === payload),
+  })
+}
+
+function handleInsertImagesTextMode(payload) {
+  const node = nodes.value.find(n => n.id === payload)
+  if (!node) return
+
+  const oldLabel = node.data.label
+  changedNodeIds.value.add(payload)
+
+  handleInsertImage({ node })
+
+  const unwatch = watch(
+    () => node.data.label,
+    (val) => {
+      if (val !== oldLabel) {
+        textViewVersion.value++
+        unwatch()
+      }
+    }
+  )
+}
+
+
 
 
 </script>

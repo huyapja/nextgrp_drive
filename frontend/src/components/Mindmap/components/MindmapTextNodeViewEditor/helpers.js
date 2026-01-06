@@ -16,7 +16,6 @@ function extractParagraphAndBlock(el) {
    * ========================= */
   let highlight = el.getAttribute("data-highlight") || null
 
-
   /* =========================
    * 1. INLINE PARAGRAPH
    * ========================= */
@@ -61,7 +60,9 @@ function extractParagraphAndBlock(el) {
     ${contentHTML}
   </span>
 </p>
-        `.replace(/\s*\n\s*/g, "").trim()
+        `
+          .replace(/\s*\n\s*/g, "")
+          .trim()
       } else {
         inlineHTML = `<p>${contentHTML}</p>`
       }
@@ -90,24 +91,33 @@ function extractParagraphAndBlock(el) {
     `.trim()
   }
 
-  /* =========================
-   * 3. IMAGE (GIỮ NGUYÊN)
-   * ========================= */
-  const images = el.querySelectorAll(":scope img")
+/* =========================
+ * 3. IMAGE (NORMALIZE IMG → image-wrapper)
+ * ========================= */
 
-  images.forEach((img) => {
-    const src = img.getAttribute("src")
-    if (!src) return
+const images = el.querySelectorAll(":scope img")
 
-    const dataSrc = img.getAttribute("data-image-src") || src
-    const alt = img.getAttribute("alt") || ""
+images.forEach((img) => {
+  const src = img.getAttribute("src")
+  if (!src) return
 
-    blockHTML += `
+  const dataSrc =
+    img.getAttribute("data-image-src") ||
+    src
+
+  const alt = img.getAttribute("alt") || ""
+
+  blockHTML += `
 <div class="image-wrapper" data-image-src="${dataSrc}">
-  <img src="${src}" alt="${alt}" />
+  <img
+    src="${src}"
+    alt="${alt}"
+    onerror="this.style.display='none'; console.error('Image failed to load:', this.src);"
+  />
 </div>
-    `.trim()
-  })
+  `.trim()
+})
+
 
   /* =========================
    * 4. BLOCKQUOTE (GIỮ NGUYÊN)

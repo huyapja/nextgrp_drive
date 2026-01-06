@@ -47,7 +47,7 @@ function extractBlockHTML(html) {
     if (a) {
       blocks.push(
         `
-<a data-task-link="true" href="${a.getAttribute("href")}">
+<a data-task-link="true" tabindex="-1" href="${a.getAttribute("href")}">
   ${a.textContent || "Liên kết công việc"}
 </a>
       `.trim()
@@ -61,22 +61,39 @@ function extractBlockHTML(html) {
     }
   })
 
-  // 2. image wrapper
-  const images = Array.from(div.querySelectorAll(".image-wrapper"))
-  images.forEach((wrapper) => {
-    const img = wrapper.querySelector("img")
-    if (!img) return
+  // 2. IMAGE (normalize cả wrapper + img trần)
+  const wrappers = Array.from(div.querySelectorAll(".image-wrapper"))
+  const rawImages = Array.from(div.querySelectorAll("img"))
 
-    blocks.push(
-      `
+  if (wrappers.length) {
+    wrappers.forEach((wrapper) => {
+      const img = wrapper.querySelector("img")
+      if (!img) return
+
+      blocks.push(
+        `
 <div class="image-wrapper" data-image-src="${wrapper.dataset.imageSrc || ""}">
   <img src="${img.getAttribute("src")}" alt="${
-        img.getAttribute("alt") || ""
-      }" />
+          img.getAttribute("alt") || ""
+        }" />
 </div>
-    `.trim()
-    )
-  })
+      `.trim()
+      )
+    })
+  } else {
+    rawImages.forEach((img) => {
+      const src = img.getAttribute("src")
+      if (!src) return
+
+      blocks.push(
+        `
+<div class="image-wrapper" data-image-src="${src}">
+  <img src="${src}" alt="${img.getAttribute("alt") || ""}" />
+</div>
+      `.trim()
+      )
+    })
+  }
 
   // 3. blockquote
   const blockquote = div.querySelector("blockquote")
