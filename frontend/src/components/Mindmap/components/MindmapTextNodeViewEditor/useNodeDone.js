@@ -1,37 +1,89 @@
 import { computed } from "vue"
 
+function isInProgress(status) {
+  if (!status) return false
+  return (
+    status === "In Progress" ||
+    status === "In-Progress" ||
+    status === "Doing" ||
+    status === "Đang làm"
+  )
+}
+
+function isCompletedStatus(status) {
+  return status === "Completed" || status === "Hoàn thành"
+}
+
 export function useNodeDone({
   editor,
   node,
   getPos,
   onDoneNode,
   resolveNodeIdFromDOM,
+  currentActionNode,
 }) {
   const isDone = computed(() => {
-    return isStrikeActiveForWholeNode(
-      editor,
-      node,
-      getPos
-    )
+    return isStrikeActiveForWholeNode(editor, node, getPos)
   })
 
   function toggleDone(event) {
-    const done = isStrikeActiveForWholeNode(
-      editor,
-      node,
-      getPos
-    )
+    if (!currentActionNode.value) return
 
+    const done = isStrikeActiveForWholeNode(editor, node, getPos)
+
+    const { completed, taskId, taskStatus, nodeId } = currentActionNode.value
+
+    const hasTask = !!taskId || !!taskStatus
+
+    // =========================
+    // RULE A: NODE THƯỜNG
+    // =========================
+    if (!hasTask) {
+      if (done) {
+        removeStrikeForWholeNode(editor, node, getPos)
+      } else {
+        applyStrikeForWholeNode(editor, node, getPos)
+      }
+
+      onDoneNode?.(nodeId)
+      return
+    }
+
+    // =========================
+    // RULE B: TASK IN PROGRESS
+    // =========================
+    if (isInProgress(taskStatus)) {
+      // không cho đánh xong
+      if (done) {
+        removeStrikeForWholeNode(editor, node, getPos)
+      }
+
+      onDoneNode?.(nodeId)
+      return
+    }
+
+    // =========================
+    // RULE C: TASK COMPLETED
+    // =========================
+    if (isCompletedStatus(taskStatus)) {
+      // nếu đã strike → KHÔNG cho bỏ
+      if (!done) {
+        // cũng không cho apply thủ công
+        // (strike phải đến từ sync completed)
+      }
+
+      onDoneNode?.(nodeId)
+      return
+    }
+
+    // =========================
+    // RULE D: TASK KHÁC (fallback)
+    // =========================
     if (done) {
       removeStrikeForWholeNode(editor, node, getPos)
     } else {
       applyStrikeForWholeNode(editor, node, getPos)
     }
-
-    if (!event || !resolveNodeIdFromDOM) return
-
-    const nodeId = resolveNodeIdFromDOM(event.currentTarget)
-    if (!nodeId) return
 
     onDoneNode?.(nodeId)
   }

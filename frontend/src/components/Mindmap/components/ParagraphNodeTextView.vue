@@ -95,7 +95,17 @@
               </svg>
               {{ isDone ? 'Kích hoạt' : 'Xong' }}
             </li>
-            <!-- <li>Thêm hình ảnh</li> -->
+            <li @click.stop="
+              insertImages($event)
+            closeActionsPopover();
+            ">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path
+                  d="m10.141 17.988-4.275-.01a.3.3 0 0 1-.212-.512l4.133-4.133a.4.4 0 0 1 .566 0l1.907 1.907 5.057-5.057a.4.4 0 0 1 .683.283V17.7a.3.3 0 0 1-.3.3h-7.476a.301.301 0 0 1-.083-.012ZM4 22c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2v16c0 1.1-.9 2-2 2H4Zm0-2h16V4H4v16ZM6 6h3v3H6V6Z"
+                  fill="currentColor"></path>
+              </svg>
+              Thêm hình ảnh
+            </li>
             <li @click.stop="
               copyLinkNode($event)
             closeActionsPopover();
@@ -107,7 +117,7 @@
               </svg>
               Sao chép liên kết
             </li>
-            <li @click.stop="
+            <li v-if="!hasTaskLink" @click.stop="
               taskLinkNode($event)
             closeActionsPopover();
             ">
@@ -118,8 +128,23 @@
               </svg>
               Liên kết công việc từ nhánh
             </li>
+
+            <li v-else @click.stop="
+              unlinkTaskNode($event)
+            closeActionsPopover();
+            ">
+              <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                <line x1="18" y1="6" x2="6" y2="18" />
+                <line x1="6" y1="6" x2="18" y2="18" />
+              </svg>
+              Xóa liên kết công việc
+            </li>
+
             <li class="text-[#dc2626] delete-node" @click.stop="
-            deleteNode($event)
+              deleteNode($event)
             closeActionsPopover();
             ">
               <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
@@ -154,7 +179,7 @@
   </template>
 
 <script setup>
-import { ref, computed, inject, watchEffect, onMounted } from "vue"
+import { ref, computed, inject, watchEffect, onMounted, watch } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 import Popover from 'primevue/popover'
 import { useNodeActionPopover } from './MindmapTextNodeViewEditor/useNodeActionPopover'
@@ -176,11 +201,17 @@ const suppressPanelAutoFocus = inject(
   "suppressPanelAutoFocus",
   null
 )
+const actionsPopover = ref(null)
+const currentActionNode = ref(null)
 
 const permissions = inject('editorPermissions')
 
 const canEditContent = computed(() => {
   return permissions.value?.write === 1
+})
+
+const hasTaskLink = computed(() => {
+  return !!currentActionNode.value?.taskId
 })
 
 const {
@@ -202,6 +233,7 @@ const { isDone, toggleDone } = useNodeDone({
   getPos: props.getPos,
   onDoneNode: props.editor?.options?.onDoneNode,
   resolveNodeIdFromDOM,
+  currentActionNode,
 })
 
 const {
@@ -215,6 +247,12 @@ const {
   getPos: props.getPos,
 })
 
+function insertImages(event) {
+  const nodeId = resolveNodeIdFromDOM(event.currentTarget)
+  if (!nodeId) return
+  props.editor?.options?.onInsertImages?.(nodeId)
+}
+
 function copyLinkNode(event) {
   const nodeId = resolveNodeIdFromDOM(event.currentTarget)
   if (!nodeId) return
@@ -225,6 +263,12 @@ function taskLinkNode(event) {
   const nodeId = resolveNodeIdFromDOM(event.currentTarget)
   if (!nodeId) return
   props.editor?.options?.onTaskLinkNode?.(nodeId)
+}
+
+function unlinkTaskNode(event) {
+  const nodeId = resolveNodeIdFromDOM(event.currentTarget)
+  if (!nodeId) return
+  props.editor?.options?.onUnlinkTaskNode?.(nodeId)
 }
 
 function deleteNode(event) {
@@ -373,7 +417,8 @@ const isSelectionInBlockquote = computed(() => {
 })
 
 
-const actionsPopover = ref(null)
+
+
 const { toggle } = useNodeActionPopover()
 
 function toggleActions(event) {
@@ -417,6 +462,23 @@ function toggleActions(event) {
   // ================================
   const nodeId = resolveNodeIdFromDOM(event.currentTarget)
   if (!nodeId) return
+
+  if (pos != null) {
+    const $pos = props.editor.state.doc.resolve(pos)
+    for (let d = $pos.depth; d > 0; d--) {
+      const n = $pos.node(d)
+      if (n.type.name === "listItem") {
+        currentActionNode.value = {
+          nodeId,
+          completed: !!n.attrs.completed,
+          taskId: n.attrs.taskId,
+          taskMode: n.attrs.taskMode,
+          taskStatus: n.attrs.taskStatus,
+        }
+        break
+      }
+    }
+  }
 
   toggle(nodeId, actionsPopover.value, event)
 }
@@ -577,10 +639,40 @@ watchEffect(() => {
   isActive.value = selfId === activeId
 })
 
+watch(
+  currentActionNode,
+  (val) => {
+    if (!val) {
+      // popover đóng hoặc reset
+      return
+    }
+
+    console.log("[ActionNode]", {
+      nodeId: val.nodeId,
+      completed: val.completed,
+      taskId: val.taskId,
+      taskMode: val.taskMode,
+      taskStatus: val.taskStatus,
+    })
+  },
+  { deep: true }
+)
+
+
 </script>
 
 
 <style scoped>
+.mindmap-dot {
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transform-origin: center;
+}
+
+.mindmap-dot:hover {
+  transform: scale(1.4);
+  box-shadow: 0 0 0 3px rgba(56, 56, 56, 0.15);
+}
+
 .color-item {
   width: 22px;
   height: 22px;
@@ -613,6 +705,7 @@ ul.more-actions li:hover {
   background: #eff6ff;
   color: #2563EB;
 }
+
 ul.more-actions li.delete-node:hover {
   background: #fef2f2;
   color: #dc2626

@@ -79,6 +79,31 @@ export const ListItemWithNodeId = ListItem.extend({
         renderHTML: (attrs) =>
           attrs.highlight ? { "data-highlight": attrs.highlight } : {},
       },
+      completed: {
+        default: false,
+        parseHTML: (el) => el.getAttribute("data-completed") === "true",
+        renderHTML: (attrs) =>
+          attrs.completed ? { "data-completed": "true" } : {},
+      },
+      taskId: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-task-id"),
+        renderHTML: (attrs) =>
+          attrs.taskId ? { "data-task-id": attrs.taskId } : {},
+      },
+
+      taskMode: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-task-mode"),
+        renderHTML: (attrs) =>
+          attrs.taskMode ? { "data-task-mode": attrs.taskMode } : {},
+      },
+      taskStatus: {
+        default: null,
+        parseHTML: (el) => el.getAttribute("data-task-status"),
+        renderHTML: (attrs) =>
+          attrs.taskStatus ? { "data-task-status": attrs.taskStatus } : {},
+      },
     }
   },
 

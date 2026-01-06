@@ -52,6 +52,8 @@ const emit = defineEmits([
   "copy-node",
   "task-link-node",
   "delete-node",
+  "unlink-task-node",
+  "insert-images"
 ])
 
 const canEdit = computed(() => {
@@ -131,6 +133,9 @@ onMounted(() => {
     onAddChildNode(payload) {
       emit("add-child-node", payload)
     },
+    onInsertImages(payload) {
+      emit("insert-images", payload)
+    },
     onDoneNode(payload) {
       emit('done-node', payload)
     },
@@ -139,6 +144,9 @@ onMounted(() => {
     },
     onTaskLinkNode(payload) {
       emit('task-link-node', payload)
+    },
+    onUnlinkTaskNode(payload) {
+      emit('unlink-task-node', payload)
     },
     onDeleteNode(payload) {
       emit('delete-node', payload)
@@ -317,6 +325,25 @@ watch(
     }
   }
 )
+
+watch(
+  () => props.initialContent,
+  (val, oldVal) => {
+    if (!editor.value) return
+    if (val === oldVal) return
+
+    requestAnimationFrame(() => {
+      const { state, view } = editor.value
+      const tr = state.tr
+
+      // meta riêng → không sync ngược
+      tr.setMeta('ui-only', true)
+
+      view.dispatch(tr)
+    })
+  }
+)
+
 
 watch(
   () => [canEdit.value, canEditContent.value],
@@ -528,5 +555,16 @@ watch(
 
 .prose :deep(s) {
   opacity: 0.5;
+}
+
+.prose :deep(img){
+  width: 400px;
+  margin-left:40px;
+  margin-bottom:10px;
+  outline: none;
+  max-height: 450px;
+}
+.prose :deep(img + img){
+  margin-top:20px;
 }
 </style>
