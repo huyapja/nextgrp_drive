@@ -39,17 +39,19 @@ function extractBlockHTML(html) {
 
   // 1. paragraph (trừ p đầu tiên)
   const ps = Array.from(div.querySelectorAll("p")).slice(1)
-  ps.forEach(p => {
+  ps.forEach((p) => {
     if (p.closest("blockquote")) return
 
     const a = p.querySelector("a")
 
     if (a) {
-      blocks.push(`
+      blocks.push(
+        `
 <a data-task-link="true" href="${a.getAttribute("href")}">
   ${a.textContent || "Liên kết công việc"}
 </a>
-      `.trim())
+      `.trim()
+      )
       return
     }
 
@@ -61,15 +63,19 @@ function extractBlockHTML(html) {
 
   // 2. image wrapper
   const images = Array.from(div.querySelectorAll(".image-wrapper"))
-  images.forEach(wrapper => {
+  images.forEach((wrapper) => {
     const img = wrapper.querySelector("img")
     if (!img) return
 
-    blocks.push(`
+    blocks.push(
+      `
 <div class="image-wrapper" data-image-src="${wrapper.dataset.imageSrc || ""}">
-  <img src="${img.getAttribute("src")}" alt="${img.getAttribute("alt") || ""}" />
+  <img src="${img.getAttribute("src")}" alt="${
+        img.getAttribute("alt") || ""
+      }" />
 </div>
-    `.trim())
+    `.trim()
+    )
   })
 
   // 3. blockquote
@@ -132,9 +138,20 @@ export function buildTextFromMindmap(nodes, edges) {
 
       const hasCount = Number(node.count) > 0
 
+      const completed = !!node.data?.completed
+
+      const taskLink = node.data?.taskLink
+      const taskId = taskLink?.taskId || ""
+      const taskMode = taskLink?.mode || ""
+      const taskStatus = taskLink?.status || ""
+
       return `
 <li
   data-node-id="${node.id}"
+  data-completed="${completed}"
+  ${taskId ? `data-task-id="${taskId}"` : ""}
+  ${taskMode ? `data-task-mode="${taskMode}"` : ""}
+  ${taskStatus ? `data-task-status="${taskStatus}"` : ""}
   ${hasCount ? 'data-has-count="true"' : ""}
 >
   ${

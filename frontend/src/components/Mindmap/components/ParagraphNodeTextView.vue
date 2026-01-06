@@ -119,7 +119,7 @@
               Liên kết công việc từ nhánh
             </li>
             <li class="text-[#dc2626] delete-node" @click.stop="
-            deleteNode($event)
+              deleteNode($event)
             closeActionsPopover();
             ">
               <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
@@ -154,7 +154,7 @@
   </template>
 
 <script setup>
-import { ref, computed, inject, watchEffect, onMounted } from "vue"
+import { ref, computed, inject, watchEffect, onMounted, watch } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 import Popover from 'primevue/popover'
 import { useNodeActionPopover } from './MindmapTextNodeViewEditor/useNodeActionPopover'
@@ -176,6 +176,8 @@ const suppressPanelAutoFocus = inject(
   "suppressPanelAutoFocus",
   null
 )
+const actionsPopover = ref(null)
+const currentActionNode = ref(null)
 
 const permissions = inject('editorPermissions')
 
@@ -202,6 +204,7 @@ const { isDone, toggleDone } = useNodeDone({
   getPos: props.getPos,
   onDoneNode: props.editor?.options?.onDoneNode,
   resolveNodeIdFromDOM,
+  currentActionNode, 
 })
 
 const {
@@ -373,7 +376,8 @@ const isSelectionInBlockquote = computed(() => {
 })
 
 
-const actionsPopover = ref(null)
+
+
 const { toggle } = useNodeActionPopover()
 
 function toggleActions(event) {
@@ -417,6 +421,23 @@ function toggleActions(event) {
   // ================================
   const nodeId = resolveNodeIdFromDOM(event.currentTarget)
   if (!nodeId) return
+
+  if (pos != null) {
+    const $pos = props.editor.state.doc.resolve(pos)
+    for (let d = $pos.depth; d > 0; d--) {
+      const n = $pos.node(d)
+      if (n.type.name === "listItem") {
+        currentActionNode.value = {
+          nodeId,
+          completed: !!n.attrs.completed,
+          taskId: n.attrs.taskId,
+          taskMode: n.attrs.taskMode,
+          taskStatus: n.attrs.taskStatus,
+        }
+        break
+      }
+    }
+  }
 
   toggle(nodeId, actionsPopover.value, event)
 }
@@ -577,6 +598,26 @@ watchEffect(() => {
   isActive.value = selfId === activeId
 })
 
+watch(
+  currentActionNode,
+  (val) => {
+    if (!val) {
+      // popover đóng hoặc reset
+      return
+    }
+
+    console.log("[ActionNode]", {
+      nodeId: val.nodeId,
+      completed: val.completed,
+      taskId: val.taskId,
+      taskMode: val.taskMode,
+      taskStatus: val.taskStatus,
+    })
+  },
+  { deep: true }
+)
+
+
 </script>
 
 
@@ -613,6 +654,7 @@ ul.more-actions li:hover {
   background: #eff6ff;
   color: #2563EB;
 }
+
 ul.more-actions li.delete-node:hover {
   background: #fef2f2;
   color: #dc2626
