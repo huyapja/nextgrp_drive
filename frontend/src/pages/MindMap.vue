@@ -327,7 +327,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import { provide } from "vue"
-import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchor } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchor, moveNodeAsFirstChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 import { useMindmapClipboard } from '@/composables/useMindmapClipboard'
@@ -945,24 +945,27 @@ const initD3Renderer = () => {
         node.data.parentId = updates.parentId
         changedNodeIds.value.add(nodeId)
 
-        // update edge parent -> child
-        const edgeIndex = edges.value.findIndex(e => e.target === nodeId)
-        if (edgeIndex !== -1) {
-          edges.value[edgeIndex] = {
-            ...edges.value[edgeIndex],
-            source: updates.parentId,
-          }
-        } else {
-          edges.value.push({
-            id: `edge-${updates.parentId}-${nodeId}`,
-            source: updates.parentId,
-            target: nodeId,
-          })
+        // ⚠️ CRITICAL: Xóa edge cũ và tạo edge mới với parent mới
+        // Phải xóa edge cũ vì ID thay đổi (edge-oldParent-node -> edge-newParent-node)
+        const oldEdgeIndex = elements.value.findIndex(el => el.target === nodeId && el.source && el.target)
+        if (oldEdgeIndex !== -1) {
+          // Xóa edge cũ
+          elements.value.splice(oldEdgeIndex, 1)
         }
+        
+        // Thêm edge mới với parent mới
+        elements.value.push({
+          id: `edge-${updates.parentId}-${nodeId}`,
+          source: updates.parentId,
+          target: nodeId,
+        })
 
         // re-layout
         updateD3RendererWithDelay()
-        // textViewVersion.value++
+        
+        // ⚠️ CRITICAL: Lưu ngay sau khi thay đổi parent (drag & drop)
+        saveImmediately()
+        return
       }
 
       // 3. skipSizeCalculation: chỉ lưu không tính lại size (formatting updates)

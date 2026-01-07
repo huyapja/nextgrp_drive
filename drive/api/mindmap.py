@@ -466,27 +466,23 @@ def save_mindmap_node(entity_name, node_id, node_data, edge_data=None):
             if not node_found:
                 nodes.append(node_data)
 
-                if edge_data:
-                    edge_found = False
-                    for i, edge in enumerate(edges):
-                        if edge.get("id") == edge_data.get("id"):
-                            edges[i] = edge_data
-                            edge_found = True
-                            break
+            if edge_data:
+                target = edge_data.get("target")
+                source = edge_data.get("source")
 
-                    if not edge_found:
-                        # Validate: check for circular reference
-                        source = edge_data.get("source")
-                        target = edge_data.get("target")
+                # Validate: check for circular reference
+                if source == target:
+                    frappe.log_error(
+                        f"Circular edge detected: {source} -> {target}",
+                        "Save Mindmap Node",
+                    )
+                else:
+                    # ⚠️ CRITICAL: Xóa edge cũ theo target (vì khi drag & drop, edge ID thay đổi)
+                    # Một node chỉ có 1 parent (1 edge đến nó), nên tìm và xóa edge cũ
+                    edges[:] = [e for e in edges if e.get("target") != target]
 
-                        if source == target:
-                            frappe.log_error(
-                                f"Circular edge detected: {source} -> {target}",
-                                "Save Mindmap Node",
-                            )
-                            # Skip this edge
-                        else:
-                            edges.append(edge_data)
+                    # Thêm edge mới
+                    edges.append(edge_data)
 
             mindmap_data = {"nodes": nodes, "edges": edges, "layout": layout}
             mindmap_doc.mindmap_data = json.dumps(mindmap_data, ensure_ascii=False)
@@ -641,16 +637,22 @@ def save_mindmap_nodes_batch(entity_name, nodes_data, edges_data=None):
                     nodes_map[node_id] = len(nodes) - 1
 
             if edges_data:
-                edges_map = {edge.get("id"): i for i, edge in enumerate(edges)}
+                # ⚠️ CRITICAL: Khi có edges_data, xóa tất cả edges cũ có target trùng với edges mới
+                # Điều này đảm bảo khi drag & drop (edge ID thay đổi), edge cũ bị xóa
+                targets_to_update = {
+                    edge.get("target") for edge in edges_data if edge.get("target")
+                }
 
+                # Xóa edges cũ có target trùng
+                edges[:] = [
+                    e for e in edges if e.get("target") not in targets_to_update
+                ]
+
+                # Thêm tất cả edges mới
                 for edge_data in edges_data:
-                    edge_id = edge_data.get("id")
-                    if not edge_id:
-                        continue
-
-                    if edge_id in edges_map:
-                        edges[edges_map[edge_id]] = edge_data
-                    else:
+                    if edge_data.get("id") and edge_data.get("source") != edge_data.get(
+                        "target"
+                    ):
                         edges.append(edge_data)
 
             mindmap_data = {"nodes": nodes, "edges": edges, "layout": layout}
