@@ -296,8 +296,6 @@
           @copy-node="handleTextModeCopy"
           @task-link-node="handleTextModeTaskLink"
           @delete-node="handleTextModeDeleteNode"
-          @unlink-task-node="handleUnlinkTaskNode"
-          @insert-images="handleInsertImagesTextMode"
           />
         </div>
     </div>
@@ -529,6 +527,7 @@ const nodeOperations = useMindmapNodes({
   generateNodeId: () => generateNodeId(),
   saveSnapshot: () => saveSnapshot(),
   scheduleSave: () => scheduleSave(),
+  saveImmediately: () => saveImmediately(),
   updateD3RendererWithDelay: (delay) => updateD3RendererWithDelay(delay)
 })
 const {
@@ -705,7 +704,8 @@ const realtimeNodes = useMindmapRealtimeNodes({
   d3Renderer: d3RendererRef,
   editingStartTime,
   changedNodeIds,
-  calculateNodeHeightWithImages
+  calculateNodeHeightWithImages,
+  saveSnapshot: () => saveSnapshot()
 })
 const {
   handleRealtimeNodesDeleted,
@@ -1016,6 +1016,12 @@ const initD3Renderer = () => {
         })
         return false
       }
+      
+      // ⚠️ CRITICAL: Lưu snapshot TRƯỚC khi bắt đầu edit
+      // Đảm bảo có snapshot "before" để undo về
+      // Không force vì realtime handler đã force save khi nhận node mới
+      console.log('[EditStart] 💾 Lưu snapshot trước khi bắt đầu edit node:', nodeId)
+      saveSnapshot()
       
       editingNode.value = nodeId
       editingStartTime.value = Date.now()
@@ -4422,7 +4428,6 @@ function applyTextEdits(changes) {
     if (node.data?.label !== label) {
       changed = true
       d3Renderer?.updateNodeLabelFromExternal(nodeId, label)
-        changedNodeIds.value.add(nodeId)
     }
   })
 
@@ -4624,25 +4629,10 @@ function handleTextModeCopy(payload) {
 }
 
 function handleTextModeTaskLink(payload) {
-  const node = nodes.value.find(n => n.id === payload)
-  if (!node) return
-  const oldLabel = node.data.label
-  changedNodeIds.value.add(payload)
-
   handleContextMenuAction({
     type: 'link-task',
     node: nodes.value.find(n => n.id === payload),
   })
-
-  const unwatch = watch(
-  () => node.data.label,
-  (val) => {
-    if (val !== oldLabel) {
-      textViewVersion.value++
-      unwatch()
-    }
-  }
-  )
 }
 
 function handleTextModeDeleteNode(payload) {
@@ -4651,35 +4641,6 @@ function handleTextModeDeleteNode(payload) {
     node: nodes.value.find(n => n.id === payload),
   })
 }
-
-function handleUnlinkTaskNode(payload) {
-  handleContextMenuAction({
-    type: 'delete-task-link',
-    node: nodes.value.find(n => n.id === payload),
-  })
-}
-
-function handleInsertImagesTextMode(payload) {
-  const node = nodes.value.find(n => n.id === payload)
-  if (!node) return
-
-  const oldLabel = node.data.label
-  changedNodeIds.value.add(payload)
-
-  handleInsertImage({ node })
-
-  const unwatch = watch(
-    () => node.data.label,
-    (val) => {
-      if (val !== oldLabel) {
-        textViewVersion.value++
-        unwatch()
-      }
-    }
-  )
-}
-
-
 
 
 </script>
