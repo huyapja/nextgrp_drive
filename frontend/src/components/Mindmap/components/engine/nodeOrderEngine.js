@@ -186,3 +186,36 @@ export function moveNodeAsLastChild({
     newOrder,
   }
 }
+
+export function moveNodeAsFirstChild({
+  nodeId,
+  newParentId,
+  nodes,
+  orderStore,
+}) {
+  const node = nodes.find(n => n.id === nodeId)
+  if (!node) return null
+
+  const oldParentId = node.data.parentId
+  if (oldParentId === newParentId) return null
+
+  // 1️⃣ đổi parent
+  node.data.parentId = newParentId
+
+  // 2️⃣ tính order mới (lên đầu danh sách con)
+  const newOrder = computeInsertAsFirstChild({
+    nodes,
+    parentId: newParentId,
+    orderStore,
+  })
+
+  orderStore.set(nodeId, newOrder)
+  node.data.order = newOrder
+
+  return {
+    nodeId,
+    oldParentId,
+    newParentId,
+    newOrder,
+  }
+}
