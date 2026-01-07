@@ -18,7 +18,8 @@ export function useMindmapRealtimeNodes({
   d3Renderer,
   editingStartTime,
   changedNodeIds,
-  calculateNodeHeightWithImages
+  calculateNodeHeightWithImages,
+  saveSnapshot
 }) {
 
   /**
@@ -64,6 +65,14 @@ export function useMindmapRealtimeNodes({
     })
     
     elements.value = [...newNodes, ...newEdges]
+    
+    // ⚠️ CRITICAL: Force lưu snapshot sau khi xóa nodes từ remote
+    if (saveSnapshot && nodeIdsToDelete.length > 0) {
+      console.log('💾 [Realtime] Force save snapshot sau khi nhận xóa nodes từ remote')
+      nextTick(() => {
+        saveSnapshot(true) // force = true
+      })
+    }
     
     const renderer = typeof d3Renderer === 'function' ? d3Renderer() : d3Renderer?.value || d3Renderer
     if (renderer) {
@@ -185,6 +194,9 @@ export function useMindmapRealtimeNodes({
       return
     }
     
+    const localNodeIds = new Set(nodes.value.map(n => n.id))
+    const hasNewNodes = remoteNodeUpdates.some(n => !localNodeIds.has(n.id))
+    
     const updatedNodes = nodes.value.map(localNode => {
       const remoteNode = remoteNodeUpdates.find(n => n.id === localNode.id)
       if (remoteNode) {
@@ -197,6 +209,14 @@ export function useMindmapRealtimeNodes({
     })
     
     elements.value = [...updatedNodes, ...edges.value]
+    
+    // ⚠️ CRITICAL: Force lưu snapshot nếu có node mới từ batch update
+    if (saveSnapshot && hasNewNodes) {
+      console.log('💾 [Realtime] Force save snapshot sau khi nhận batch update có node mới')
+      nextTick(() => {
+        saveSnapshot(true) // force = true
+      })
+    }
     
     const renderer = typeof d3Renderer === 'function' ? d3Renderer() : d3Renderer?.value || d3Renderer
     if (renderer) {
@@ -251,16 +271,28 @@ export function useMindmapRealtimeNodes({
       const isNodeBeingEdited = remoteNode.id === editingNodeId
       const isNodeSelected = remoteNode.id === selectedNodeId && remoteNode.id !== editingNodeId
       
-      if (nodeIndex !== -1) {
-        nodes.value[nodeIndex] = { ...remoteNode }
-        console.log('✅ Đã cập nhật node vào nodes.value:', remoteNode.id)
+      // ⚠️ CRITICAL: Phải update elements.value (không phải nodes.value vì nó là computed)
+      const elementIndex = elements.value.findIndex(el => el.id === remoteNode.id && !el.source && !el.target)
+      if (elementIndex !== -1) {
+        elements.value[elementIndex] = { ...remoteNode }
+        console.log('✅ Đã cập nhật node vào elements.value:', remoteNode.id)
       } else {
-        nodes.value.push({ ...remoteNode })
-        console.log('✅ Đã thêm node mới vào nodes.value:', remoteNode.id)
+        elements.value.push({ ...remoteNode })
+        console.log('✅ Đã thêm node mới vào elements.value:', remoteNode.id)
       }
       
       if (remoteNode.data?.order !== undefined) {
         nodeCreationOrder.value.set(remoteNode.id, remoteNode.data.order)
+      }
+      
+      // ⚠️ CRITICAL: Force lưu snapshot khi nhận node mới từ remote
+      // Đảm bảo user có snapshot base để undo về
+      if (saveSnapshot && elementIndex === -1) {
+        console.log('💾 [Realtime] Force save snapshot sau khi nhận node mới:', remoteNode.id)
+        // Dùng nextTick để đảm bảo computed nodes đã được update
+        nextTick(() => {
+          saveSnapshot(true) // force = true để bỏ qua check duplicate
+        })
       }
       
       if (isNodeBeingEdited) {
@@ -282,11 +314,12 @@ export function useMindmapRealtimeNodes({
       
       if (payload.edge) {
         const remoteEdge = payload.edge
-        const edgeIndex = edges.value.findIndex(e => e.id === remoteEdge.id)
-        if (edgeIndex !== -1) {
-          edges.value[edgeIndex] = { ...remoteEdge }
+        // ⚠️ CRITICAL: Phải update elements.value (không phải edges.value vì nó là computed)
+        const edgeElementIndex = elements.value.findIndex(el => el.id === remoteEdge.id && el.source && el.target)
+        if (edgeElementIndex !== -1) {
+          elements.value[edgeElementIndex] = { ...remoteEdge }
         } else {
-          edges.value.push({ ...remoteEdge })
+          elements.value.push({ ...remoteEdge })
         }
       }
       
@@ -307,8 +340,13 @@ export function useMindmapRealtimeNodes({
           renderer.render()
           
           if (isNodeSelected) {
-            console.log('⚠️ Node đang được selected, bỏ qua update editor content để không gián đoạn user mở editor')
-            return
+            const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
+            if (hasLocalChanges) {
+              console.log('⚠️ Node đang được selected và có thay đổi local, bỏ qua update editor content')
+              return
+            } else {
+              console.log('✨ Node đang được selected nhưng chưa có thay đổi, cho phép update editor content')
+            }
           }
           
           const editorInstance = renderer.getEditorInstance(remoteNode.id)
