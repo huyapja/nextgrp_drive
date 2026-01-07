@@ -1,16 +1,8 @@
 <template>
-  <NodeViewWrapper class="image-wrapper" contenteditable="false">
-    <img
-      :src="node.attrs.src"
-      draggable="false"
-      @click.stop="open"
-    />
+  <NodeViewWrapper class="image-wrapper">
+    <img :src="node.attrs.src" draggable="false" @click.stop="open" />
 
-    <button
-      class="image-remove"
-      @click.stop="remove"
-      title="Xoá ảnh"
-    >
+    <button class="image-remove" @mousedown.prevent @click.stop="remove" title="Xoá ảnh">
       ✕
     </button>
   </NodeViewWrapper>
@@ -19,7 +11,6 @@
 
 <script setup>
 import { NodeViewWrapper } from "@tiptap/vue-3"
-import { TextSelection } from "prosemirror-state"
 
 const props = defineProps({
   node: Object,
@@ -29,43 +20,34 @@ const props = defineProps({
 })
 
 function remove() {
-  const { editor, node, getPos } = props
+  const { editor, getPos } = props
   const { state, view } = editor
 
   const pos = getPos()
   const $pos = state.doc.resolve(pos)
 
-  const parent = $pos.parent
-  const parentPos = $pos.before()
+  const isInRow = $pos.parent.type.name === "imageRow"
+  const rowPos = isInRow ? $pos.before() : null
+  const rowHadOne = isInRow ? $pos.parent.childCount === 1 : false
 
-  let tr = state.tr
+  // 1️⃣ xoá đúng image
+  props.deleteNode?.()
 
-  // 👉 nếu imageRow chỉ có đúng 1 image
-  const shouldRemoveParent =
-    parent.type.name === "imageRow" &&
-    parent.childCount === 1
+  // 2️⃣ nếu row chỉ có 1 ảnh → xoá luôn row
+  if (isInRow && rowHadOne) {
+    const tr = view.state.tr
+    const mappedRowPos = tr.mapping.map(rowPos)
+    const rowNode = tr.doc.nodeAt(mappedRowPos)
 
-  if (shouldRemoveParent) {
-    // ❗ xoá imageRow TRƯỚC
-    tr.delete(parentPos, parentPos + parent.nodeSize)
-  } else {
-    // ❗ chỉ xoá image
-    tr.delete(pos, pos + node.nodeSize)
+    if (rowNode && rowNode.type.name === "imageRow") {
+      tr.delete(mappedRowPos, mappedRowPos + rowNode.nodeSize)
+      view.dispatch(tr)
+    }
   }
 
-  // reset selection về vị trí an toàn
-  const safePos = Math.min(
-    tr.doc.content.size,
-    parentPos
-  )
-
-  tr.setSelection(
-    TextSelection.near(tr.doc.resolve(safePos))
-  )
-
-  view.dispatch(tr)
-  view.focus()
+  editor.commands.focus()
 }
+
 
 
 function open() {
@@ -108,7 +90,7 @@ function open() {
   height: 18px;
   border-radius: 50%;
   border: none;
-  background: rgba(0,0,0,.65);
+  background: rgba(0, 0, 0, .65);
   color: white;
   font-size: 12px;
   line-height: 18px;
@@ -122,5 +104,4 @@ function open() {
   opacity: 1;
   pointer-events: auto;
 }
-
 </style>

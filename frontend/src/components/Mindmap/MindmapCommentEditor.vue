@@ -97,6 +97,17 @@ const filteredMembers = computed(() => {
     )
 })
 
+function isInsideImageRow(selection) {
+    const { $from } = selection
+    for (let d = $from.depth; d >= 0; d--) {
+        if ($from.node(d).type.name === "imageRow") {
+            return true
+        }
+    }
+    return false
+}
+
+
 onMounted(() => {
     editor.value = new Editor({
         content: props.modelValue || "",
@@ -148,6 +159,32 @@ onMounted(() => {
         editorProps: {
             handleKeyDown(view, event) {
 
+                if (event.key === "Backspace" || event.key === "Delete") {
+                    const { selection } = view.state
+
+                    if (selection.empty) {
+                        const { $from } = selection
+
+                        // Backspace → xoá node bên trái
+                        if (event.key === "Backspace") {
+                            const nodeBefore = $from.nodeBefore
+                            if (nodeBefore && isImageNode(nodeBefore)) {
+                                event.preventDefault()
+                                return true
+                            }
+                        }
+
+                        // Delete → xoá node bên phải
+                        if (event.key === "Delete") {
+                            const nodeAfter = $from.nodeAfter
+                            if (nodeAfter && isImageNode(nodeAfter)) {
+                                event.preventDefault()
+                                return true
+                            }
+                        }
+                    }
+                }
+
                 if (!editor.value?.storage?.__isInitializing && event.key === "@") {
                     editor.value.storage.__mentionUserTriggered = true
                 }
@@ -171,6 +208,13 @@ onMounted(() => {
                 const { state } = view
                 const { selection } = state
 
+                if (
+                    (event.key === "Backspace" || event.key === "Delete") &&
+                    isInsideImageRow(view.state.selection)
+                ) {
+                    event.preventDefault()
+                    return true
+                }
 
                 if (
                     (event.key === "Backspace" || event.key === "Delete") &&

@@ -489,6 +489,12 @@ def edit_comment(mindmap_id: str, comment_id: str, comment: str):
 def notify_mentions(comment_name):
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
 
+    mindmap_title = frappe.db.get_value(
+        "Drive File",
+        doc.mindmap_id,
+        "title",
+    )    
+
     # parse comment
     comment = doc.comment
     if isinstance(comment, str):
@@ -562,6 +568,7 @@ def notify_mentions(comment_name):
                     "mindmap_id": doc.mindmap_id,
                     "node_id": doc.node_id,
                     "link": link,
+                    "mindmap_title": mindmap_title,
                 },
                 ensure_ascii=False,
                 default=str,
@@ -571,6 +578,12 @@ def notify_mentions(comment_name):
 
 def notify_comment(comment_name):
     doc = frappe.get_doc("Drive Mindmap Comment", comment_name)
+
+    mindmap_title = frappe.db.get_value(
+        "Drive File",
+        doc.mindmap_id,
+        "title",
+    )    
 
     # parse comment
     comment = doc.comment
@@ -691,6 +704,7 @@ def notify_comment(comment_name):
                     "node_id": doc.node_id,
                     "link": link,
                     "is_reply": is_reply_for_user,
+                    "mindmap_title": mindmap_title,
                 },
                 ensure_ascii=False,
                 default=str,

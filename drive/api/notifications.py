@@ -286,7 +286,7 @@ def notify_comment_mentions(entity_name, comment_doc, mentions):
         author_full_name = frappe.db.get_value(
             "User", {"name": comment_doc.comment_email}, ["full_name"]
         )
-        message = f'{author_full_name} mentioned you in a comment on "{entity.title}"'
+        message = f'{author_full_name} đã đề cập đến bạn trong bình luận "{entity.title}"'
         create_notification(
             comment_doc.comment_email,
             mention["id"],
@@ -306,7 +306,7 @@ def notify_comment_to_owner_file(entity_name, comment_doc, owner_email):
     author_full_name = frappe.db.get_value(
         "User", {"name": comment_doc.comment_email}, ["full_name"]
     )
-    message = f'{author_full_name} commented on this file "{entity.title}"'
+    message = f'{author_full_name} đã bình luận trong file "{entity.title}"'
     create_notification(
         comment_doc.comment_email,
         owner_email,
@@ -326,7 +326,7 @@ def notify_comment_to_all_members(entity_name, comment_doc, team_members):
     author_full_name = frappe.db.get_value(
         "User", {"name": comment_doc.comment_email}, ["full_name"]
     )
-    message = f'{author_full_name} commented on this file "{entity.title}"'
+    message = f'{author_full_name} đã bình luận trong file "{entity.title}"'
     for member in team_members:
         if member != comment_doc.comment_email:
             create_notification(
@@ -348,7 +348,7 @@ def notify_reply_comment(entity_name, comment_doc, reply_email):
     author_full_name = frappe.db.get_value(
         "User", {"name": comment_doc.comment_email}, ["full_name"]
     )
-    message = f'{author_full_name} replied to "{entity.title}"'
+    message = f'{author_full_name} đã trả lời bình luận "{entity.title}"'
     create_notification(
         comment_doc.comment_email,
         reply_email,

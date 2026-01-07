@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col w-full">
+  <div class="flex flex-col w-full mindmap-page">
     <Navbar v-if="!mindmap.error && !mindmapEntity.error" :root-resource="mindmap" />
     <ErrorPage v-if="mindmap.error || mindmapEntity.error" :error="mindmap.error || mindmapEntity.error" />
     <LoadingIndicator v-else-if="!mindmap.data && mindmap.loading" class="w-10 h-full text-neutral-100 mx-auto" />
@@ -14,7 +14,7 @@
       </div>
 
       <!-- Status indicator -->
-      <div class="absolute top-2 right-2 z-10 text-sm">
+      <div class="fixed top-20 right-2 z-10 text-sm">
         <span v-if="isSaving" class="text-orange-500 flex items-center gap-1">
           <span class="animate-spin">⏳</span> Đang lưu...
         </span>
@@ -100,7 +100,7 @@
       />
 
       <!-- Undo/Redo buttons - Top left -->
-      <div class="absolute top-4 left-5 z-10 flex gap-2">
+      <div class="fixed top-[100px] left-[300px] z-10 flex gap-2">
         <!-- Undo Button -->
         <button 
           @click="undo" 
@@ -131,7 +131,7 @@
       </div>
 
       <!-- Change view mindmap -->
-      <div class="absolute top-20 left-5 z-10 flex flex-col gap-2">
+      <div class="fixed top-[160px] left-[300px] z-10 flex flex-col gap-2">
         <!-- TEXT VIEW -->
         <button
           v-tooltip.right="{ value: 'Phác thảo', pt: { text: { class: ['text-[12px]'] } } }"
@@ -296,6 +296,8 @@
           @copy-node="handleTextModeCopy"
           @task-link-node="handleTextModeTaskLink"
           @delete-node="handleTextModeDeleteNode"
+          @unlink-task-node="handleUnlinkTaskNode"
+          @insert-images="handleInsertImagesTextMode"
           />
         </div>
     </div>
@@ -509,8 +511,8 @@ const commentsOperations = useMindmapComments({
 })
 const {
   onCancelComment,
-  handleHighlightNode,
-  handleSelectCommentNode,
+  handleHighlightNode: _handleHighlightNode,
+  handleSelectCommentNode: _handleSelectCommentNode,
 } = commentsOperations
 
 // Setup Nodes composable (Phase 4)
@@ -4431,6 +4433,7 @@ function applyTextEdits(changes) {
     if (node.data?.label !== label) {
       changed = true
       d3Renderer?.updateNodeLabelFromExternal(nodeId, label)
+      changedNodeIds.value.add(nodeId)
     }
   })
 
@@ -4645,6 +4648,47 @@ function handleTextModeDeleteNode(payload) {
   })
 }
 
+function handleUnlinkTaskNode(payload) {
+  handleContextMenuAction({
+    type: 'delete-task-link',
+    node: nodes.value.find(n => n.id === payload),
+  })
+}
+
+function handleInsertImagesTextMode(payload) {
+  const node = nodes.value.find(n => n.id === payload)
+  if (!node) return
+
+  const oldLabel = node.data.label
+  changedNodeIds.value.add(payload)
+
+  handleInsertImage({ node })
+
+  const unwatch = watch(
+    () => node.data.label,
+    (val) => {
+      if (val !== oldLabel) {
+        textViewVersion.value++
+        unwatch()
+      }
+    }
+  )
+}
+
+function createFocusHandler(focusFn) {
+  return (node) => {
+    if (!node) return
+
+    const nodeID = node.id || node.node_id
+    if (!nodeID) return
+
+    focusFn(node)
+    scrollToNodeWithRetry(nodeID)
+  }
+}
+
+const handleHighlightNode = createFocusHandler(_handleHighlightNode)
+const handleSelectCommentNode = createFocusHandler(_handleSelectCommentNode)
 
 </script>
 

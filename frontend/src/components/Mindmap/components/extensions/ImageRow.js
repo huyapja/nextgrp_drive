@@ -10,7 +10,7 @@ export const ImageRow = Node.create({
   content: "image*",
   selectable: true,
   isolating: true, // tránh text dính vào row
-
+  contenteditable: false,
   // ======================
   // HTML ↔ PM
   // ======================

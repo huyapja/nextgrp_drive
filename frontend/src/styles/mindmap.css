@@ -3,6 +3,14 @@ kbd {
   font-size: 11px;
 }
 
+.mindmap-page nav{
+  position: relative;
+}
+
+.mindmap-page nav > div:first-of-type {
+  position: fixed;
+}
+
 .d3-mindmap-container {
   position: relative;
 }
@@ -38,9 +46,9 @@ kbd {
 }
 
 .d3-controls {
-  position: absolute;
-  bottom: 20px;
-  left: 20px;
+  position: fixed;
+  bottom: 60px;
+  left: 300px;
   display: flex;
   flex-direction: column;
   gap: 8px;
