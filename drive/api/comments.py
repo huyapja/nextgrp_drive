@@ -5,7 +5,7 @@ from raven.raven_bot.doctype.raven_bot.raven_bot import RavenBot
 
 
 @frappe.whitelist()
-def react_to_comment(entity_id: str, comment_id: str, emoji: str):
+def react_to_comment(comment_id: str, emoji: str, entity_id: str = None):
     """Toggle a reaction (emoji) on a Comment by the current user.
 
     Reactions are stored as rows in the standard Comment doctype with:
@@ -23,7 +23,11 @@ def react_to_comment(entity_id: str, comment_id: str, emoji: str):
     # Validate parent comment
     parent = frappe.get_value(
         "Comment",
-        {"name": comment_id, "comment_type": "Comment", "reference_doctype": "Topic Comment"},
+        {
+            "name": comment_id,
+            "comment_type": "Comment",
+            "reference_doctype": "Topic Comment",
+        },
         ["name", "reference_name", "comment_email", "content"],
         as_dict=True,
     )
@@ -47,7 +51,10 @@ def react_to_comment(entity_id: str, comment_id: str, emoji: str):
     )
     existing = None
     for reaction in reactions:
-        if unicodedata.normalize("NFC", (reaction["content"] or "").strip()) == normalized_emoji:
+        if (
+            unicodedata.normalize("NFC", (reaction["content"] or "").strip())
+            == normalized_emoji
+        ):
             existing = reaction["name"]
             break
     if existing:
@@ -75,7 +82,9 @@ def react_to_comment(entity_id: str, comment_id: str, emoji: str):
             entity = frappe.get_doc("Drive File", entity_id)
             reactor_full_name = frappe.db.get_value("User", user, "full_name")
             message = f'{reactor_full_name} reacted "{emoji}" to your comment on "{entity.title}"'
-            print("Sending reaction notification via RavenBot", parent.comment_email, user)
+            print(
+                "Sending reaction notification via RavenBot", parent.comment_email, user
+            )
             # create_notification(
             #     from_user=user,
             #     to_user=parent.comment_email,
