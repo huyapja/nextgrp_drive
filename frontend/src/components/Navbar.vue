@@ -714,7 +714,9 @@ const createOptions = [
 ]
 
 function enterFullScreen() {
-  const container = document.querySelector('.onlyoffice-container')
+  const container = document.querySelector('.onlyoffice-container') 
+    || document.querySelector('.image-preview-container')
+    || document.querySelector('#renderContainer')
   
   if (!container) {
     console.error('Container not found')

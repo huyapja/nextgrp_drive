@@ -50,20 +50,32 @@
     <div class="controls-container">
       <template v-if="selections && !selections.length">
         <!-- Filter Button -->
-        <div class="relative">
+        <div class="relative" ref="filter-wrapper">
           <Button
             icon="pi pi-filter"
             text
             severity="secondary"
             class="control-btn"
+            :class="{ 'filter-active': activeFilters.length > 0 }"
             v-tooltip="__('Filter')"
-            @click="showFilterMenu = !showFilterMenu"
+            @click.stop="toggleFilterMenu"
           />
           <div
             v-if="showFilterMenu"
             ref="filter-menu"
             class="filter-menu"
           >
+            <!-- Clear all button -->
+            <div
+              v-if="activeFilters.length > 0"
+              class="filter-option filter-clear-all"
+              @click.stop="clearAllFilters"
+            >
+              <span class="text-red-600 font-medium">{{ __('Bỏ chọn tất cả') }}</span>
+              <span class="text-xs text-gray-500">({{ activeFilters.length }})</span>
+            </div>
+            <div v-if="activeFilters.length > 0" class="border-b border-gray-200 my-1"></div>
+            
             <div
               v-for="option in filterOptions"
               :key="option.value"
@@ -233,6 +245,7 @@ const activeFilters = ref([])
 const activeTags = computed(() => store.state.activeTags)
 const showFilterMenu = ref(false)
 const filterMenuRef = useTemplateRef("filter-menu")
+const filterWrapperRef = useTemplateRef("filter-wrapper")
 
 const search = ref("")
 const viewState = ref(store.state.view)
@@ -296,9 +309,17 @@ onKeyDown("Escape", () => {
   showFilterMenu.value = false
 })
 
-onClickOutside(filterMenuRef, () => {
+onClickOutside(filterWrapperRef, () => {
   showFilterMenu.value = false
 })
+
+function toggleFilterMenu() {
+  showFilterMenu.value = !showFilterMenu.value
+}
+
+function clearAllFilters() {
+  activeFilters.value = []
+}
 
 const filterOptions = computed(() => {
   return Object.keys(ICON_TYPES).map((k) => ({
@@ -446,6 +467,18 @@ watch(shareView, (newValue) => {
   height: 18px;
   border: 1px solid #ccc;
   border-radius: 50%;
+}
+
+.filter-clear-all {
+  @apply justify-between;
+}
+
+.filter-clear-all:hover {
+  @apply bg-red-50;
+}
+
+.control-btn.filter-active {
+  @apply !border-[#0149C1] !bg-blue-50;
 }
 
 .sort-control {

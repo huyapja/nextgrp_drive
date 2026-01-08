@@ -22,7 +22,7 @@
         class="flex flex-col py-4 px-2.5 overflow-y-auto overflow-x-auto max-h-[50vh]"
       >
         <span class="mb-2 pl-1 text-base text-ink-gray-5"
-          >Search results for <strong>{{ search }}:</strong></span
+          >Kết quả tìm kiếm cho <strong>{{ search }}:</strong></span
         >
         <div
           v-for="entity in searchResults.data"
@@ -80,19 +80,20 @@
         </div>
       </div>
       <div
-        v-if="!searchResults.data?.length"
+        v-if="!searchResults.data?.length && search.length > 0"
         class="flex flex-col py-4 px-2.5"
       >
         <span
-          v-if="search.length > 3"
+          v-if="searchResults.loading"
           class="pl-2 text-base text-ink-gray-5"
         >
-          Không tìm thấy kết quả <strong>"{{ search }}"</strong></span
+          Đang tìm kiếm...</span
         >
         <span
           v-else
-          class="pl-2 text-sm"
-          >Nhập thêm...</span
+          class="pl-2 text-base text-ink-gray-5"
+        >
+          Không tìm thấy kết quả <strong>"{{ search }}"</strong></span
         >
       </div>
       <div
@@ -186,12 +187,20 @@ const searchResults = createResource({
   url: "drive.api.files.search",
 })
 
+let searchTimeout = null
+
 watch(search, (val) => {
-  if (val.length >= 3) {
-    searchResults.submit({
-      query: val,
-      team: route.params.team,
-    })
+  if (searchTimeout) {
+    clearTimeout(searchTimeout)
+  }
+  
+  if (val.length > 0) {
+    searchTimeout = setTimeout(() => {
+      searchResults.submit({
+        query: val,
+        team: route.params.team,
+      })
+    }, 300)
   } else {
     searchResults.reset()
   }

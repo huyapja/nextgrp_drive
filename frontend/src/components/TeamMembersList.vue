@@ -274,6 +274,19 @@ watch(() => route.params.team, (newTeam, oldTeam) => {
 
 const teamMembers = computed(() => getTeamMembers.data || [])
 
+const autoOpenedByOneMember = ref(false)
+
+// Tự động mở drawer nếu nhóm chỉ có 1 thành viên
+watch(teamMembers, (members) => {
+  if (members && members.length === 1) {
+    visible.value = true
+    autoOpenedByOneMember.value = true
+  } else if (members && members.length > 1 && autoOpenedByOneMember.value) {
+    visible.value = false
+    autoOpenedByOneMember.value = false
+  }
+}, { immediate: true })
+
 const regularMembers = computed(() =>
   teamMembers.value.filter((member) => member.access_level !== 2)
 )

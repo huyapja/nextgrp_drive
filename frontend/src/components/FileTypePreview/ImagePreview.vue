@@ -1,17 +1,8 @@
 <template>
-  <div class="relative">
-    <!-- Close button for normal view (moved to right) -->
-    <!-- <button
-      class="absolute top-4 right-4 z-10 bg-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg hover:bg-gray-50 transition-colors"
-      @click="goBack"
-    >
-      <span class="text-lg text-gray-600 font-bold leading-none">×</span>
-    </button> -->
-
-    <!-- Thumbnail preview -->
+  <div class="image-preview-container">
     <img
       :src="previewURL"
-      class="max-w-full max-h-[1000vh] object-contain mx-auto"
+      class="preview-image"
       @click="openFullPreview"
     />
 
@@ -90,12 +81,38 @@ function goBack() {
 </script>
 
 <style scoped>
-img {
+.image-preview-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  width: 100%;
+  height: calc(100vh - 70px);
+  overflow: hidden;
+  padding: 1rem;
+  background: #f5f5f5;
+}
+
+.image-preview-container:fullscreen {
+  height: 100vh;
+  background: #000;
+  padding: 2rem;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: calc(100vh - 90px);
+  width: auto;
+  height: auto;
+  object-fit: contain;
   background-image: linear-gradient(45deg, #ccc 25%, transparent 25%),
     linear-gradient(135deg, #ccc 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #ccc 75%),
     linear-gradient(135deg, white 75%, #ccc 75%);
   background-size: 30px 30px;
   background-position: 0 0, 15px 0, 15px -15px, 0px 15px;
+}
+
+.image-preview-container:fullscreen .preview-image {
+  max-height: calc(100vh - 4rem);
 }
 </style>
