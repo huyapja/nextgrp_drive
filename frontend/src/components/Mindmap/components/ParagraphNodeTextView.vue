@@ -1,182 +1,182 @@
-  <template>
-    <NodeViewWrapper as="p" class="mm-node relative" :class="{ 'is-comment-hover': isHover || isActive }"
-      @click="onClickNode">
-      <div v-if="isMindmapParagraph" class="collapse-slot">
-        <i v-if="liState?.hasChildren" class="collapse-toggle pi"
-          :class="liState.collapsed ? 'pi-angle-right' : 'pi-angle-down'" v-tooltip.top="{
-            value: liState.collapsed ? 'Mở rộng' : 'Thu gọn',
-            pt: { text: { class: ['text-[12px]'] } }
-          }" @mousedown.prevent @click.stop="toggleCollapse" />
-      </div>
+<template>
+  <NodeViewWrapper as="p" class="mm-node relative" :class="{ 'is-comment-hover': isHover || isActive }"
+    @click="onClickNode">
+    <div v-if="isMindmapParagraph" class="collapse-slot">
+      <i v-if="liState?.hasChildren" class="collapse-toggle pi"
+        :class="liState.collapsed ? 'pi-angle-right' : 'pi-angle-down'" v-tooltip.top="{
+          value: liState.collapsed ? 'Mở rộng' : 'Thu gọn',
+          pt: { text: { class: ['text-[12px]'] } }
+        }" @mousedown.prevent @click.stop="toggleCollapse" />
+    </div>
 
-      <i v-if="isMindmapParagraph && canEditContent" class="mindmap-dot ml-1" v-tooltip.top="{
-        value: 'Bấm hiển thị thêm hành động',
-        pt: { text: { class: ['text-[12px]'] } }
-      }" @mousedown.prevent @click.stop="toggleActions" />
+    <i v-if="isMindmapParagraph && canEditContent" class="mindmap-dot ml-1" v-tooltip.top="{
+      value: 'Bấm hiển thị thêm hành động',
+      pt: { text: { class: ['text-[12px]'] } }
+    }" @mousedown.prevent @click.stop="toggleActions" />
 
-      <i v-else-if="isMindmapParagraph" class="mindmap-dot ml-1" @mousedown.prevent />
+    <i v-else-if="isMindmapParagraph" class="mindmap-dot ml-1" @mousedown.prevent />
 
-      <Popover ref="actionsPopover" :dismissable="true" class="node-action-popover"
-        :pt="{ root: { class: 'no-popover-arrow-by-hung right-align' } }">
-        <div>
-          <p class="!text-[14px] mb-2 text-[#646a73]">Kiểu</p>
+    <Popover ref="actionsPopover" :dismissable="true" class="node-action-popover"
+      :pt="{ root: { class: 'no-popover-arrow-by-hung right-align' } }">
+      <div>
+        <p class="!text-[14px] mb-2 text-[#646a73]">Kiểu</p>
 
-          <div v-show="!isSelectionInBlockquote" class="color-grid flex gap-2">
-            <button v-for="c in highlightColors" :key="c.value" class="color-item"
-              :class="{ 'is-active': currentHighlight === c.bg }" :style="{ backgroundColor: c.bg }" @mousedown.prevent
-              @click.stop="applyHighlight(c)">
-              <span class="color-dot" :style="{ color: c.text }">A</span>
-            </button>
-          </div>
-
-          <div class="flex gap-2 mt-4">
-            <!-- Bold -->
-            <button class="toolbar-btn" :class="{ 'is-active': isBoldActive }" @mousedown.prevent
-              @click.stop="toggleBold" v-tooltip.top="{
-                value: 'In đậm (Ctrl+B)',
-                pt: { text: { class: ['text-[12px]'] } }
-              }">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M5 2.709C5 2.317 5.317 2 5.709 2h6.734a5.317 5.317 0 0 1 3.686 9.148 5.671 5.671 0 0 1-2.623 10.7H5.71a.709.709 0 0 1-.71-.707V2.71Zm2 7.798h5.443a3.19 3.19 0 0 0 3.19-3.19c0-1.762-1.428-3.317-3.19-3.317H7v6.507Zm0 2.126v7.09h6.507a3.544 3.544 0 0 0 0-7.09H7Z"
-                  fill="currentColor"></path>
-              </svg>
-            </button>
-
-            <!-- Italic -->
-            <button class="toolbar-btn" :class="{ 'is-active': isItalicActive }" @mousedown.prevent
-              @click.stop="toggleItalic" v-tooltip.top="{
-                value: 'In nghiêng (Ctrl+I)',
-                pt: { text: { class: ['text-[12px]'] } }
-              }">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M14.825 5.077 11.19 18.923h4.052a1.038 1.038 0 1 1 0 2.077H4.954a1.038 1.038 0 1 1 0-2.077h4.053l3.636-13.846H8.591A1.038 1.038 0 1 1 8.59 3h10.287a1.038 1.038 0 0 1 0 2.077h-4.053Z"
-                  fill="currentColor"></path>
-              </svg>
-            </button>
-
-            <!-- Underline -->
-            <button class="toolbar-btn" :class="{ 'is-active': isUnderlineActive }" @mousedown.prevent
-              @click.stop="toggleUnderline" v-tooltip.top="{
-                value: 'Gạch chân (Ctrl+U)',
-                pt: { text: { class: ['text-[12px]'] } }
-              }">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M7.361 3.052a.99.99 0 0 0-.989-.994.998.998 0 0 0-.999.994v5.765c0 4.205 2.601 7.29 6.627 7.29s6.627-3.085 6.627-7.29V3.052a.996.996 0 0 0-.996-.994.992.992 0 0 0-.992.994v5.765c0 3.003-1.763 5.302-4.639 5.302-2.876 0-4.639-2.299-4.639-5.302V3.052ZM3.054 19.42a.988.988 0 0 0-.994.988 1 1 0 0 0 .994 1h17.892a1 1 0 0 0 .994-1.002.987.987 0 0 0-.994-.986H3.054Z"
-                  fill="currentColor"></path>
-              </svg>
-            </button>
-          </div>
+        <div v-show="!isSelectionInBlockquote" class="color-grid flex gap-2">
+          <button v-for="c in highlightColors" :key="c.value" class="color-item"
+            :class="{ 'is-active': currentHighlight === c.bg }" :style="{ backgroundColor: c.bg }" @mousedown.prevent
+            @click.stop="applyHighlight(c)">
+            <span class="color-dot" :style="{ color: c.text }">A</span>
+          </button>
         </div>
-        <div v-if="!isSelectionInBlockquote">
-          <p class="!text-[14px] my-2 mt-3 text-[#646a73]">Thông thường</p>
-          <ul class="more-actions !text-[14px]">
-            <li @click.stop="
-              insertDescriptionBlockquote();
-            closeActionsPopover();
-            ">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M19.602 3.06a1.5 1.5 0 1 1 2.898.777l-.388 1.449-2.898-.776.388-1.45Zm-.774 2.888 2.898.777-3.897 14.543c-.076.285-.24.54-.468.727l-1.48 1.218a.17.17 0 0 1-.268-.073l-.65-1.798a1.394 1.394 0 0 1-.036-.835l3.901-14.559ZM3 3a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2H3Zm-1 9a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2H3a1 1 0 0 1-1-1Zm1 7a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H3Z"
-                  fill="currentColor"></path>
-              </svg>
-              Mô tả
-            </li>
-            <li @click.stop="
-              toggleDone($event);
-            closeActionsPopover();
-            " :class="{ 'is-active': isDone }">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 2C5.925 23 1 18.075 1 12S5.925 1 12 1s11 4.925 11 11-4.925 11-11 11Zm-1.16-8.72 4.952-4.952a.996.996 0 0 1 1.409.005 1 1 0 0 1 .007 1.41c-1.888 1.905-3.752 3.842-5.685 5.7a.98.98 0 0 1-1.364-.001c-1.01-.98-1.993-1.992-2.983-2.993a1.003 1.003 0 0 1 .005-1.414.998.998 0 0 1 1.412-.002l2.247 2.247Z"
-                  fill="currentColor"></path>
-              </svg>
-              {{ isDone ? 'Kích hoạt' : 'Xong' }}
-            </li>
-            <li @click.stop="
-              insertImages($event)
-            closeActionsPopover();
-            ">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path
-                  d="m10.141 17.988-4.275-.01a.3.3 0 0 1-.212-.512l4.133-4.133a.4.4 0 0 1 .566 0l1.907 1.907 5.057-5.057a.4.4 0 0 1 .683.283V17.7a.3.3 0 0 1-.3.3h-7.476a.301.301 0 0 1-.083-.012ZM4 22c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2v16c0 1.1-.9 2-2 2H4Zm0-2h16V4H4v16ZM6 6h3v3H6V6Z"
-                  fill="currentColor"></path>
-              </svg>
-              Thêm hình ảnh
-            </li>
-            <li @click.stop="
-              copyLinkNode($event)
-            closeActionsPopover();
-            ">
-              <svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-              Sao chép liên kết
-            </li>
-            <li v-if="!hasTaskLink" @click.stop="
-              taskLinkNode($event)
-            closeActionsPopover();
-            ">
-              <svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-              </svg>
-              Liên kết công việc từ nhánh
-            </li>
 
-            <li v-else @click.stop="
-              unlinkTaskNode($event)
-            closeActionsPopover();
-            ">
-              <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-              Xóa liên kết công việc
-            </li>
+        <div class="flex gap-2 mt-4">
+          <!-- Bold -->
+          <button class="toolbar-btn" :class="{ 'is-active': isBoldActive }" @mousedown.prevent
+            @click.stop="toggleBold" v-tooltip.top="{
+              value: 'In đậm (Ctrl+B)',
+              pt: { text: { class: ['text-[12px]'] } }
+            }">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M5 2.709C5 2.317 5.317 2 5.709 2h6.734a5.317 5.317 0 0 1 3.686 9.148 5.671 5.671 0 0 1-2.623 10.7H5.71a.709.709 0 0 1-.71-.707V2.71Zm2 7.798h5.443a3.19 3.19 0 0 0 3.19-3.19c0-1.762-1.428-3.317-3.19-3.317H7v6.507Zm0 2.126v7.09h6.507a3.544 3.544 0 0 0 0-7.09H7Z"
+                fill="currentColor"></path>
+            </svg>
+          </button>
 
-            <li class="text-[#dc2626] delete-node" @click.stop="
-              deleteNode($event)
-            closeActionsPopover();
-            ">
-              <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-              Xóa nhánh
-            </li>
-          </ul>
+          <!-- Italic -->
+          <button class="toolbar-btn" :class="{ 'is-active': isItalicActive }" @mousedown.prevent
+            @click.stop="toggleItalic" v-tooltip.top="{
+              value: 'In nghiêng (Ctrl+I)',
+              pt: { text: { class: ['text-[12px]'] } }
+            }">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M14.825 5.077 11.19 18.923h4.052a1.038 1.038 0 1 1 0 2.077H4.954a1.038 1.038 0 1 1 0-2.077h4.053l3.636-13.846H8.591A1.038 1.038 0 1 1 8.59 3h10.287a1.038 1.038 0 0 1 0 2.077h-4.053Z"
+                fill="currentColor"></path>
+            </svg>
+          </button>
+
+          <!-- Underline -->
+          <button class="toolbar-btn" :class="{ 'is-active': isUnderlineActive }" @mousedown.prevent
+            @click.stop="toggleUnderline" v-tooltip.top="{
+              value: 'Gạch chân (Ctrl+U)',
+              pt: { text: { class: ['text-[12px]'] } }
+            }">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M7.361 3.052a.99.99 0 0 0-.989-.994.998.998 0 0 0-.999.994v5.765c0 4.205 2.601 7.29 6.627 7.29s6.627-3.085 6.627-7.29V3.052a.996.996 0 0 0-.996-.994.992.992 0 0 0-.992.994v5.765c0 3.003-1.763 5.302-4.639 5.302-2.876 0-4.639-2.299-4.639-5.302V3.052ZM3.054 19.42a.988.988 0 0 0-.994.988 1 1 0 0 0 .994 1h17.892a1 1 0 0 0 .994-1.002.987.987 0 0 0-.994-.986H3.054Z"
+                fill="currentColor"></path>
+            </svg>
+          </button>
         </div>
-      </Popover>
-
-
-
-
-      <div class="ml-2">
-        <NodeViewContent :style="highlightBg ? { backgroundColor: highlightBg } : {}" />
       </div>
+      <div v-if="!isSelectionInBlockquote">
+        <p class="!text-[14px] my-2 mt-3 text-[#646a73]">Thông thường</p>
+        <ul class="more-actions !text-[14px]">
+          <li @click.stop="
+            insertDescriptionBlockquote();
+          closeActionsPopover();
+          ">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M19.602 3.06a1.5 1.5 0 1 1 2.898.777l-.388 1.449-2.898-.776.388-1.45Zm-.774 2.888 2.898.777-3.897 14.543c-.076.285-.24.54-.468.727l-1.48 1.218a.17.17 0 0 1-.268-.073l-.65-1.798a1.394 1.394 0 0 1-.036-.835l3.901-14.559ZM3 3a1 1 0 1 0 0 2h12a1 1 0 1 0 0-2H3Zm-1 9a1 1 0 0 1 1-1h9a1 1 0 1 1 0 2H3a1 1 0 0 1-1-1Zm1 7a1 1 0 1 0 0 2h7a1 1 0 1 0 0-2H3Z"
+                fill="currentColor"></path>
+            </svg>
+            Mô tả
+          </li>
+          <li @click.stop="
+            toggleDone($event);
+          closeActionsPopover();
+          " :class="{ 'is-active': isDone }">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18Zm0 2C5.925 23 1 18.075 1 12S5.925 1 12 1s11 4.925 11 11-4.925 11-11 11Zm-1.16-8.72 4.952-4.952a.996.996 0 0 1 1.409.005 1 1 0 0 1 .007 1.41c-1.888 1.905-3.752 3.842-5.685 5.7a.98.98 0 0 1-1.364-.001c-1.01-.98-1.993-1.992-2.983-2.993a1.003 1.003 0 0 1 .005-1.414.998.998 0 0 1 1.412-.002l2.247 2.247Z"
+                fill="currentColor"></path>
+            </svg>
+            {{ isDone ? 'Kích hoạt' : 'Xong' }}
+          </li>
+          <li @click.stop="
+            insertImages($event)
+          closeActionsPopover();
+          ">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path
+                d="m10.141 17.988-4.275-.01a.3.3 0 0 1-.212-.512l4.133-4.133a.4.4 0 0 1 .566 0l1.907 1.907 5.057-5.057a.4.4 0 0 1 .683.283V17.7a.3.3 0 0 1-.3.3h-7.476a.301.301 0 0 1-.083-.012ZM4 22c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2v16c0 1.1-.9 2-2 2H4Zm0-2h16V4H4v16ZM6 6h3v3H6V6Z"
+                fill="currentColor"></path>
+            </svg>
+            Thêm hình ảnh
+          </li>
+          <li @click.stop="
+            copyLinkNode($event)
+          closeActionsPopover();
+          ">
+            <svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            Sao chép liên kết
+          </li>
+          <li v-if="!hasTaskLink" @click.stop="
+            taskLinkNode($event)
+          closeActionsPopover();
+          ">
+            <svg class="menu-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
+            Liên kết công việc từ nhánh
+          </li>
 
-      <div v-if="isMindmapParagraph" class="comment-icon" v-tooltip.bottom="{
-        value: 'Nhận xét',
-        pt: { text: '!text-[12px]' }
-      }" @click.stop="onClickComment" @mousedown.prevent.stop>
-        <svg @mouseenter="isHover = true" @mouseleave="isHover = false" fill="#2563eb" width="20" height="20"
-          viewBox="0 0 32 32">
-          <path
-            d="M25.785 4.952h-19.57c-1.235 0-2.236 1.002-2.236 2.236v12.488c 0 1.234 1.001 2.236 2.236 2.236h3.729l0.001 5.137 5.704-5.137h10.137c 1.236 0 2.236-1.002 2.236-2.236v-12.488c-0.001-1.234-1.001-2.236-2.237-2.236z" />
-        </svg>
+          <li v-else @click.stop="
+            unlinkTaskNode($event)
+          closeActionsPopover();
+          ">
+            <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+            Xóa liên kết công việc
+          </li>
+
+          <li class="text-[#dc2626] delete-node" @click.stop="
+            deleteNode($event)
+          closeActionsPopover();
+          ">
+            <svg class="menu-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+            </svg>
+            Xóa nhánh
+          </li>
+        </ul>
       </div>
-    </NodeViewWrapper>
-  </template>
+    </Popover>
+
+
+
+
+    <div class="ml-2">
+      <NodeViewContent :style="highlightBg ? { backgroundColor: highlightBg } : {}" />
+    </div>
+
+    <div v-if="isMindmapParagraph" class="comment-icon" v-tooltip.bottom="{
+      value: 'Nhận xét',
+      pt: { text: '!text-[12px]' }
+    }" @click.stop="onClickComment" @mousedown.prevent.stop>
+      <svg @mouseenter="isHover = true" @mouseleave="isHover = false" fill="#2563eb" width="20" height="20"
+        viewBox="0 0 32 32">
+        <path
+          d="M25.785 4.952h-19.57c-1.235 0-2.236 1.002-2.236 2.236v12.488c 0 1.234 1.001 2.236 2.236 2.236h3.729l0.001 5.137 5.704-5.137h10.137c 1.236 0 2.236-1.002 2.236-2.236v-12.488c-0.001-1.234-1.001-2.236-2.237-2.236z" />
+      </svg>
+    </div>
+  </NodeViewWrapper>
+</template>
 
 <script setup>
 import { ref, computed, inject, watchEffect, onMounted, watch } from "vue"
@@ -422,10 +422,7 @@ const isSelectionInBlockquote = computed(() => {
 const { toggle } = useNodeActionPopover()
 
 function toggleActions(event) {
-
-  if (!canEditContent.value) {
-    return
-  }
+  if (!canEditContent.value) return
 
   const editor = props.editor
   const getPos = props.getPos
@@ -437,34 +434,11 @@ function toggleActions(event) {
   const { state, view } = editor
   const { selection } = state
 
-  const endPos = pos + props.node.nodeSize - 1
-
-  // ================================
-  // ƯU TIÊN SELECTION (BÔI ĐEN)
-  // ================================
-  if (
-    selection instanceof TextSelection &&
-    !selection.empty
-  ) {
-  } else {
-    // ================================
-    // KHÔNG CÓ SELECTION → ĐƯA CARET VỀ CUỐI NODE
-    // ================================
-    const tr = state.tr.setSelection(
-      TextSelection.create(state.doc, endPos)
-    )
-    tr.setMeta("ui-only", true)
-    view.dispatch(tr)
-  }
-
-  // ================================
-  // 3️⃣ TOGGLE ACTION POPOVER
-  // ================================
   const nodeId = resolveNodeIdFromDOM(event.currentTarget)
   if (!nodeId) return
 
-  if (pos != null) {
-    const $pos = props.editor.state.doc.resolve(pos)
+  try {
+    const $pos = state.doc.resolve(pos)
     for (let d = $pos.depth; d > 0; d--) {
       const n = $pos.node(d)
       if (n.type.name === "listItem") {
@@ -478,10 +452,29 @@ function toggleActions(event) {
         break
       }
     }
+  } catch {
+  }
+
+  const isTextSelection =
+    selection instanceof TextSelection &&
+    !selection.empty
+
+  if (!isTextSelection) {
+    const endPos = pos + props.node.nodeSize - 1
+
+    // safety guard
+    if (endPos > 0 && endPos <= state.doc.content.size) {
+      const tr = state.tr.setSelection(
+        TextSelection.create(state.doc, endPos)
+      )
+      tr.setMeta("ui-only", true)
+      view.dispatch(tr)
+    }
   }
 
   toggle(nodeId, actionsPopover.value, event)
 }
+
 
 function closeActionsPopover() {
   actionsPopover.value?.hide?.()
@@ -579,7 +572,7 @@ function openCommentFromEvent(e, options = {}) {
 
   const nodeId = resolveNodeIdFromDOM(e.currentTarget)
   if (!nodeId) return
-
+  
   props.editor?.options?.onOpenComment?.(nodeId, options)
 }
 
@@ -647,13 +640,13 @@ watch(
       return
     }
 
-    console.log("[ActionNode]", {
-      nodeId: val.nodeId,
-      completed: val.completed,
-      taskId: val.taskId,
-      taskMode: val.taskMode,
-      taskStatus: val.taskStatus,
-    })
+    // console.log("[ActionNode]", {
+    //   nodeId: val.nodeId,
+    //   completed: val.completed,
+    //   taskId: val.taskId,
+    //   taskMode: val.taskMode,
+    //   taskStatus: val.taskStatus,
+    // })
   },
   { deep: true }
 )

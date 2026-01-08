@@ -212,49 +212,50 @@ export function createEditorKeyDown({ editor, flags }) {
       }
 
       // ==============================
-      // CASE 3: CARET Ở GIỮA → SPLIT WITH CHILDREN (HYBRID, SAFE)
+      // CASE 3: CARET Ở GIỮA → SPLIT (ID CŨ = AFTER)
       // ==============================
       if (isInMiddle) {
         const { state, view } = editor.value
         const { selection, schema } = state
         const { $from } = selection
 
-        const parentNode = $from.parent
-        if (!parentNode || !parentNode.isTextblock) return false
+        // 1️⃣ tìm listItem hiện tại
+        let liDepth = null
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type === schema.nodes.listItem) {
+            liDepth = d
+            break
+          }
+        }
+        if (!liDepth) return false
 
-        const fullText = parentNode.textContent || ""
+        const liNode = $from.node(liDepth)
+
+        // 2️⃣ paragraph đầu tiên trong listItem
+        const paragraph = liNode.child(0)
+        if (!paragraph || !paragraph.isTextblock) return false
+
+        // 3️⃣ lấy text CHÍNH XÁC của node hiện tại
+        const fullText = paragraph.textContent || ""
         const cutPos = $from.parentOffset
 
-        const afterText = fullText.slice(cutPos)
+        const beforeText = fullText.slice(0, cutPos).trim()
+        const afterText = fullText.slice(cutPos).trim()
 
-        if (!afterText.trim()) return false
+        // không split nếu 1 bên rỗng
+        if (!beforeText || !afterText) return false
 
+        // 4️⃣ tạo ID mới cho node BEFORE
         const newNodeId = crypto.randomUUID()
         flags.isCreatingDraftNode = true
 
         splitListItem(schema.nodes.listItem)(state, view.dispatch)
 
-        let tr = view.state.tr
-        const $pos = view.state.selection.$from
-
-        const newLiPos = $pos.before(liDepth)
-        const newLi = tr.doc.nodeAt(newLiPos)
-
-        if (newLi) {
-          tr = tr.setNodeMarkup(newLiPos, undefined, {
-            ...newLi.attrs,
-            nodeId: newNodeId,
-            hasCount: false,
-          })
-        }
-
-        view.dispatch(tr)
-
         editor.value?.options?.onAddChildNode?.({
+          position: "split_before",
           anchorNodeId: nodeId,
           newNodeId,
-          position: "split_with_children",
-          label: `<p>${afterText.trim()}</p>`,
+          label: `<p>${beforeText}</p>`,
         })
 
         requestAnimationFrame(() => {
@@ -302,15 +303,14 @@ export function createEditorKeyDown({ editor, flags }) {
       const sunk = sinkListItem(schema.nodes.listItem)(state, dispatch)
       if (!sunk) return false
 
-      const indexInParent = index
-
       // báo cho mindmap: MOVE node hiện tại vào node bên trên
-      editor.value?.options?.onAddChildNode?.({
-        nodeId: currentNodeId,
-        anchorNodeId: parentNodeId,
-        position: "tab_add_child",
-        childIndex: indexInParent,
-      })
+      if (currentNodeId && parentNodeId && currentNodeId !== parentNodeId) {
+        editor.value?.options?.onAddChildNode?.({
+          nodeId: currentNodeId,
+          anchorNodeId: parentNodeId,
+          position: "tab_add_child",
+        })
+      }
 
       event.preventDefault()
       return true

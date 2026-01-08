@@ -1,38 +1,78 @@
 // useNodeActionPopover.js
 import { ref } from 'vue'
 
-const activePopover = ref(null)
+/**
+ * GLOBAL SINGLETON
+ * → shared cho TẤT CẢ NodeView
+ */
+const activeNodeId = ref(null)
+const activePopoverRef = ref(null)
 
 export function useNodeActionPopover() {
-  function toggle(id, popoverRef, event) {
-    // nếu đang mở popover khác → đóng
+  /**
+   * Toggle popover cho 1 node
+   *
+   * @param {string} nodeId
+   * @param {Object} popoverRef - ref của <Popover>
+   * @param {MouseEvent} event
+   */
+  function toggle(nodeId, popoverRef, event) {
+    if (!popoverRef) return
+
+    // ================================
+    // CASE 1: click lại cùng node → ĐÓNG
+    // ================================
+    if (activeNodeId.value === nodeId) {
+      popoverRef.hide?.()
+      activeNodeId.value = null
+      activePopoverRef.value = null
+      return
+    }
+
+    // ================================
+    // CASE 2: đang mở popover khác → ĐÓNG TRƯỚC
+    // ================================
     if (
-      activePopover.value &&
-      activePopover.value.id !== id &&
-      activePopover.value.popover
+      activePopoverRef.value &&
+      activePopoverRef.value !== popoverRef
     ) {
-      activePopover.value.popover.hide()
+      activePopoverRef.value.hide?.()
     }
 
-    // toggle popover hiện tại
-    popoverRef.toggle(event)
+    // ================================
+    // CASE 3: mở popover mới
+    // ================================
+    activeNodeId.value = nodeId
+    activePopoverRef.value = popoverRef
 
-    activePopover.value = {
-      id,
-      popover: popoverRef
-    }
+    // PrimeVue Popover
+    popoverRef.show?.(event)
   }
 
-  function close(id) {
-    if (!activePopover.value) return
-    if (!id || activePopover.value.id === id) {
-      activePopover.value.popover.hide()
-      activePopover.value = null
-    }
+  /**
+   * Đóng popover hiện tại
+   * - gọi khi ESC
+   * - gọi khi click outside
+   * - gọi khi scroll / blur
+   */
+  function close() {
+    if (!activePopoverRef.value) return
+
+    activePopoverRef.value.hide?.()
+    activePopoverRef.value = null
+    activeNodeId.value = null
+  }
+
+  /**
+   * Kiểm tra node này có đang active không
+   */
+  function isActive(nodeId) {
+    return activeNodeId.value === nodeId
   }
 
   return {
     toggle,
-    close
+    close,
+    isActive,
   }
 }

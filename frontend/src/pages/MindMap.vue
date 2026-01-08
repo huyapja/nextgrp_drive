@@ -4423,7 +4423,11 @@ watch(currentView, (view) => {
   }
 })
 
+const isStructuralMutating = ref(false)
+
+
 function applyTextEdits(changes) {
+  if (isStructuralMutating.value) return
   let changed = false
 
   changes.forEach(({ nodeId, label }) => {
@@ -4470,90 +4474,83 @@ async function addChildToNodeTextMode(payload) {
   let parentId
   let newOrder
 
-  if (position === "split_with_children") {
-    // newNode sẽ đứng CÙNG CẤP với anchorNode
-    const parentId = anchorNode.data.parentId
-    if (!parentId) return
+  if (position === "split_before") {
+    isStructuralMutating.value = true
 
-    const newOrder = computeInsertAfterAnchor({
-      nodes: nodes.value,
-      anchorNodeId,
-      parentId,
-      orderStore: nodeCreationOrder.value,
-    })
+    try {
+      const { anchorNodeId, newNodeId, label } = payload
 
-    if (newOrder == null) return
+      const anchorNode = nodes.value.find(n => n.id === anchorNodeId)
+      if (!anchorNode) return
 
-    nodeCreationOrder.value.set(newNodeId, newOrder)
+      const parentId = anchorNode.data.parentId ?? "root"
 
-    nodes.value.push({
-      id: newNodeId,
-      node_key: crypto.randomUUID(),
-      data: {
+      const newOrder = computeInsertBeforeAnchor({
+        nodes: nodes.value,
+        anchorNodeId,
         parentId,
-        label: `<p>Nhánh mới</p>`,
-        order: newOrder,
-      },
-    })
+        orderStore: nodeCreationOrder.value,
+      })
 
-    edges.value.push({
-      id: `edge-${parentId}-${newNodeId}`,
-      source: parentId,
-      target: newNodeId,
-    })
+      if (newOrder == null) return
 
-    // ⚠️ CRITICAL: Đánh dấu node mới
-    changedNodeIds.value.add(newNodeId)
+      nodes.value.push({
+        id: newNodeId,
+        node_key: crypto.randomUUID(),
+        data: {
+          parentId,
+          label,
+          order: newOrder,
+        },
+      })
 
-    nodes.value.forEach(n => {
-      if (n.data.parentId === anchorNodeId) {
-        n.data.parentId = newNodeId
+      nodeCreationOrder.value.set(newNodeId, newOrder)
 
-        const edge = edges.value.find(e => e.target === n.id)
-        if (edge) {
-          edge.source = newNodeId
-        }
-        
-        // ⚠️ CRITICAL: Đánh dấu children đã move
-        changedNodeIds.value.add(n.id)
-      }
-    })
+      edges.value.push({
+        id: `edge-${parentId}-${newNodeId}`,
+        source: parentId,
+        target: newNodeId,
+      })
 
-    saveSnapshot()
+      changedNodeIds.value.add(newNodeId)
 
-    // ⚠️ CRITICAL: Đợi Vue update xong trước khi save
-    await nextTick()
-    
-    d3Renderer.render()
-    saveBatchResource()
+      saveSnapshot()
+      await nextTick()
+
+      d3Renderer.render()
+    } finally {
+      isStructuralMutating.value = false
+    }
+
     return
   }
 
+
   if (position === "tab_add_child") {
+    const { nodeId, anchorNodeId } = payload
+    if (!nodeId || !anchorNodeId) return
+
     const result = moveNodeAsFirstChild({
-      nodeId: payload.nodeId,
+      nodeId,
       newParentId: anchorNodeId,
       nodes: nodes.value,
       orderStore: nodeCreationOrder.value,
     })
 
     if (!result) return
-    const { nodeId, newParentId } = result
-    
+
     const edge = edges.value.find(e => e.target === nodeId)
     if (edge) {
-      edge.source = newParentId
+      edge.source = anchorNodeId
     }
-    
+
     saveSnapshot()
-    
-    // ⚠️ CRITICAL: Đánh dấu node đã thay đổi để save
     changedNodeIds.value.add(nodeId)
-    
+
     d3Renderer.render()
-    saveBatchResource()
     return
   }
+
   // ==============================
   // CASE: ADD INTO CHILD
   // ==============================

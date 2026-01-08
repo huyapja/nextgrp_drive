@@ -7,7 +7,7 @@ kbd {
   position: relative;
 }
 
-.mindmap-page nav > div:first-of-type {
+.mindmap-page nav :deep(.first-div) {
   position: fixed;
 }
 
@@ -281,6 +281,12 @@ kbd {
   color: #dc2626;
   font-weight: 600;
 }
+
+/* :deep(.node-group){
+  opacity: 1 !important;
+  visibility: visible !important;
+  pointer-events:auto !important; 
+} */
 
 @keyframes slideInModal {
   from {

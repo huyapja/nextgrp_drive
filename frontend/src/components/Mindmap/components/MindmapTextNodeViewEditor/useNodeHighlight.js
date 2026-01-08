@@ -148,17 +148,6 @@ export function useNodeHighlight({ editor, node, getPos }) {
       li.setAttribute("data-highlight", color.bg)
     }
 
-    const endPos = pos + node.nodeSize - 1
-
-    editor
-      .chain()
-      .command(({ tr }) => {
-        tr.setSelection(TextSelection.create(tr.doc, endPos))
-        tr.setMeta("ui-only", true)
-        return true
-      })
-      .run()
-
     editor?.options?.syncFromEditorDebounced?.(editor)
   }
 
