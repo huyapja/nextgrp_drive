@@ -1097,11 +1097,22 @@ class DriveFile(Document):
             if not user_has_permission(self, "share", frappe.session.user):
                 frappe.throw("Not permitted", frappe.PermissionError)
 
-            # Sử dụng frappe.db.set_value thay vì self.owner = new_owner
             frappe.db.set_value("Drive File", self.name, "owner", new_owner)
-            frappe.db.commit()
 
-            # Nếu là folder và transfer_child_files=True, chuyển quyền sở hữu các file con thuộc sở hữu của old_owner
+            if self.is_private:
+                new_owner_default_team = frappe.db.get_value(
+                    "Drive Settings",
+                    {"user": new_owner},
+                    "default_team"
+                )
+                if new_owner_default_team and new_owner_default_team != self.team:
+                    new_home = get_home_folder(new_owner_default_team)["name"]
+                    frappe.db.set_value("Drive File", self.name, {
+                        "team": new_owner_default_team,
+                        "parent_entity": new_home
+                    })
+
+            frappe.db.commit()
             if self.is_group and transfer_child_files:
                 for child in self.get_children():
                     # Chỉ chuyển quyền sở hữu các file thuộc sở hữu của old_owner

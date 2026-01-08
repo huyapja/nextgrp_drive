@@ -1,5 +1,6 @@
 <template>
   <div
+    ref="containerRef"
     class="h-[65%] flex items-center justify-center rounded-t-[calc(theme(borderRadius.lg)-1px)] overflow-hidden"
   >
     <template v-if="is_image || !getThumbnail?.data">
@@ -23,7 +24,6 @@
         @load="imgLoaded = true"
       />
     </template>
-    <!-- Direct padding doesn't work -->
     <div
       v-else
       class="overflow-hidden text-ellipsis whitespace-nowrap h-full w-[calc(100%-1rem)] object-cover rounded-t-[calc(theme(borderRadius.lg)-1px)] py-2"
@@ -67,8 +67,10 @@
 </template>
 <script setup>
 import { getIconUrl, getThumbnailUrl } from "@/utils/getIconUrl"
+import { thumbnailQueue } from "@/utils/thumbnailQueue"
 import { createResource } from "frappe-ui"
-import { computed, ref } from "vue"
+import { computed, ref, onMounted, onUnmounted } from "vue"
+
 const props = defineProps({ file: Object })
 
 const [thumbnailLink, backupLink, is_image] = getThumbnailUrl(
@@ -76,17 +78,51 @@ const [thumbnailLink, backupLink, is_image] = getThumbnailUrl(
   props.file.file_type,
   props.file.is_group
 )
-const src = ref(thumbnailLink || backupLink)
+const src = ref(backupLink)
 const imgLoaded = ref(false)
+const containerRef = ref(null)
+let cancelLoad = null
+let observer = null
 
 let getThumbnail
-if (!is_image) {
+if (!is_image && thumbnailLink) {
   getThumbnail = createResource({
     url: thumbnailLink,
     cache: ["thumbnail", props.file.name],
-    auto: true,
+    auto: false,
   })
 }
+
+onMounted(() => {
+  if (props.file.is_group || !thumbnailLink) return
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          if (is_image) {
+            cancelLoad = thumbnailQueue.add(props.file.name, (url) => {
+              if (url) src.value = url
+            })
+          } else if (getThumbnail) {
+            getThumbnail.fetch()
+          }
+          observer?.disconnect()
+        }
+      })
+    },
+    { rootMargin: "100px" }
+  )
+
+  if (containerRef.value) {
+    observer.observe(containerRef.value)
+  }
+})
+
+onUnmounted(() => {
+  observer?.disconnect()
+  cancelLoad?.()
+})
 
 const childrenSentence = computed(() => {
   if (!props.file.children) return __("Empty")

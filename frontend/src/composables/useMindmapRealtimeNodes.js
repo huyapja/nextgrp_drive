@@ -208,7 +208,22 @@ export function useMindmapRealtimeNodes({
       return localNode
     })
     
-    elements.value = [...updatedNodes, ...edges.value]
+    // ⚠️ CRITICAL: Xử lý edges nếu có trong payload
+    let updatedEdges = edges.value
+    if (payload.edges && Array.isArray(payload.edges)) {
+      console.log('📡 Batch update có edges, xử lý edges:', payload.edges)
+      
+      // Lấy tất cả targets của edges mới
+      const targetsToUpdate = new Set(payload.edges.map(e => e.target).filter(Boolean))
+      
+      // Xóa edges cũ có target trùng
+      updatedEdges = edges.value.filter(e => !targetsToUpdate.has(e.target))
+      
+      // Thêm edges mới
+      updatedEdges = [...updatedEdges, ...payload.edges]
+    }
+    
+    elements.value = [...updatedNodes, ...updatedEdges]
     
     // ⚠️ CRITICAL: Force lưu snapshot nếu có node mới từ batch update
     if (saveSnapshot && hasNewNodes) {
@@ -225,7 +240,30 @@ export function useMindmapRealtimeNodes({
           renderer.nodeSizeCache.delete(updatedNode.id)
         })
         
-        renderer.setData(updatedNodes, edges.value, nodeCreationOrder.value)
+        // ⚠️ CRITICAL: Nếu có edges update, clear positions cache để force recalculate layout
+        if (payload.edges && Array.isArray(payload.edges) && payload.edges.length > 0) {
+          console.log('🔄 Batch update có edges, clearing positions cache')
+          if (renderer.positions) {
+            payload.edges.forEach(edge => {
+              renderer.positions.delete(edge.target)
+              
+              // Clear positions của subtree
+              const clearChildrenPositions = (nodeId) => {
+                const allEdges = elements.value.filter(el => el.source && el.target)
+                const childEdges = allEdges.filter(e => e.source === nodeId)
+                childEdges.forEach(childEdge => {
+                  renderer.positions.delete(childEdge.target)
+                  clearChildrenPositions(childEdge.target)
+                })
+              }
+              clearChildrenPositions(edge.target)
+            })
+          }
+        }
+        
+        // Lấy edges mới từ elements.value (đã được update ở trên)
+        const currentEdges = elements.value.filter(el => el.source && el.target)
+        renderer.setData(updatedNodes, currentEdges, nodeCreationOrder.value)
         renderer.render()
       })
     }
@@ -314,18 +352,44 @@ export function useMindmapRealtimeNodes({
       
       if (payload.edge) {
         const remoteEdge = payload.edge
-        // ⚠️ CRITICAL: Phải update elements.value (không phải edges.value vì nó là computed)
-        const edgeElementIndex = elements.value.findIndex(el => el.id === remoteEdge.id && el.source && el.target)
-        if (edgeElementIndex !== -1) {
-          elements.value[edgeElementIndex] = { ...remoteEdge }
-        } else {
-          elements.value.push({ ...remoteEdge })
-        }
+        // ⚠️ CRITICAL: Khi drag & drop, edge ID thay đổi (edge-oldParent-node → edge-newParent-node)
+        // Phải xóa edge cũ theo target (1 node chỉ có 1 parent/edge đến nó)
+        const target = remoteEdge.target
+        
+        // Xóa tất cả edges cũ có cùng target
+        elements.value = elements.value.filter(el => {
+          // Giữ lại elements không phải edge, hoặc edge không trỏ đến target này
+          return !el.source || !el.target || el.target !== target
+        })
+        
+        // Thêm edge mới
+        elements.value.push({ ...remoteEdge })
+        console.log('✅ Đã cập nhật edge:', remoteEdge.id)
       }
       
       if (renderer) {
         nextTick(() => {
           renderer.nodeSizeCache.delete(remoteNode.id)
+          
+          // ⚠️ CRITICAL: Nếu edge thay đổi (drag & drop), phải clear positions cache
+          // để force recalculate layout với parent mới
+          if (payload.edge) {
+            console.log('🔄 Edge changed, clearing positions cache for node:', remoteNode.id)
+            if (renderer.positions) {
+              renderer.positions.delete(remoteNode.id)
+              
+              // Clear positions cache của tất cả node con (nếu có)
+              const clearChildrenPositions = (nodeId) => {
+                const allEdges = elements.value.filter(el => el.source && el.target)
+                const childEdges = allEdges.filter(e => e.source === nodeId)
+                childEdges.forEach(childEdge => {
+                  renderer.positions.delete(childEdge.target)
+                  clearChildrenPositions(childEdge.target)
+                })
+              }
+              clearChildrenPositions(remoteNode.id)
+            }
+          }
           
           const d3Node = renderer.nodes.find(n => n.id === remoteNode.id)
           if (d3Node) {

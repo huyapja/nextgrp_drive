@@ -1,10 +1,25 @@
 import frappe
 import json
+import unicodedata
 from drive.utils.files import get_home_folder, MIME_LIST_MAP, get_file_type
 from .permissions import ENTITY_FIELDS, get_user_access, get_teams
 from pypika import Order, Criterion, functions as fn, CustomFunction
 from datetime import datetime, timedelta
 from frappe.query_builder import Case
+
+
+def normalize_vietnamese(text):
+    """
+    Normalize Vietnamese text for sorting.
+    Example: "ảnh" -> "anh", "Đức" -> "duc"
+    """
+    if not text:
+        return ""
+    text = str(text).lower()
+    text = text.replace("đ", "d").replace("Đ", "d")
+    nfkd = unicodedata.normalize("NFKD", text)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
+
 
 DriveUser = frappe.qb.DocType("User")
 UserGroupMember = frappe.qb.DocType("User Group Member")
@@ -267,11 +282,27 @@ def files(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+    unique_owners = list(set(r.get("owner") for r in res if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in res:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
+
     if field in ["modified", "creation", "title", "file_size", "accessed"]:
         reverse = not ascending
         if field == "title":
             res.sort(
-                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    normalize_vietnamese(x.get(field) or ""),
+                ),
                 reverse=reverse,
             )
         else:
@@ -387,6 +418,19 @@ def shared(
             r["share_count"] = -1
         else:
             r["share_count"] = share_count.get(r["name"], 0)
+
+    unique_owners = list(set(r.get("owner") for r in res if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in res:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
 
     return [r for r in res if r["parent_entity"] not in parents]
 
@@ -1124,6 +1168,19 @@ def files_multi_team(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+    unique_owners = list(set(r.get("owner") for r in all_results if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in all_results:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
+
     # Sort results - always prioritize folders first, regardless of sort direction
     reverse = not ascending
 
@@ -1133,11 +1190,11 @@ def files_multi_team(
 
     if field == "title":
         folders.sort(
-            key=lambda x: (x.get(field) or "").lower(),
+            key=lambda x: normalize_vietnamese(x.get(field) or ""),
             reverse=reverse,
         )
         files.sort(
-            key=lambda x: (x.get(field) or "").lower(),
+            key=lambda x: normalize_vietnamese(x.get(field) or ""),
             reverse=reverse,
         )
     elif field == "accessed":
@@ -1148,12 +1205,16 @@ def files_multi_team(
         files_no = [r for r in files if r.get(field) is None]
 
         folders_has.sort(key=lambda x: x.get(field, ""), reverse=reverse)
-        folders_no.sort(key=lambda x: x.get("modified", ""), reverse=False)
+        folders_no.sort(key=lambda x: x.get("modified", ""), reverse=reverse)
         files_has.sort(key=lambda x: x.get(field, ""), reverse=reverse)
-        files_no.sort(key=lambda x: x.get("modified", ""), reverse=False)
+        files_no.sort(key=lambda x: x.get("modified", ""), reverse=reverse)
 
-        folders = folders_has + folders_no
-        files = files_has + files_no
+        if reverse:
+            folders = folders_no + folders_has
+            files = files_no + files_has
+        else:
+            folders = folders_has + folders_no
+            files = files_has + files_no
         print("DEBUG - folders count:", len(folders), "files count:", len(files))
     elif field in ["modified", "creation", "file_size"]:
         folders.sort(
@@ -1446,6 +1507,19 @@ def get_recent_files_multi_team(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+    unique_owners = list(set(r.get("owner") for r in all_results if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in all_results:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
+
     # ✅ BƯỚC 6: Sort by accessed time
     if field == "accessed":
         reverse = not ascending
@@ -1457,7 +1531,10 @@ def get_recent_files_multi_team(
         reverse = not ascending
         if field == "title":
             all_results.sort(
-                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    normalize_vietnamese(x.get(field) or ""),
+                ),
                 reverse=reverse,
             )
         else:
@@ -1817,12 +1894,28 @@ def get_favourites_multi_team(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+    unique_owners = list(set(r.get("owner") for r in all_results if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in all_results:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
+
     # ✅ BƯỚC 5: Sort results
     if field in ["modified", "creation", "title", "file_size", "favourite_date"]:
         reverse = not ascending
         if field == "title":
             all_results.sort(
-                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    normalize_vietnamese(x.get(field) or ""),
+                ),
                 reverse=reverse,
             )
         else:
@@ -2228,6 +2321,19 @@ def shared_multi_team(
         else:
             r["team"] = current_team
             r["team_name"] = current_team
+
+    unique_owners = list(set(r.get("owner") for r in res if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in res:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
 
     # Return only top-level items
     parents = {r["name"] for r in res}
@@ -2658,13 +2764,29 @@ def get_personal_files(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+    unique_owners = list(set(r.get("owner") for r in all_results if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in all_results:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
+
     # ✅ Sort results
     if field in ["modified", "creation", "title", "file_size", "accessed"]:
         reverse = not ascending
 
         if field == "title":
             all_results.sort(
-                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    normalize_vietnamese(x.get(field) or ""),
+                ),
                 reverse=reverse,
             )
         elif field == "accessed":
@@ -2712,6 +2834,8 @@ def get_trash_files(
     file_kinds=[],
     folders=0,
     only_parent=1,
+    page=None,
+    page_size=20,
 ):
     """
     Lấy file trong thùng rác (is_active=0) của user
@@ -2979,6 +3103,20 @@ def get_trash_files(
         else:
             r["share_count"] = share_count.get(r["name"], 0)
 
+    unique_owners = list(set(r.get("owner") for r in all_results if r.get("owner")))
+    if unique_owners:
+        owner_names = frappe.get_all(
+            "User",
+            filters={"name": ["in", unique_owners]},
+            fields=["name", "full_name", "user_image"],
+        )
+        owner_map = {u["name"]: u for u in owner_names}
+        for r in all_results:
+            owner_info = owner_map.get(r.get("owner"), {})
+            r["owner_full_name"] = owner_info.get("full_name", r.get("owner"))
+            r["owner_user_image"] = owner_info.get("user_image", "")
+
+    for r in all_results:
         # ✅ Calculate days remaining before permanent deletion
         if r.get("modified"):
             try:
@@ -3008,7 +3146,10 @@ def get_trash_files(
 
         if field == "title":
             all_results.sort(
-                key=lambda x: (not x.get("is_group", 0), (x.get(field) or "").lower()),
+                key=lambda x: (
+                    not x.get("is_group", 0),
+                    normalize_vietnamese(x.get(field) or ""),
+                ),
                 reverse=reverse,
             )
         else:
@@ -3017,7 +3158,33 @@ def get_trash_files(
                 reverse=reverse,
             )
 
-    # ✅ BƯỚC 8: Apply cursor pagination
+    # ✅ BƯỚC 8: Apply page-based pagination
+    total_count = len(all_results)
+
+    if page is not None:
+        try:
+            page = int(page)
+            page_size = int(page_size) if page_size else 20
+
+            offset = (page - 1) * page_size
+
+            paginated_results = all_results[offset : offset + page_size]
+            total_pages = (total_count + page_size - 1) // page_size
+
+            print(
+                f"DEBUG - Final trash results count: {len(paginated_results)}, total: {total_count}, total_pages: {total_pages}"
+            )
+            return {
+                "data": paginated_results,
+                "total": total_count,
+                "total_pages": total_pages,
+                "page": page,
+                "page_size": page_size,
+            }
+        except (ValueError, TypeError):
+            pass
+
+    # Apply cursor pagination (backward compatibility)
     if cursor and all_results:
         if field in all_results[0]:
             filtered_results = []
@@ -3029,8 +3196,8 @@ def get_trash_files(
             all_results = filtered_results
 
     # Apply limit
-    # if limit:
-    #     all_results = all_results[: int(limit)]
+    if limit:
+        all_results = all_results[: int(limit)]
 
     print(f"DEBUG - Final trash results count: {len(all_results)}")
     return all_results

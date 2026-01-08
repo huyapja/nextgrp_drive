@@ -184,6 +184,11 @@ export function useMindmapNodes({
   }
 
   const addSiblingToNode = async (nodeId) => {
+    if (!permissions.value.write) {
+      toast.error("Bạn không có quyền thêm node mới")
+      return
+    }
+    
     nodeFocusTimeouts.forEach(timeoutId => clearTimeout(timeoutId))
     nodeFocusTimeouts = []
 
@@ -260,6 +265,8 @@ export function useMindmapNodes({
         if (d3Renderer.value) {
           const timeoutId2 = setTimeout(() => {
             d3Renderer.value.selectNode(newNodeId)
+
+            scrollToNodeWithRetry(newNodeId, 15, 150)
 
             const timeoutId3 = setTimeout(() => {
               const nodeGroup = d3Renderer.value.g.select(`[data-node-id="${newNodeId}"]`)

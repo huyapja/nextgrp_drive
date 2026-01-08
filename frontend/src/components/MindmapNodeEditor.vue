@@ -5484,7 +5484,7 @@ export default {
 /* ⚠️ NEW: Ảnh trong wrapper hình vuông phải fill toàn bộ wrapper */
 :deep(.mindmap-editor-prose .image-wrapper-node:nth-of-type(n+2) img) {
   height: 100% !important;
-  object-fit: contain !important;
+  object-fit: cover !important;
 }
 
 /* Đảm bảo image node được render đúng */

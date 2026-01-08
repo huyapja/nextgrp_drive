@@ -107,8 +107,8 @@
               @mouseleave="onCellMouseLeave"
             >
               <CustomAvatar
-                :image="userData[slotProps.data.owner]?.user_image"
-                :label="userData[slotProps.data.owner]?.full_name.slice(0, 1)"
+                :image="slotProps.data.owner_user_image || userData[slotProps.data.owner]?.user_image"
+                :label="getOwnerLabel(slotProps.data).slice(0, 1)"
                 shape="circle"
                 size="small"
               />
@@ -250,6 +250,8 @@
                 text
                 severity="secondary"
                 class="options-btn"
+                :disabled="selectedRows.length > 1"
+                :title="selectedRows.length > 1 ? 'Sử dụng thanh công cụ phía trên khi chọn nhiều file' : ''"
                 @click="onRowOptions($event, slotProps.data)"
               />
             </div>
@@ -284,6 +286,7 @@ import Button from "primevue/button"
 import Avatar from "primevue/avatar"
 import Tooltip from "primevue/tooltip"
 import { getThumbnailUrl } from "@/utils/getIconUrl"
+import ThumbnailImage from "@/components/ThumbnailImage.vue"
 import { useStore } from "vuex"
 import { useRoute, useRouter } from "vue-router"
 import { computed, ref, watch, onMounted, onUnmounted, nextTick } from "vue"
@@ -519,9 +522,10 @@ const getDisplayName = (row) => {
 }
 
 const getOwnerLabel = (row) => {
-  return row.owner === store.state.user.id
-    ? __("Bạn")
-    : props.userData[row.owner]?.full_name || row.owner
+  if (row.owner === store.state.user.id) {
+    return __("Bạn")
+  }
+  return row.owner_full_name || props.userData[row.owner]?.full_name || row.owner
 }
 
 const getShareIcon = (shareCount) => {

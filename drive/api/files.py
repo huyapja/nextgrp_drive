@@ -147,6 +147,7 @@ def upload_file(
         mime_type = magic.from_buffer(open(temp_path, "rb").read(2048), mime=True)
     if not mime_type:
         import mimetypes
+
         mime_type, _ = mimetypes.guess_type(str(temp_path))
         if not mime_type:
             mime_type = "application/octet-stream"
@@ -281,6 +282,25 @@ def upload_chunked_file(personal=0, parent=None, last_modified=None):
 
 @frappe.whitelist()
 def get_thumbnail(entity_name):
+    cache_key = f"thumb:{entity_name}"
+    cached = frappe.cache().get_value(cache_key)
+    if cached is not None:
+        if cached == "NONE":
+            frappe.throw(
+                "No thumbnail available for this file type.",
+                frappe.exceptions.PageDoesNotExistError,
+            )
+        if isinstance(cached, BytesIO):
+            cached.seek(0)
+            response = Response(
+                wrap_file(frappe.request.environ, cached),
+                direct_passthrough=True,
+            )
+            response.headers.set("Content-Type", "image/jpeg")
+            response.headers.set("Content-Disposition", "inline", filename=entity_name)
+            return response
+        return cached
+
     drive_file = frappe.get_value(
         "Drive File",
         entity_name,
@@ -297,6 +317,7 @@ def get_thumbnail(entity_name):
         as_dict=1,
     )
     if not drive_file or drive_file.is_group or drive_file.is_link:
+        frappe.cache().set_value(cache_key, "NONE", expires_in_sec=60 * 60)
         frappe.throw("No thumbnail for this type.", ValueError)
     if not frappe.has_permission(
         doctype="Drive File",
@@ -308,48 +329,37 @@ def get_thumbnail(entity_name):
             "Cannot upload due to insufficient permissions", frappe.PermissionError
         )
 
-    with DistributedLock(drive_file.path, exclusive=False):
-        thumbnail_data = None
-        if frappe.cache().exists(entity_name):
-            thumbnail_data = frappe.cache().get_value(entity_name)
+    thumbnail_data = None
+    manager = FileManager()
 
-        if not thumbnail_data:
-            thumbnail_data = None
+    try:
+        thumbnail = manager.get_thumbnail(drive_file.team, entity_name)
+        thumbnail_data = BytesIO(thumbnail.read())
+    except FileNotFoundError:
+        if drive_file.mime_type and drive_file.mime_type.startswith("text"):
             try:
-                manager = FileManager()
-                thumbnail = manager.get_thumbnail(drive_file.team, entity_name)
-                thumbnail_data = BytesIO(thumbnail.read())
-                frappe.cache().set_value(
-                    entity_name, thumbnail_data, expires_in_sec=60 * 60
-                )
-            except FileNotFoundError:
-                # Handle different file types for thumbnail generation
-                if drive_file.mime_type.startswith("text"):
-                    try:
-                        with manager.get_file(drive_file.path) as f:
-                            thumbnail_data = (
-                                f.read()[:1000].decode("utf-8").replace("\n", "<br/>")
-                            )
-                    except Exception:
-                        thumbnail_data = None
-                elif drive_file.mime_type == "frappe_doc":
-                    try:
-                        html = frappe.get_value(
-                            "Drive Document", drive_file.document, "raw_content"
-                        )
-                        thumbnail_data = html[:1000] if html else None
-                    except Exception:
-                        thumbnail_data = None
-                else:
-                    # For other file types, return None to use icon instead
-                    thumbnail_data = None
-
-                if thumbnail_data:
-                    frappe.cache().set_value(
-                        entity_name, thumbnail_data, expires_in_sec=60 * 60
+                with manager.get_file(drive_file.path) as f:
+                    thumbnail_data = (
+                        f.read()[:1000].decode("utf-8").replace("\n", "<br/>")
                     )
+            except Exception:
+                thumbnail_data = None
+        elif drive_file.mime_type == "frappe_doc":
+            try:
+                html = frappe.get_value(
+                    "Drive Document", drive_file.document, "raw_content"
+                )
+                thumbnail_data = html[:1000] if html else None
+            except Exception:
+                thumbnail_data = None
+
+    if thumbnail_data:
+        frappe.cache().set_value(cache_key, thumbnail_data, expires_in_sec=60 * 60)
+    else:
+        frappe.cache().set_value(cache_key, "NONE", expires_in_sec=60 * 60)
 
     if isinstance(thumbnail_data, BytesIO):
+        thumbnail_data.seek(0)
         response = Response(
             wrap_file(frappe.request.environ, thumbnail_data),
             direct_passthrough=True,
@@ -360,7 +370,6 @@ def get_thumbnail(entity_name):
     elif thumbnail_data:
         return thumbnail_data
     else:
-        # Return 404 when no thumbnail is available
         frappe.throw(
             "No thumbnail available for this file type.",
             frappe.exceptions.PageDoesNotExistError,
@@ -1570,13 +1579,12 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                     folder_size + doc.file_size * (1 if flag else -1),
                 )
 
-        # ✅ FIX: Dùng ignore_permissions khi restore vì user có thể không có write permission
-        # nhưng vẫn có quyền restore file của mình
+        doc.flags.ignore_links = True
         if flag == 1:  # Restore operation
             doc.save(ignore_permissions=True)
         else:
             doc.save()
-        
+
         # ✅ Emit socket event khi file bị move to trash (flag=0)
         if flag == 0 and users_with_access:
             try:
@@ -1599,6 +1607,7 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
             except Exception as e:
                 print(f"❌ Failed to emit moved_to_trash event: {str(e)}")
                 import traceback
+
                 traceback.print_exc()
 
         # ✅ Nếu là folder, xử lý tất cả children
@@ -1644,9 +1653,8 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
 
                     child_doc.is_active = flag
 
-                    # ✅ FIX: Dùng ignore_permissions cho children khi restore
-                    # ✅ FIX: Không update modified để giữ timestamp cũ (quan trọng cho trash logic)
                     if flag == 1:
+                        child_doc.flags.ignore_links = True
                         child_doc.save(ignore_permissions=True)
                     else:
                         # Khi xóa children (cascade), KHÔNG update modified

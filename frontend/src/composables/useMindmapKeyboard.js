@@ -136,6 +136,11 @@ export function useMindmapKeyboard({
       event.preventDefault()
       event.stopPropagation()
 
+      if (!permissions.value.write) {
+        toast.error("Bạn không có quyền chỉnh sửa")
+        return
+      }
+
       if (typeof window !== 'undefined' && window.__justBlurredFromEditorByTab) {
         window.__justBlurredFromEditorByTab = false
         return
@@ -158,6 +163,11 @@ export function useMindmapKeyboard({
       event.preventDefault()
       event.stopPropagation()
 
+      if (!permissions.value.write) {
+        toast.error("Bạn không có quyền chỉnh sửa")
+        return
+      }
+
       if (!isInEditor && selectedNode.value && selectedNode.value.id !== 'root') {
         handleToolbarDone(selectedNode.value)
       }
@@ -165,6 +175,11 @@ export function useMindmapKeyboard({
     else if (key === 'Enter' && event.shiftKey) {
       event.preventDefault()
       event.stopPropagation()
+
+      if (!permissions.value.write) {
+        toast.error("Bạn không có quyền chỉnh sửa")
+        return
+      }
 
       if (selectedNode.value && selectedNode.value.id !== 'root') {
         if (isInEditor || editingNode.value) {
@@ -311,6 +326,12 @@ export function useMindmapKeyboard({
     else if (key === 'Enter') {
       event.preventDefault()
       event.stopPropagation()
+      
+      if (!permissions.value.write) {
+        toast.error("Bạn không có quyền chỉnh sửa")
+        return
+      }
+      
       if (selectedNode.value.id !== 'root') {
         addSiblingToNode(selectedNode.value.id)
       }
@@ -360,6 +381,11 @@ export function useMindmapKeyboard({
         return
       }
 
+      if (!permissions.value.write) {
+        toast.error("Bạn không có quyền chỉnh sửa")
+        return
+      }
+
       if (selectedNode.value) {
         if (hasClipboard.value) {
           pasteToNode(selectedNode.value.id)
@@ -379,6 +405,12 @@ export function useMindmapKeyboard({
       if (!isInEditor && selectedNode.value && selectedNode.value.id !== 'root') {
         event.preventDefault()
         event.stopPropagation()
+        
+        if (!permissions.value.write) {
+          toast.error("Bạn không có quyền chỉnh sửa")
+          return
+        }
+        
         cutNode(selectedNode.value.id)
       }
     }
@@ -386,6 +418,12 @@ export function useMindmapKeyboard({
       if (!isInEditor && toolbarRef.value && selectedNode.value && selectedNode.value.id !== 'root') {
         event.preventDefault()
         event.stopPropagation()
+        
+        if (!permissions.value.write) {
+          toast.error("Bạn không có quyền chỉnh sửa")
+          return
+        }
+        
         toolbarRef.value.toggleBold()
       }
     }
@@ -393,6 +431,12 @@ export function useMindmapKeyboard({
       if (!isInEditor && toolbarRef.value && selectedNode.value && selectedNode.value.id !== 'root') {
         event.preventDefault()
         event.stopPropagation()
+        
+        if (!permissions.value.write) {
+          toast.error("Bạn không có quyền chỉnh sửa")
+          return
+        }
+        
         toolbarRef.value.toggleItalic()
       }
     }
@@ -400,6 +444,12 @@ export function useMindmapKeyboard({
       if (!isInEditor && toolbarRef.value && selectedNode.value && selectedNode.value.id !== 'root') {
         event.preventDefault()
         event.stopPropagation()
+        
+        if (!permissions.value.write) {
+          toast.error("Bạn không có quyền chỉnh sửa")
+          return
+        }
+        
         toolbarRef.value.toggleUnderline()
       }
     }

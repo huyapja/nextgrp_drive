@@ -518,6 +518,10 @@ const dropImagePlugin = () => {
               })
               const transaction = view.state.tr.replaceSelectionWith(node)
               view.dispatch(transaction)
+              
+              requestAnimationFrame(() => {
+                window.dispatchEvent(new CustomEvent('image-loaded-in-editor'))
+              })
             })
           }
         })
@@ -559,6 +563,10 @@ const dropImagePlugin = () => {
               })
               const transaction = view.state.tr.insert(coordinates.pos, node)
               view.dispatch(transaction)
+              
+              requestAnimationFrame(() => {
+                window.dispatchEvent(new CustomEvent('image-loaded-in-editor'))
+              })
             })
           })
 
