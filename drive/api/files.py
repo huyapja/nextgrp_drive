@@ -4,7 +4,7 @@ from frappe.utils import get_files_path
 import frappe
 from frappe import _
 from pypika import Order, functions as fn
-from .permissions import get_teams, get_user_access, user_has_permission
+from .permissions import get_teams, get_user_access, user_has_permission, is_admin
 from pathlib import Path
 from werkzeug.wrappers import Response
 from werkzeug.utils import secure_filename, send_file
@@ -798,11 +798,14 @@ def get_file_content(entity_name, trigger_download=0, jwt_token=None):
                 as_attachment=True,
                 download_name=drive_file.title,
                 environ=frappe.request.environ,
+                conditional=False,
             )
 
-            # Add header to tell nginx to serve file efficiently
             response.headers["X-Accel-Buffering"] = "no"
             response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
 
             print(f"✅ Download triggered: {drive_file.title}")
             return response
@@ -1030,7 +1033,6 @@ def delete_files_bulk(files, user):
     if not file_names:
         return success, failed
 
-    # STEP 1: Get and validate files
     DriveFile = frappe.qb.DocType("Drive File")
 
     files_data = (
@@ -1041,18 +1043,24 @@ def delete_files_bulk(files, user):
             DriveFile.is_group,
             DriveFile.is_active,
             DriveFile.modified_by,
+            DriveFile.owner,
+            DriveFile.team,
         )
         .where(DriveFile.name.isin(file_names))
         .run(as_dict=True)
     )
 
-    # Validate permissions
     valid_files = {}
     for file in files_data:
         if file["is_active"] != 0:
             failed.append(f"{file['title']} (không trong thùng rác)")
             continue
-        if file["modified_by"] != user:
+        has_permission = False
+        if file["owner"] == user:
+            has_permission = True
+        elif file["team"] and is_admin(file["team"], user):
+            has_permission = True
+        if not has_permission:
             failed.append(f"{file['title']} (không có quyền)")
             continue
         valid_files[file["name"]] = file
@@ -1691,13 +1699,12 @@ def remove_or_restore(team=None, entity_shortcuts=None, entity_names=None):
                 has_permission = False
 
                 if flag == 0:  # Delete operation
-                    # Owner luôn có quyền xóa file của mình
                     if doc.owner == frappe.session.user:
                         has_permission = True
+                    elif doc.team and is_admin(doc.team, frappe.session.user):
+                        has_permission = True
                     else:
-                        has_permission = user_has_permission(
-                            doc, "write", frappe.session.user
-                        )
+                        has_permission = False
                 else:  # Restore operation
                     # ✅ FIX: Kiểm tra quyền restore dựa trên Drive Trash
                     # User có thể restore nếu:
@@ -2076,11 +2083,12 @@ def move(entities, new_parent=None, is_private=None, team=None):
 @frappe.whitelist()
 def search(query, team):
     """
-    Basic search implementation
+    Search với LIKE (hỗ trợ số và từ ngắn)
     """
-    text = frappe.db.escape(" ".join(k + "*" for k in query.split()))
     user = frappe.db.escape(frappe.session.user)
     team = frappe.db.escape(team)
+    like_query = frappe.db.escape(f"%{query}%")
+    
     try:
         result = frappe.db.sql(
             f"""
@@ -2100,8 +2108,14 @@ def search(query, team):
             AND `tabDrive File`.`is_active` = 1
             AND (`tabDrive File`.`owner` = {user} OR `tabDrive File`.is_private = 0)
             AND `tabDrive File`.`parent_entity` <> ''
-            AND MATCH(title) AGAINST ({text} IN BOOLEAN MODE)
-        GROUP  BY `tabDrive File`.`name`
+            AND `tabDrive File`.`title` LIKE {like_query}
+        GROUP BY `tabDrive File`.`name`
+        ORDER BY 
+            CASE WHEN `tabDrive File`.`title` = {frappe.db.escape(query)} THEN 0
+                 WHEN `tabDrive File`.`title` LIKE {frappe.db.escape(f"{query}%")} THEN 1
+                 ELSE 2 END,
+            `tabDrive File`.`modified` DESC
+        LIMIT 50
         """,
             as_dict=1,
         )
@@ -2324,12 +2338,12 @@ def copy_file_or_folder(entity_name, is_private, new_parent=None, team=None):
     try:
         # Validate
         if not frappe.db.exists("Drive File", entity_name):
-            frappe.throw(_("File hoặc thư mục không tồn tại"))
+            frappe.throw(_("Tệp hoặc thư mục không tồn tại"))
 
         source_doc = frappe.get_doc("Drive File", entity_name)
 
         if source_doc.is_active == 0:
-            frappe.throw(_("File hoặc thư mục đã bị xóa"))
+            frappe.throw(_("Tệp hoặc thư mục đã bị xóa"))
 
         # Determine destination
         if not new_parent or not new_parent.strip():

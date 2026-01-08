@@ -91,7 +91,7 @@
           </div>
 
           <!-- Checkbox chuyển quyền sở hữu các file con -->
-          <div class="field-group">
+          <div class="field-group pt-3 border-t border-gray-200">
             <div class="checkbox-item">
               <Checkbox
                 v-model="transferChildFiles"

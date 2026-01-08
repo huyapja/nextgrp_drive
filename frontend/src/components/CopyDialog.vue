@@ -1086,8 +1086,45 @@ const moveResource = createResource({
   },
   onError: (error) => {
     copyLoading.value = false
-    console.error("Move error:", error)
-    toast(__("Tạo bản sao thất bại"))
+    
+    let errorMessage = __("Tạo bản sao thất bại")
+    let serverMessage = ""
+    
+    try {
+      const messages = error?.messages || moveResource.error?.messages
+      if (messages?.length) {
+        serverMessage = messages[0]
+      }
+      
+      if (!serverMessage) {
+        const rawMessages = error?._server_messages || moveResource.error?._server_messages
+        if (rawMessages) {
+          const parsed = typeof rawMessages === 'string' ? JSON.parse(rawMessages) : rawMessages
+          if (parsed?.length) {
+            const firstMsg = typeof parsed[0] === 'string' ? JSON.parse(parsed[0]) : parsed[0]
+            serverMessage = firstMsg?.message || ""
+          }
+        }
+      }
+      
+      if (!serverMessage) {
+        const exc = error?.exception || moveResource.error?.exception || ""
+        if (exc.includes(":")) {
+          serverMessage = exc.split(":").slice(1).join(":").trim()
+        }
+      }
+    } catch (e) {
+      console.error("Parse error:", e)
+    }
+    
+    if (serverMessage?.includes("không tồn tại") || serverMessage?.includes("đã bị xóa")) {
+      errorMessage = __("Tệp gốc không còn tồn tại")
+      emit("success")
+    } else if (serverMessage && !serverMessage.includes("Traceback") && !serverMessage.includes("/api/")) {
+      errorMessage = serverMessage
+    }
+    
+    toast(errorMessage)
   },
 })
 

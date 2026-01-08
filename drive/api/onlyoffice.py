@@ -47,22 +47,22 @@ def get_editor_config(entity_name):
 
         if not file_url:
             site_url = get_accessible_site_url()
-            file_url = (
-                f"{site_url}/api/method/drive.api.files.get_file_content?entity_name={entity_name}"
-            )
+            file_url = f"{site_url}/api/method/drive.api.files.get_file_content?entity_name={entity_name}"
 
         print(f"📎 Final file URL: {file_url}")
         from pathlib import Path
 
         clean_title = entity.title.replace(" (Bản sao)", "").replace(" (bản sao)", "")
-        file_ext = Path(clean_title).suffix[1:].lower() if Path(clean_title).suffix else "txt"
+        file_ext = (
+            Path(clean_title).suffix[1:].lower() if Path(clean_title).suffix else "txt"
+        )
         document_type = get_document_type(file_ext)
 
         # Callback URL for saving
-        callback_url = f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
-        # callback_url = (
-        #     "https://ff11bcf27675.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
-        # )
+        callback_url = (
+            f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
+        )
+        # callback_url = "https://2343378cd326.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
 
         # Build config với các tối ưu cho collaborative editing
         config = {
@@ -76,7 +76,7 @@ def get_editor_config(entity_name):
                     "edit": has_edit_permission(entity_name),
                     "download": True,
                     "print": True,
-                    "review": True,
+                    "review": True if entity.owner == frappe.session.user else False,
                     "comment": True,
                     "fillForms": True,
                     "modifyFilter": True,
@@ -89,25 +89,40 @@ def get_editor_config(entity_name):
                 "callbackUrl": callback_url,  # QUAN TRỌNG: Callback để lưu
                 "user": {
                     "id": frappe.session.user,
-                    "name": frappe.db.get_value("User", frappe.session.user, "full_name")
+                    "name": frappe.db.get_value(
+                        "User", frappe.session.user, "full_name"
+                    )
                     or frappe.session.user,
                 },
                 "customization": {
-                    "autosave": True,  # Tự động lưu
-                    "autosaveTimeout": 30000,  # Lưu mỗi 30s (thay vì 5 phút mặc định)
-                    "forcesave": True,  # Bật force save
-                    "notifyOnClose": True,  # ✅ Trigger callback khi user đóng file
+                    "autosave": True,
+                    "autosaveTimeout": 30000,
+                    "forcesave": True,
+                    "notifyOnClose": True,
                     "compactToolbar": False,
                     "feedback": False,
                     "about": False,
-                    "chat": True,  # Bật chat cho collaboration
-                    "comments": True,  # Bật comments
+                    "chat": True,
+                    "comments": True,
                     "plugins": True,
                     "trackChanges": (
                         True
-                        if document_type == "word" and entity.owner != frappe.session.user
+                        if document_type == "word"
+                        and entity.owner != frappe.session.user
                         else False
                     ),
+                    "showReviewChanges": True if document_type == "word" else False,
+                    "reviewDisplay": (
+                        "markup" if document_type == "word" else "original"
+                    ),
+                    "review": {
+                        "hideReviewDisplay": False,
+                        "hoverMode": False,
+                        "showReviewChanges": False,
+                        "trackChanges": (
+                            True if entity.owner == frappe.session.user else False
+                        ),
+                    },
                 },
                 "events": {
                     "onDocumentReady": "onDocumentReady",
@@ -258,7 +273,9 @@ def get_document_status(entity_name):
                 "name": file_info.name,
                 "title": file_info.title,
                 "size": file_info.file_size,
-                "modified": file_info.modified.isoformat() if file_info.modified else None,
+                "modified": (
+                    file_info.modified.isoformat() if file_info.modified else None
+                ),
                 "owner": file_info.owner,
             },
             "status": "available",
@@ -297,7 +314,9 @@ def close_document(entity_name):
         return {
             "success": True,
             "message": "Document closed successfully",
-            "last_modified": file_info.modified.isoformat() if file_info.modified else None,
+            "last_modified": (
+                file_info.modified.isoformat() if file_info.modified else None
+            ),
         }
 
     except Exception as e:
@@ -367,7 +386,9 @@ def get_permission_status(entity_name):
 
             if permission_changed:
                 # Update cache with new version
-                frappe.cache().set_value(cache_key, current_version, expires_in_sec=3600)
+                frappe.cache().set_value(
+                    cache_key, current_version, expires_in_sec=3600
+                )
                 print(f"🔄 Cache updated to version {current_version}")
 
         return {
@@ -392,13 +413,16 @@ def revoke_editing_access(entity_name, user_email):
     try:
         print(f"=== Revoking edit access: {user_email} on {entity_name} ===")
 
-        # 1. Kiểm tra quyền
         if not frappe.has_permission("Drive File", doc=entity_name, ptype="write"):
             frappe.throw("Bạn không có quyền thực hiện thao tác này")
 
-        # 2. Tăng version để invalidate document key
         entity = frappe.get_doc("Drive File", entity_name)
         current_version = entity.get("onlyoffice_version") or 1
+
+        print(f"💾 Step 1: Force save document before revoking...")
+        force_save_document_via_command(entity_name, current_version)
+
+        entity.reload()
         entity.onlyoffice_version = current_version + 1
         entity.save(ignore_permissions=True)
 
@@ -476,6 +500,66 @@ def revoke_editing_access(entity_name, user_email):
         frappe.throw(f"Không thể thu hồi quyền: {str(e)}")
 
 
+def force_save_document_via_command(entity_name, version):
+    """
+    Gọi OnlyOffice Command Service để force save document
+    QUAN TRỌNG: Phải gọi trước khi thu hồi quyền để lưu dữ liệu user đang edit
+    """
+    try:
+        entity = frappe.get_doc("Drive File", entity_name)
+
+        timestamp = int(entity.modified.timestamp())
+        key_string = f"{entity.name}_{timestamp}_{version}"
+        hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
+        doc_key = f"{entity.name}_{timestamp}_{version}_{hash_part}_True"
+
+        print(f"💾 Force saving document with key: {doc_key[:50]}...")
+
+        ONLYOFFICE_URL = get_onlyoffice_url()
+        command_url = f"{ONLYOFFICE_URL}/coauthoring/CommandService.ashx"
+
+        command = {"c": "forcesave", "key": doc_key, "userdata": "permission_revoke"}
+
+        secret = frappe.conf.get("onlyoffice_jwt_secret")
+        if secret:
+            token = jwt.encode(command, secret, algorithm="HS256")
+            command_token = token if isinstance(token, str) else token.decode()
+
+            payload = {"token": command_token}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {command_token}",
+            }
+        else:
+            payload = command
+            headers = {"Content-Type": "application/json"}
+
+        print(f"📡 Sending forcesave command to: {command_url}")
+
+        response = requests.post(command_url, json=payload, headers=headers, timeout=30)
+        result = response.json()
+
+        print(f"💾 Force save result: {result}")
+
+        if result.get("error") == 0:
+            print(f"✅ Force save successful")
+            import time
+
+            time.sleep(2)
+            return True
+        elif result.get("error") == 4:
+            print(f"ℹ️ No changes to save (error 4)")
+            return True
+        else:
+            print(f"⚠️ Force save returned error: {result}")
+            return False
+
+    except Exception as e:
+        print(f"❌ Error force saving: {str(e)}")
+        frappe.log_error(f"Force save error: {str(e)}")
+        return False
+
+
 def drop_user_from_document(entity_name, user_id, old_version):
     """
     Gọi OnlyOffice Command Service để kick user
@@ -483,7 +567,6 @@ def drop_user_from_document(entity_name, user_id, old_version):
     try:
         entity = frappe.get_doc("Drive File", entity_name)
 
-        # Generate key cũ với version cũ
         timestamp = int(entity.modified.timestamp())
         key_string = f"{entity.name}_{timestamp}_{old_version}"
         hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
@@ -491,13 +574,11 @@ def drop_user_from_document(entity_name, user_id, old_version):
 
         print(f"🔑 Using old key to drop user: {old_key[:50]}...")
 
-        # OnlyOffice Command Service
         ONLYOFFICE_URL = get_onlyoffice_url()
         command_url = f"{ONLYOFFICE_URL}/coauthoring/CommandService.ashx"
 
         command = {"c": "drop", "key": old_key, "userdata": user_id}
 
-        # JWT
         secret = frappe.conf.get("onlyoffice_jwt_secret")
         if secret:
             token = jwt.encode(command, secret, algorithm="HS256")
@@ -669,14 +750,18 @@ def get_accessible_site_url():
         hostname = socket.gethostname()
         try:
             local_ip = socket.gethostbyname(hostname)
-            site_url = site_url.replace("localhost", local_ip).replace("127.0.0.1", local_ip)
+            site_url = site_url.replace("localhost", local_ip).replace(
+                "127.0.0.1", local_ip
+            )
         except:
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.connect(("8.8.8.8", 80))
                 local_ip = s.getsockname()[0]
                 s.close()
-                site_url = site_url.replace("localhost", local_ip).replace("127.0.0.1", local_ip)
+                site_url = site_url.replace("localhost", local_ip).replace(
+                    "127.0.0.1", local_ip
+                )
             except:
                 pass
 
