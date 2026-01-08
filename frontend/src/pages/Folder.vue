@@ -32,13 +32,13 @@ const getFolderContents = createResource({
   url: "drive.api.list.files_multi_team",
   makeParams: (params) => ({
     ...params,
-    // Disable all checks, return all children
     personal: -2,
-    is_active: (getTrash.data || []).find((item) => item.name === props.entityName)
+    is_active: (Array.isArray(getTrash.data) ? getTrash.data : getTrash.data?.data || []).find((item) => item.name === props.entityName)
       ? 0
       : 1,
     entity_name: props.entityName,
     team: props.team,
+    order_by: "title 1",
   }),
   cache: ["folder", props.entityName],
 })

@@ -1,7 +1,7 @@
 <template>
-  <div class="flex flex-col w-full mindmap-page">
-    <Navbar v-if="!mindmap.error && !mindmapEntity.error" :root-resource="mindmap" />
-    <ErrorPage v-if="mindmap.error || mindmapEntity.error" :error="mindmap.error || mindmapEntity.error" />
+  <div class="flex flex-col w-full">
+    <Navbar v-if="!pageError && !mindmap.error && !mindmapEntity.error" :root-resource="mindmap" />
+    <ErrorPage v-if="pageError || mindmap.error || mindmapEntity.error" :error="pageError || mindmap.error || mindmapEntity.error" />
     <LoadingIndicator v-else-if="!mindmap.data && mindmap.loading" class="w-10 h-full text-neutral-100 mx-auto" />
 
     <div v-if="mindmap.data && !mindmapEntity.error" class="w-full relative">
@@ -362,6 +362,13 @@ const socket = inject("socket")
 const suppressPanelAutoFocus = ref(false)
 provide("suppressPanelAutoFocus", suppressPanelAutoFocus)
 
+const pageError = computed(() => {
+  const bootError = window.frappe?.boot?.error
+  if (bootError) {
+    return { message: bootError.message || "Đã xảy ra lỗi" }
+  }
+  return null
+})
 
 const props = defineProps({
   entityName: String,
@@ -2962,6 +2969,11 @@ function copyNode(nodeId) {
 }
 
 function cutNode(nodeId) {
+  if (!permissions.value.write) {
+    toast.error("Bạn không có quyền chỉnh sửa")
+    return
+  }
+  
   const node = nodes.value.find(n => n.id === nodeId)
   if (!node || nodeId === 'root') return
 
@@ -3035,6 +3047,11 @@ function copyNodeLink(nodeId) {
 }
 
 function pasteToNode(targetNodeId) {
+  if (!permissions.value.write) {
+    toast.error("Bạn không có quyền chỉnh sửa")
+    return
+  }
+  
   if (!hasClipboard.value || !targetNodeId) return
 
   const targetNode = nodes.value.find(n => n.id === targetNodeId)
@@ -3260,6 +3277,11 @@ function pasteToNode(targetNodeId) {
 }
 
 async function pasteFromSystemClipboard(targetNodeId) {
+  if (!permissions.value.write) {
+    toast.error("Bạn không có quyền chỉnh sửa")
+    return
+  }
+  
   if (!targetNodeId) return
 
   try {
@@ -3540,13 +3562,20 @@ async function handleInsertImage({ node }) {
 
   
 
-  // Xử lý khi chọn file
+  const savedSelectedNode = selectedNode.value
+  
   input.onchange = async (e) => {
     const file = e.target.files?.[0]
 
-    // Cleanup: xóa input element sau khi chọn file
     if (input.parentNode) {
       input.parentNode.removeChild(input)
+    }
+    
+    if (savedSelectedNode && !selectedNode.value) {
+      selectedNode.value = savedSelectedNode
+      if (d3Renderer) {
+        d3Renderer.selectNode(savedSelectedNode.id, true)
+      }
     }
 
     if (!file) return
@@ -3850,16 +3879,19 @@ async function handleInsertImage({ node }) {
     }
   }
 
-  // Xử lý khi user cancel dialog
   input.oncancel = () => {
-    // Cleanup: xóa input element khi cancel
     if (input.parentNode) {
       input.parentNode.removeChild(input)
     }
+    
+    if (savedSelectedNode && !selectedNode.value) {
+      selectedNode.value = savedSelectedNode
+      if (d3Renderer) {
+        d3Renderer.selectNode(savedSelectedNode.id, true)
+      }
+    }
   }
 
-  // Trigger click để hiển thị file picker dialog
-  // Sử dụng setTimeout để đảm bảo input đã được append vào DOM
   setTimeout(() => {
     input.click()
   }, 0)

@@ -169,11 +169,31 @@ export const getTrash = createResource({
   transform(data) {
     if (!data) return data
 
-    const transformedData = data.map((item) => ({
-      ...item,
-      team_name: item.is_private === 1 ? null : item.team_name,
-    }))
-    return prettyData(transformedData)
+    let actualData = data
+    if (data && typeof data === 'object' && 'message' in data && data.message) {
+      actualData = data.message
+    }
+
+    if (actualData && typeof actualData === 'object' && 'data' in actualData && Array.isArray(actualData.data)) {
+      const transformedData = actualData.data.map((item) => ({
+        ...item,
+        team_name: item.is_private === 1 ? null : item.team_name,
+      }))
+      return {
+        ...actualData,
+        data: prettyData(transformedData)
+      }
+    }
+
+    if (Array.isArray(actualData)) {
+      const transformedData = actualData.map((item) => ({
+        ...item,
+        team_name: item.is_private === 1 ? null : item.team_name,
+      }))
+      return prettyData(transformedData)
+    }
+
+    return data
   },
 })
 
@@ -354,8 +374,9 @@ export const clearRecent = createResource({
 })
 
 const handleClearTrash = (entities) => {
-  if (!entities?.length) return
-  return entities.map((entity) => {
+  const items = Array.isArray(entities) ? entities : entities?.data || []
+  if (!items?.length) return
+  return items.map((entity) => {
     if (entity.is_shortcut) {
       return {
         entity: entity.shortcut_name,
@@ -497,6 +518,7 @@ export const allFolders = createResource({
     folders: 1,
     personal: -1,
     only_parent: 0,
+    order_by: "title 1"
   }),
   transform: (d) =>
     d.map((k) => ({

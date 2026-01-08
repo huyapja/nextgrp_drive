@@ -111,8 +111,15 @@ export function fitView(renderer) {
 
 /**
  * Scroll/zoom to a specific node
+ * @param {Object} renderer - D3 renderer instance
+ * @param {string} nodeId - Node ID to scroll to
+ * @param {Object} options - Options
+ * @param {boolean} options.keepScale - Keep current scale instead of zooming (default: true)
+ * @param {number} options.targetScale - Target scale if not keeping current (default: 1.5)
  */
-export function scrollToNode(renderer, nodeId) {
+export function scrollToNode(renderer, nodeId, options = {}) {
+  const { keepScale = true, targetScale = 1.5 } = options
+  
   if (!renderer.positions || !renderer.positions.has(nodeId)) {
     console.warn('Node position not found:', nodeId)
     return
@@ -124,7 +131,6 @@ export function scrollToNode(renderer, nodeId) {
     return
   }
   
-  // Lấy node size
   const node = renderer.nodes.find(n => n.id === nodeId)
   if (!node) {
     console.warn('Node not found:', nodeId)
@@ -133,32 +139,27 @@ export function scrollToNode(renderer, nodeId) {
   
   const size = renderer.nodeSizeCache.get(nodeId) || renderer.estimateNodeSize(node)
   
-  // Tính center của node
   const nodeCenterX = pos.x + size.width / 2
   const nodeCenterY = pos.y + size.height / 2
   
   const fullWidth = renderer.options.width
   const fullHeight = renderer.options.height
   
-  // Scale để node vừa khít với viewport (zoom in một chút)
-  const targetScale = 1.5 // Zoom in 1.5x để node rõ ràng hơn
-  const padding = 60
+  const currentTransform = d3.zoomTransform(renderer.svg.node())
+  const scale = keepScale ? currentTransform.k : targetScale
   
-  // Tính translate để center node vào giữa viewport
   const translate = [
-    fullWidth / 2 - targetScale * nodeCenterX,
-    fullHeight / 2 - targetScale * nodeCenterY
+    fullWidth / 2 - scale * nodeCenterX,
+    fullHeight / 2 - scale * nodeCenterY
   ]
   
-  // Apply transform với animation
   renderer.svg.transition()
-    .duration(750)
+    .duration(500)
     .call(
       renderer.zoom.transform,
-      d3.zoomIdentity.translate(translate[0], translate[1]).scale(targetScale)
+      d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
     )
   
-  // Select node để highlight
   if (renderer.selectNode) {
     renderer.selectNode(nodeId)
   }

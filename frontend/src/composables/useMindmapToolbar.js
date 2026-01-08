@@ -9,6 +9,9 @@ export function useMindmapToolbar({
   saveSnapshot,
   scheduleSave
 }) {
+  const getRenderer = () => {
+    return typeof d3Renderer === 'function' ? d3Renderer() : d3Renderer?.value || d3Renderer
+  }
   
   const applyStrikethroughToTitle = (editor, isCompleted) => {
     if (!editor) return
@@ -73,14 +76,15 @@ export function useMindmapToolbar({
           if (!node.data) node.data = {}
           node.data.completed = isCompleted
 
-          const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+          const renderer = getRenderer()
+          const editorInstance = renderer?.getEditorInstance?.(node.id)
           if (editorInstance) {
             applyStrikethroughToTitle(editorInstance, isCompleted)
           }
 
-          if (d3Renderer) {
-            d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
-            d3Renderer.render()
+          if (renderer) {
+            renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+            renderer.render()
           }
           saveSnapshot()
           scheduleSave()
@@ -94,14 +98,15 @@ export function useMindmapToolbar({
           if (!node.data) node.data = {}
           node.data.completed = isCompleted
 
-          const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+          const renderer2 = getRenderer()
+          const editorInstance = renderer2?.getEditorInstance?.(node.id)
           if (editorInstance) {
             applyStrikethroughToTitle(editorInstance, isCompleted)
           }
 
-          if (d3Renderer) {
-            d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
-            d3Renderer.render()
+          if (renderer2) {
+            renderer2.setData(nodes.value, edges.value, nodeCreationOrder.value)
+            renderer2.render()
           }
           saveSnapshot()
           scheduleSave()
@@ -136,14 +141,15 @@ export function useMindmapToolbar({
         if (!node.data) node.data = {}
         node.data.completed = newCompleted
 
-        const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+        const renderer3 = getRenderer()
+        const editorInstance = renderer3?.getEditorInstance?.(node.id)
         if (editorInstance) {
           applyStrikethroughToTitle(editorInstance, newCompleted)
         }
 
-        if (d3Renderer) {
-          d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
-          d3Renderer.render()
+        if (renderer3) {
+          renderer3.setData(nodes.value, edges.value, nodeCreationOrder.value)
+          renderer3.render()
         }
         saveSnapshot()
         scheduleSave()
@@ -163,14 +169,15 @@ export function useMindmapToolbar({
     if (!node.data) node.data = {}
     node.data.completed = isCompleted
 
-    const editorInstance = d3Renderer?.getEditorInstance?.(node.id)
+    const renderer4 = getRenderer()
+    const editorInstance = renderer4?.getEditorInstance?.(node.id)
     if (editorInstance) {
       applyStrikethroughToTitle(editorInstance, isCompleted)
     }
 
-    if (d3Renderer) {
-      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
-      d3Renderer.render()
+    if (renderer4) {
+      renderer4.setData(nodes.value, edges.value, nodeCreationOrder.value)
+      renderer4.render()
     }
 
     saveSnapshot()

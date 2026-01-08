@@ -90,7 +90,7 @@
       <Button
         v-if="button"
         class="line-clamp-1 truncate w-full"
-        :disabled="!button.entities.data?.length"
+        :disabled="!(Array.isArray(button.entities.data) ? button.entities.data?.length : button.entities.data?.total)"
         variant="subtle"
         :theme="button.theme || 'gray'"
         @click="emitter.emit('showCTADelete')"

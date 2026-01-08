@@ -1630,7 +1630,7 @@ export function renderNodes(renderer, positions) {
                 if (currentRectWidth >= maxWidth) {
                   editorContent.style.whiteSpace = 'pre-wrap'
                 } else {
-                  editorContent.style.whiteSpace = 'nowrap'
+                  editorContent.style.whiteSpace = 'pre'
                 }
               }
             }
@@ -1668,7 +1668,7 @@ export function renderNodes(renderer, positions) {
                     if (willWrap) {
                       editorContent.style.whiteSpace = 'pre-wrap'
                     } else {
-                      editorContent.style.whiteSpace = 'nowrap'
+                      editorContent.style.whiteSpace = 'pre'
                     }
                     
                     // Force reflow để đảm bảo styles đã được áp dụng
@@ -1738,8 +1738,8 @@ export function renderNodes(renderer, positions) {
                           }
                           
                           if (!inBlockquote) {
-                            const paraText = (p.textContent || p.innerText || '').trim()
-                            if (paraText) {
+                            const paraText = p.textContent || p.innerText || ''
+                            if (paraText.length > 0) {
                               titleText += (titleText ? '\n' : '') + paraText
                             }
                           }
@@ -1747,8 +1747,8 @@ export function renderNodes(renderer, positions) {
                         
                         const blockquotes = tempDiv.querySelectorAll('blockquote')
                         blockquotes.forEach(blockquote => {
-                          const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
-                          if (blockquoteText) {
+                          const blockquoteText = blockquote.textContent || blockquote.innerText || ''
+                          if (blockquoteText.length > 0) {
                             descriptionText += (descriptionText ? '\n' : '') + blockquoteText
                           }
                         })
@@ -1757,16 +1757,16 @@ export function renderNodes(renderer, positions) {
                         if (titleText) {
                           const titleLines = titleText.split('\n')
                           titleLines.forEach(line => {
-                            if (line.trim()) {
+                            if (line.length > 0) {
                               const lineSpan = document.createElement('span')
                               lineSpan.style.cssText = `
                                 position: absolute;
                                 visibility: hidden;
-                                white-space: nowrap;
+                                white-space: pre;
                                 font-size: 19px;
                                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
                               `
-                              lineSpan.textContent = line.trim()
+                              lineSpan.textContent = line
                               document.body.appendChild(lineSpan)
                               void lineSpan.offsetHeight
                               titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
@@ -1779,16 +1779,16 @@ export function renderNodes(renderer, positions) {
                         if (descriptionText) {
                           const descLines = descriptionText.split('\n')
                           descLines.forEach(line => {
-                            if (line.trim()) {
+                            if (line.length > 0) {
                               const lineSpan = document.createElement('span')
                               lineSpan.style.cssText = `
                                 position: absolute;
                                 visibility: hidden;
-                                white-space: nowrap;
+                                white-space: pre;
                                 font-size: 16px;
                                 font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
                               `
-                              lineSpan.textContent = line.trim()
+                              lineSpan.textContent = line
                               document.body.appendChild(lineSpan)
                               void lineSpan.offsetHeight
                               descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth)
@@ -1820,7 +1820,7 @@ export function renderNodes(renderer, positions) {
                       if (willWrap) {
                         editorContent.style.whiteSpace = 'pre-wrap'
                       } else {
-                        editorContent.style.whiteSpace = 'nowrap'
+                        editorContent.style.whiteSpace = 'pre'
                       }
                       
                       void editorContent.offsetWidth

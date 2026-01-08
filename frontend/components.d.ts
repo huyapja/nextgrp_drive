@@ -177,6 +177,7 @@ declare module 'vue' {
     TeamSwitcher: typeof import('./src/components/TeamSwitcher.vue')['default']
     TextEditor: typeof import('./src/components/DocEditor/TextEditor.vue')['default']
     TextPreview: typeof import('./src/components/FileTypePreview/TextPreview.vue')['default']
+    ThumbnailImage: typeof import('./src/components/ThumbnailImage.vue')['default']
     TiptapInput: typeof import('./src/components/TiptapInput.vue')['default']
     Toast: typeof import('./src/components/Toast.vue')['default']
     ToggleHeaderCell: typeof import('./src/components/DocEditor/icons/ToggleHeaderCell.vue')['default']

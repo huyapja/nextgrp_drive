@@ -106,9 +106,10 @@ export default {
               // data = response từ backend (có success_files, failed_files)
               
               // Chỉ thêm vào Trash những files thành công
+              const currentData = Array.isArray(getTrash.data) ? getTrash.data : getTrash.data?.data || []
               getTrash.setData(
                 sortEntities([
-                  ...(getTrash.data || []),
+                  ...currentData,
                   ...e.map((k) => {
                     k.modified = Date()
                     k.relativeModified = useTimeAgo(k.modified)

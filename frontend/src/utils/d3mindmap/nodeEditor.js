@@ -232,8 +232,8 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 					}
 					
 					if (!inBlockquote) {
-						const paraText = (p.textContent || p.innerText || '').trim()
-						if (paraText) {
+						const paraText = p.textContent || p.innerText || ''
+						if (paraText.length > 0) {
 							titleText += (titleText ? '\n' : '') + paraText
 						}
 					}
@@ -242,8 +242,8 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 				// Lấy tất cả text trong blockquote (description)
 				const blockquotes = tempDiv.querySelectorAll('blockquote')
 				blockquotes.forEach(blockquote => {
-					const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
-					if (blockquoteText) {
+					const blockquoteText = blockquote.textContent || blockquote.innerText || ''
+					if (blockquoteText.length > 0) {
 						descriptionText += (descriptionText ? '\n' : '') + blockquoteText
 					}
 				})
@@ -257,16 +257,16 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 			if (titleText) {
 				const titleLines = titleText.split('\n')
 				titleLines.forEach(line => {
-					if (line.trim()) {
+					if (line.length > 0) {
 						const lineSpan = document.createElement('span')
 						lineSpan.style.cssText = `
 							position: absolute;
 							visibility: hidden;
-							white-space: nowrap;
+							white-space: pre;
 							font-size: 19px;
 							font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 						`
-						lineSpan.textContent = line.trim()
+						lineSpan.textContent = line
 						document.body.appendChild(lineSpan)
 						void lineSpan.offsetHeight
 						titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
@@ -280,16 +280,16 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 			if (descriptionText) {
 				const descLines = descriptionText.split('\n')
 				descLines.forEach(line => {
-					if (line.trim()) {
+					if (line.length > 0) {
 						const lineSpan = document.createElement('span')
 						lineSpan.style.cssText = `
 							position: absolute;
 							visibility: hidden;
-							white-space: nowrap;
+							white-space: pre;
 							font-size: 16px;
 							font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 						`
-						lineSpan.textContent = line.trim()
+						lineSpan.textContent = line
 						document.body.appendChild(lineSpan)
 						void lineSpan.offsetHeight
 						descriptionWidth = Math.max(descriptionWidth, lineSpan.offsetWidth)
@@ -419,6 +419,56 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 				
 				// ⚠️ STEP 2: Đo height từ DOM để hiển thị đầy đủ nội dung đang nhập
 				if (hasImages) {
+					const imageWrappers = editorContent.querySelectorAll('.image-wrapper-node')
+					const imageCount = imageWrappers.length
+					
+					if (imageCount > 0) {
+						let newWidth = '100%'
+						let expectedAspectRatio = ''
+						
+						if (imageCount === 1) {
+							newWidth = '100%'
+						} else if (imageCount === 2) {
+							newWidth = 'calc(50% - 14px)'
+							expectedAspectRatio = '1'
+						} else if (imageCount >= 3) {
+							newWidth = 'calc(33.333% - 14px)'
+							expectedAspectRatio = '1'
+						}
+						
+						imageWrappers.forEach((wrapper, index) => {
+							wrapper.style.setProperty('width', newWidth, 'important')
+							wrapper.style.setProperty('max-width', newWidth === '100%' ? '100%' : newWidth, 'important')
+							
+							if (expectedAspectRatio) {
+								wrapper.style.setProperty('aspect-ratio', expectedAspectRatio, 'important')
+							} else {
+								wrapper.style.removeProperty('aspect-ratio')
+							}
+							wrapper.style.setProperty('height', 'auto', 'important')
+							
+							const gap = imageCount >= 2 ? '12px' : '0px'
+							const marginRight = ((index + 1) % 3 === 0 || imageCount === 1) ? '0' : gap
+							wrapper.style.setProperty('margin-right', marginRight, 'important')
+							
+							const img = wrapper.querySelector('img')
+							if (img) {
+								if (imageCount >= 2) {
+									img.style.setProperty('width', '100%', 'important')
+									img.style.setProperty('height', '100%', 'important')
+									img.style.setProperty('object-fit', 'cover', 'important')
+									img.style.removeProperty('max-height')
+								} else {
+									img.style.setProperty('height', 'auto', 'important')
+								}
+							}
+						})
+						
+						void editorContent.offsetWidth
+						void editorContent.offsetHeight
+					}
+					
+					console.log('🔍 Có ảnh: Gọi hàm tính toán chuyên dụng', editorContent.offsetHeight, editorContent.scrollHeight)
 					// Có ảnh: Gọi hàm tính toán chuyên dụng
 					const heightResult = calculateNodeHeightWithImages({
 						editorContent,
@@ -1061,25 +1111,25 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 							parent = parent.parentElement
 						}
 						if (!inBlockquote) {
-							const paraText = (p.textContent || p.innerText || '').trim()
-							if (paraText) {
+							const paraText = p.textContent || p.innerText || ''
+							if (paraText.length > 0) {
 								titleText += (titleText ? '\n' : '') + paraText
 							}
 						}
 					})
 					const blockquotes = tempDiv.querySelectorAll('blockquote')
 					blockquotes.forEach(bq => {
-						const bqText = (bq.textContent || bq.innerText || '').trim()
-						if (bqText) {
+						const bqText = bq.textContent || bq.innerText || ''
+						if (bqText.length > 0) {
 							descriptionText += (descriptionText ? '\n' : '') + bqText
 						}
 					})
 					// Nếu không có paragraph, lấy text trực tiếp từ div
 					if (!titleText && !descriptionText) {
-						titleText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+						titleText = tempDiv.textContent || tempDiv.innerText || ''
 					}
 				} else {
-					titleText = finalValue.trim()
+					titleText = finalValue
 				}
 				
 				
@@ -1088,16 +1138,16 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				if (titleText) {
 					const titleLines = titleText.split('\n')
 					titleLines.forEach(line => {
-						if (line.trim()) {
+						if (line.length > 0) {
 							const lineSpan = document.createElement('span')
 							lineSpan.style.cssText = `
 								position: absolute;
 								visibility: hidden;
-								white-space: nowrap;
+								white-space: pre;
 								font-size: 19px;
 								font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 							`
-							lineSpan.textContent = line.trim()
+							lineSpan.textContent = line
 							document.body.appendChild(lineSpan)
 							void lineSpan.offsetHeight
 							maxTitleWidth = Math.max(maxTitleWidth, lineSpan.offsetWidth)
@@ -1111,16 +1161,16 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				if (descriptionText) {
 					const descLines = descriptionText.split('\n')
 					descLines.forEach(line => {
-						if (line.trim()) {
+						if (line.length > 0) {
 							const lineSpan = document.createElement('span')
 							lineSpan.style.cssText = `
 								position: absolute;
 								visibility: hidden;
-								white-space: nowrap;
+								white-space: pre;
 								font-size: 16px;
 								font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
 							`
-							lineSpan.textContent = line.trim()
+							lineSpan.textContent = line
 							document.body.appendChild(lineSpan)
 							void lineSpan.offsetHeight
 							maxDescWidth = Math.max(maxDescWidth, lineSpan.offsetWidth)

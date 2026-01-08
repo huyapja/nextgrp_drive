@@ -4,7 +4,11 @@ from drive.api.permissions import get_user_access
 
 no_cache = 1
 
-TITLES = {"login": "Login", "signup": "Create an Account", "setup": "Set up your Account"}
+TITLES = {
+    "login": "Login",
+    "signup": "Create an Account",
+    "setup": "Set up your Account",
+}
 
 
 def get_context():
@@ -18,7 +22,9 @@ def get_context():
 
     context.title = "Frappe Drive"
     context.description = "Visit Drive online."
-    context.og_image = "https://raw.githubusercontent.com/frappe/drive/main/.github/og_1200.png"
+    context.og_image = (
+        "https://raw.githubusercontent.com/frappe/drive/main/.github/og_1200.png"
+    )
 
     if not frappe.form_dict.app_path:
         return context
@@ -28,15 +34,29 @@ def get_context():
     if len(parts) >= 4:
         context.description = "Open this online."
         context.og_image = ""
-        doc = frappe.get_doc("Drive File", parts[3])
-        if get_user_access(doc)["read"]:
-            context.title = "Folder - " + doc.title if doc.is_group else doc.title
-            context.description = "Owned by " + doc.owner
-
-            context.og_image = (
-                "/api/method/drive.api.thumbnail_generator.create_image_thumbnail?entity_name="
-                + doc.name
-            )
+        try:
+            doc = frappe.get_doc("Drive File", parts[3])
+            if not doc.is_active:
+                context.title = "Tài liệu đã bị xóa"
+                context.description = "Tài liệu này đã được chuyển vào thùng rác hoặc đã bị xóa vĩnh viễn."
+                context.boot.error = {
+                    "type": "deleted",
+                    "message": "Tài liệu này đã được chuyển vào thùng rác hoặc đã bị xóa vĩnh viễn.",
+                }
+            elif get_user_access(doc)["read"]:
+                context.title = "Folder - " + doc.title if doc.is_group else doc.title
+                context.description = "Owned by " + doc.owner
+                context.og_image = (
+                    "/api/method/drive.api.thumbnail_generator.create_image_thumbnail?entity_name="
+                    + doc.name
+                )
+        except frappe.DoesNotExistError:
+            context.title = "Tài liệu không tồn tại"
+            context.description = "Tài liệu này không tồn tại hoặc đã bị xóa vĩnh viễn."
+            context.boot.error = {
+                "type": "not_found",
+                "message": "Tài liệu này không tồn tại hoặc đã bị xóa vĩnh viễn.",
+            }
     elif parts[0] in TITLES:
         context.title = TITLES[parts[0]]
         context.description = ""

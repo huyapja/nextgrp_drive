@@ -42,8 +42,8 @@ export function estimateNodeWidth(node, maxWidth = 400, getNodeLabelFn = getNode
 			}
 			
 			if (!inBlockquote) {
-				const paraText = (p.textContent || p.innerText || '').trim()
-				if (paraText) {
+				const paraText = p.textContent || p.innerText || ''
+				if (paraText.length > 0) {
 					titleText += (titleText ? '\n' : '') + paraText
 				}
 			}
@@ -52,14 +52,14 @@ export function estimateNodeWidth(node, maxWidth = 400, getNodeLabelFn = getNode
 		// Lấy tất cả text trong blockquote (description)
 		const blockquotes = tempDiv.querySelectorAll('blockquote')
 		blockquotes.forEach(blockquote => {
-			const blockquoteText = (blockquote.textContent || blockquote.innerText || '').trim()
-			if (blockquoteText) {
+			const blockquoteText = blockquote.textContent || blockquote.innerText || ''
+			if (blockquoteText.length > 0) {
 				descriptionText += (descriptionText ? '\n' : '') + blockquoteText
 			}
 		})
 	} else {
 		// Plain text: coi như title
-		titleText = text.trim()
+		titleText = text
 	}
 	
 	// Đo width của title (font-size 19px)
@@ -71,16 +71,16 @@ export function estimateNodeWidth(node, maxWidth = 400, getNodeLabelFn = getNode
 		} else {
 			const titleLines = titleText.split('\n')
 			titleLines.forEach(line => {
-				if (line.trim()) {
+				if (line.length > 0) {
 					const lineSpan = document.createElement('span')
 					lineSpan.style.cssText = `
 						position: absolute;
 						visibility: hidden;
 						font-size: 19px;
 						font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-						white-space: nowrap;
+						white-space: pre;
 					`
-					lineSpan.textContent = line.trim()
+					lineSpan.textContent = line
 					document.body.appendChild(lineSpan)
 					void lineSpan.offsetHeight
 					const textWidth = lineSpan.offsetWidth
@@ -122,16 +122,16 @@ export function estimateNodeWidth(node, maxWidth = 400, getNodeLabelFn = getNode
 	if (descriptionText) {
 		const descLines = descriptionText.split('\n')
 		descLines.forEach(line => {
-			if (line.trim()) {
+			if (line.length > 0) {
 				const lineSpan = document.createElement('span')
 				lineSpan.style.cssText = `
 					position: absolute;
 					visibility: hidden;
 					font-size: 16px;
 					font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-					white-space: nowrap;
+					white-space: pre;
 				`
-				lineSpan.textContent = line.trim()
+				lineSpan.textContent = line
 				document.body.appendChild(lineSpan)
 				void lineSpan.offsetHeight
 				const textWidth = lineSpan.offsetWidth
@@ -426,14 +426,16 @@ export function calculateNodeHeightWithImages(options) {
 	// STEP 4: Tính height của từng ảnh dựa trên aspect ratio
 	const imageHeights = []
 	
-	images.forEach((img) => {
+	images.forEach((img, idx) => {
 		let imgHeight = 0
+		let method = ''
 		
 		// Ưu tiên lấy naturalHeight nếu ảnh đã load
 		if (img.naturalHeight > 0 && img.naturalWidth > 0) {
 			// Ảnh đã load - tính height chính xác dựa trên aspect ratio
 			const aspectRatio = img.naturalWidth / img.naturalHeight
 			imgHeight = perImageWidth / aspectRatio
+			method = 'naturalHeight'
 		} else if (img.getAttribute('height') && img.getAttribute('width')) {
 			// Có height/width attributes - ước tính dựa trên attributes
 			const attrWidth = parseInt(img.getAttribute('width'))
@@ -441,12 +443,23 @@ export function calculateNodeHeightWithImages(options) {
 			if (attrWidth > 0 && attrHeight > 0) {
 				const aspectRatio = attrWidth / attrHeight
 				imgHeight = perImageWidth / aspectRatio
+				method = 'attributes'
 			}
-		} else {
-			// Không có thông tin - ước tính dựa trên aspect ratio mặc định
-			// Giả sử aspect ratio 4:3 (conservative estimate)
-			imgHeight = perImageWidth * 0.75 // 3/4
 		}
+		
+		if (imgHeight === 0) {
+			// Không có thông tin - KHÔNG estimate, dùng max-height CSS (200px)
+			imgHeight = 200 // Dùng max-height từ CSS
+			method = 'default-200px'
+		}
+		
+		console.log(`🖼️ [calculateHeight] Ảnh ${idx + 1}:`, {
+			method,
+			imgHeight,
+			naturalWidth: img.naturalWidth,
+			naturalHeight: img.naturalHeight,
+			perImageWidth
+		})
 		
 		imageHeights.push(imgHeight)
 	})
@@ -468,6 +481,15 @@ export function calculateNodeHeightWithImages(options) {
 	const textHeight = 50 // Ước tính cho text (title + description nếu có)
 	const topBottomPadding = 16 // 8px top + 8px bottom
 	const estimatedHeight = totalRowsHeight + textHeight + topBottomPadding
+	
+	console.log('📊 [calculateHeight] Tổng kết:', {
+		imageCount,
+		imageHeights,
+		totalRowsHeight,
+		textHeight,
+		topBottomPadding,
+		estimatedHeight
+	})
 	
 	// STEP 7: Đo height thực tế từ DOM nếu có editorContent
 	let actualHeight = estimatedHeight
@@ -542,19 +564,31 @@ export function calculateNodeHeightWithImages(options) {
 			maxBottom += paddingBottom
 		}
 		
-		// Dùng giá trị lớn nhất giữa scrollHeight, maxBottom và estimatedHeight
-		// Nhưng ưu tiên dùng giá trị nhỏ hơn để tránh khoảng trống thừa
+		console.log('📐 [calculateHeight] Giá trị đo được:', {
+			scrollHeight,
+			maxBottom,
+			estimatedHeight
+		})
+		
 		if (maxBottom > 0) {
-			// Có đo được từ DOM, dùng giá trị này nhưng không lớn hơn scrollHeight quá nhiều
-			actualHeight = Math.min(Math.max(scrollHeight, maxBottom), scrollHeight + 20) // Không lớn hơn scrollHeight quá 20px
+			// Dùng maxBottom nhưng không lớn hơn scrollHeight quá nhiều
+			actualHeight = Math.min(Math.max(scrollHeight, maxBottom), scrollHeight + 20)
+			console.log('✅ [calculateHeight] Dùng maxBottom:', { actualHeight })
 		} else {
-			// Không đo được từ DOM, dùng scrollHeight hoặc estimatedHeight
-			actualHeight = Math.min(scrollHeight, estimatedHeight + 50) // Ưu tiên scrollHeight nhưng không quá lớn
+			// Fallback - dùng giá trị lớn hơn
+			actualHeight = Math.max(scrollHeight, estimatedHeight)
+			console.log('✅ [calculateHeight] Dùng max:', { actualHeight })
 		}
 	}
 	
 	// STEP 8: Đảm bảo height tối thiểu là singleLineHeight
 	const finalHeight = Math.max(actualHeight, singleLineHeight)
+	
+	console.log('🎯 [calculateHeight] KẾT QUẢ CUỐI:', {
+		estimatedHeight,
+		actualHeight,
+		finalHeight
+	})
 	
 	return {
 		height: finalHeight,
