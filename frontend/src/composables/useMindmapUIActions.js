@@ -1,4 +1,4 @@
-import { nextTick } from 'vue'
+import { nextTick, inject  } from 'vue'
 
 /**
  * Mindmap UI Actions
@@ -40,6 +40,9 @@ export function useMindmapUIActions({
   scrollToNodeWithRetry,
   scheduleSave
 }) {
+
+  // const ensureCommentSession = inject("ensureCommentSession", null)
+
 
   /**
    * Rename mindmap title (khi sửa root node)
@@ -95,6 +98,8 @@ export function useMindmapUIActions({
 
     const syncedNode = nodes.value.find(n => n.id === nodeId)
     if (!syncedNode) return
+
+    // ensureCommentSession?.(nodeId)
 
     isFromUI.value = true
     

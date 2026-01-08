@@ -4,8 +4,6 @@
  * - drag reorder
  * - text mode Enter
  * - insert before / after
- *
- * Không phụ thuộc Vue / d3
  */
 
 /* ===============================
@@ -96,7 +94,9 @@ export function computeInsertAfterAnchor({
 }
 
 /**
- * Insert node TRƯỚC anchor (Shift + Enter / shortcut khác)
+ * Insert node TRƯỚC anchor (Shift + Enter / split_before)
+ * - KHÔNG để order âm
+ * - Reindex khi cần
  */
 export function computeInsertBeforeAnchor({
   nodes,
@@ -109,14 +109,36 @@ export function computeInsertBeforeAnchor({
   const anchorIndex = sortedSiblingIds.indexOf(anchorNodeId)
   if (anchorIndex === -1) return null
 
-  const dropPosition = anchorIndex
+  // ===============================
+  // CASE 1: insert vào đầu danh sách
+  // ===============================
+  if (anchorIndex === 0) {
+    // 🔒 Reindex toàn bộ siblings để đảm bảo order >= 1
+    sortedSiblingIds.forEach((id, idx) => {
+      const newOrder = idx + 2 // bắt đầu từ 2
+      orderStore.set(id, newOrder)
 
-  return computeOrderFromPosition(
-    sortedSiblingIds,
-    orderStore,
-    dropPosition
-  )
+      const node = nodes.find(n => n.id === id)
+      if (node) node.data.order = newOrder
+    })
+
+    // node mới luôn đứng đầu
+    return 1
+  }
+
+  // ===============================
+  // CASE 2: insert giữa (an toàn)
+  // ===============================
+  const prevId = sortedSiblingIds[anchorIndex - 1]
+  const nextId = sortedSiblingIds[anchorIndex]
+
+  const prevOrder = orderStore.get(prevId) ?? 1
+  const nextOrder = orderStore.get(nextId) ?? prevOrder + 1
+
+  // average, chắc chắn > 0
+  return prevOrder + (nextOrder - prevOrder) / 2
 }
+
 
 
 export function computeInsertAsFirstChild({

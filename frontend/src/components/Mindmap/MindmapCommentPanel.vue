@@ -1446,6 +1446,29 @@ watch(
   { once: true }
 )
 
+function ensureCommentSession(nodeId) {
+  if (!nodeId) return
+
+  const hasSession = comments.value.some(
+    c => c.node_id === nodeId && c.session_index === 1
+  )
+
+  if (hasSession) return
+
+  comments.value.push({
+    __draft: true,
+    name: `draft-${nodeId}-1`,
+    node_id: nodeId,
+    session_index: 1,
+    content: "",
+    creation: new Date().toISOString(),
+    modified: new Date().toISOString(),
+    user: currentUser.value,
+  })
+}
+
+// provide("ensureCommentSession", ensureCommentSession)
+
 </script>
 
 
