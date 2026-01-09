@@ -2,6 +2,7 @@ import { TextSelection } from "@tiptap/pm/state"
 import { computed, onMounted } from "vue"
 
 export function useNodeHighlight({ editor, node, getPos }) {
+  
   function normalizeColor(color) {
     if (!color) return null
 

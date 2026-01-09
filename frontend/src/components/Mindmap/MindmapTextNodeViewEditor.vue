@@ -67,23 +67,37 @@ const canEditContent = computed(() => {
  * Helpers
  * ================================ */
 
+let lastEmittedTitle = null
+
 function syncFromEditor(editor) {
   isEditorEmitting = true
 
   const html = editor.getHTML()
 
+  // ================================
+  // Sync node edits
+  // ================================
   const edits = extractNodeEditsFromHTML(html)
   if (edits.length) {
     emit("update-nodes", edits)
   }
 
+  // ================================
+  // Sync title (CHỈ khi thay đổi)
+  // ================================
   const container = document.createElement("div")
   container.innerHTML = html
+
   const h1 = container.querySelector('h1[data-node-id="root"]')
   if (h1) {
-    const title = h1.textContent?.trim()
-    if (title) emit("rename-title", title)
+    const title = h1.textContent?.trim() ?? ""
+
+    if (title && title !== lastEmittedTitle) {
+      lastEmittedTitle = title
+      emit("rename-title", title)
+    }
   }
+
   queueMicrotask(() => {
     isEditorEmitting = false
   })
@@ -454,17 +468,20 @@ watch(
 }
 
 
-.prose :deep(.mm-node.is-comment-hover span[data-inline-root] > span) {
+.prose :deep(li[data-is-clicked="true"] .mm-node.is-comment-hover span[data-inline-root] > span) {
   background-color: #faedc2 !important;
   border-radius: 3px;
 }
 
-
-
-.prose :deep(.mm-node.is-comment-hover > div span[data-inline-root]) {
+.prose :deep(.mm-node.is-comment-hover span[data-inline-root]) {
   background-color: #faedc2 !important;
   border-radius: 3px;
 }
+
+/* .prose :deep(li[data-is-clicked="true"] .mm-node > div span[data-inline-root]) {
+  background-color: #faedc2 !important;
+  border-radius: 3px;
+} */
 
 .prose :deep(.mm-node.is-comment-hover:not(:has(span[data-inline-root]))) {
   background-color: #faedc2;
@@ -557,14 +574,15 @@ watch(
   opacity: 0.5;
 }
 
-.prose :deep(img){
+.prose :deep(img) {
   width: 400px;
-  margin-left:40px;
-  margin-bottom:10px;
+  margin-left: 40px;
+  margin-bottom: 10px;
   outline: none;
   max-height: 450px;
 }
-.prose :deep(img + img){
-  margin-top:20px;
+
+.prose :deep(img + img) {
+  margin-top: 20px;
 }
 </style>
