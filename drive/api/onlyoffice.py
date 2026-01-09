@@ -59,10 +59,10 @@ def get_editor_config(entity_name):
         document_type = get_document_type(file_ext)
 
         # Callback URL for saving
-        # callback_url = (
-        #     f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
-        # )
-        callback_url = "https://21a6354cef1d.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
+        callback_url = (
+            f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
+        )
+        # callback_url = "https://21a6354cef1d.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
 
         # Build config với các tối ưu cho collaborative editing
         config = {
