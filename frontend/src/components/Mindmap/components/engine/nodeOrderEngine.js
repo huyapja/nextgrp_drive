@@ -94,11 +94,10 @@ export function computeInsertAfterAnchor({
 }
 
 /**
- * Insert node TRƯỚC anchor (Shift + Enter / split_before)
  * - KHÔNG để order âm
  * - Reindex khi cần
  */
-export function computeInsertBeforeAnchor({
+export function computeInsertBeforeAnchorSplit({
   nodes,
   anchorNodeId,
   parentId,
@@ -137,6 +136,27 @@ export function computeInsertBeforeAnchor({
 
   // average, chắc chắn > 0
   return prevOrder + (nextOrder - prevOrder) / 2
+}
+
+
+export function computeInsertBeforeAnchor({
+  nodes,
+  anchorNodeId,
+  parentId,
+  orderStore,
+}) {
+  const sortedSiblingIds = getSortedSiblingIds(nodes, parentId, orderStore)
+
+  const anchorIndex = sortedSiblingIds.indexOf(anchorNodeId)
+  if (anchorIndex === -1) return null
+
+  const dropPosition = anchorIndex
+
+  return computeOrderFromPosition(
+    sortedSiblingIds,
+    orderStore,
+    dropPosition
+  )
 }
 
 

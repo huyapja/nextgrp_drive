@@ -249,14 +249,57 @@ export function createEditorKeyDown({ editor, flags }) {
         const newNodeId = crypto.randomUUID()
         flags.isCreatingDraftNode = true
 
-        splitListItem(schema.nodes.listItem)(state, view.dispatch)
-
         editor.value?.options?.onAddChildNode?.({
           position: "split_before",
           anchorNodeId: nodeId,
           newNodeId,
           label: `<p>${beforeText}</p>`,
         })
+
+        // 1️⃣ split
+        splitListItem(schema.nodes.listItem)(state, view.dispatch)
+
+        // 2️⃣ state sau split
+        const nextState = view.state
+        const tr = nextState.tr
+
+        let newLiPos = null
+        let oldLiPos = null
+
+        for (let d = $from.depth; d > 0; d--) {
+          if ($from.node(d).type === schema.nodes.listItem) {
+            newLiPos = $from.before(d)
+            oldLiPos = $from.before(d) - $from.node(d).nodeSize
+            break
+          }
+        }
+
+        if (newLiPos == null || oldLiPos == null) return true
+
+        const newLi = tr.doc.nodeAt(newLiPos)
+        if (newLi) {
+          const { hasCount, ...restAttrs } = newLi.attrs
+
+          tr.setNodeMarkup(newLiPos, undefined, {
+            ...restAttrs,
+            nodeId: newNodeId,
+          })
+        // ✅ 2. resolve lại position SAU KHI setNodeMarkup
+        const $liPos = tr.doc.resolve(newLiPos)
+
+        // tìm paragraph thật sự trong listItem
+        let para = null
+        let paraPos = null
+
+        $liPos.node().forEach((child, offset) => {
+          if (child.isTextblock && !para) {
+            para = child
+            paraPos = $liPos.start() + offset
+          }
+        })
+        }
+
+        view.dispatch(tr)
 
         requestAnimationFrame(() => {
           flags.isCreatingDraftNode = false

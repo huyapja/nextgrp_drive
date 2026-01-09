@@ -82,6 +82,10 @@ function onInsertImages(payload) {
 
 provide("activeCommentNode", toRef(props, "activeCommentNode"))
 
+const hoverCommentNodeId = ref(null)
+
+provide("hoverCommentNodeId", hoverCommentNodeId)
+
 watch(
     () => [props.nodes, props.edges, props.version],
     () => {

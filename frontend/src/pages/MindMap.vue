@@ -1,5 +1,5 @@
 <template>
-  <div class="flex flex-col w-full">
+  <div class="flex flex-col w-full mindmap-page">
     <Navbar v-if="!pageError && !mindmap.error && !mindmapEntity.error" :root-resource="mindmap" />
     <ErrorPage v-if="pageError || mindmap.error || mindmapEntity.error" :error="pageError || mindmap.error || mindmapEntity.error" />
     <LoadingIndicator v-else-if="!mindmap.data && mindmap.loading" class="w-10 h-full text-neutral-100 mx-auto" />
@@ -329,7 +329,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import { provide } from "vue"
-import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchor, moveNodeAsFirstChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchorSplit, computeInsertBeforeAnchor, moveNodeAsLastChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 import { useMindmapClipboard } from '@/composables/useMindmapClipboard'
@@ -2666,45 +2666,6 @@ const saveImmediately = () => {
   })
 }
 
-const saveBatchResource = () => {
-  if (!mindmap.data || !permissions.value.write) return
-  
-  // Prepare all nodes với position & order
-  const nodesToSave = nodes.value.map(node => {
-    const { count, ...nodeData } = node
-    const nodeWithPos = { ...nodeData }
-    
-    // Add position từ d3Renderer
-    if (d3Renderer?.positions) {
-      const pos = d3Renderer.positions.get(node.id)
-      if (pos) {
-        nodeWithPos.position = { ...pos }
-      }
-    }
-    
-    // Add order
-    if (nodeCreationOrder.value.has(node.id)) {
-      const order = nodeCreationOrder.value.get(node.id)
-      if (!nodeWithPos.data) nodeWithPos.data = {}
-      nodeWithPos.data.order = order
-    }
-    
-    return nodeWithPos
-  })
-  
-  // Save batch
-  isSaving.value = true
-  savingCount.value++
-  saveNodesBatchResource.submit({
-    entity_name: props.entityName,
-    nodes_data: JSON.stringify(nodesToSave),
-    edges_data: JSON.stringify(edges.value)
-  })
-  
-  console.log('💾 Saving full mindmap batch:', nodesToSave.length, 'nodes')
-}
-
-
 scheduleSave = () => {
   saveOperations.scheduleSave({
     entityName: props.entityName,
@@ -4517,7 +4478,7 @@ async function addChildToNodeTextMode(payload) {
 
       const parentId = anchorNode.data.parentId ?? "root"
 
-      const newOrder = computeInsertBeforeAnchor({
+      const newOrder = computeInsertBeforeAnchorSplit({
         nodes: nodes.value,
         anchorNodeId,
         parentId,
@@ -4562,7 +4523,7 @@ async function addChildToNodeTextMode(payload) {
     const { nodeId, anchorNodeId } = payload
     if (!nodeId || !anchorNodeId) return
 
-    const result = moveNodeAsFirstChild({
+    const result = moveNodeAsLastChild({
       nodeId,
       newParentId: anchorNodeId,
       nodes: nodes.value,
@@ -4577,9 +4538,11 @@ async function addChildToNodeTextMode(payload) {
     }
 
     saveSnapshot()
-    changedNodeIds.value.add(nodeId)
-
+    
     d3Renderer.render()
+    saveNode(nodeId)
+    saveNode(anchorNodeId)
+
     return
   }
 
@@ -4644,7 +4607,7 @@ async function addChildToNodeTextMode(payload) {
   saveSnapshot()
 
   d3Renderer.render()
-  saveBatchResource()
+  saveNode(newNodeId)
 }
 
 

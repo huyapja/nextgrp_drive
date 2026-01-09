@@ -3,6 +3,31 @@
  * - Nếu label là <p>...</p> → lấy innerHTML của <p>
  * - Tránh sinh <p> bên trong <h*>
  */
+
+function extractBackgroundColorFromLabel(labelHtml) {
+  if (!labelHtml) return null
+
+  const div = document.createElement("div")
+  div.innerHTML = labelHtml
+
+  // ưu tiên span có style background-color
+  const span = div.querySelector("span[style*='background-color']")
+  if (!span) return null
+
+  const bg = span.style.backgroundColor
+  return bg || null
+}
+
+function ensureParagraphHTML(html) {
+  if (!html) return ""
+
+  // đã có tag → giữ nguyên
+  if (html.trim().startsWith("<")) return html
+
+  // text thuần → wrap lại
+  return `<p>${html}</p>`
+}
+
 function extractInlineHTML(html) {
   if (!html) return ""
 
@@ -148,8 +173,10 @@ export function buildTextFromMindmap(nodes, edges) {
   ${nodes
     .sort((a, b) => (a.data?.order ?? 0) - (b.data?.order ?? 0))
     .map((node) => {
-      const inline = extractInlineHTML(node.data?.label || "")
-      const block = extractBlockHTML(node.data?.label || "")
+      const safeLabel = ensureParagraphHTML(node.data?.label || "")
+
+      const inline = extractInlineHTML(safeLabel)
+      const block = extractBlockHTML(safeLabel)
 
       if (!inline && !block) return ""
 
@@ -161,11 +188,15 @@ export function buildTextFromMindmap(nodes, edges) {
       const taskId = taskLink?.taskId || ""
       const taskMode = taskLink?.mode || ""
       const taskStatus = taskLink?.status || ""
+      const highlightBg = extractBackgroundColorFromLabel(node.data.label)
+
+      
 
       return `
 <li
   data-node-id="${node.id}"
   data-completed="${completed}"
+  ${highlightBg ? `data-highlight="${highlightBg}"` : ""}
   ${taskId ? `data-task-id="${taskId}"` : ""}
   ${taskMode ? `data-task-mode="${taskMode}"` : ""}
   ${taskStatus ? `data-task-status="${taskStatus}"` : ""}

@@ -2,7 +2,7 @@
   <Teleport to="body">
 
     <div :class="[
-      'comment-panel-list absolute w-[320px] bg-[#f5f6f7] z-[80] border-l',
+      'comment-panel-list fixed w-[320px] bg-[#f5f6f7] z-[80] border-l',
 
       panelPositionClass,
 
@@ -1457,7 +1457,7 @@ function ensureCommentSession(nodeId) {
 
   comments.value.push({
     __draft: true,
-    name: `draft-${nodeId}-1`,
+    name: `${nodeId}-1`,
     node_id: nodeId,
     session_index: 1,
     content: "",
