@@ -79,19 +79,43 @@ export async function entitiesDownload(team, entities) {
     
     // ✅ Xử lý file thông thường - trigger native browser download dialog ngay lập tức
     try {
-      // ✅ FIX: Dùng native <a> tag với download attribute
-      // Điều này sẽ:
-      // 1. Hiển thị ngay Save As dialog (không đợi API)
-      // 2. File xuất hiện ở Recent downloads
-      // 3. Progress bar hiển thị như tải file bình thường
-      const downloadUrl = `/api/method/drive.api.files.get_file_content?entity_name=${entity.name}&trigger_download=1&_t=${Date.now()}`
-      
       console.log("📥 Downloading file:", entity.title)
+      
+      // ✅ Với file Office, force save để đảm bảo nội dung mới nhất
+      const officeExtensions = ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'odt', 'ods', 'odp']
+      const fileExt = entity.title?.split('.').pop()?.toLowerCase()
+      
+      if (officeExtensions.includes(fileExt)) {
+        toast(`💾 Đang đồng bộ dữ liệu mới nhất...`)
+        try {
+          // Force save và đợi OnlyOffice lưu file
+          const syncResponse = await fetch(
+            `/api/method/drive.api.onlyoffice.download_from_onlyoffice?entity_name=${entity.name}`,
+            {
+              method: "GET",
+              headers: {
+                "X-Frappe-CSRF-Token": window.csrf_token,
+              },
+            }
+          )
+          const syncResult = await syncResponse.json()
+          console.log("📥 OnlyOffice sync result:", syncResult)
+          
+          // Kết quả sẽ luôn là use_storage: true - chờ save xong rồi download từ storage
+          if (!syncResult.message?.success) {
+            console.warn("⚠️ Sync warning:", syncResult.message?.message)
+          }
+        } catch (e) {
+          console.warn("⚠️ OnlyOffice sync failed, continuing with storage:", e)
+        }
+      }
+      
+      const downloadUrl = `/api/method/drive.api.files.get_file_content?entity_name=${entity.name}&trigger_download=1&_t=${Date.now()}`
       
       // Tạo link ẩn với download attribute
       const downloadLink = document.createElement('a')
       downloadLink.href = downloadUrl
-      downloadLink.download = entity.title // Trigger Save As dialog ngay
+      downloadLink.download = entity.title
       downloadLink.style.display = 'none'
       
       document.body.appendChild(downloadLink)

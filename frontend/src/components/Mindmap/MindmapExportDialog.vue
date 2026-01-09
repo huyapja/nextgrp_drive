@@ -512,6 +512,8 @@ const exportToPDF = async (fileName) => {
     let maxX = -Infinity
     let maxY = -Infinity
     
+    const taskLinkBadges = []
+    
     if (props.d3Renderer && props.d3Renderer.positions && props.d3Renderer.nodes) {
       props.d3Renderer.nodes.forEach(node => {
         const pos = props.d3Renderer.positions.get(node.id)
@@ -526,6 +528,47 @@ const exportToPDF = async (fileName) => {
           maxY = Math.max(maxY, pos.y + size.height)
         }
       })
+      
+      const nodeGroups = svgElement.querySelectorAll('g.node-group')
+      nodeGroups.forEach(group => {
+        const nodeId = group.getAttribute('data-node-id')
+        const node = props.d3Renderer.nodes.find(n => n.id === nodeId)
+        const taskLink = node?.data?.taskLink
+        if (!taskLink?.linkUrl) return
+        
+        const pos = props.d3Renderer.positions.get(nodeId)
+        if (!pos) return
+        
+        const size = props.d3Renderer.nodeSizeCache?.get(nodeId) || 
+                    props.d3Renderer.estimateNodeSize?.(node) || 
+                    { width: 200, height: 100 }
+        
+        const fo = group.querySelector('foreignObject')
+        if (!fo) return
+        
+        const taskLinkAnchor = fo.querySelector('a[href*="task_id"], a[href*="/mtp/project/"]')
+        if (!taskLinkAnchor) return
+        
+        const badge = taskLinkAnchor.closest('p') || taskLinkAnchor.closest('section') || taskLinkAnchor.parentElement
+        if (!badge) return
+        
+        const foRect = fo.getBoundingClientRect()
+        const badgeRect = badge.getBoundingClientRect()
+        
+        const badgeOffsetTop = badgeRect.top - foRect.top
+        const badgeHeight = badgeRect.height || 24
+        
+        taskLinkBadges.push({
+          id: nodeId,
+          x: pos.x,
+          y: pos.y + badgeOffsetTop,
+          width: size.width,
+          height: badgeHeight,
+          url: taskLink.linkUrl
+        })
+      })
+      
+      console.log('[PDF Export] Task link badges found:', taskLinkBadges)
     }
     
     // Nếu không tính được từ positions, fallback to getBBox
@@ -629,6 +672,25 @@ const exportToPDF = async (fileName) => {
     
     // Thêm JPEG vào PDF (JPEG đã được nén nên sẽ nhỏ hơn PNG rất nhiều)
     pdf.addImage(image, 'JPEG', 0, 0, pdfWidth, pdfHeight)
+    
+    updateProgress(85)
+    // 12. Thêm các link có thể click vào PDF chỉ cho vùng badge "Liên kết công việc"
+    if (taskLinkBadges.length > 0) {
+      const viewBoxMinX = minX - padding
+      const viewBoxMinY = minY - padding
+      
+      taskLinkBadges.forEach(badgeInfo => {
+        const relativeX = badgeInfo.x - viewBoxMinX
+        const relativeY = badgeInfo.y - viewBoxMinY
+        
+        const pdfX = (relativeX / width) * pdfWidth
+        const pdfY = (relativeY / height) * pdfHeight
+        const linkWidth = (badgeInfo.width / width) * pdfWidth
+        const linkHeight = (badgeInfo.height / height) * pdfHeight
+        
+        pdf.link(pdfX, pdfY, linkWidth, linkHeight, { url: badgeInfo.url })
+      })
+    }
     
     updateProgress(90)
     // Download PDF
