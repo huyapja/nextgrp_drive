@@ -59,10 +59,10 @@ def get_editor_config(entity_name):
         document_type = get_document_type(file_ext)
 
         # Callback URL for saving
-        callback_url = (
-            f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
-        )
-        # callback_url = "https://2343378cd326.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
+        # callback_url = (
+        #     f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
+        # )
+        callback_url = "https://21a6354cef1d.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
 
         # Build config với các tối ưu cho collaborative editing
         config = {
@@ -325,6 +325,160 @@ def close_document(entity_name):
 
 
 @frappe.whitelist()
+def force_save_before_download(entity_name):
+    """
+    Force save document trước khi download để đảm bảo nội dung mới nhất
+    Gọi OnlyOffice Command Service để trigger save
+    """
+    try:
+        if not frappe.has_permission("Drive File", doc=entity_name, ptype="read"):
+            frappe.throw("Bạn không có quyền truy cập file này")
+
+        entity = frappe.get_doc("Drive File", entity_name)
+        version = entity.get("onlyoffice_version") or 1
+
+        timestamp = int(entity.creation.timestamp())
+        key_string = f"{entity.name}_{timestamp}_{version}"
+        hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
+        doc_key = f"{entity.name}_{timestamp}_{version}_{hash_part}"
+
+        print(f"💾 Force save before download: {doc_key[:50]}...")
+
+        ONLYOFFICE_URL = get_onlyoffice_url()
+        command_url = f"{ONLYOFFICE_URL}/coauthoring/CommandService.ashx"
+
+        command = {"c": "forcesave", "key": doc_key, "userdata": "download_request"}
+
+        secret = frappe.conf.get("onlyoffice_jwt_secret")
+        if secret:
+            token = jwt.encode(command, secret, algorithm="HS256")
+            command_token = token if isinstance(token, str) else token.decode()
+
+            payload = {"token": command_token}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {command_token}",
+            }
+        else:
+            payload = command
+            headers = {"Content-Type": "application/json"}
+
+        response = requests.post(command_url, json=payload, headers=headers, timeout=30)
+        result = response.json()
+
+        print(f"💾 Force save result: {result}")
+
+        if result.get("error") == 0:
+            import time
+
+            time.sleep(4)
+            return {"success": True, "message": "Document saved"}
+        elif result.get("error") == 4:
+            return {"success": True, "message": "No changes to save"}
+        else:
+            return {"success": False, "message": f"Force save error: {result}"}
+
+    except Exception as e:
+        print(f"❌ Error force saving before download: {str(e)}")
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
+def download_from_onlyoffice(entity_name):
+    """
+    Download file trực tiếp từ OnlyOffice session (bao gồm unsaved changes)
+    Sử dụng Command Service để force save và lấy file mới nhất
+    """
+    try:
+        if not frappe.has_permission("Drive File", doc=entity_name, ptype="read"):
+            frappe.throw("Bạn không có quyền truy cập file này")
+
+        entity = frappe.get_doc("Drive File", entity_name)
+        version = entity.get("onlyoffice_version") or 1
+
+        timestamp = int(entity.creation.timestamp())
+        key_string = f"{entity.name}_{timestamp}_{version}"
+        hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
+        doc_key = f"{entity.name}_{timestamp}_{version}_{hash_part}"
+
+        from pathlib import Path
+
+        clean_title = entity.title.replace(" (Bản sao)", "").replace(" (bản sao)", "")
+        file_ext = (
+            Path(clean_title).suffix[1:].lower() if Path(clean_title).suffix else "xlsx"
+        )
+
+        print(f"📥 Download from OnlyOffice: {doc_key[:50]}... ext={file_ext}")
+
+        ONLYOFFICE_URL = get_onlyoffice_url()
+
+        # Step 1: Force save document để đảm bảo nội dung mới nhất được lưu
+        command_url = f"{ONLYOFFICE_URL}/coauthoring/CommandService.ashx"
+        command = {"c": "forcesave", "key": doc_key, "userdata": "download_sync"}
+
+        secret = frappe.conf.get("onlyoffice_jwt_secret")
+        if secret:
+            token = jwt.encode(command, secret, algorithm="HS256")
+            command_token = token if isinstance(token, str) else token.decode()
+            payload = {"token": command_token}
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {command_token}",
+            }
+        else:
+            payload = command
+            headers = {"Content-Type": "application/json"}
+
+        print(f"📡 Step 1: Force save via Command Service...")
+        response = requests.post(command_url, json=payload, headers=headers, timeout=30)
+        result = response.json()
+        print(f"📡 Force save result: {result}")
+
+        # Đợi OnlyOffice callback save hoàn thành
+        if result.get("error") == 0:
+            import time
+
+            print(f"⏳ Waiting for save to complete...")
+            time.sleep(5)
+
+            # Reload entity để lấy modified timestamp mới
+            entity.reload()
+            return {
+                "success": True,
+                "message": "Document saved, ready to download",
+                "use_storage": True,
+            }
+        elif result.get("error") == 4:
+            # No changes to save - file đã up-to-date
+            return {
+                "success": True,
+                "message": "No changes, file is up-to-date",
+                "use_storage": True,
+            }
+        elif result.get("error") == 3:
+            # Document not found - session đã đóng, file đã được save
+            print(f"ℹ️ Document session closed, file should be saved already")
+            return {
+                "success": True,
+                "message": "Session closed, using storage",
+                "use_storage": True,
+            }
+        else:
+            print(f"⚠️ Force save returned: {result}")
+            return {
+                "success": False,
+                "message": f"Force save error: {result}",
+            }
+
+    except Exception as e:
+        print(f"❌ Error in download_from_onlyoffice: {str(e)}")
+        import traceback
+
+        traceback.print_exc()
+        return {"success": False, "message": str(e)}
+
+
+@frappe.whitelist()
 def get_permission_status(entity_name):
     """
     Check current permission status of a file for the logged-in user
@@ -508,10 +662,10 @@ def force_save_document_via_command(entity_name, version):
     try:
         entity = frappe.get_doc("Drive File", entity_name)
 
-        timestamp = int(entity.modified.timestamp())
+        timestamp = int(entity.creation.timestamp())
         key_string = f"{entity.name}_{timestamp}_{version}"
         hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
-        doc_key = f"{entity.name}_{timestamp}_{version}_{hash_part}_True"
+        doc_key = f"{entity.name}_{timestamp}_{version}_{hash_part}"
 
         print(f"💾 Force saving document with key: {doc_key[:50]}...")
 
@@ -567,10 +721,10 @@ def drop_user_from_document(entity_name, user_id, old_version):
     try:
         entity = frappe.get_doc("Drive File", entity_name)
 
-        timestamp = int(entity.modified.timestamp())
+        timestamp = int(entity.creation.timestamp())
         key_string = f"{entity.name}_{timestamp}_{old_version}"
         hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
-        old_key = f"{entity.name}_{timestamp}_{old_version}_{hash_part}_True"
+        old_key = f"{entity.name}_{timestamp}_{old_version}_{hash_part}"
 
         print(f"🔑 Using old key to drop user: {old_key[:50]}...")
 
@@ -611,17 +765,20 @@ def drop_user_from_document(entity_name, user_id, old_version):
 def generate_document_key(entity):
     """
     Tạo document key với version để invalidate sessions
+    QUAN TRỌNG:
+    - Dùng creation timestamp (không thay đổi) thay vì modified
+    - Không bao gồm permission trong key để tất cả users dùng cùng 1 session
+    - Khi cần invalidate session, tăng onlyoffice_version
     """
-    # Lấy version, mặc định là 1
     version = entity.get("onlyoffice_version") or 1
 
-    timestamp = int(entity.modified.timestamp())
+    # Dùng creation timestamp - không thay đổi khi file được save
+    timestamp = int(entity.creation.timestamp())
 
-    # Key format: entityname_timestamp_version_hash
     key_string = f"{entity.name}_{timestamp}_{version}"
     hash_part = hashlib.md5(key_string.encode()).hexdigest()[:8]
 
-    key = f"{entity.name}_{timestamp}_{version}_{hash_part}_{has_edit_permission(entity.name)}"
+    key = f"{entity.name}_{timestamp}_{version}_{hash_part}"
 
     print(f"🔑 Generated key with version {version}: {key[:50]}...")
 

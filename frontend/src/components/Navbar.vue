@@ -115,12 +115,15 @@
       class="flex flex-row items-center h-full gap-[12px] pt-3 px-2 z-0 bg-surface-white"
       v-if="route.name === 'File'"
     >
-      <Button :variant="'ghost'" @click="enterFullScreen">
-        <LucideScan class="w-4 h-4" />
+      <Button class="m-[-8px] !p-[8px] !px-[6px]" :variant="'ghost'" @click="downloadCurrentFile" title="Tải xuống">
+        <LucideDownload class="w-6 h-6 " />
+      </Button>
+      <Button class="m-[-8px] !p-[8px] !px-[6px]" :variant="'ghost'" @click="enterFullScreen">
+        <LucideScan class="w-6 h-6" />
       </Button>
       
       <Button
-        class="text-ink-gray-5 !px-0"
+        class="text-ink-gray-5 !px-0 !px-[6px] m-[-6px]"
         :class="[
           tab === 0
             ? 'text-black bg-transparent'
@@ -140,7 +143,7 @@
       
       <Button
         v-if="rootEntity?.comment"
-        class="text-ink-gray-5 !px-0"
+        class="text-ink-gray-5 !px-0 !px-[6px] m-[-6px]"
         :class="[
           tab === 1
             ? 'text-black bg-transparent'
@@ -255,6 +258,7 @@ import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
 import LucideClock from "~icons/lucide/clock"
+import LucideDownload from "~icons/lucide/download"
 import LucideFileDown from "~icons/lucide/file-down"
 import LucideFilePlus2 from "~icons/lucide/file-plus-2"
 import LucideFileUp from "~icons/lucide/file-up"
@@ -712,6 +716,12 @@ const createOptions = [
     onClick: () => emitter.emit("newLink"),
   },
 ]
+
+function downloadCurrentFile() {
+  if (rootEntity.value?.name) {
+    entitiesDownload(route.params.team, [rootEntity.value])
+  }
+}
 
 function enterFullScreen() {
   const container = document.querySelector('.onlyoffice-container') 
