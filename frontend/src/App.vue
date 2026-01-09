@@ -48,7 +48,7 @@
 
   <!-- Rest of the template remains the same -->
   <SearchPopup v-if="isLoggedIn && showSearchPopup" v-model="showSearchPopup" />
-  <SettingsDialog v-model="showSettings" />
+  <SettingsDialog v-model="showSettings" :suggested-tab="suggestedTab" />
   <Transition enter-active-class="transition duration-[150ms] ease-[cubic-bezier(.21,1.02,.73,1)]"
     enter-from-class="translate-y-1 opacity-0" enter-to-class="translate-y-0 opacity-100"
     leave-active-class="transition duration-[150ms] ease-[cubic-bezier(.21,1.02,.73,1)]"
@@ -64,16 +64,16 @@ import Sidebar from "@/components/Sidebar.vue"
 import UploadTracker from "@/components/UploadTracker.vue"
 import emitter from "@/emitter"
 import { Toasts } from "@/utils/toasts.js"
+import '@vue-flow/controls/dist/style.css'
+import '@vue-flow/core/dist/style.css'
+import '@vue-flow/core/dist/theme-default.css'
+import '@vue-flow/minimap/dist/style.css'
 import { onKeyDown } from "@vueuse/core"
 import { computed, onMounted, provide, ref } from "vue"
 import { useRouter } from "vue-router"
 import { useStore } from "vuex"
 import BottomBar from "./components/BottomBar.vue"
 import SearchPopup from "./components/SearchPopup.vue"
-import '@vue-flow/core/dist/style.css';
-import '@vue-flow/core/dist/theme-default.css';
-import '@vue-flow/controls/dist/style.css';
-import '@vue-flow/minimap/dist/style.css';
 
 const suppressAutoOpenFromQuery = ref(null)
 const openHistoryByCommand = ref(null)
@@ -94,9 +94,11 @@ function handleOpenHistoryFromToast(data) {
 
 
 const showSettings = ref(false)
+const suggestedTab = ref(0)
 
 onMounted(() => {
-  emitter.on("showSettings", () => {
+  emitter.on("showSettings", (tab = 0) => {
+    suggestedTab.value = tab
     showSettings.value = true
   })
 })

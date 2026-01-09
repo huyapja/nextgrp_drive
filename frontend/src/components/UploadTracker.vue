@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex flex-col items-start fixed bottom-0 right-0 w-full m-5 sm:w-96 z-10 rounded-2xl overflow-hidden shadow-2xl 500 bg-surface-white p-4 z-20"
+    class="flex flex-col items-start fixed bottom-[72px] sm:bottom-5 right-2 left-2 sm:left-auto sm:right-5 sm:w-96 z-20 rounded-2xl overflow-hidden shadow-2xl bg-surface-white p-4"
   >
     <div
       class="flex items-center justify-between w-full mb-4 pr-1.5"
@@ -90,7 +90,7 @@
         >
           <div class="flex items-center justify-between w-full">
             <div class="flex justify-start items-center w-full max-w-[80%]">
-              <LucideFile class="w-5 mr-2" />
+              <LucideFile class="size-5 mr-2 flex-shrink-0" />
               <p class="truncate text-sm text-black leading-6 col-span-1 row-span-1">
                 {{ upload.name }}
               </p>

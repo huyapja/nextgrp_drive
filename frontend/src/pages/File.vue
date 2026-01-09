@@ -163,8 +163,11 @@ const onSuccess = (entity) => {
     store.commit("setInfoSidebarTab", 0)
   }
   
-  // Tự động mở drawer thông tin sau khi entity đã được load 
-  store.commit("setShowInfo", true)
+  // Tự động mở drawer thông tin sau khi entity đã được load (chỉ trên desktop)
+  const isMobile = window.innerWidth < 768
+  if (!isMobile) {
+    store.commit("setShowInfo", true)
+  }
 }
 let file = createResource({
   url: "drive.api.permissions.get_entity_with_permissions",

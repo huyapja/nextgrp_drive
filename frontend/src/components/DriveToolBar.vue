@@ -649,4 +649,39 @@ watch(shareView, (newValue) => {
     font-size: 1rem;
   }
 }
+
+/* Breakpoint cho màn hình siêu nhỏ - view-controls xuống dòng */
+@media (max-width: 380px) {
+  .drive-toolbar {
+    @apply gap-2;
+  }
+
+  .search-container {
+    flex: 1 1 100%;
+    order: 1;
+  }
+
+  .controls-container {
+    flex: 1 1 100%;
+    order: 2;
+    /* justify-content: space-between; */
+    flex-wrap: wrap;
+    height: auto;
+    gap: 8px;
+  }
+
+  .view-controls {
+    height: 36px;
+  }
+
+  .view-btn {
+    height: 36px;
+    width: 36px;
+  }
+
+  .control-btn {
+    height: 36px;
+    width: 36px;
+  }
+}
 </style>

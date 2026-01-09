@@ -1,5 +1,5 @@
 <template>
-  <div class="pt-4 overflow-x-hidden relative">
+  <div class="pt-4 overflow-x-hidden relative" :class="{ 'pb-14': isSmallScreen }">
     <div
       class="px-5 overflow-y-auto"
       :style="{ height: scrollableHeight }"
@@ -499,7 +499,8 @@ const fullName = computed(() => store.state.user.fullName)
 const imageURL = computed(() => store.state.user.imageURL)
 
 const scrollableHeight = computed(() => {
-  return `calc(100vh - ${commentInputHeight.value + 16}px)`
+  const bottomBarHeight = props.isSmallScreen ? 56 : 0
+  return `calc(100vh - ${commentInputHeight.value + 16 + bottomBarHeight}px)`
 })
 
 const emojiPickerStyle = computed(() => {

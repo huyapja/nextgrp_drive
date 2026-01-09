@@ -6,11 +6,7 @@
         :icon="LucideBuilding2"
         primary-message="Không có tài liệu trong nhóm"
         secondary-message="Thả tệp vào đây để thêm."
-        :verify="{
-          data: {
-            write,
-          },
-        }"
+        :verify="verifyData"
         @show-team-members="showTeamMembersList = true"
       />
     </div>
@@ -29,7 +25,7 @@ import TeamMembersList from "@/components/TeamMembersList.vue"
 import { getHome, getTeams } from "@/resources/files"
 import { allUsers } from "@/resources/permissions"
 import { createResource } from "frappe-ui"
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue"
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
@@ -88,6 +84,16 @@ const write = computed(
     allUsers.data &&
     allUsers.data.find((k) => k.name === store.state.user.id)?.access_level > 0
 )
+
+const verifyData = reactive({
+  data: {
+    write: false,
+  },
+})
+
+watch(write, (newVal) => {
+  verifyData.data.write = newVal
+}, { immediate: true })
 
 // Set breadcrumbs when teams data is available
 const setBreadcrumbs = () => {

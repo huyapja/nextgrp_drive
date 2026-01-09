@@ -43,6 +43,7 @@ const store = createStore({
     pasteData: { entities: [], action: null },
     showInfo: false,
     infoSidebarTab: 0, // 0: Information, 1: Comments, 2: Activity
+    contextMenuPosition: { x: 0, y: 0 },
     currentFolder: {
       name: getJson("currentFolder", {}),
       team: getJson("currentFolderTeam", {}),
@@ -148,6 +149,9 @@ const store = createStore({
     },
     setInfoSidebarTab(state, payload) {
       state.infoSidebarTab = payload
+    },
+    setContextMenuPosition(state, payload) {
+      state.contextMenuPosition = payload
     },
     setAllComments(state, payload) {
       /* localStorage.setItem("allDocComments",payload); */

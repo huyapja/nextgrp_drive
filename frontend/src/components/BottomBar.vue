@@ -3,30 +3,43 @@
     <div
       ondragstart="return false;"
       ondrop="return false;"
-      class="grid grid-cols-6 h-14 items-center border-y border-outline-gray-2 standalone:pb-4 px-1"
+      class="grid grid-cols-7 h-14 items-center border-y border-outline-gray-2 standalone:pb-4 px-1"
     >
-      <router-link
-        v-for="item in sidebarItems"
-        :key="item.label"
-        v-slot="{ href, navigate }"
-        :to="item.route"
-      >
-        <a
-          v-if="item.label !== 'Team'"
-          class="flex flex-col items-center justify-center py-3 transition active:scale-95 rounded relative"
-          :class="[
-            item.highlight()
-              ? 'bg-surface-white shadow-sm border-[0.5px] border-outline-gray-2'
-              : ' hover:bg-surface-gray-2',
-          ]"
-          :href="href"
-          @click="navigate && $emit('toggleMobileSidebar')"
+      <template v-for="item in sidebarItems" :key="item.label">
+        <!-- Storage button (no route) -->
+        <button
+          v-if="item.isStorage"
+          class="flex flex-col items-center justify-center py-3 transition active:scale-95 rounded relative hover:bg-surface-gray-2"
+          @click="openStorage"
         >
           <component
             :is="item.icon"
-            class="stroke-1.5 self-center w-auto h-5.5 text-ink-gray-8"
+            class="self-center w-5 h-5 text-ink-gray-8"
           />
-        </a>
+        </button>
+        
+        <!-- Regular nav items -->
+        <router-link
+          v-else
+          v-slot="{ href, navigate }"
+          :to="item.route"
+        >
+          <a
+            v-if="item.label !== 'Team'"
+            class="flex flex-col items-center justify-center py-3 transition active:scale-95 rounded relative"
+            :class="[
+              item.highlight()
+                ? 'bg-surface-white shadow-sm border-[0.5px] border-outline-gray-2'
+                : ' hover:bg-surface-gray-2',
+            ]"
+            :href="href"
+            @click="navigate && $emit('toggleMobileSidebar')"
+          >
+            <component
+              :is="item.icon"
+              class="self-center w-5 h-5 text-ink-gray-8"
+            />
+          </a>
         
         <!-- Team button with dropdown -->
         <div
@@ -103,7 +116,8 @@
             </div>
           </Transition>
         </div>
-      </router-link>
+        </router-link>
+      </template>
     </div>
 
     <!-- Create Team Modal -->
@@ -212,27 +226,37 @@
 
 <script>
 import AddCircleDrive from "@/assets/Icons/AddCircleDrive.vue"
+import DocIconDrive from "@/assets/Icons/DocIconDrive.vue"
+import RecentDrive from "@/assets/Icons/RecentDrive.vue"
+import ShareDrive from "@/assets/Icons/ShareDrive.vue"
+import StarDrive from "@/assets/Icons/StarDrive.vue"
+import TeamDrive from "@/assets/Icons/TeamDrive.vue"
+import TrashDrive from "@/assets/Icons/TrashDrive.vue"
 import { getTeams } from "@/resources/files"
 import { toast } from "@/utils/toasts"
 import { Button as ButtonFrappe, Dialog, FormControl } from "frappe-ui"
 import { Pencil } from "lucide-vue-next"
 import LucideBuilding2 from "~icons/lucide/building-2"
-import LucideClock from "~icons/lucide/clock"
-import LucideHome from "~icons/lucide/home"
-import LucideStar from "~icons/lucide/star"
-import LucideTrash from "~icons/lucide/trash"
-import LucideUsers from "~icons/lucide/users"
+import LucideCloud from "~icons/lucide/cloud"
 
 export default {
   name: "Sidebar",
   components: {
     AddCircleDrive,
+    DocIconDrive,
+    RecentDrive,
+    ShareDrive,
+    StarDrive,
+    TeamDrive,
+    TrashDrive,
     ButtonFrappe,
     Dialog,
     FormControl,
     Pencil,
     LucideBuilding2,
+    LucideCloud,
   },
+  inject: ["emitter"],
   emits: ["toggleMobileSidebar"],
   data() {
     return {
@@ -267,15 +291,23 @@ export default {
         {
           label: __("Home"),
           route: "/t/" + this.team,
-          icon: LucideHome,
+          icon: DocIconDrive,
           highlight: () => {
             return this.$store.state.breadcrumbs[0]?.name === "Home"
           },
         },
         {
+          label: "Team",
+          route: "/t/" + this.team + "/team",
+          icon: TeamDrive,
+          highlight: () => {
+            return this.$store.state.breadcrumbs[0]?.name === "Team"
+          },
+        },
+        {
           label: __("Recents"),
           route: "/t/" + this.team + "/recents",
-          icon: LucideClock,
+          icon: RecentDrive,
           highlight: () => {
             return this.$store.state.breadcrumbs[0]?.name === "Recents"
           },
@@ -283,23 +315,15 @@ export default {
         {
           label: __("Favourites"),
           route: "/t/" + this.team + "/favourites",
-          icon: LucideStar,
+          icon: StarDrive,
           highlight: () => {
             return this.$store.state.breadcrumbs[0]?.name === "Favourites"
           },
         },
         {
-          label: "Team",
-          route: "/t/" + this.team + "/team",
-          icon: LucideBuilding2,
-          highlight: () => {
-            return this.$store.state.breadcrumbs[0]?.name === "Team"
-          },
-        },
-        {
           label: __("Shared"),
           route: "/shared",
-          icon: LucideUsers,
+          icon: ShareDrive,
           highlight: () => {
             return this.$store.state.breadcrumbs[0]?.name === "Shared"
           },
@@ -307,10 +331,17 @@ export default {
         {
           label: __("Trash"),
           route: "/t/" + this.team + "/trash",
-          icon: LucideTrash,
+          icon: TrashDrive,
           highlight: () => {
             return this.$store.state.breadcrumbs[0]?.name === "Trash"
           },
+        },
+        {
+          label: __("Storage"),
+          route: null,
+          icon: LucideCloud,
+          highlight: () => false,
+          isStorage: true,
         },
       ]
     },
@@ -380,6 +411,9 @@ export default {
       this.clearTooltipTimeout()
       this.$router.push(`/t/${team.name}/team`)
       this.$emit('toggleMobileSidebar')
+    },
+    openStorage() {
+      this.emitter.emit("showSettings", 2)
     },
     handleEditTeamClick(event, teamItem) {
       event.preventDefault()

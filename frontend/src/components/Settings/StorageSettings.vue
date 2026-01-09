@@ -1,19 +1,18 @@
 <template>
-  <h1 class="font-semibold mb-4 text-ink-gray-9">
+  <h1 class="font-semibold mb-4 text-ink-gray-9 text-base sm:text-lg">
     {{ __("Lưu trữ") }}
   </h1>
 
-  <div class="flex items-center justify-between w-full mb-2">
-    <span class="text-base font-medium text-ink-gray-8">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between w-full mb-2 gap-2">
+    <span class="text-sm sm:text-base font-medium text-ink-gray-8">
       {{ showFileStorage ? "Bạn đã" : "Nhóm của bạn đã" }} sử dụng
-      {{ formatGB(usedSpace) }} trên tổng số {{ showFileStorage ? "của bạn" : "" }}
-      {{ formatGB(spaceLimit) }} ({{
+      {{ formatGB(usedSpace) }} / {{ formatGB(spaceLimit) }} ({{
         formatPercent((usedSpace / spaceLimit) * 100)
       }})
     </span>
 
     <div
-      class="bg-surface-gray-2 rounded-[10px] space-x-0.5 h-7 flex items-center px-0.5 py-1"
+      class="bg-surface-gray-2 rounded-[10px] space-x-0.5 h-7 flex items-center px-0.5 py-1 self-start sm:self-auto flex-shrink-0"
     >
       <TabButtons
         v-model="showFileStorage"
@@ -66,42 +65,43 @@
   </div>
 
   <div
-    class="mt-1 text-ink-gray-8 font-medium text-base py-2"
+    class="mt-1 text-ink-gray-8 font-medium text-sm sm:text-base py-2"
     :class="storageBreakdown.data?.entities?.length ? 'border-b' : ''"
   >
     Tệp lớn:
   </div>
 
   <div
-    class="flex flex-col items-start justify-start w-full rounded full px-1.5 overflow-y-auto"
+    class="flex flex-col items-start justify-start w-full rounded full px-1 sm:px-1.5 overflow-y-auto max-h-[40vh] sm:max-h-[50vh]"
   >
     <div
       v-for="(i, index) in storageBreakdown.data?.entities"
       :key="i.name"
-      class="w-full h-10 flex items-center justify-start py-3 gap-x-2"
+      class="w-full min-h-[40px] flex items-center justify-start py-2 sm:py-3 gap-x-2"
       :class="index > 0 ? 'border-t' : ''"
       @mouseenter="hoveredRow = i.name"
       @mouseleave="hoveredRow = null"
+      @click="isMobile && openEntity($route.params.team, i) && $emit('close')"
     >
-      <img :src="getIconUrl(i.file_type)" />
-      <span class="text-ink-gray-8 text-sm truncate">{{ i.title }}</span>
+      <img :src="getIconUrl(i.file_type)" class="w-5 h-5 flex-shrink-0" />
+      <span class="text-ink-gray-8 text-xs sm:text-sm truncate flex-1 min-w-0">{{ i.title }}</span>
 
-      <div class="text-ink-gray-8 text-sm ml-auto flex gap-2 h-10 leading-10">
+      <div class="text-ink-gray-8 text-xs sm:text-sm ml-auto flex items-center gap-1 sm:gap-2 flex-shrink-0">
         <Button
-          v-if="hoveredRow === i.name"
+          v-if="hoveredRow === i.name || isMobile"
           variant="ghost"
-          class="self-center"
-          @click="openEntity($route.params.team, i), $emit('close')"
+          class="self-center !p-1"
+          @click.stop="openEntity($route.params.team, i), $emit('close')"
         >
           <LucideArrowRight class="size-4 text-ink-gray-5" />
         </Button>
-        {{ formatSize(i.file_size) }}
+        <span class="whitespace-nowrap">{{ formatSize(i.file_size) }}</span>
       </div>
     </div>
 
     <div
       v-if="!storageBreakdown.data?.entities?.length"
-      class="py-4 text-center w-full text-sm text-italic"
+      class="py-4 text-center w-full text-xs sm:text-sm text-italic"
     >
       {{ __("Không tìm thấy tệp nào.") }}
     </div>
@@ -113,12 +113,13 @@ import { MIME_LIST_MAP, openEntity } from "@/utils/files"
 import { COLOR_MAP, formatPercent, formatSize } from "@/utils/format"
 import { getIconUrl } from "@/utils/getIconUrl"
 import { createResource, TabButtons, Tooltip } from "frappe-ui"
-import { ref, watch } from "vue"
+import { computed, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import LucideArrowRight from "~icons/lucide/arrow-right"
 import LucideCloud from "~icons/lucide/cloud"
 
 const hoveredRow = ref(null)
+const isMobile = computed(() => window.innerWidth < 640)
 const showFileStorage = ref(true)
 const usedSpace = ref(0)
 const spaceLimit = ref(0)

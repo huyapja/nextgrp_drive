@@ -39,7 +39,8 @@ export default defineConfig({
     allowedHosts: [
       "drive.localhost",
       "b5371ace976e.ngrok-free.app",
-      ".ngrok-free.app" // This allows all ngrok-free.app subdomains
+      ".ngrok-free.app",
+      ".lhr.life"
     ],
     port: 8082,
     host: true

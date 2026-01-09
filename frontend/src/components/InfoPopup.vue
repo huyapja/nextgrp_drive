@@ -6,8 +6,8 @@
   >
     <UseDraggable
       v-if="entity.visible !== false"
-      class="fixed"
-      :initial-value="{ x: width - (i + 1) * 330, y: height - 500 }"
+      class="fixed z-50"
+      :initial-value="getInitialPosition(i)"
     >
       <div
         class="w-[300px] bg-surface-white border border-outline-gray-2 rounded-xl shadow-xl p-4 backdrop-blur-md z-30"
@@ -141,10 +141,33 @@ import { formatDate } from "@/utils/format"
 import { UseDraggable } from "@vueuse/components"
 import { Button } from "frappe-ui"
 import { computedAsync } from "@vueuse/core"
+import { useStore } from "vuex"
+
+const store = useStore()
 
 const props = defineProps({
   entities: Array,
 })
+
+const getInitialPosition = (index) => {
+  const pos = store.state.contextMenuPosition
+  const popupWidth = 300
+  const popupHeight = 400
+  
+  let x = pos.x
+  let y = pos.y
+  
+  if (x + popupWidth > window.innerWidth) {
+    x = pos.x - popupWidth - 20
+  }
+  if (y + popupHeight > window.innerHeight) {
+    y = window.innerHeight - popupHeight - 20
+  }
+  if (y < 10) y = 10
+  if (x < 10) x = 10
+  
+  return { x: x - index * 10, y: y + index * 10 }
+}
 
 function getOwnerName(index, ownerEmail) {
   if (!access.value?.[index]?.users?.message) return ownerEmail
@@ -181,8 +204,6 @@ function getFileTypeVi(type) {
   return map[type.toLowerCase()] || type
 }
 
-const height = document.body.clientHeight
-const width = document.body.clientWidth
 const access = computedAsync(async () => {
   const res = []
   for (let p of props.entities) {

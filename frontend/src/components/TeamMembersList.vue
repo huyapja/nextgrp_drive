@@ -11,7 +11,7 @@
   <transition name="slide">
     <div
       v-if="visible"
-      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-5"
+      class="bg-white border-l border-gray-200 h-[100vh] flex flex-col min-w-[276px] max-w-[276px] py-5 px-4 z-50"
       :class="isDrawer ? 'fixed right-0 top-0 min-w-[276px] max-w-[276px] h-full shadow-lg' : ''"
     >
       <!-- Header -->
@@ -48,8 +48,9 @@
           <div 
             class="flex items-center flex-wrap gap-2 relative group cursor-pointer" 
             :class="isNarrow ? 'flex-column' : 'flex-row'"
-            @mouseenter="handleMemberHover($event, manager, 'manager')"
-            @mouseleave="handleMouseLeave"
+            @click="handleMemberClick($event, manager, 'manager')"
+            @mouseenter="!isTouchDevice && handleMemberHover($event, manager, 'manager')"
+            @mouseleave="!isTouchDevice && handleMouseLeave()"
           >
             <div>
               <img
@@ -79,8 +80,9 @@
             v-for="member in regularMembers"
             :key="member.name"
             class="flex flex-col flex-wrap items-center relative group cursor-pointer"
-            @mouseenter="handleMemberHover($event, member, 'member')"
-            @mouseleave="handleMouseLeave"
+            @click="handleMemberClick($event, member, 'member')"
+            @mouseenter="!isTouchDevice && handleMemberHover($event, member, 'member')"
+            @mouseleave="!isTouchDevice && handleMouseLeave()"
           >
             <img
               v-if="member.user_image"
@@ -191,6 +193,8 @@ const tooltipMember = ref(null)
 const tooltipType = ref('')
 const tooltipStyle = ref({})
 const arrowStyle = ref({})
+const isTouchDevice = ref(false)
+const tooltipRef = ref(null)
 
 let resizeObserver = null
 let hideTimeout = null
@@ -247,6 +251,10 @@ onMounted(() => {
       window.addEventListener('resize', checkHeaderWidth)
     }
     window.addEventListener('resize', checkScreenWidth)
+    
+    isTouchDevice.value = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+    
+    document.addEventListener('click', handleClickOutside)
   })
   
   if (route.params.team) {
@@ -258,6 +266,7 @@ onUnmounted(() => {
   if (resizeObserver && headerRef.value) resizeObserver.unobserve(headerRef.value)
   window.removeEventListener('resize', checkHeaderWidth)
   window.removeEventListener('resize', checkScreenWidth)
+  document.removeEventListener('click', handleClickOutside)
   if (hideTimeout) clearTimeout(hideTimeout)
 })
 
@@ -313,8 +322,7 @@ const handleClose = () => {
   console.log('🔵 All close events emitted')
 }
 
-const handleMemberHover = (event, member, type) => {
-  const element = event.currentTarget
+const showTooltipForMember = (element, member, type) => {
   if (!element) return
 
   const rect = element.getBoundingClientRect()
@@ -358,6 +366,36 @@ const handleMemberHover = (event, member, type) => {
     hideTimeout = null
   }
   showTooltip.value = true
+}
+
+const handleMemberHover = (event, member, type) => {
+  showTooltipForMember(event.currentTarget, member, type)
+}
+
+const handleMemberClick = (event, member, type) => {
+  event.stopPropagation()
+  
+  if (showTooltip.value && tooltipMember.value?.name === member.name) {
+    showTooltip.value = false
+    tooltipMember.value = null
+  } else {
+    showTooltipForMember(event.currentTarget, member, type)
+  }
+}
+
+const handleClickOutside = (event) => {
+  if (!showTooltip.value) return
+  
+  const tooltipEl = document.querySelector('.fixed.z-\\[9999\\]')
+  if (tooltipEl && tooltipEl.contains(event.target)) return
+  
+  const memberEls = document.querySelectorAll('.group.cursor-pointer')
+  for (const el of memberEls) {
+    if (el.contains(event.target)) return
+  }
+  
+  showTooltip.value = false
+  tooltipMember.value = null
 }
 
 const handleMouseLeave = () => {

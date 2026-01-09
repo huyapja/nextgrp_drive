@@ -714,6 +714,11 @@ const onRowContextMenu = (event, row) => {
   rowEvent.value = event
   highlightedRow.value = row.uniqueKey
   isContextMenuOpen.value = true
+  
+  store.commit("setContextMenuPosition", { 
+    x: event.clientX + 10, 
+    y: event.clientY 
+  })
 
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
@@ -755,6 +760,12 @@ const onRowOptions = (event, row) => {
   isContextMenuOpen.value = true
 
   rowEvent.value = event
+  
+  const rect = event.target.getBoundingClientRect()
+  store.commit("setContextMenuPosition", { 
+    x: rect.right + 10, 
+    y: rect.top 
+  })
 
   if (groupedContextMenu.value) {
     groupedContextMenu.value.show(event)
@@ -1192,7 +1203,8 @@ const onSort = (event) => {
 }
 
 .file-icon {
-  @apply w-[18px] h-[18px] flex-shrink-0 rounded-[2px];
+  @apply w-[24px] h-[24px] flex-shrink-0 rounded-[2px];
+  object-fit: contain;
 }
 
 .file-name {
@@ -1291,8 +1303,13 @@ const onSort = (event) => {
     @apply gap-2;
     max-width: 160px;
   }
+  .file-container {
+    width: 24px;
+    height: 24px;
+  }
   .file-icon {
-    @apply w-[16px] h-[16px];
+    @apply w-[24px] h-[24px];
+    object-fit: contain;
   }
 }
 
@@ -1326,7 +1343,19 @@ const onSort = (event) => {
 
 .file-container {
   position: relative;
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.file-container img{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 4px;
 }
 
 .shortcut-badge {

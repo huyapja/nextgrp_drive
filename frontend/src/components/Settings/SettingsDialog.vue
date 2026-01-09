@@ -57,7 +57,7 @@
 </template>
 <script setup>
 import { Button, Dialog } from "frappe-ui"
-import { computed, defineProps, markRaw, ref } from "vue"
+import { computed, defineProps, markRaw, ref, watch } from "vue"
 // Profile removed from Settings
 import LucideCloudCog from "~icons/lucide/cloud-cog"
 import LucideTag from "~icons/lucide/tag"
@@ -109,5 +109,11 @@ const open = computed({
       activeTab.value = tabs[0]
     }
   },
+})
+
+watch(() => props.modelValue, (isOpen) => {
+  if (isOpen && props.suggestedTab !== undefined && tabs[props.suggestedTab]) {
+    activeTab.value = tabs[props.suggestedTab]
+  }
 })
 </script>
