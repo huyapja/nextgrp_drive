@@ -574,7 +574,7 @@ def broadcast_node_editing(entity_name, node_id, is_editing):
     except Exception as e:
         frappe.log_error(f"Broadcast editing: {str(e)[:100]}", "Broadcast Editing")
         return {"success": False}
-
+    
 
 @frappe.whitelist()
 def save_mindmap_nodes_batch(entity_name, nodes_data, edges_data=None):

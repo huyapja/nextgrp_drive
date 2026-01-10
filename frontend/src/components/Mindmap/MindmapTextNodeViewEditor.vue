@@ -7,7 +7,7 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch, computed, provide } from "vue"
+import { onMounted, onBeforeUnmount, ref, watch, computed, provide, inject } from "vue"
 import { Editor, EditorContent } from "@tiptap/vue-3"
 import StarterKit from "@tiptap/starter-kit"
 import { InlineStyle } from "./components/extensions/InlineStyle"
@@ -21,6 +21,41 @@ import { HeadingWithNodeId, ListItemWithNodeId, ParagraphWithNodeId } from "./co
 import { createEditorKeyDown } from "./components/MindmapTextNodeViewEditor/editorKeymap"
 import { ListItemChildrenSync } from "./components/extensions/ListItemChildrenSync"
 import { TextSelection } from "@tiptap/pm/state"
+import { useRoute } from "vue-router"
+import { createResource } from "frappe-ui"
+import { getNodeIdFromSelection } from "./utils/getNodeIdFromSelection"
+import { useNodeEditingTracker } from "./components/MindmapTextNodeViewEditor/useNodeEditingTracker"
+
+
+const REMOTE_USER_COLORS = [
+  "#3b82f6",
+  "#22c55e",
+  "#f97316",
+  "#a855f7",
+  "#ef4444",
+  "#14b8a6",
+  "#eab308",
+  "#ec4899",
+  "#0ea5e9",
+  "#84cc16",
+]
+
+function getRemoteUserColor(userId) {
+  if (remoteUserColorMap.has(userId)) {
+    return remoteUserColorMap.get(userId)
+  }
+
+  const color =
+    REMOTE_USER_COLORS[
+    colorCursor % REMOTE_USER_COLORS.length
+    ]
+
+  remoteUserColorMap.set(userId, color)
+  colorCursor++
+
+  return color
+}
+
 
 
 /* ================================
@@ -38,9 +73,20 @@ const props = defineProps({
 })
 
 let isComposing = false
-let isEditorEmitting = false
 let isEditorFocused = false
 let isCreatingDraftNode = false
+let isEditorEmitting = false
+let lastCaretNodeId = null
+
+const remoteUserColorMap = new Map()
+let colorCursor = 0
+
+const typingState = {
+  value: false,
+}
+
+
+const socket = inject("socket")
 
 
 const emit = defineEmits([
@@ -62,6 +108,8 @@ const canEdit = computed(() => {
 const canEditContent = computed(() => {
   return props.permissions?.write === 1
 })
+
+const remoteEditingNodes = new Map()
 
 /* ================================
  * Helpers
@@ -103,6 +151,18 @@ function syncFromEditor(editor) {
   })
 }
 
+const route = useRoute()
+const entityName = computed(() => route.params.entityName)
+const broadcastEditingResource = createResource({ url: "drive.api.mindmap.broadcast_node_editing", method: "POST" })
+
+
+const editingTracker = useNodeEditingTracker({
+  entityName,
+  broadcastEditingResource,
+  delay: 120,
+})
+
+
 
 let syncTimer = null
 
@@ -110,7 +170,7 @@ function syncFromEditorDebounced(editor) {
   clearTimeout(syncTimer)
   syncTimer = setTimeout(() => {
     syncFromEditor(editor)
-  }, 500)
+  }, 350)
 }
 
 function isEmptyBlockquote(node) {
@@ -130,12 +190,148 @@ const editor = ref(null)
 provide('editorPermissions', computed(() => props.permissions))
 
 
+const getCookie = name => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+  return null;
+};
+
+// lấy id của người dùng ví dụ như hoviethung.work@gmail.com
+const userIdFromCookie = computed(() =>
+  decodeURIComponent(getCookie('user_id') || '')
+);
+
+
+function removeRemoteIndicator(userId) {
+  document
+    .querySelectorAll(
+      `.remote-node-indicator[data-user-id="${userId}"]`
+    )
+    .forEach(el => el.remove())
+}
+
+
+function findNodeLi(nodeId) {
+  return document.querySelector(
+    `li[data-node-id="${nodeId}"]`
+  )
+}
+
+function getEditingUserOfNode(nodeId) {
+  for (const [, info] of remoteEditingNodes) {
+    if (info.nodeId === nodeId) {
+      return info
+    }
+  }
+  return null
+}
+
+provide("getEditingUserOfNode", getEditingUserOfNode)
+
+function handleRealtimeNodeEditing(payload) {
+  const {
+    user_id,
+    user_name,
+    node_id,
+    is_editing,
+  } = payload
+
+  // bỏ qua chính mình
+  if (user_id === userIdFromCookie.value) return
+
+  // xoá indicator cũ của user này
+  removeRemoteIndicator(user_id)
+
+  // nếu user stop edit → không render gì nữa
+  if (!is_editing || !node_id) {
+    remoteEditingNodes.delete(user_id)
+    return
+  }
+
+  remoteEditingNodes.set(user_id, {
+    nodeId: node_id,
+    userId: user_id,
+    userName: user_name,
+  })
+
+  // tìm node <li>
+  const li = findNodeLi(node_id)
+  if (!li) return
+
+  const color = getRemoteUserColor(user_id)
+
+  // tạo indicator
+  const indicator = document.createElement("span")
+  indicator.className = "remote-node-indicator"
+  indicator.dataset.userId = user_id
+  indicator.dataset.userName = user_name
+
+  indicator.style.color = color
+
+  indicator.style.setProperty(
+    "--remote-color",
+    color
+  )
+
+  const mmNode =
+    li.querySelector(".mm-node") ||
+    li.querySelector("p") ||
+    li
+
+  mmNode.prepend(indicator)
+}
+
+
 onMounted(() => {
   editor.value = new Editor({
     content: props.initialContent,
     editable: canEdit.value && canEditContent.value,
     autofocus: "start",
     permissions: {},
+    onSelectionUpdate({ editor }) {
+      if (!canEdit.value || !canEditContent.value) return
+      if (editor.view.composing) return
+      if (editor.state.selection.$anchor.parent.type.name === "blockquote") return
+
+      const { selection } = editor.state
+      if (!selection || !selection.empty) return
+
+      const lastTr = editor.view.state.tr
+      if (lastTr?.getMeta("ui-only")) return
+
+      const nodeId = getNodeIdFromSelection(editor)
+      if (!nodeId) return
+
+      // ==============================
+      // REMOTE LOCK – DÙNG TRỰC TIẾP
+      // ==============================
+      const editingUser = getEditingUserOfNode(nodeId)
+      if (editingUser) {
+        // typingState.value = false
+        return
+      }
+
+      const isNodeChanged = nodeId !== lastCaretNodeId
+
+      if (isNodeChanged) {
+        lastCaretNodeId = nodeId
+        typingState.value = false
+
+        editingTracker.sendCaret({
+          view: "text",
+          nodeId,
+        })
+        return
+      }
+
+      if (typingState.value) return
+
+      editingTracker.sendCaret({
+        view: "text",
+        nodeId,
+      })
+    },
     syncFromEditor,
     syncFromEditorDebounced,
     onOpenComment(nodeId, options = {}) {
@@ -206,10 +402,17 @@ onMounted(() => {
         editor,
         flags: {
           isCreatingDraftNode,
+          typingState,
         },
+        getEditingUserOfNode
       }),
 
       handleDOMEvents: {
+        mousedown: () => {
+          typingState.value = false
+          return false
+        },
+
         focus: () => {
           isEditorFocused = true
         },
@@ -314,11 +517,22 @@ onMounted(() => {
     }
 
   })
+
+  if (!socket) return
+  socket.on(
+    "drive_mindmap:node_editing",
+    handleRealtimeNodeEditing
+  )
 })
 
 
 onBeforeUnmount(() => {
   editor.value?.destroy()
+  if (!socket) return
+  socket.off(
+    "drive_mindmap:node_editing",
+    handleRealtimeNodeEditing
+  )
 })
 
 watch(
@@ -386,7 +600,11 @@ watch(
   { immediate: true, deep: true }
 )
 
-
+defineExpose({
+  forceStopEditing() {
+    editingTracker.forceStop("switch-view")
+  }
+})
 </script>
 
 <style scoped>
@@ -477,11 +695,6 @@ watch(
   background-color: #faedc2 !important;
   border-radius: 3px;
 }
-
-/* .prose :deep(li[data-is-clicked="true"] .mm-node > div span[data-inline-root]) {
-  background-color: #faedc2 !important;
-  border-radius: 3px;
-} */
 
 .prose :deep(.mm-node.is-comment-hover:not(:has(span[data-inline-root]))) {
   background-color: #faedc2;
@@ -584,5 +797,44 @@ watch(
 
 .prose :deep(img + img) {
   margin-top: 20px;
+}
+
+.prose :deep(.remote-node-indicator) {
+  --remote-color: #3b82f6;
+  color: var(--remote-color);
+  background-color: var(--remote-color);
+}
+
+.prose :deep(.remote-node-indicator::after) {
+  background: var(--remote-color);
+}
+
+.prose :deep(.remote-node-indicator) {
+  width: 2px;
+  height: 1.2em;
+  border-radius: 1px;
+  position: absolute;
+  left: -1%;
+  transform: translateX(-20%);
+}
+
+.prose :deep(.remote-node-indicator::after) {
+  content: attr(data-user-name);
+  position: absolute;
+  top: -18px;
+  right: 0;
+  color: white;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: 0.15s ease;
+}
+
+.prose :deep(.remote-node-indicator:hover::after) {
+  opacity: 1;
+  transform: translateY(0);
 }
 </style>
