@@ -29,6 +29,15 @@ def get_editor_config(entity_name):
 
         entity = frappe.get_doc("Drive File", entity_name)
 
+        # Xác định ai là chủ file
+        is_owner = entity.owner == frappe.session.user
+        has_edit = has_edit_permission(entity_name)
+
+        print(f"👤 Current user: {frappe.session.user}")
+        print(f"📄 File owner: {entity.owner}")
+        print(f"🔑 Is owner: {is_owner}")
+        print(f"✏️  Has edit permission: {has_edit}")
+
         if not frappe.has_permission("Drive File", doc=entity_name, ptype="read"):
             frappe.throw("You do not have permission to access this file")
 
@@ -59,10 +68,25 @@ def get_editor_config(entity_name):
         document_type = get_document_type(file_ext)
 
         # Callback URL for saving
-        callback_url = (
-            f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
-        )
-        # callback_url = "https://21a6354cef1d.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
+        # callback_url = (
+        #     f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
+        # )
+        callback_url = "https://5724eb6dec20.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
+
+        # Xác định permissions
+        can_edit = has_edit and is_owner
+        show_review_changes = document_type == "word" and is_owner
+
+        print(f"📝 Final permissions.edit: {can_edit}")
+        print(f"👁️  showReviewChanges (balloon Accept/Reject): {show_review_changes}")
+        if can_edit:
+            print("   → User A (chủ file): Edit mode - nhập trực tiếp, lưu luôn")
+            print("   → Thấy balloon Accept/Reject để duyệt thay đổi của User B")
+        else:
+            print(
+                "   → User B (thành viên): Review Only mode - track changes tự động bật"
+            )
+            print("   → KHÔNG thấy balloon Accept/Reject, chỉ thấy text được track")
 
         # Build config với các tối ưu cho collaborative editing
         config = {
@@ -73,10 +97,18 @@ def get_editor_config(entity_name):
                 "fileType": file_ext,
                 "key": generate_document_key(entity),  # Key thông minh hơn
                 "permissions": {
-                    "edit": has_edit_permission(entity_name),
+                    # YÊU CẦU:
+                    # - User A (chủ file): edit=True → nhập trực tiếp, lưu luôn
+                    # - User B (thành viên): edit=False → vào "Review Only" mode
+                    #   → Track Changes TỰ ĐỘNG BẬT (theo docs OnlyOffice)
+                    #   → mọi thay đổi phải User A duyệt (Accept/Reject)
+                    "edit": can_edit,
                     "download": True,
                     "print": True,
-                    "review": True if entity.owner == frappe.session.user else False,
+                    # review=True cho TẤT CẢ để:
+                    # - User A: có thể Accept/Reject changes của User B
+                    # - User B: vào Review Only mode khi edit=False
+                    "review": True,
                     "comment": True,
                     "fillForms": True,
                     "modifyFilter": True,
@@ -105,24 +137,13 @@ def get_editor_config(entity_name):
                     "chat": True,
                     "comments": True,
                     "plugins": True,
-                    "trackChanges": (
-                        True
-                        if document_type == "word"
-                        and entity.owner != frappe.session.user
-                        else False
-                    ),
-                    "showReviewChanges": True if document_type == "word" else False,
+                    # CHỈ User A (chủ file) thấy balloon Accept/Reject
+                    # User B (thành viên) chỉ thấy text được track, KHÔNG thấy balloon
+                    "showReviewChanges": show_review_changes,
+                    # Chế độ hiển thị: markup = hiện balloon Accept/Reject
                     "reviewDisplay": (
                         "markup" if document_type == "word" else "original"
                     ),
-                    "review": {
-                        "hideReviewDisplay": False,
-                        "hoverMode": False,
-                        "showReviewChanges": False,
-                        "trackChanges": (
-                            True if entity.owner == frappe.session.user else False
-                        ),
-                    },
                 },
                 "events": {
                     "onDocumentReady": "onDocumentReady",
