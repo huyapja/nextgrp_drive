@@ -1,28 +1,31 @@
 <template>
-  <div class="flex items-center mb-6">
-    <h1 class="font-semibold text-ink-gray-9">
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-0 mb-4 sm:mb-6">
+    <h1 class="font-semibold text-base sm:text-lg text-ink-gray-9">
       {{ __("Thẻ") }}
     </h1>
     <Button
-      class="ml-auto mr-4 !bg-[#0149C1] text-white hover:!opacity-90"
+      class="sm:ml-auto sm:mr-4 !bg-[#0149C1] text-white hover:!opacity-90 w-full sm:w-auto"
       variant="solid"
       icon-left="plus"
       @click="showNewTagDialog = true"
     >
-      {{ __("Tạo mới") }}
+      <span class="text-sm sm:text-base">{{ __("Tạo mới") }}</span>
     </Button>
   </div>
-  <div class="flex flex-col items-stretch justify-start overflow-y-auto">
+  
+  <!-- Tags List -->
+  <div class="flex flex-col items-stretch justify-start overflow-y-auto max-h-[50vh] sm:max-h-[60vh]">
     <div
       v-for="(tag, i) in $resources.getTagsWithOwner.data"
       :key="tag.name"
     >
       <div
-        class="flex items-center justify-start text-sm py-1.5 gap-x-1.5 w-full"
+        class="flex items-center justify-start py-2 sm:py-1.5 gap-x-2 sm:gap-x-1.5 w-full"
         :class="i > 0 ? 'border-t' : ''"
       >
         <svg
-          class="h-2.5"
+          class="h-3 sm:h-2.5 flex-shrink-0"
           width="16"
           height="16"
           viewBox="0 0 16 16"
@@ -38,9 +41,9 @@
             stroke-width="3"
           />
         </svg>
-        <span class="text-sm text-ink-gray-8">{{ tag.title }}</span>
+        <span class="text-sm sm:text-sm text-ink-gray-8 truncate flex-1 min-w-0">{{ tag.title }}</span>
         <Dropdown
-          class="ml-auto"
+          class="flex-shrink-0"
           placement="right"
           :options="[
             {
@@ -63,6 +66,7 @@
         >
           <Button
             variant="ghost"
+            class="!p-1.5 sm:!p-1"
             @click="selectedTag = tag"
           >
             <template #icon>
@@ -72,11 +76,13 @@
         </Dropdown>
       </div>
     </div>
+    
+    <!-- Empty State -->
     <div
       v-if="!$resources.getTagsWithOwner.data?.length"
-      class="h-full w-full flex flex-col items-center justify-center my-auto"
+      class="h-full min-h-[200px] w-full flex flex-col items-center justify-center my-auto"
     >
-      <LucideTag class="h-7 stroke-1 text-ink-gray-5" />
+      <LucideTag class="h-7 sm:h-8 stroke-1 text-ink-gray-5" />
       <span class="text-ink-gray-8 text-sm mt-2">Không có thẻ nào</span>
     </div>
   </div>
@@ -113,6 +119,8 @@
 </template>
 <script>
 import { Button, Dialog, Dropdown } from "frappe-ui"
+import LucideMoreHorizontal from "~icons/lucide/more-horizontal"
+import LucideTag from "~icons/lucide/tag"
 import EditTagDialog from "./EditTagDialog.vue"
 import NewTagDialog from "./NewTagDialog.vue"
 
@@ -124,6 +132,8 @@ export default {
     NewTagDialog,
     EditTagDialog,
     Dialog,
+    LucideMoreHorizontal,
+    LucideTag,
   },
   data() {
     return {
