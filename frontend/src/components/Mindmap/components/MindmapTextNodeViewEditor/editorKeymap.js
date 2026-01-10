@@ -1,6 +1,8 @@
 import { TextSelection } from "@tiptap/pm/state"
 import { splitListItem } from "@tiptap/pm/schema-list"
 import { sinkListItem, liftListItem } from "@tiptap/pm/schema-list"
+import { toast } from '@/utils/toasts'
+
 
 function getCurrentListItem($from, schema) {
   for (let d = $from.depth; d > 0; d--) {
@@ -16,7 +18,7 @@ function getCurrentListItem($from, schema) {
   return null
 }
 
-export function createEditorKeyDown({ editor, flags }) {
+export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
   function insertTempChildNode(editorInstance, newNodeId) {
     const { state, view } = editorInstance
     const { selection, schema } = state
@@ -51,20 +53,70 @@ export function createEditorKeyDown({ editor, flags }) {
     view.focus()
   }
 
+  let lastBlockedNodeId = null
+  let lastToastAt = 0
+
   return function handleKeyDown(view, event) {
+    const { state } = view
+    const { selection, schema } = state
+    const { $from } = selection
+
+    // ==============================
+    // 🔒 REMOTE LOCK – BLOCK SỚM
+    // ==============================
+    let liDepth = null
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type === schema.nodes.listItem) {
+        liDepth = d
+        break
+      }
+    }
+
+    if (liDepth) {
+      const liNode = $from.node(liDepth)
+      const nodeId = liNode?.attrs?.nodeId
+
+      // reset khi sang node khác
+      if (lastBlockedNodeId && lastBlockedNodeId !== nodeId) {
+        lastBlockedNodeId = null
+      }
+
+      if (nodeId) {
+        const editingUser = getEditingUserOfNode?.(nodeId)
+
+        if (editingUser) {
+          const now = Date.now()
+
+          if (lastBlockedNodeId !== nodeId || now - lastToastAt > 1500) {
+            lastBlockedNodeId = nodeId
+            lastToastAt = now
+
+            toast({
+              title: `${editingUser.userName} đang chỉnh sửa node này`,
+              text: "Vui lòng đợi họ hoàn thành",
+              indicator: "orange",
+              timeout: 3,
+            })
+          }
+
+          const blocked =
+            event.key.length === 1 ||
+            event.key === "Enter" ||
+            event.key === "Backspace" ||
+            event.key === "Delete" ||
+            event.key === "Tab"
+
+          if (blocked) {
+            event.preventDefault()
+            event.stopPropagation()
+            return true
+          }
+        }
+      }
+    }
     // ==============================
     // ADD CHILD NODE
     // ==============================
-
-    if (
-      event.key.length === 1 || // chữ, số, dấu
-      event.key === "Enter" ||
-      event.key === "Backspace" ||
-      event.key === "Delete"
-    ) {
-      flags.typingState.value = true
-    }
-
     if (event.key === "Enter") {
       const { state, dispatch } = view
       const { selection, schema } = state
@@ -205,14 +257,14 @@ export function createEditorKeyDown({ editor, flags }) {
 
         dispatch(tr)
 
-        // 6️⃣ báo intent cho mindmap layer
+        //  báo intent cho mindmap layer
         editor.value?.options?.onAddChildNode?.({
           anchorNodeId: nodeId,
           newNodeId,
           position: "before_carpet",
         })
 
-        // 7️⃣ reset flag
+        // reset flag
         requestAnimationFrame(() => {
           flags.isCreatingDraftNode = false
         })
@@ -266,10 +318,10 @@ export function createEditorKeyDown({ editor, flags }) {
           label: `<p>${beforeText}</p>`,
         })
 
-        // 1️⃣ split
+        // split
         splitListItem(schema.nodes.listItem)(state, view.dispatch)
 
-        // 2️⃣ state sau split
+        // state sau split
         const nextState = view.state
         const tr = nextState.tr
 
@@ -294,7 +346,7 @@ export function createEditorKeyDown({ editor, flags }) {
             ...restAttrs,
             nodeId: newNodeId,
           })
-          // ✅ 2. resolve lại position SAU KHI setNodeMarkup
+          // resolve lại position SAU KHI setNodeMarkup
           const $liPos = tr.doc.resolve(newLiPos)
 
           // tìm paragraph thật sự trong listItem

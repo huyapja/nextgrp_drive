@@ -27,6 +27,37 @@ import { getNodeIdFromSelection } from "./utils/getNodeIdFromSelection"
 import { useNodeEditingTracker } from "./components/MindmapTextNodeViewEditor/useNodeEditingTracker"
 
 
+const REMOTE_USER_COLORS = [
+  "#3b82f6",
+  "#22c55e",
+  "#f97316",
+  "#a855f7",
+  "#ef4444",
+  "#14b8a6",
+  "#eab308",
+  "#ec4899",
+  "#0ea5e9",
+  "#84cc16",
+]
+
+function getRemoteUserColor(userId) {
+  if (remoteUserColorMap.has(userId)) {
+    return remoteUserColorMap.get(userId)
+  }
+
+  const color =
+    REMOTE_USER_COLORS[
+    colorCursor % REMOTE_USER_COLORS.length
+    ]
+
+  remoteUserColorMap.set(userId, color)
+  colorCursor++
+
+  return color
+}
+
+
+
 /* ================================
  * Props / Emits
  * ================================ */
@@ -47,6 +78,8 @@ let isCreatingDraftNode = false
 let isEditorEmitting = false
 let lastCaretNodeId = null
 
+const remoteUserColorMap = new Map()
+let colorCursor = 0
 
 const typingState = {
   value: false,
@@ -75,6 +108,8 @@ const canEdit = computed(() => {
 const canEditContent = computed(() => {
   return props.permissions?.write === 1
 })
+
+const remoteEditingNodes = new Map()
 
 /* ================================
  * Helpers
@@ -135,7 +170,7 @@ function syncFromEditorDebounced(editor) {
   clearTimeout(syncTimer)
   syncTimer = setTimeout(() => {
     syncFromEditor(editor)
-  }, 500)
+  }, 350)
 }
 
 function isEmptyBlockquote(node) {
@@ -168,59 +203,84 @@ const userIdFromCookie = computed(() =>
 );
 
 
+function removeRemoteIndicator(userId) {
+  document
+    .querySelectorAll(
+      `.remote-node-indicator[data-user-id="${userId}"]`
+    )
+    .forEach(el => el.remove())
+}
+
+
+function findNodeLi(nodeId) {
+  return document.querySelector(
+    `li[data-node-id="${nodeId}"]`
+  )
+}
+
+function getEditingUserOfNode(nodeId) {
+  for (const [, info] of remoteEditingNodes) {
+    if (info.nodeId === nodeId) {
+      return info
+    }
+  }
+  return null
+}
+
+provide("getEditingUserOfNode", getEditingUserOfNode)
+
 function handleRealtimeNodeEditing(payload) {
   const {
     user_id,
     user_name,
     node_id,
     is_editing,
-    from,
-    view,
   } = payload
 
+  // bỏ qua chính mình
   if (user_id === userIdFromCookie.value) return
-  if (view !== "text") return
 
-  // clear caret cũ
-  document
-    .querySelectorAll(`.remote-cursor[data-user-id="${user_id}"]`)
-    .forEach(el => el.remove())
+  // xoá indicator cũ của user này
+  removeRemoteIndicator(user_id)
 
-  if (!is_editing || !node_id || from == null) return
-
-  const viewPM = editor.value?.view
-  if (!viewPM) return
-
-  // ✅ DÙNG PROSEMIRROR API – KHÔNG DÙNG DOM RANGE
-  let coords
-  try {
-    coords = viewPM.coordsAtPos(from)
-  } catch {
+  // nếu user stop edit → không render gì nữa
+  if (!is_editing || !node_id) {
+    remoteEditingNodes.delete(user_id)
     return
   }
 
-  const pmWrapper = viewPM.dom.parentElement
-  pmWrapper.style.position ||= "relative"
+  remoteEditingNodes.set(user_id, {
+    nodeId: node_id,
+    userId: user_id,
+    userName: user_name,
+  })
 
-  const wrapperRect = pmWrapper.getBoundingClientRect()
+  // tìm node <li>
+  const li = findNodeLi(node_id)
+  if (!li) return
 
-  const marker = document.createElement("div")
-  marker.className = "remote-cursor"
-  marker.dataset.userId = user_id
-  marker.dataset.userName = user_name
+  const color = getRemoteUserColor(user_id)
 
-  marker.style.position = "absolute"
-  marker.style.left = `${coords.left - wrapperRect.left}px`
-  marker.style.top = `${coords.top - wrapperRect.top}px`
-  marker.style.height = `${coords.bottom - coords.top || 18}px`
-  marker.style.width = "2px"
+  // tạo indicator
+  const indicator = document.createElement("span")
+  indicator.className = "remote-node-indicator"
+  indicator.dataset.userId = user_id
+  indicator.dataset.userName = user_name
 
-  pmWrapper.appendChild(marker)
+  indicator.style.color = color
+
+  indicator.style.setProperty(
+    "--remote-color",
+    color
+  )
+
+  const mmNode =
+    li.querySelector(".mm-node") ||
+    li.querySelector("p") ||
+    li
+
+  mmNode.prepend(indicator)
 }
-
-
-
-
 
 
 onMounted(() => {
@@ -230,6 +290,7 @@ onMounted(() => {
     autofocus: "start",
     permissions: {},
     onSelectionUpdate({ editor }) {
+      if (!canEdit.value || !canEditContent.value) return
       if (editor.view.composing) return
       if (editor.state.selection.$anchor.parent.type.name === "blockquote") return
 
@@ -242,34 +303,35 @@ onMounted(() => {
       const nodeId = getNodeIdFromSelection(editor)
       if (!nodeId) return
 
+      // ==============================
+      // REMOTE LOCK – DÙNG TRỰC TIẾP
+      // ==============================
+      const editingUser = getEditingUserOfNode(nodeId)
+      if (editingUser) {
+        // typingState.value = false
+        return
+      }
+
       const isNodeChanged = nodeId !== lastCaretNodeId
 
-      // ✅ CASE 1: node thay đổi → LUÔN gửi
       if (isNodeChanged) {
         lastCaretNodeId = nodeId
-        typingState.value = false // reset typing khi chuyển node
+        typingState.value = false
 
         editingTracker.sendCaret({
           view: "text",
           nodeId,
-          from: selection.from,
-          to: selection.to,
         })
         return
       }
 
-      // ❌ CASE 2: cùng node + đang typing → bỏ qua
       if (typingState.value) return
 
-      // ✅ CASE 3: cùng node + click / arrow
       editingTracker.sendCaret({
         view: "text",
         nodeId,
-        from: selection.from,
-        to: selection.to,
       })
-    }
-    ,
+    },
     syncFromEditor,
     syncFromEditorDebounced,
     onOpenComment(nodeId, options = {}) {
@@ -342,6 +404,7 @@ onMounted(() => {
           isCreatingDraftNode,
           typingState,
         },
+        getEditingUserOfNode
       }),
 
       handleDOMEvents: {
@@ -633,11 +696,6 @@ defineExpose({
   border-radius: 3px;
 }
 
-/* .prose :deep(li[data-is-clicked="true"] .mm-node > div span[data-inline-root]) {
-  background-color: #faedc2 !important;
-  border-radius: 3px;
-} */
-
 .prose :deep(.mm-node.is-comment-hover:not(:has(span[data-inline-root]))) {
   background-color: #faedc2;
   border-radius: 3px;
@@ -741,20 +799,30 @@ defineExpose({
   margin-top: 20px;
 }
 
-.prose :deep(.remote-cursor) {
-  width: 2px;
-  background: #3b82f6;
-  z-index: 50;
-  pointer-events: auto;
+.prose :deep(.remote-node-indicator) {
+  --remote-color: #3b82f6;
+  color: var(--remote-color);
+  background-color: var(--remote-color);
 }
 
-/* Tooltip tên user */
-.prose :deep(.remote-cursor::after) {
+.prose :deep(.remote-node-indicator::after) {
+  background: var(--remote-color);
+}
+
+.prose :deep(.remote-node-indicator) {
+  width: 2px;
+  height: 1.2em;
+  border-radius: 1px;
+  position: absolute;
+  left: -1%;
+  transform: translateX(-20%);
+}
+
+.prose :deep(.remote-node-indicator::after) {
   content: attr(data-user-name);
   position: absolute;
   top: -18px;
-  left: 0;
-  background: #3b82f6;
+  right: 0;
   color: white;
   font-size: 11px;
   padding: 2px 6px;
@@ -765,7 +833,7 @@ defineExpose({
   transition: 0.15s ease;
 }
 
-.prose :deep(.remote-cursor:hover::after) {
+.prose :deep(.remote-node-indicator:hover::after) {
   opacity: 1;
   transform: translateY(0);
 }

@@ -12,7 +12,7 @@
     <i v-if="isMindmapParagraph && canEditContent" class="mindmap-dot ml-1" v-tooltip.top="{
       value: 'Bấm hiển thị thêm hành động',
       pt: { text: { class: ['text-[12px]'] } }
-    }" @mousedown.prevent @click.stop="toggleActions" />
+    }" @mousedown.prevent.stop @click.stop="toggleActions" />
 
     <i v-else-if="isMindmapParagraph" class="mindmap-dot ml-1" @mousedown.prevent />
 
@@ -24,18 +24,20 @@
         <div v-show="!isSelectionInBlockquote" class="color-grid flex gap-2">
           <button v-for="c in highlightColors" :key="c.value" class="color-item"
             :class="{ 'is-active': currentHighlight === c.bg }" :style="{ backgroundColor: c.bg }" @mousedown.prevent
-            @click.stop="applyHighlight(c)">
+            @click.stop="applyHighlight(c); closeActionsPopover();">
             <span class="color-dot" :style="{ color: c.text }">A</span>
           </button>
         </div>
 
         <div class="flex gap-2 mt-4">
           <!-- Bold -->
-          <button class="toolbar-btn" :class="{ 'is-active': isBoldActive }" @mousedown.prevent @click.stop="toggleBold"
-            v-tooltip.top="{
-              value: 'In đậm (Ctrl+B)',
-              pt: { text: { class: ['text-[12px]'] } }
-            }">
+          <button class="toolbar-btn" :class="{ 'is-active': isBoldActive }" @mousedown.prevent @click.stop="
+            toggleBold();
+          closeActionsPopover();
+          " v-tooltip.top="{
+            value: 'In đậm (Ctrl+B)',
+            pt: { text: { class: ['text-[12px]'] } }
+          }">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
               <path
                 d="M5 2.709C5 2.317 5.317 2 5.709 2h6.734a5.317 5.317 0 0 1 3.686 9.148 5.671 5.671 0 0 1-2.623 10.7H5.71a.709.709 0 0 1-.71-.707V2.71Zm2 7.798h5.443a3.19 3.19 0 0 0 3.19-3.19c0-1.762-1.428-3.317-3.19-3.317H7v6.507Zm0 2.126v7.09h6.507a3.544 3.544 0 0 0 0-7.09H7Z"
@@ -45,7 +47,7 @@
 
           <!-- Italic -->
           <button class="toolbar-btn" :class="{ 'is-active': isItalicActive }" @mousedown.prevent
-            @click.stop="toggleItalic" v-tooltip.top="{
+            @click.stop="toggleItalic(); closeActionsPopover();" v-tooltip.top="{
               value: 'In nghiêng (Ctrl+I)',
               pt: { text: { class: ['text-[12px]'] } }
             }">
@@ -58,7 +60,7 @@
 
           <!-- Underline -->
           <button class="toolbar-btn" :class="{ 'is-active': isUnderlineActive }" @mousedown.prevent
-            @click.stop="toggleUnderline" v-tooltip.top="{
+            @click.stop="toggleUnderline(); closeActionsPopover();" v-tooltip.top="{
               value: 'Gạch chân (Ctrl+U)',
               pt: { text: { class: ['text-[12px]'] } }
             }">
@@ -179,7 +181,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watchEffect, onMounted, watch } from "vue"
+import { ref, computed, inject, watchEffect, onMounted, watch, nextTick } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 import Popover from 'primevue/popover'
 import { useNodeActionPopover } from './MindmapTextNodeViewEditor/useNodeActionPopover'
@@ -188,6 +190,8 @@ import { useNodeBoldItaliceUnderline } from "./MindmapTextNodeViewEditor/useNode
 
 import { TextSelection } from "@tiptap/pm/state"
 import { useNodeHighlight } from "./MindmapTextNodeViewEditor/useNodeHighlight"
+import { toast } from '@/utils/toasts'
+
 
 const props = defineProps({
   editor: Object,
@@ -206,6 +210,7 @@ const currentActionNode = ref(null)
 
 const permissions = inject('editorPermissions')
 
+const getEditingUserOfNode = inject("getEditingUserOfNode")
 
 const canEditContent = computed(() => {
   return permissions.value?.write === 1
@@ -426,15 +431,31 @@ function toggleActions(event) {
   const getPos = props.getPos
   if (!editor || !getPos) return
 
+  const nodeId = resolveNodeIdFromDOM(event.currentTarget)
+  if (!nodeId) return
+
+  // ==============================
+  // 🔒 REMOTE LOCK → TOAST + BLOCK
+  // ==============================
+  const editingUser = getEditingUserOfNode?.(nodeId)
+  if (editingUser) {
+    toast({
+      title: `${editingUser.userName} đang chỉnh sửa node này`,
+      text: "Vui lòng đợi họ hoàn thành",
+      indicator: "orange",
+      timeout: 3,
+    })
+    return
+  }
+
+  // ==============================
+  // ⬇️ PHẦN CŨ – GIỮ NGUYÊN
+  // ==============================
   const pos = getPos()
   if (pos == null) return
 
   const { state, view } = editor
   const { selection } = state
-
-  const nodeId = resolveNodeIdFromDOM(event.currentTarget)
-
-  if (!nodeId) return
 
   try {
     const $pos = state.doc.resolve(pos)
@@ -451,8 +472,7 @@ function toggleActions(event) {
         break
       }
     }
-  } catch {
-  }
+  } catch { }
 
   const isTextSelection =
     selection instanceof TextSelection &&
@@ -461,7 +481,6 @@ function toggleActions(event) {
   if (!isTextSelection) {
     const endPos = pos + props.node.nodeSize - 1
 
-    // safety guard
     if (endPos > 0 && endPos <= state.doc.content.size) {
       const tr = state.tr.setSelection(
         TextSelection.create(state.doc, endPos)
@@ -471,12 +490,24 @@ function toggleActions(event) {
     }
   }
 
-  toggle(nodeId, actionsPopover.value, event)
+  const popover = actionsPopover.value
+  if (!popover) return
+
+  if (popover.visible) {
+    popover.hide()
+    return
+  }
+
+  nextTick(() => {
+    popover.show(event)
+  })
 }
 
 
+
 function closeActionsPopover() {
-  actionsPopover.value?.hide?.()
+  if (!actionsPopover.value) return
+  actionsPopover.value.hide()
 }
 
 
@@ -597,13 +628,13 @@ function clearAllClickedNodes() {
  * - hành xử Y HỆT click icon
  */
 function onClickNode(e) {
-  
+
   closeActionsPopover()
   if (!isMindmapParagraph.value) return
-  
+
   const li = e.currentTarget.closest("li[data-node-id]")
   if (!li) return
-  
+
   const nodeId = li.getAttribute("data-node-id")
   if (!nodeId) return
 

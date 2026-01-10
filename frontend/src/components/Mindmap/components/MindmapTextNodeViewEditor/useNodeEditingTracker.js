@@ -17,8 +17,6 @@ export function useNodeEditingTracker({
   async function sendCaret({
     view,
     nodeId,
-    from,
-    to,
   }) {
     const now = Date.now()
     if (now - lastTime < throttleMs) return
@@ -35,31 +33,16 @@ export function useNodeEditingTracker({
         entity_name: entityName.value,
         node_id: prev.nodeId,
         is_editing: false,
-        view: prev.view,
-        from_pos: null,
-        to_pos: null,
       })
     }
 
-    // 👉 nếu caret + node không đổi → bỏ
-    if (
-      prev.view === view &&
-      prev.nodeId === nodeId &&
-      prev.from === from &&
-      prev.to === to
-    ) {
-      return
-    }
 
-    lastSent.value = { view, nodeId, from, to }
+    lastSent.value = { nodeId }
 
     await broadcastEditingResource.submit({
       entity_name: entityName.value,
       node_id: nodeId ?? null,
       is_editing: true,
-      view,
-      from_pos: from,
-      to_pos: to,
     })
   }
 
@@ -71,17 +54,11 @@ export function useNodeEditingTracker({
         entity_name: entityName.value,
         node_id: prev.nodeId,
         is_editing: false,
-        view,
-        from_pos: null,
-        to_pos: null,
       })
     }
 
     lastSent.value = {
-      view: null,
       nodeId: null,
-      from: null,
-      to: null,
     }
   }
 

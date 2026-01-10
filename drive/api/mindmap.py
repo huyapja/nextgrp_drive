@@ -531,7 +531,7 @@ def save_mindmap_node(entity_name, node_id, node_data, edge_data=None):
 
 
 @frappe.whitelist()
-def broadcast_node_editing(entity_name, node_id, is_editing, view=None, from_pos=None, to_pos=None):
+def broadcast_node_editing(entity_name, node_id, is_editing):
     """
     Broadcast trạng thái editing của node đến các users khác
 
@@ -553,9 +553,6 @@ def broadcast_node_editing(entity_name, node_id, is_editing, view=None, from_pos
             "mindmap_id": doc_drive.mindmap,
             "node_id": node_id,
             "is_editing": is_editing,
-            "view": view,
-            "from": from_pos, 
-            "to": to_pos,
             "user_id": frappe.session.user,
             "user_name": frappe.get_value("User", frappe.session.user, "full_name")
             or frappe.session.user,
@@ -577,7 +574,7 @@ def broadcast_node_editing(entity_name, node_id, is_editing, view=None, from_pos
     except Exception as e:
         frappe.log_error(f"Broadcast editing: {str(e)[:100]}", "Broadcast Editing")
         return {"success": False}
-
+    
 
 @frappe.whitelist()
 def save_mindmap_nodes_batch(entity_name, nodes_data, edges_data=None):
