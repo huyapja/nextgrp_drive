@@ -188,15 +188,6 @@ import { useNodeBoldItaliceUnderline } from "./MindmapTextNodeViewEditor/useNode
 
 import { TextSelection } from "@tiptap/pm/state"
 import { useNodeHighlight } from "./MindmapTextNodeViewEditor/useNodeHighlight"
-import { useRoute } from "vue-router"
-import { createResource } from 'frappe-ui'
-
-
-const route = useRoute()
-
-const entityName = computed(() => route.params.entityName)
-
-const broadcastEditingResource = createResource({ url: "drive.api.mindmap.broadcast_node_editing", method: "POST" })
 
 const props = defineProps({
   editor: Object,
@@ -592,19 +583,7 @@ function clearAllClickedNodes() {
   if (!clicked.length) return
 
   clicked.forEach(li => {
-    const nodeId = li.getAttribute("data-node-id")
-
-    if (nodeId) {
-      broadcastEditingResource.submit({
-        entity_name: entityName.value,
-        node_id: nodeId,
-        is_editing: false,
-      })
-    }
-
     li.removeAttribute("data-is-clicked")
-    li.removeAttribute("data-editing-sent")
-
     li.querySelectorAll(".is-comment-hover").forEach(el => {
       el.classList.remove("is-comment-hover")
     })
@@ -627,27 +606,13 @@ function onClickNode(e) {
   
   const nodeId = li.getAttribute("data-node-id")
   if (!nodeId) return
-  console.log(">>>>>>>> nodeId:", nodeId);
 
   const alreadyClicked = li.getAttribute("data-is-clicked") === "true"
-  const alreadySent = li.getAttribute("data-editing-sent") === "true"
 
   if (!alreadyClicked) {
     clearAllClickedNodes()
 
-    // ✅ đánh dấu node mới
     li.setAttribute("data-is-clicked", "true")
-
-    // 🔒 CHỈ GỬI 1 LẦN DUY NHẤT
-    if (!alreadySent) {
-      li.setAttribute("data-editing-sent", "true")
-
-      broadcastEditingResource.submit({
-        entity_name: entityName.value,
-        node_id: nodeId,
-        is_editing: true,
-      })
-    }
   }
 
   const hasCount = li.getAttribute("data-has-count") === "true"

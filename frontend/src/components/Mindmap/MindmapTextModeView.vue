@@ -1,5 +1,5 @@
 <template>
-    <MindmapTextNodeViewEditor :permissions="props.permissions" :initial-content="content" @rename-title="onRenameTitle"
+    <MindmapTextNodeViewEditor ref="editorRef" :permissions="props.permissions" :initial-content="content" @rename-title="onRenameTitle"
         @update-nodes="onUpdateNodes" @open-comment="onOpenComment" @add-child-node="onAddChildFromText"
         @done-node="onDoneNode" @copy-node="onCopyNode" @task-link-node="onTaskLinkNode" @delete-node="onDeleteNode" @unlink-task-node="onUnlinkTaskNode" @insert-images="onInsertImages"/>
 </template>
@@ -8,6 +8,9 @@
 import { watch, ref, provide, toRef } from "vue"
 import MindmapTextNodeViewEditor from "./MindmapTextNodeViewEditor.vue"
 import { buildTextFromMindmap } from "./utils/buildTextFromMindmap"
+
+const editorRef = ref(null)
+
 
 const props = defineProps({
     nodes: Array,
@@ -93,4 +96,10 @@ watch(
     },
     { immediate: true }
 )
+
+defineExpose({
+  forceStopEditing() {
+    editorRef.value?.forceStopEditing?.()
+  }
+})
 </script>

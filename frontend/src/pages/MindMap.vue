@@ -283,6 +283,7 @@
           class="w-full h-[calc(100vh-84px)] flex items-center justify-center text-gray-400"
         >
           <MindmapTextModeView 
+          ref="textViewRef"
           :nodes="nodes"
           :edges="edges" 
           :version="textViewVersion"
@@ -4409,8 +4410,14 @@ watch(
   { immediate: true }
 )
 
-watch(currentView, (view) => {
-  if (view === 'text') {
+const textViewRef = ref(null)
+
+watch(currentView, (next, prev) => {
+  if (prev === "text" && next !== "text") {
+    textViewRef.value?.forceStopEditing()
+  }
+
+  if (next === "text") {
     showPanel.value = true
     textViewVersion.value++
   }

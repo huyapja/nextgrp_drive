@@ -7,7 +7,7 @@
 </template>
 
 <script setup>
-import { onMounted, onBeforeUnmount, ref, watch, computed, provide } from "vue"
+import { onMounted, onBeforeUnmount, ref, watch, computed, provide, inject } from "vue"
 import { Editor, EditorContent } from "@tiptap/vue-3"
 import StarterKit from "@tiptap/starter-kit"
 import { InlineStyle } from "./components/extensions/InlineStyle"
@@ -21,6 +21,10 @@ import { HeadingWithNodeId, ListItemWithNodeId, ParagraphWithNodeId } from "./co
 import { createEditorKeyDown } from "./components/MindmapTextNodeViewEditor/editorKeymap"
 import { ListItemChildrenSync } from "./components/extensions/ListItemChildrenSync"
 import { TextSelection } from "@tiptap/pm/state"
+import { useRoute } from "vue-router"
+import { createResource } from "frappe-ui"
+import { getNodeIdFromSelection } from "./utils/getNodeIdFromSelection"
+import { useNodeEditingTracker } from "./components/MindmapTextNodeViewEditor/useNodeEditingTracker"
 
 
 /* ================================
@@ -38,9 +42,12 @@ const props = defineProps({
 })
 
 let isComposing = false
-let isEditorEmitting = false
 let isEditorFocused = false
 let isCreatingDraftNode = false
+let isEditorEmitting = false
+
+
+const socket = inject("socket")
 
 
 const emit = defineEmits([
@@ -103,6 +110,18 @@ function syncFromEditor(editor) {
   })
 }
 
+const route = useRoute()
+const entityName = computed(() => route.params.entityName)
+const broadcastEditingResource = createResource({ url: "drive.api.mindmap.broadcast_node_editing", method: "POST" })
+
+
+const editingTracker = useNodeEditingTracker({
+  entityName,
+  broadcastEditingResource,
+  delay: 120,
+})
+
+
 
 let syncTimer = null
 
@@ -130,12 +149,100 @@ const editor = ref(null)
 provide('editorPermissions', computed(() => props.permissions))
 
 
+const getCookie = name => {
+  const value = `; ${document.cookie}`;
+  const parts = value.split(`; ${name}=`);
+  if (parts.length === 2) return parts.pop().split(';').shift();
+  return null;
+};
+
+// lấy id của người dùng ví dụ như hoviethung.work@gmail.com
+const userIdFromCookie = computed(() =>
+  decodeURIComponent(getCookie('user_id') || '')
+);
+
+
+function handleRealtimeNodeEditing(payload) {
+  const {
+    user_id,
+    user_name,
+    node_id,
+    is_editing,
+    from,
+    view,
+  } = payload
+
+  if (user_id === userIdFromCookie.value) return
+  if (view !== "text") return
+
+  // clear caret cũ
+  document
+    .querySelectorAll(`.remote-cursor[data-user-id="${user_id}"]`)
+    .forEach(el => el.remove())
+
+  if (!is_editing || !node_id || from == null) return
+
+  const viewPM = editor.value?.view
+  if (!viewPM) return
+
+  // ✅ DÙNG PROSEMIRROR API – KHÔNG DÙNG DOM RANGE
+  let coords
+  try {
+    coords = viewPM.coordsAtPos(from)
+  } catch {
+    return
+  }
+
+  const pmWrapper = viewPM.dom.parentElement
+  pmWrapper.style.position ||= "relative"
+
+  const wrapperRect = pmWrapper.getBoundingClientRect()
+
+  const marker = document.createElement("div")
+  marker.className = "remote-cursor"
+  marker.dataset.userId = user_id
+  marker.dataset.userName = user_name
+
+  marker.style.position = "absolute"
+  marker.style.left = `${coords.left - wrapperRect.left}px`
+  marker.style.top = `${coords.top - wrapperRect.top}px`
+  marker.style.height = `${coords.bottom - coords.top || 18}px`
+  marker.style.width = "2px"
+
+  pmWrapper.appendChild(marker)
+}
+
+
+
+
+
+
 onMounted(() => {
   editor.value = new Editor({
     content: props.initialContent,
     editable: canEdit.value && canEditContent.value,
     autofocus: "start",
     permissions: {},
+    onSelectionUpdate({ editor }) {
+      if (editor.view.composing) return
+      if (editor.state.selection.$anchor.parent.type.name === "blockquote") return
+
+      const { selection } = editor.state
+      if (!selection || !selection.empty) return
+
+      const lastTr = editor.view.state.tr
+      if (lastTr?.getMeta("ui-only")) return
+
+      const nodeId = getNodeIdFromSelection(editor)
+      if (!nodeId) return
+
+      editingTracker.sendCaret({
+        view: "text",
+        nodeId,
+        from: selection.from,
+        to: selection.to,
+      })
+    },
     syncFromEditor,
     syncFromEditorDebounced,
     onOpenComment(nodeId, options = {}) {
@@ -314,11 +421,22 @@ onMounted(() => {
     }
 
   })
+
+  if (!socket) return
+  socket.on(
+    "drive_mindmap:node_editing",
+    handleRealtimeNodeEditing
+  )
 })
 
 
 onBeforeUnmount(() => {
   editor.value?.destroy()
+  if (!socket) return
+  socket.off(
+    "drive_mindmap:node_editing",
+    handleRealtimeNodeEditing
+  )
 })
 
 watch(
@@ -386,7 +504,11 @@ watch(
   { immediate: true, deep: true }
 )
 
-
+defineExpose({
+  forceStopEditing() {
+    editingTracker.forceStop("switch-view")
+  }
+})
 </script>
 
 <style scoped>
@@ -584,5 +706,34 @@ watch(
 
 .prose :deep(img + img) {
   margin-top: 20px;
+}
+
+.prose :deep(.remote-cursor) {
+  width: 2px;
+  background: #3b82f6;
+  z-index: 50;
+  pointer-events: auto;
+}
+
+/* Tooltip tên user */
+.prose :deep(.remote-cursor::after) {
+  content: attr(data-user-name);
+  position: absolute;
+  top: -18px;
+  left: 0;
+  background: #3b82f6;
+  color: white;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: 0.15s ease;
+}
+
+.prose :deep(.remote-cursor:hover::after) {
+  opacity: 1;
+  transform: translateY(0);
 }
 </style>
