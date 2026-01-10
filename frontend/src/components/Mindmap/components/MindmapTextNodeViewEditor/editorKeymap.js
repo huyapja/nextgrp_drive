@@ -55,6 +55,16 @@ export function createEditorKeyDown({ editor, flags }) {
     // ==============================
     // ADD CHILD NODE
     // ==============================
+
+    if (
+      event.key.length === 1 || // chữ, số, dấu
+      event.key === "Enter" ||
+      event.key === "Backspace" ||
+      event.key === "Delete"
+    ) {
+      flags.typingState.value = true
+    }
+
     if (event.key === "Enter") {
       const { state, dispatch } = view
       const { selection, schema } = state
@@ -284,19 +294,19 @@ export function createEditorKeyDown({ editor, flags }) {
             ...restAttrs,
             nodeId: newNodeId,
           })
-        // ✅ 2. resolve lại position SAU KHI setNodeMarkup
-        const $liPos = tr.doc.resolve(newLiPos)
+          // ✅ 2. resolve lại position SAU KHI setNodeMarkup
+          const $liPos = tr.doc.resolve(newLiPos)
 
-        // tìm paragraph thật sự trong listItem
-        let para = null
-        let paraPos = null
+          // tìm paragraph thật sự trong listItem
+          let para = null
+          let paraPos = null
 
-        $liPos.node().forEach((child, offset) => {
-          if (child.isTextblock && !para) {
-            para = child
-            paraPos = $liPos.start() + offset
-          }
-        })
+          $liPos.node().forEach((child, offset) => {
+            if (child.isTextblock && !para) {
+              para = child
+              paraPos = $liPos.start() + offset
+            }
+          })
         }
 
         view.dispatch(tr)

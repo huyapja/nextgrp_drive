@@ -45,6 +45,12 @@ let isComposing = false
 let isEditorFocused = false
 let isCreatingDraftNode = false
 let isEditorEmitting = false
+let lastCaretNodeId = null
+
+
+const typingState = {
+  value: false,
+}
 
 
 const socket = inject("socket")
@@ -236,13 +242,34 @@ onMounted(() => {
       const nodeId = getNodeIdFromSelection(editor)
       if (!nodeId) return
 
+      const isNodeChanged = nodeId !== lastCaretNodeId
+
+      // ✅ CASE 1: node thay đổi → LUÔN gửi
+      if (isNodeChanged) {
+        lastCaretNodeId = nodeId
+        typingState.value = false // reset typing khi chuyển node
+
+        editingTracker.sendCaret({
+          view: "text",
+          nodeId,
+          from: selection.from,
+          to: selection.to,
+        })
+        return
+      }
+
+      // ❌ CASE 2: cùng node + đang typing → bỏ qua
+      if (typingState.value) return
+
+      // ✅ CASE 3: cùng node + click / arrow
       editingTracker.sendCaret({
         view: "text",
         nodeId,
         from: selection.from,
         to: selection.to,
       })
-    },
+    }
+    ,
     syncFromEditor,
     syncFromEditorDebounced,
     onOpenComment(nodeId, options = {}) {
@@ -313,10 +340,16 @@ onMounted(() => {
         editor,
         flags: {
           isCreatingDraftNode,
+          typingState,
         },
       }),
 
       handleDOMEvents: {
+        mousedown: () => {
+          typingState.value = false
+          return false
+        },
+
         focus: () => {
           isEditorFocused = true
         },
