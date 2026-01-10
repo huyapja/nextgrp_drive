@@ -112,7 +112,7 @@
 import { MIME_LIST_MAP, openEntity } from "@/utils/files"
 import { COLOR_MAP, formatPercent, formatSize } from "@/utils/format"
 import { getIconUrl } from "@/utils/getIconUrl"
-import { createResource, TabButtons, Tooltip } from "frappe-ui"
+import { Button, createResource, TabButtons, Tooltip } from "frappe-ui"
 import { computed, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import LucideArrowRight from "~icons/lucide/arrow-right"

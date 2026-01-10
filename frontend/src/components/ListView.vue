@@ -138,7 +138,7 @@
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
             >
-              <span class="owner-name">{{ slotProps.data.team_name }}</span>
+              <span class="owner-name">{{ slotProps.data.is_private === 1 ? '-' : slotProps.data.team_name }}</span>
             </div>
           </template>
         </Column>
