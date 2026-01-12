@@ -1,5 +1,6 @@
 <template>
   <div
+    v-if="!showSidebarButton"
     :class="[
       isExpanded
         ? 'w-[260px] min-w-[260px] opacity-100 translate-x-0  '
@@ -7,13 +8,96 @@
       '!transition-all rounded-[8px] bg-white relative hidden sm:flex h-screen flex-col justify-start overflow-y-auto hide-scrollbar',
     ]"
   >
-    <!-- Header Section -->
-    <div class="p-4 py-3 flex items-center gap-2">
+    <!-- Pinned Files View -->
+    <template v-if="showPinnedSidebar">
+      <!-- Pinned Header with Back Button -->
+      <div class="h-[70px] px-4 flex items-center gap-2 border-b border-gray-200">
+        <button
+          @click="handleBackToPinned"
+          class="flex items-center justify-center p-2 rounded hover:bg-gray-100 transition-colors bg-[#F5F5F5]"
+          title="Thu gọn sidebar"
+        >
+          <ChevronLeft v-if="isExpanded" class="h-5 w-5 text-gray-700" />
+          <ChevronRight v-else class="h-5 w-5 text-gray-700" />
+        </button>
+      </div>
+
+      <!-- Pinned Files List -->
+      <div class="flex-1 overflow-y-auto p-2">
+        <div v-if="pinnedFiles.length === 0" class="text-center py-8 px-4">
+          <LucidePin class="h-12 w-12 mx-auto text-gray-300 mb-2" />
+          <p class="text-sm text-gray-500">Chưa có văn bản được ghim</p>
+          <p class="text-xs text-gray-400 mt-1">
+            Ghim văn bản để truy cập nhanh
+          </p>
+        </div>
+
+        <div v-else class="space-y-1">
+          <p class="text-sm text-gray-500 py-2 pb-1 px-3">Văn bản đã ghim</p>
+          <div
+            v-for="file in pinnedFiles"
+            :key="file.name"
+            class="group relative flex items-center gap-3 p-3 rounded-lg hover:bg-gray-50 transition-colors cursor-pointer"
+            :class="{
+              'bg-blue-50 hover:bg-blue-50': isCurrentPinnedFile(file),
+            }"
+            @click="selectPinnedFile(file)"
+          >
+            <!-- File Icon -->
+            <div class="flex-shrink-0">
+              <component
+                :is="getPinnedFileIcon(file)"
+                class="h-5 w-5"
+                :class="
+                  isCurrentPinnedFile(file) ? 'text-[#0149C1]' : 'text-gray-600'
+                "
+              />
+            </div>
+
+            <!-- File Info -->
+            <div class="flex-1 min-w-0">
+              <p
+                class="text-sm font-medium truncate"
+                :class="
+                  isCurrentPinnedFile(file) ? 'text-[#0149C1]' : 'text-gray-900'
+                "
+              >
+                {{ file.title }}
+              </p>
+              <p class="text-xs text-gray-500 truncate">
+                {{ formatPinnedDate(file.modified) }}
+              </p>
+            </div>
+
+            <!-- Unpin Button -->
+            <button
+              @click.stop="handleUnpinFile(file)"
+              class="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 transition-all"
+              title="Bỏ ghim"
+            >
+              <LucideX class="h-4 w-4 text-gray-600" />
+            </button>
+
+            <!-- Active Indicator -->
+            <div
+              v-if="isCurrentPinnedFile(file)"
+              class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-[#0149C1] rounded-r"
+            ></div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Normal Sidebar View -->
+    <template v-else>
+      <!-- Header Section -->
+      <div class="p-4 py-3 flex items-center gap-2">
       <Button
         @click="toggleExpanded"
         class="rounded-[4px] !bg-[#F5F5F5] !border-[#F5F5F5] !p-[2px]"
       >
-        <ChevronLeft class="text-[#404040] h-[18px] w-[18px]" />
+        <ChevronLeft v-if="isExpanded" class="text-[#404040] h-[18px] w-[18px]" />
+        <ChevronRight v-else class="text-[#404040] h-[18px] w-[18px]" />
       </Button>
       <p
         v-if="isExpanded"
@@ -339,10 +423,11 @@
         </div>
       </template>
     </div>
-    <!-- Storage Bar -->
-    <div class="mt-auto p-2 border-t border-gray-100">
-      <StorageBar :is-expanded="isExpanded" />
-    </div>
+      <!-- Storage Bar -->
+      <div class="mt-auto p-2 border-t border-gray-100">
+        <StorageBar :is-expanded="isExpanded" />
+      </div>
+    </template>
   </div>
 
   <!-- Enhanced Create Team Modal -->
@@ -458,6 +543,7 @@ import ShareDrive from "@/assets/Icons/ShareDrive.vue"
 import StarDrive from "@/assets/Icons/StarDrive.vue"
 import TeamDrive from "@/assets/Icons/TeamDrive.vue"
 import TrashDrive from "@/assets/Icons/TrashDrive.vue"
+import { usePinnedFiles } from "@/composables/usePinnedFiles"
 import { getTeams } from "@/resources/files"
 import { notifCount } from "@/resources/permissions"
 import { toast } from "@/utils/toasts"
@@ -467,18 +553,33 @@ import {
   FormControl,
   createResource,
 } from "frappe-ui"
-import { ChevronLeft, Pencil } from "lucide-vue-next"
+import { ChevronLeft, ChevronRight, Pencil } from "lucide-vue-next"
 import { Button } from "primevue"
 import { computed, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
+import LucideFile from "~icons/lucide/file"
+import LucideFileText from "~icons/lucide/file-text"
 import LucideFolder from "~icons/lucide/folder"
+import LucideImage from "~icons/lucide/image"
+import LucideMusic from "~icons/lucide/music"
+import LucidePin from "~icons/lucide/pin"
+import LucideVideo from "~icons/lucide/video"
+import LucideX from "~icons/lucide/x"
 
 defineEmits(["toggleMobileSidebar", "showSearchPopUp"])
 const store = useStore()
 const route = useRoute()
 const router = useRouter()
+const { 
+  pinnedFiles, 
+  currentPinnedFile, 
+  unpinFile, 
+  openPinnedFile,
+  closePinnedFile,
+  loadPinnedFiles
+} = usePinnedFiles()
 notifCount.fetch()
 
 // Create team modal state
@@ -583,6 +684,7 @@ const renameTeam = createResource({
 })
 
 const isExpanded = computed(() => store.state.IsSidebarExpanded)
+const showSidebarButton = computed(() => store.state.showSidebarButton)
 const team = computed(
   () => route.params.team || localStorage.getItem("recentTeam")
 )
@@ -598,6 +700,28 @@ watch(isExpanded, (newValue, oldValue) => {
   //   isTeamsExpanded.value = true
   // }
 })
+
+// Watch route and load pinned files when opening File/Document/MindMap (with cache)
+watch(
+  () => route.name,
+  (newRouteName) => {
+    const fileRoutes = ['File', 'Document', 'MindMap']
+    if (fileRoutes.includes(newRouteName)) {
+      // Reset sidebar state when entering file view (especially on reload)
+      store.commit("setShowSidebarButton", false)
+      store.commit("setIsSidebarExpanded", true)
+      store.commit("setShowPinnedSidebar", true)
+      
+      // Load pinned files with cache (chỉ load lần đầu)
+      loadPinnedFiles()
+    } else {
+      // Reset pinned sidebar when leaving file routes
+      store.commit("setShowPinnedSidebar", false)
+      store.commit("setShowSidebarButton", false)
+    }
+  },
+  { immediate: true } // Load ngay khi mount nếu đã ở route File/Document/MindMap
+)
 
 getTeams.fetch()
 const teamList = computed(() => Object.values(getTeams.data || {}))
@@ -647,6 +771,11 @@ const sidebarItems = computed(() => {
       label: __("Yêu thích"),
       route: `/t/${team.value}/favourites`,
       icon: StarDrive,
+    },
+    {
+      label: __("Văn bản đã ghim"),
+      route: `/t/${team.value}/pinned`,
+      icon: LucidePin,
     },
     {
       label: __("Chia sẻ"),
@@ -801,6 +930,80 @@ const onLeave = (el) => {
   el.style.transition = "height 0.3s ease-in, opacity 0.3s ease-in"
   el.style.height = "0px"
   el.style.opacity = "0"
+}
+
+// Pinned files functionality
+// Auto show pinned sidebar when viewing a file
+const showPinnedSidebar = computed(() => {
+  // Show pinned sidebar when viewing File, Document, or MindMap
+  const viewRoutes = ['File', 'Document', 'MindMap']
+  return viewRoutes.includes(route.name) || store.state.showPinnedSidebar
+})
+
+const handleBackToPinned = () => {
+  // When in pinned view, hide sidebar completely and show navbar button
+  if (showPinnedSidebar.value) {
+    store.commit("setIsSidebarExpanded", false)
+    store.commit("setShowSidebarButton", true)
+    closePinnedFile()
+  } else {
+    // Normal toggle
+    const newExpandState = !isExpanded.value
+    store.commit("setIsSidebarExpanded", newExpandState)
+    
+    if (!newExpandState) {
+      closePinnedFile()
+    }
+  }
+}
+
+const selectPinnedFile = (file) => {
+  // Close info sidebar when selecting a pinned file
+  store.commit("setShowInfo", false)
+  openPinnedFile(file)
+}
+
+const isCurrentPinnedFile = (file) => {
+  // Highlight item if it matches the current route entity
+  return route.params.entityName === file.name
+}
+
+const handleUnpinFile = (file) => {
+  unpinFile(file.name)
+  toast("Đã bỏ ghim văn bản")
+}
+
+const getPinnedFileIcon = (file) => {
+  if (file.is_group) return LucideFolder
+  
+  const mimeType = file.mime_type || ''
+  if (mimeType.startsWith('image/')) return LucideImage
+  if (mimeType.startsWith('video/')) return LucideVideo
+  if (mimeType.startsWith('audio/')) return LucideMusic
+  if (mimeType.includes('text') || mimeType.includes('document')) return LucideFileText
+  
+  return LucideFile
+}
+
+const formatPinnedDate = (dateString) => {
+  if (!dateString) return ''
+  const date = new Date(dateString)
+  const now = new Date()
+  const diffMs = now - date
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+
+  if (diffMins < 1) return 'Vừa xong'
+  if (diffMins < 60) return `${diffMins} phút trước`
+  if (diffHours < 24) return `${diffHours} giờ trước`
+  if (diffDays < 7) return `${diffDays} ngày trước`
+  
+  return date.toLocaleDateString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  })
 }
 </script>
 

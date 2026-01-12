@@ -125,13 +125,15 @@ export const setBreadCrumbs = (
     (partOfTeam && !lastEl.is_private) ||
     lastEl.owner == store.state.user.id
   ) {
+    // Use team from breadcrumb data instead of route params to ensure correct team
+    const actualTeam = breadcrumbs[0].team
     res = [
       {
         label: is_private
           ? __("Home")
-          : getTeams.data[breadcrumbs[0].team].title,
+          : getTeams.data[actualTeam].title,
         name: is_private ? "Home" : "Team",
-        route: `/t/${route.params.team}` + (is_private ? "/" : "/team"),
+        route: `/t/${actualTeam}` + (is_private ? "/" : "/team"),
       },
     ]
   }

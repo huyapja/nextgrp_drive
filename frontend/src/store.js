@@ -64,6 +64,12 @@ const store = createStore({
     folderRefreshTriggers: {},
     mindmapData: null,
     mindmapTree: null,
+    // Pinned files state - now loaded from server
+    pinnedFiles: [],
+    currentPinnedFile: null,
+    showPinnedSidebar: false,
+    pinnedFilesLoaded: false,
+    showSidebarButton: false,
   },
   getters: {
     isLoggedIn: (state) => {
@@ -191,6 +197,29 @@ const store = createStore({
     },
     setMindmapTree(state, tree) {
       state.mindmapTree = tree
+    },
+    // Pinned files mutations - now synced with server
+    setPinnedFiles(state, files) {
+      state.pinnedFiles = files || []
+      state.pinnedFilesLoaded = true
+    },
+    addPinnedFile(state, file) {
+      const exists = state.pinnedFiles.some(f => f.name === file.name)
+      if (!exists) {
+        state.pinnedFiles.push(file)
+      }
+    },
+    removePinnedFile(state, fileName) {
+      state.pinnedFiles = state.pinnedFiles.filter(f => f.name !== fileName)
+    },
+    setCurrentPinnedFile(state, file) {
+      state.currentPinnedFile = file
+    },
+    setShowPinnedSidebar(state, show) {
+      state.showPinnedSidebar = show
+    },
+    setShowSidebarButton(state, show) {
+      state.showSidebarButton = show
     },
   },
   actions: {

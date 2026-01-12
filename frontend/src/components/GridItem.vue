@@ -37,8 +37,14 @@
   <div
     class="p-2 h-[35%] border-t border-gray-100 flex flex-col justify-evenly"
   >
-    <div class="truncate w-full w-fit text-base font-medium text-ink-gray-8">
-      {{ file.title }}
+    <div class="w-full text-base font-medium text-ink-gray-8 flex items-center gap-2">
+      <span class="truncate flex-1 min-w-0">{{ file.title }}</span>
+      <PinFilled 
+        v-if="file.is_pinned"
+        class="pinned-icon"
+        :size="14"
+        title="Văn bản đã ghim"
+      />
     </div>
     <div class="mt-[5px] text-xs text-ink-gray-5">
       <div class="flex items-center justify-start gap-1">
@@ -70,6 +76,7 @@ import { getIconUrl, getThumbnailUrl } from "@/utils/getIconUrl"
 import { thumbnailQueue } from "@/utils/thumbnailQueue"
 import { createResource } from "frappe-ui"
 import { computed, ref, onMounted, onUnmounted } from "vue"
+import PinFilled from "@/assets/Icons/PinFilled.vue"
 
 const props = defineProps({ file: Object })
 
@@ -129,3 +136,27 @@ const childrenSentence = computed(() => {
   return props.file.children + " " + (props.file.children === 1 ? __("item") : __("items"))
 })
 </script>
+
+<style scoped>
+.pinned-icon {
+  color: #f59e0b;
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+  animation: fadeIn 0.2s ease-in;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+</style>

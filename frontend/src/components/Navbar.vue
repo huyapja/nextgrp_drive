@@ -5,6 +5,18 @@
     class="bg-surface-white border-b w-full px-5 py-2.5 flex items-center flex-wrap gap-2 justify-between min-h-[56px] sm:min-h-[70px]"
   >
     <div class="flex flex-row flex-wrap gap-2 first-div">
+      <!-- Sidebar Toggle Button -->
+       <div :class="store.state.showSidebarButton ? 'border-r border-gray-200 pr-2' : ''">
+         <button
+           v-if="store.state.showSidebarButton"
+           @click="openSidebar"
+           class="flex items-center justify-center p-2 rounded hover:bg-gray-100 transition-colors"
+           title="Mở sidebar"
+         >
+           <ChevronRight class="h-5 w-5 text-gray-700" />
+         </button>
+       </div>
+      
       <Breadcrumbs
         :items="store.state.breadcrumbs"
         class="select-none !truncate breadcrumbs-custom"
@@ -257,6 +269,7 @@ import { computed, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
+import LucideChevronRight from "~icons/lucide/chevron-right"
 import LucideClock from "~icons/lucide/clock"
 import LucideDownload from "~icons/lucide/download"
 import LucideFileDown from "~icons/lucide/file-down"
@@ -276,6 +289,8 @@ import ShortcutIcon from "../assets/Icons/ShortcutIcon.vue"
 import { getTeamMembers } from "../resources/team"
 import Dialogs from "./Dialogs.vue"
 import UsersBar from "./UsersBar.vue"
+
+const ChevronRight = LucideChevronRight
 
 // Component mapping
 const COMPONENT_MAP = {
@@ -747,6 +762,13 @@ function enterFullScreen() {
   } catch (err) {
     console.error('❌ Error entering fullscreen:', err)
   }
+}
+
+// Open sidebar function
+const openSidebar = () => {
+  store.commit("setIsSidebarExpanded", true)
+  store.commit("setShowSidebarButton", false)
+  store.commit("setShowPinnedSidebar", true)
 }
 </script>
 
