@@ -95,7 +95,9 @@ function extractParagraphAndBlock(el) {
  * 3. IMAGE (NORMALIZE IMG → image-wrapper)
  * ========================= */
 
-const images = el.querySelectorAll(":scope img")
+const images = el.querySelectorAll(
+  ':scope img[data-node-id="' + el.getAttribute("data-node-id") + '"]'
+)
 
 images.forEach((img) => {
   const src = img.getAttribute("src")

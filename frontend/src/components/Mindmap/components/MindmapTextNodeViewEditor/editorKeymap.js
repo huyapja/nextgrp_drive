@@ -1,8 +1,7 @@
 import { TextSelection } from "@tiptap/pm/state"
 import { splitListItem } from "@tiptap/pm/schema-list"
 import { sinkListItem, liftListItem } from "@tiptap/pm/schema-list"
-import { toast } from '@/utils/toasts'
-
+import { toast } from "@/utils/toasts"
 
 function getCurrentListItem($from, schema) {
   for (let d = $from.depth; d > 0; d--) {
@@ -18,7 +17,12 @@ function getCurrentListItem($from, schema) {
   return null
 }
 
-export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
+export function createEditorKeyDown({
+  editor,
+  flags,
+  getEditingUserOfNode,
+  getNodeIdFromSelection,
+}) {
   function insertTempChildNode(editorInstance, newNodeId) {
     const { state, view } = editorInstance
     const { selection, schema } = state
@@ -53,10 +57,43 @@ export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
     view.focus()
   }
 
+  function emitCaretAfterKeyAction() {
+    requestAnimationFrame(() => {
+      const ed = editor.value
+      if (!ed) return
+
+      const { selection } = ed.state
+      if (!selection || !selection.empty) return
+
+      const nodeId = getNodeIdFromSelection(ed)
+      if (!nodeId) return
+
+      const editingUser = getEditingUserOfNode?.(nodeId)
+      if (editingUser) return
+
+      ed.options?.onCaretMove?.(nodeId)
+    })
+  }
+
   let lastBlockedNodeId = null
   let lastToastAt = 0
 
   return function handleKeyDown(view, event) {
+    let shouldEmitCaret = false
+
+    const CARET_KEYS = [
+      "Enter",
+      "Tab",
+      "ArrowUp",
+      "ArrowDown",
+      "ArrowLeft",
+      "ArrowRight",
+    ]
+
+    if (CARET_KEYS.includes(event.key)) {
+      shouldEmitCaret = true
+    }
+
     const { state } = view
     const { selection, schema } = state
     const { $from } = selection
@@ -216,6 +253,7 @@ export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
         })
 
         event.preventDefault()
+        emitCaretAfterKeyAction()
         return true
       }
 
@@ -270,6 +308,7 @@ export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
         })
 
         event.preventDefault()
+        emitCaretAfterKeyAction()
         return true
       }
 
@@ -368,6 +407,7 @@ export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
         })
 
         event.preventDefault()
+        emitCaretAfterKeyAction()
         return true
       }
     }
@@ -418,6 +458,7 @@ export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
       }
 
       event.preventDefault()
+      emitCaretAfterKeyAction()
       return true
     }
 
@@ -451,6 +492,310 @@ export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
 
       event.preventDefault()
       return true
+    }
+
+    if (event.key === "ArrowUp") {
+      const { state } = view
+      const { selection, schema, doc } = state
+
+      if (!(selection instanceof TextSelection)) return false
+      if (!selection.empty) return false
+
+      const { $from } = selection
+      if (!$from.parent?.isTextblock) return false
+
+      // =============================
+      // helpers
+      // =============================
+      function findLiDepth($pos) {
+        for (let d = $pos.depth; d > 0; d--) {
+          if ($pos.node(d).type === schema.nodes.listItem) return d
+        }
+        return null
+      }
+
+      function caretAtEndOfLi(liPos) {
+        const $li = doc.resolve(liPos)
+        const liNode = $li.nodeAfter
+        if (!liNode) return null
+
+        let textblock = null
+        let offset = null
+
+        liNode.forEach((child, off) => {
+          if (!textblock && child.isTextblock) {
+            textblock = child
+            offset = off
+          }
+        })
+        if (!textblock) return null
+
+        const start = liPos + 1 + offset + 1
+        return start + textblock.content.size
+      }
+
+      function lastDescendantLiPos(liPos) {
+        let currentPos = liPos
+
+        while (true) {
+          const $li = doc.resolve(currentPos)
+          const liNode = $li.nodeAfter
+          if (!liNode) break
+
+          if (!liNode.attrs?.hasChildren || liNode.attrs?.collapsed) break
+
+          let ul = null
+          let ulOffset = null
+
+          liNode.forEach((child, off) => {
+            if (!ul && child.type === schema.nodes.bulletList) {
+              ul = child
+              ulOffset = off
+            }
+          })
+
+          if (!ul || ul.childCount === 0) break
+
+          // ⬅️ POS CHUẨN của li con CUỐI
+          currentPos = doc.resolve(currentPos + 1 + ulOffset + 1).pos
+
+          // đi đến li cuối trong ul
+          const ulNode = ul
+          let lastIndex = ulNode.childCount - 1
+          let offset = 0
+          for (let i = 0; i < lastIndex; i++) {
+            offset += ulNode.child(i).nodeSize
+          }
+          currentPos += offset
+        }
+
+        return currentPos
+      }
+
+      // =============================
+      // 1️⃣ xác định listItem hiện tại
+      // =============================
+      const liDepth = findLiDepth($from)
+      if (!liDepth) return false
+
+      const liPos = $from.before(liDepth)
+      const listDepth = liDepth - 1
+      const index = $from.index(listDepth)
+
+      // =============================
+      // 2️⃣ CÓ sibling phía trên (FLAT hoặc CHILD)
+      // =============================
+      if (index > 0) {
+        const parentList = $from.node(listDepth)
+        const prevLi = parentList.child(index - 1)
+
+        const prevLiPos = liPos - prevLi.nodeSize
+
+        const targetLiPos = lastDescendantLiPos(prevLiPos)
+        const caretPos = caretAtEndOfLi(targetLiPos)
+
+        if (caretPos != null) {
+          const tr = state.tr.setSelection(TextSelection.create(doc, caretPos))
+          tr.setMeta("ui-only", true)
+          view.dispatch(tr)
+          emitCaretAfterKeyAction()
+          event.preventDefault()
+          return true
+        }
+      }
+
+      // =============================
+      // 3️⃣ KHÔNG có sibling → lên cha
+      // =============================
+      if (liDepth > 2) {
+        const parentLiPos = $from.before(liDepth - 2)
+        const caretPos = caretAtEndOfLi(parentLiPos)
+
+        if (caretPos != null) {
+          const tr = state.tr.setSelection(TextSelection.create(doc, caretPos))
+          tr.setMeta("ui-only", true)
+          view.dispatch(tr)
+          emitCaretAfterKeyAction()
+          event.preventDefault()
+          return true
+        }
+      }
+
+      return false
+    }
+
+    if (event.key === "ArrowDown") {
+      const { state } = view
+      const { selection, schema, doc } = state
+
+      if (!(selection instanceof TextSelection)) return false
+      if (!selection.empty) return false
+
+      const { $from } = selection
+      if (!$from.parent?.isTextblock) return false
+
+      // =============================
+      // helper: tìm listItem hiện tại
+      // =============================
+      function findLiDepth($pos) {
+        for (let d = $pos.depth; d > 0; d--) {
+          if ($pos.node(d).type === schema.nodes.listItem) return d
+        }
+        return null
+      }
+
+      // =============================
+      // helper: caret CUỐI listItem (first textblock)
+      // =============================
+      function caretEndOfLi(liPos, docToUse) {
+        const $li = docToUse.resolve(liPos)
+        const liNode = $li.nodeAfter
+        if (!liNode || liNode.type !== schema.nodes.listItem) return null
+
+        // tìm textblock đầu tiên (thường là paragraph)
+        let tbOffset = null
+        let tbNode = null
+        liNode.forEach((child, offset) => {
+          if (!tbNode && child.isTextblock) {
+            tbNode = child
+            tbOffset = offset
+          }
+        })
+        if (!tbNode) return null
+
+        // pos vào trong textblock
+        const textblockStart = liPos + 1 + tbOffset + 1
+
+        // CUỐI nội dung textblock (đúng nghĩa “cuối”)
+        // = start + content.size
+        return textblockStart + tbNode.content.size
+      }
+
+      // =============================
+      // helper: lấy liPos của “con đầu” nếu có children & mở
+      // =============================
+      function firstChildLiPos(liPos, docToUse) {
+        const $li = docToUse.resolve(liPos)
+        const liNode = $li.nodeAfter
+        if (!liNode || liNode.type !== schema.nodes.listItem) return null
+
+        const hasChildren = !!liNode.attrs?.hasChildren
+        const isCollapsed = !!liNode.attrs?.collapsed
+        if (!hasChildren || isCollapsed) return null
+
+        // tìm bulletList con trong listItem
+        let ulOffset = null
+        let ulNode = null
+        liNode.forEach((child, offset) => {
+          if (!ulNode && child.type === schema.nodes.bulletList) {
+            ulNode = child
+            ulOffset = offset
+          }
+        })
+        if (!ulNode || ulNode.childCount === 0) return null
+
+        // vị trí bắt đầu của bulletList trong doc:
+        // liPos + 1 (vào listItem) + ulOffset
+        const ulPos = liPos + 1 + ulOffset
+
+        // con đầu của bulletList nằm tại ulPos + 1
+        return ulPos + 1
+      }
+
+      // =============================
+      // helper: tìm sibling kế tiếp của listItem tại liDepth
+      // =============================
+      function nextSiblingLiPos($pos, liDepth) {
+        const listDepth = liDepth - 1 // bulletList depth
+        if (listDepth <= 0) return null
+
+        const listNode = $pos.node(listDepth)
+        const indexInList = $pos.index(listDepth)
+        if (indexInList >= listNode.childCount - 1) return null
+
+        // pos bắt đầu của current li
+        const curLiPos = $pos.before(liDepth)
+
+        // li kế tiếp bắt đầu ngay sau current li
+        const curLiNode = $pos.node(liDepth)
+        return curLiPos + curLiNode.nodeSize
+      }
+
+      // =============================
+      // 1) xác định li hiện tại
+      // =============================
+      let liDepth = findLiDepth($from)
+      if (!liDepth) return false
+
+      // current liPos (pos bắt đầu node listItem hiện tại)
+      let liPos = $from.before(liDepth)
+
+      // =============================
+      // 2) DFS: tìm next node theo thứ tự
+      // =============================
+
+      // (A) nếu li hiện tại có children & mở → vào con đầu
+      const childLiPos = firstChildLiPos(liPos, doc)
+      if (childLiPos != null) {
+        const caretPos = caretEndOfLi(childLiPos, doc)
+        if (caretPos != null) {
+          const tr = state.tr.setSelection(TextSelection.create(doc, caretPos))
+          tr.setMeta("ui-only", true)
+          view.dispatch(tr)
+          emitCaretAfterKeyAction()
+          event.preventDefault()
+          return true
+        }
+      }
+
+      // (B) nếu có sibling kế tiếp cùng cấp → đi sibling
+      const sibPos = nextSiblingLiPos($from, liDepth)
+      if (sibPos != null) {
+        const caretPos = caretEndOfLi(sibPos, doc)
+        if (caretPos != null) {
+          const tr = state.tr.setSelection(TextSelection.create(doc, caretPos))
+          tr.setMeta("ui-only", true)
+          view.dispatch(tr)
+          emitCaretAfterKeyAction()
+          event.preventDefault()
+          return true
+        }
+      }
+
+      // (C) không có sibling → climb lên cha để tìm sibling của cha
+      // cứ mỗi lần climb: liDepth = liDepth - 2 (bỏ qua bulletList)
+      let climbDepth = liDepth
+      let $climb = $from
+
+      while (climbDepth > 2) {
+        const parentLiDepth = climbDepth - 2
+        const parentLiPos = $climb.before(parentLiDepth)
+
+        // resolve lại để tính sibling của parent
+        const $parent = doc.resolve(parentLiPos + 1) // vào trong parent li để có index đúng
+        const parentSibPos = nextSiblingLiPos($parent, parentLiDepth)
+
+        if (parentSibPos != null) {
+          const caretPos = caretEndOfLi(parentSibPos, doc)
+          if (caretPos != null) {
+            const tr = state.tr.setSelection(
+              TextSelection.create(doc, caretPos)
+            )
+            tr.setMeta("ui-only", true)
+            view.dispatch(tr)
+            emitCaretAfterKeyAction()
+            event.preventDefault()
+            return true
+          }
+          return false
+        }
+
+        // climb tiếp lên nữa
+        climbDepth = parentLiDepth
+        $climb = $parent
+      }
+
+      return false
     }
     return false
   }

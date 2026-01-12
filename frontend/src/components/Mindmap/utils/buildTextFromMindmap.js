@@ -54,7 +54,7 @@ function extractInlineHTML(html) {
   return content
 }
 
-function extractBlockHTML(html) {
+function extractBlockHTML(html, nodeId) {
   if (!html) return ""
 
   const div = document.createElement("div")
@@ -98,7 +98,7 @@ function extractBlockHTML(html) {
       blocks.push(
         `
 <div class="image-wrapper" data-image-src="${wrapper.dataset.imageSrc || ""}">
-  <img src="${img.getAttribute("src")}" alt="${
+  <img data-node-id="${nodeId}" src="${img.getAttribute("src")}" alt="${
           img.getAttribute("alt") || ""
         }" />
 </div>
@@ -113,7 +113,7 @@ function extractBlockHTML(html) {
       blocks.push(
         `
 <div class="image-wrapper" data-image-src="${src}">
-  <img src="${src}" alt="${img.getAttribute("alt") || ""}" />
+  <img data-node-id="${nodeId}"  src="${src}" alt="${img.getAttribute("alt") || ""}" />
 </div>
       `.trim()
       )
@@ -176,7 +176,7 @@ export function buildTextFromMindmap(nodes, edges) {
       const safeLabel = ensureParagraphHTML(node.data?.label || "")
 
       const inline = extractInlineHTML(safeLabel)
-      const block = extractBlockHTML(safeLabel)
+      const block = extractBlockHTML(safeLabel, node.id)
 
       if (!inline && !block) return ""
 
