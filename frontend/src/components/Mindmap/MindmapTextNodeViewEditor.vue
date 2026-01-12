@@ -81,11 +81,6 @@ let lastCaretNodeId = null
 const remoteUserColorMap = new Map()
 let colorCursor = 0
 
-const typingState = {
-  value: false,
-}
-
-
 const socket = inject("socket")
 
 
@@ -154,7 +149,7 @@ function syncFromEditor(editor) {
 const route = useRoute()
 const entityName = computed(() => route.params.entityName)
 const broadcastEditingResource = createResource({ url: "drive.api.mindmap.broadcast_node_editing", method: "POST" })
-
+let caretMouseupTimer = null
 
 const editingTracker = useNodeEditingTracker({
   entityName,
@@ -243,6 +238,7 @@ function handleRealtimeNodeEditing(payload) {
   // xoá indicator cũ của user này
   removeRemoteIndicator(user_id)
 
+
   // nếu user stop edit → không render gì nữa
   if (!is_editing || !node_id) {
     remoteEditingNodes.delete(user_id)
@@ -262,7 +258,7 @@ function handleRealtimeNodeEditing(payload) {
   const color = getRemoteUserColor(user_id)
 
   // tạo indicator
-  const indicator = document.createElement("span")
+  const indicator = document.createElement("div")
   indicator.className = "remote-node-indicator"
   indicator.dataset.userId = user_id
   indicator.dataset.userName = user_name
@@ -293,44 +289,6 @@ onMounted(() => {
       if (!canEdit.value || !canEditContent.value) return
       if (editor.view.composing) return
       if (editor.state.selection.$anchor.parent.type.name === "blockquote") return
-
-      const { selection } = editor.state
-      if (!selection || !selection.empty) return
-
-      const lastTr = editor.view.state.tr
-      if (lastTr?.getMeta("ui-only")) return
-
-      const nodeId = getNodeIdFromSelection(editor)
-      if (!nodeId) return
-
-      // ==============================
-      // REMOTE LOCK – DÙNG TRỰC TIẾP
-      // ==============================
-      const editingUser = getEditingUserOfNode(nodeId)
-      if (editingUser) {
-        // typingState.value = false
-        return
-      }
-
-      const isNodeChanged = nodeId !== lastCaretNodeId
-
-      if (isNodeChanged) {
-        lastCaretNodeId = nodeId
-        typingState.value = false
-
-        editingTracker.sendCaret({
-          view: "text",
-          nodeId,
-        })
-        return
-      }
-
-      if (typingState.value) return
-
-      editingTracker.sendCaret({
-        view: "text",
-        nodeId,
-      })
     },
     syncFromEditor,
     syncFromEditorDebounced,
@@ -361,6 +319,9 @@ onMounted(() => {
     onDeleteNode(payload) {
       emit('delete-node', payload)
     },
+    onCaretMove(nodeId) {
+      editingTracker.sendCaret({ nodeId })
+    },
     extensions: [
       StarterKit.configure({
         bulletList: true,
@@ -386,6 +347,12 @@ onMounted(() => {
                   ? { "data-image-src": attrs["data-image-src"] }
                   : {},
             },
+            nodeId: {
+              default: null,
+              parseHTML: (el) => el.getAttribute("data-node-id"),
+              renderHTML: (attrs) =>
+                attrs.nodeId ? { "data-node-id": attrs.nodeId } : {},
+            },
           }
         },
       }),
@@ -402,14 +369,38 @@ onMounted(() => {
         editor,
         flags: {
           isCreatingDraftNode,
-          typingState,
         },
-        getEditingUserOfNode
+        getEditingUserOfNode,
+        getNodeIdFromSelection
       }),
 
       handleDOMEvents: {
+        mouseup: () => {
+          clearTimeout(caretMouseupTimer)
+
+          caretMouseupTimer = setTimeout(() => {
+            if (!editor.value) return
+
+            const { state } = editor.value
+            const { selection } = state
+            if (!selection || !selection.empty) return
+            if (props.permissions?.write !== 1) return
+
+            const nodeId = getNodeIdFromSelection(editor.value)
+            if (!nodeId) return
+
+            // nếu vẫn là node cũ → bỏ qua
+            if (nodeId === lastCaretNodeId) return
+
+            lastCaretNodeId = nodeId
+            editingTracker.sendCaret({ nodeId })
+          }, 500)
+
+          return false
+        },
+
+
         mousedown: () => {
-          typingState.value = false
           return false
         },
 

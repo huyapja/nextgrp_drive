@@ -15,8 +15,7 @@ export function useNodeEditingTracker({
   let lastTime = 0
 
   async function sendCaret({
-    view,
-    nodeId,
+    nodeId
   }) {
     const now = Date.now()
     if (now - lastTime < throttleMs) return
