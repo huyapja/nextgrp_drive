@@ -134,10 +134,13 @@ import LucideExternalLink from "~icons/lucide/external-link"
 import LucideInfo from "~icons/lucide/info"
 import LucideRotateCcw from "~icons/lucide/rotate-ccw"
 import LucideStar from "~icons/lucide/star"
+import LucidePin from "~icons/lucide/pin"
+import LucidePinOff from "~icons/lucide/pin-off"
 import CopyIcon from "../assets/Icons/CopyIcon.vue"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import { getTeams } from "../resources/files"
 import { createShortcut } from "../utils/files"
+import { usePinnedFiles } from "@/composables/usePinnedFiles"
 
 const props = defineProps({
   grouper: { type: Function, default: (d) => d },
@@ -153,6 +156,7 @@ const emit = defineEmits(["show-team-members"])
 
 const route = useRoute()
 const store = useStore()
+const { pinFile, unpinFile } = usePinnedFiles()
 
 const dialog = ref("")
 const infoEntities = ref([])
@@ -525,6 +529,38 @@ const actionItems = computed(() => {
         isEnabled: (e) => e.is_favourite && e.is_active,
         important: true,
         multi: true,
+      },
+      {
+        label: "Ghim văn bản",
+        icon: LucidePin,
+        action: async ([entity]) => {
+          const result = await pinFile(entity)
+          if (result && result.success) {
+            // Reload data để cập nhật is_pinned từ backend
+            await props.getEntities.reload()
+            toast("Đã ghim văn bản")
+          } else {
+            toast("Lỗi: " + (result?.message || "Không thể ghim văn bản"))
+          }
+        },
+        isEnabled: (e) => !e.is_group && !e.is_pinned && e.is_active,
+        important: true,
+      },
+      {
+        label: "Bỏ ghim văn bản",
+        icon: LucidePinOff,
+        action: async ([entity]) => {
+          const result = await unpinFile(entity.name)
+          if (result && result.success) {
+            // Reload data để cập nhật is_pinned từ backend
+            await props.getEntities.reload()
+            toast("Đã bỏ ghim văn bản")
+          } else {
+            toast("Lỗi: " + (result?.message || "Không thể bỏ ghim"))
+          }
+        },
+        isEnabled: (e) => !e.is_group && e.is_pinned && e.is_active,
+        important: true,
       },
       {
         label: "Xóa khỏi gần đây",

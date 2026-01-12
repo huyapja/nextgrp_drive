@@ -31,8 +31,31 @@ DriveFavourite = frappe.qb.DocType("Drive Favourite")
 Recents = frappe.qb.DocType("Drive Entity Log")
 DriveEntityTag = frappe.qb.DocType("Drive Entity Tag")
 DriveShortcut = frappe.qb.DocType("Drive Shortcut")
+DrivePinFile = frappe.qb.DocType("Drive Pin File")
 
 Binary = CustomFunction("BINARY", ["expression"])
+
+
+def get_pinned_files_set(user):
+    """
+    Get set of pinned file names for a user
+
+    Args:
+        user: User email
+
+    Returns:
+        set: Set of pinned file names
+    """
+    try:
+        pinned_query = (
+            frappe.qb.from_(DrivePinFile)
+            .where(DrivePinFile.user == user)
+            .select(DrivePinFile.drive_file)
+        )
+        return set(k[0] for k in pinned_query.run())
+    except Exception as e:
+        frappe.logger("pinned_files").error(f"Error getting pinned files set: {e}")
+        return set()
 
 
 @frappe.whitelist(allow_guest=True)
@@ -271,10 +294,15 @@ def files(
 
     children_count = dict(child_count_query.run())
     share_count = dict(share_query.run())
+
+    # Get pinned files for current user
+    pinned_files = get_pinned_files_set(user)
+
     res = query.run(as_dict=True)
     for r in res:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
         if r["name"] in public_files:
             r["share_count"] = -2
         elif r["name"] in team_files:
@@ -406,12 +434,17 @@ def shared(
 
     children_count = dict(child_count_query.run())
     share_count = dict(share_query.run())
+
+    # Get pinned files for current user
+    pinned_files = get_pinned_files_set(frappe.session.user)
+
     res = query.run(as_dict=True)
     parents = {r["name"] for r in res}
 
     for r in res:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
         if r["name"] in public_files:
             r["share_count"] = -2
         elif r["name"] in team_files:
@@ -1157,10 +1190,14 @@ def files_multi_team(
         children_count = {}
         share_count = {}
 
+    # Get pinned files for current user
+    pinned_files = get_pinned_files_set(user)
+
     # Add computed fields
     for r in all_results:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
         if r["name"] in public_files:
             r["share_count"] = -2
         elif r["name"] in team_files:
@@ -1496,10 +1533,14 @@ def get_recent_files_multi_team(
         children_count = {}
         share_count = {}
 
+    # Get pinned files for current user
+    pinned_files = get_pinned_files_set(user)
+
     # Add computed fields
     for r in all_results:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
         if r["name"] in public_files:
             r["share_count"] = -2
         elif r["name"] in team_files:
@@ -1883,10 +1924,14 @@ def get_favourites_multi_team(
         children_count = {}
         share_count = {}
 
+    # Get pinned files for current user
+    pinned_files = get_pinned_files_set(user)
+
     # Add computed fields
     for r in all_results:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
         if r["name"] in public_files:
             r["share_count"] = -2
         elif r["name"] in team_files:
@@ -2303,10 +2348,15 @@ def shared_multi_team(
 
         team_info = {t["name"]: t for t in team_data}
 
+    # Get pinned files for current user
+    current_user = frappe.session.user if frappe.session.user != "Guest" else ""
+    pinned_files = get_pinned_files_set(current_user)
+
     # Add additional information to results
     for r in res:
         r["children"] = child_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
 
         if r["name"] in public_files:
             r["share_count"] = -2
@@ -2755,10 +2805,14 @@ def get_personal_files(
         children_count = {}
         share_count = {}
 
+    # Get pinned files for current user
+    pinned_files = get_pinned_files_set(user)
+
     # Add computed fields
     for r in all_results:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
         if r["name"] in public_files:
             r["share_count"] = -2
         elif r["name"] in team_files:
@@ -3094,10 +3148,14 @@ def get_trash_files(
         children_count = {}
         share_count = {}
 
+    # Get pinned files for current user
+    pinned_files = get_pinned_files_set(user)
+
     # Add computed fields
     for r in all_results:
         r["children"] = children_count.get(r["name"], 0)
         r["file_type"] = get_file_type(r)
+        r["is_pinned"] = r["name"] in pinned_files
         if r["name"] in public_files:
             r["share_count"] = -2
         elif r["name"] in team_files:

@@ -55,10 +55,12 @@
     leave-from-class="translate-y-0 opacity-100" leave-to-class="translate-y-1 opacity-0">
     <UploadTracker v-if="showUploadTracker" />
   </Transition>
+  <PinnedFileView />
   <Toasts />
 </template>
 
 <script setup>
+import PinnedFileView from "@/components/PinnedFileView.vue"
 import SettingsDialog from "@/components/Settings/SettingsDialog.vue"
 import Sidebar from "@/components/Sidebar.vue"
 import UploadTracker from "@/components/UploadTracker.vue"
@@ -92,7 +94,8 @@ function handleOpenHistoryFromToast(data) {
 }
 
 
-
+const store = useStore()
+const router = useRouter()
 const showSettings = ref(false)
 const suggestedTab = ref(0)
 
@@ -102,8 +105,6 @@ onMounted(() => {
     showSettings.value = true
   })
 })
-const store = useStore()
-const router = useRouter()
 
 const showSearchPopup = ref(false)
 const isLoggedIn = computed(() => store.getters.isLoggedIn)

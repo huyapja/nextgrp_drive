@@ -61,6 +61,10 @@ const actionGroups = {
     label: 'Chia sẻ',
     icon: 'pi pi-share-alt',
   },
+  pin: {
+    label: 'Ghim',
+    icon: 'pi pi-bookmark',
+  },
   organize: {
     label: 'Sắp xếp',
     icon: 'pi pi-sort-alt',
@@ -142,6 +146,48 @@ const groupedMenuItems = computed(() => {
       template: 'groupedItem',
       groupData: actionGroups.share
     })
+  }
+  
+  // Nhóm Pin (Ghim văn bản) - Hiển thị ở cấp 1
+  const pinItems = props.actionItems.filter(item => 
+    item.label?.includes('Ghim văn bản') ||
+    item.label?.includes('Bỏ ghim văn bản')
+  )
+  if (pinItems.length > 0) {
+    // Nếu chỉ có 1 action ghim, hiển thị trực tiếp
+    if (pinItems.length === 1) {
+      const item = pinItems[0]
+      items.push({
+        label: item.label,
+        icon: typeof item.icon === 'string' ? item.icon : null,
+        iconComponent: typeof item.icon !== 'string' ? item.icon : null,
+        command: () => {
+          item.action([store.state.activeEntity])
+          closeMenu()
+        },
+        template: 'groupedItem',
+        groupData: actionGroups.pin
+      })
+    } else {
+      // Nếu có nhiều action ghim, hiển thị submenu
+      const pinSubItems = pinItems.map(item => ({
+        label: item.label,
+        icon: typeof item.icon === 'string' ? item.icon : null,
+        iconComponent: typeof item.icon !== 'string' ? item.icon : null,
+        command: () => {
+          item.action([store.state.activeEntity])
+          closeMenu()
+        }
+      }))
+      
+      items.push({
+        label: actionGroups.pin.label,
+        icon: actionGroups.pin.icon,
+        items: pinSubItems,
+        template: 'groupedItem',
+        groupData: actionGroups.pin
+      })
+    }
   }
   
   // Nhóm Organize (Di chuyển, Tạo lối tắt, Tạo bản sao, Yêu thích)
@@ -329,47 +375,58 @@ defineExpose({
   background-color: #fef3c7;
 }
 
-/* Styling cho Organize group - màu xanh lá */
+/* Styling cho Pin group - màu tím */
 :deep(.p-contextmenu .p-menuitem:nth-child(3) .p-menuitem-link) {
+  background-color: #faf5ff;
+  border-left-color: #a855f7;
+  color: #7e22ce;
+}
+
+:deep(.p-contextmenu .p-menuitem:nth-child(3) .p-menuitem-link:hover) {
+  background-color: #f3e8ff;
+}
+
+/* Styling cho Organize group - màu xanh lá */
+:deep(.p-contextmenu .p-menuitem:nth-child(4) .p-menuitem-link) {
   background-color: #f0fdf4;
   border-left-color: #22c55e;
   color: #15803d;
 }
 
-:deep(.p-contextmenu .p-menuitem:nth-child(3) .p-menuitem-link:hover) {
+:deep(.p-contextmenu .p-menuitem:nth-child(4) .p-menuitem-link:hover) {
   background-color: #dcfce7;
 }
 
 /* Styling cho Download group - màu đỏ */
-:deep(.p-contextmenu .p-menuitem:nth-child(4) .p-menuitem-link) {
+:deep(.p-contextmenu .p-menuitem:nth-child(5) .p-menuitem-link) {
   background-color: #fef2f2;
   border-left-color: #ef4444;
   color: #dc2626;
 }
 
-:deep(.p-contextmenu .p-menuitem:nth-child(4) .p-menuitem-link:hover) {
+:deep(.p-contextmenu .p-menuitem:nth-child(5) .p-menuitem-link:hover) {
   background-color: #fee2e2;
 }
 
 /* Styling cho Info group - màu xanh dương */
-:deep(.p-contextmenu .p-menuitem:nth-child(5) .p-menuitem-link) {
+:deep(.p-contextmenu .p-menuitem:nth-child(6) .p-menuitem-link) {
   background-color: #eff6ff;
   border-left-color: #3b82f6;
   color: #1d4ed8;
 }
 
-:deep(.p-contextmenu .p-menuitem:nth-child(5) .p-menuitem-link:hover) {
+:deep(.p-contextmenu .p-menuitem:nth-child(6) .p-menuitem-link:hover) {
   background-color: #dbeafe;
 }
 
 /* Styling cho các action Xóa/Khôi phục (danger actions) - màu cam/đỏ */
-:deep(.p-contextmenu .p-menuitem:nth-child(n+6) .p-menuitem-link) {
+:deep(.p-contextmenu .p-menuitem:nth-child(n+7) .p-menuitem-link) {
   background-color: #fff7ed;
   border-left-color: #f97316;
   color: #ea580c;
 }
 
-:deep(.p-contextmenu .p-menuitem:nth-child(n+6) .p-menuitem-link:hover) {
+:deep(.p-contextmenu .p-menuitem:nth-child(n+7) .p-menuitem-link:hover) {
   background-color: #fed7aa;
 }
 

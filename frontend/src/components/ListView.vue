@@ -81,9 +81,15 @@
                   <ShortCutIconFile />
                 </span>
                 </div>
-                <span class="file-name">{{
-                getDisplayName(slotProps.data)
-              }}</span>
+                 <div class="file-name-wrapper">
+                   <span class="file-name-text">{{ slotProps.data.title }}</span>
+                   <PinFilled 
+                     v-if="slotProps.data.is_pinned"
+                     class="pinned-icon"
+                     :size="14"
+                     title="Văn bản đã ghim"
+                   />
+                 </div>
             </div>
           </template>
         </Column>
@@ -301,6 +307,8 @@ import ShortCutIconFile from "@/assets/Icons/ShortCutIconFile.vue"
 import { createShortcutResource, removeShortcutResource } from "../utils/files"
 import { call } from "frappe-ui"
 import { toast } from "@/utils/toasts"
+import PinFilled from "@/assets/Icons/PinFilled.vue"
+import { usePinnedFiles } from "@/composables/usePinnedFiles"
 
 // Directives
 const vTooltip = Tooltip
@@ -1207,13 +1215,23 @@ const onSort = (event) => {
   object-fit: contain;
 }
 
-.file-name {
-  @apply text-sm font-medium text-gray-900 truncate;
+.file-name-wrapper {
+  @apply text-sm font-medium text-gray-900;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
   max-width: 400px;
+  min-width: 0;
+}
+
+.file-name-text {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: block;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .owner-cell {
@@ -1276,26 +1294,30 @@ const onSort = (event) => {
   @apply bg-blue-600 border-blue-600;
 }
 
-/* Responsive adjustments - chỉ điều chỉnh kích thước, KHÔNG ẩn cột */
-@media (max-width: 1024px) {
-  .name-cell {
-    max-width: 220px;
-  }
-  .file-name {
-    max-width: 140px;
-    font-size: 13px;
-  }
+  /* Responsive adjustments - chỉ điều chỉnh kích thước, KHÔNG ẩn cột */
+  @media (max-width: 1024px) {
+    .name-cell {
+      max-width: 220px;
+    }
+    .file-name-wrapper {
+      max-width: 140px;
+    }
+    .file-name-text {
+      font-size: 13px;
+    }
 }
 
 @media (max-width: 768px) {
   .file-table {
     @apply min-w-[400px];
   }
-  .file-name {
-    @apply text-xs;
-    max-width: 90px;
-    font-size: 12px;
-  }
+    .file-name-wrapper {
+      max-width: 90px;
+    }
+    .file-name-text {
+      @apply text-xs;
+      font-size: 12px;
+    }
   .owner-name {
     @apply text-xs;
   }
@@ -1320,11 +1342,13 @@ const onSort = (event) => {
   .file-table {
     @apply min-w-[320px];
   }
-  .file-name {
-    @apply text-[11px];
-    max-width: 230px;
-    font-size: 11px;
-  }
+    .file-name-wrapper {
+      max-width: 230px;
+    }
+    .file-name-text {
+      @apply text-[11px];
+      font-size: 11px;
+    }
   .owner-name {
     @apply text-[11px];
   }
@@ -1370,6 +1394,28 @@ const onSort = (event) => {
 
 .shortcut-badge i {
   font-size: 8px;
+}
+
+.pinned-icon {
+  color: #f59e0b;
+  flex-shrink: 0 !important;
+  flex-grow: 0 !important;
+  animation: fadeIn 0.2s ease-in;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  min-height: 16px !important;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .custom-tooltip {
