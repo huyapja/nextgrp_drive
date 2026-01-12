@@ -330,7 +330,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import { provide } from "vue"
-import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchorSplit, computeInsertBeforeAnchor, moveNodeAsLastChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchor, computeInsertBeforeAnchorSplit, moveNodeAsLastChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 import { useMindmapClipboard } from '@/composables/useMindmapClipboard'
@@ -1757,7 +1757,7 @@ const confirmTaskLink = async () => {
     // Wrap badge trong section riêng để dễ phân biệt và style
     // Tự động thêm badge khi chọn công việc có sẵn
     if (taskPayload.linkUrl) {
-      const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" data-type="node-task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
+      const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" data-type="node-task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;font-size:12px;color:#16a34a;"><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
       if (typeof targetNode.data?.label === 'string' && !targetNode.data.label.includes('node-task-badge')) {
         // Parse HTML để chèn badge vào đúng vị trí (ngay sau title, trước ảnh)
         try {
@@ -1956,17 +1956,15 @@ const confirmTaskLink = async () => {
               }
             }
           }
+          
+          // ⚠️ FIX: Lưu node SAU KHI tất cả thao tác DOM hoàn thành
+          saveSnapshot()
+          changedNodeIds.value.add(targetNode.id)
+          saveImmediately()
         }, 150) // Tăng delay để đảm bảo DOM đã cập nhật
       })
     })
     
-    // ⚠️ FIX: Lưu snapshot sau khi link task
-    saveSnapshot()
-    
-    // ⚠️ CRITICAL: Đánh dấu node đã thay đổi để save
-    changedNodeIds.value.add(targetNode.id)
-    
-    saveImmediately()
     toast({ title: "Đã liên kết công việc thành công", indicator: "green" })
     closeTaskLinkModal()
   } catch (err) {
@@ -2210,6 +2208,10 @@ deleteTaskLink = async (node) => {
                 // Điều này đảm bảo renderNodes sẽ dùng kích thước từ rect (đã được set đúng)
                 setTimeout(() => {
                   updateD3RendererWithDelay(0)
+                  
+                  // ⚠️ FIX: Lưu SAU KHI tất cả thao tác DOM hoàn thành
+                  saveSnapshot()
+                  scheduleSave()
                 }, 100)
               } catch (err) {
                 console.error('Error calling handleEditorBlur:', err)
@@ -2219,22 +2221,31 @@ deleteTaskLink = async (node) => {
                 }
                 // Fallback: vẫn updateD3Renderer nếu có lỗi
                 updateD3RendererWithDelay(0)
+                
+                // Lưu ngay cả khi có lỗi
+                saveSnapshot()
+                scheduleSave()
               }
             } else {
               // Nếu không tìm thấy foElement, vẫn updateD3Renderer
               updateD3RendererWithDelay(0)
+              
+              // Lưu ngay cả khi không tìm thấy foElement
+              saveSnapshot()
+              scheduleSave()
             }
           } else {
             // Nếu không tìm thấy nodeGroup, vẫn updateD3Renderer
             updateD3RendererWithDelay(0)
+            
+            // Lưu ngay cả khi không tìm thấy nodeGroup
+            saveSnapshot()
+            scheduleSave()
           }
         }, 150)
       })
     })
     
-    // ⚠️ FIX: Lưu snapshot sau khi xóa task link
-    saveSnapshot()
-    scheduleSave()
     toast({ title: "Đã xóa liên kết công việc thành công", indicator: "green" })
   } catch (err) {
     console.error("Delete task link failed", err)
@@ -2340,7 +2351,7 @@ const handleCreateTask = async (formData) => {
         // Thêm badge "Liên kết công việc" vào node label (tương tự confirmTaskLink)
         // Tự động thêm badge khi tạo mới công việc từ node
         if (taskOpenLink && typeof linkNode.data?.label === 'string' && !linkNode.data.label.includes('node-task-badge')) {
-          const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" data-type="node-task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;gap:6px;font-size:12px;color:#16a34a;"><span style="display:inline-flex;width:14px;height:14px;align-items:center;justify-content:center;">📄</span><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
+          const badgeHtml = `<section class="node-task-link-section" data-node-section="task-link" data-type="node-task-link" style="margin-top:6px;"><div class="node-task-badge" style="display:flex;align-items:center;font-size:12px;color:#16a34a;"><a href="${taskOpenLink}" target="_top" onclick="event.preventDefault(); window.parent && window.parent.location && window.parent.location.href ? window.parent.location.href=this.href : window.location.href=this.href;" style="color:#0ea5e9;text-decoration:none;">Liên kết công việc</a></div></section>`
           try {
             const parser = new DOMParser()
             const doc = parser.parseFromString(linkNode.data.label, 'text/html')
@@ -2536,6 +2547,10 @@ const handleCreateTask = async (formData) => {
                   }
                 }
               }
+              
+              // ⚠️ FIX: Lưu node SAU KHI tất cả thao tác DOM hoàn thành
+              changedNodeIds.value.add(linkNode.id)
+              saveImmediately()
             }, 150) // Tăng delay để đảm bảo DOM đã cập nhật
           })
         })
@@ -2555,8 +2570,9 @@ const handleCreateTask = async (formData) => {
             // Continue even if comment creation fails
           }
         }
-
-        scheduleSave()
+      } else {
+        // Không có linkNode - task được tạo nhưng không liên kết với node
+        console.warn('[handleCreateTask] Task created successfully but no linkNode found')
       }
 
       // Show success message with link
@@ -2801,8 +2817,8 @@ onMounted(() => {
 
   
 
-  // ⚠️ NEW: Xử lý hash khi component mount để scroll đến node
-  scrollToNodeFromHash()
+  // ⚠️ NOTE: scrollToNodeFromHash được gọi trong onRenderComplete callback
+  // Không gọi ở đây vì mindmap chưa được load và renderer chưa sẵn sàng
 
   // ⚠️ NEW: Lắng nghe sự kiện hashchange để scroll đến node khi hash thay đổi
   window.addEventListener('hashchange', scrollToNodeFromHash)

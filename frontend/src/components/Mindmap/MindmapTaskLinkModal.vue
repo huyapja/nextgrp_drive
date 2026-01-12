@@ -2114,7 +2114,7 @@ watch(() => props.mode, async (newMode, oldMode) => {
     let linkUrl = props.nodeLink || ''
     if (!linkUrl && team && mindmapId && nodeId) {
       const origin = window.location.origin
-      linkUrl = `${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`
+      linkUrl = `${origin}/mtp/my-drive?drive_copy=${encodeURIComponent(`${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`)}`
     }
     if (linkUrl) {
       parts.push(`Liên kết: <a href="${linkUrl}" target="_blank">${linkUrl}</a>`)
@@ -2194,7 +2194,7 @@ watch([() => props.mindmapTitle, () => props.nodeTitle, () => props.team, () => 
     let linkUrl = props.nodeLink || ''
     if (!linkUrl && team && mindmapId && nodeId) {
       const origin = window.location.origin
-      linkUrl = `${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`
+      linkUrl = `${origin}/mtp/my-drive?drive_copy=${encodeURIComponent(`${origin}/drive/t/${team}/mindmap/${mindmapId}#node-${nodeId}`)}`
     }
     if (linkUrl) {
       parts.push(`Liên kết: <a href="${linkUrl}" target="_blank">${linkUrl}</a>`)
