@@ -1751,6 +1751,13 @@ const confirmTaskLink = async () => {
         mindmap_title: mindmapTitle,
         link_url: taskPayload.linkUrl
       })
+      emitter.emit("task-link-node", {
+        nodeId: targetNode.id,
+        taskId: taskPayload.taskId,
+        projectId,
+        linkUrl: taskOpenLink,
+        title: taskPayload.title
+      })           
     }
 
     // Thêm badge tick xanh dưới title node (ngay sau paragraph đầu tiên, trước ảnh)
@@ -4511,26 +4518,33 @@ async function addChildToNodeTextMode(payload) {
 
       if (newOrder == null) return
 
-      nodes.value.push({
+      const newNode = {
         id: newNodeId,
         node_key: crypto.randomUUID(),
+        created_at: Date.now(), 
         data: {
           parentId,
-          label,
+          label: `<p>Nhánh mới</p>`,
           order: newOrder,
         },
-      })
+      }     
 
-      nodeCreationOrder.value.set(newNodeId, newOrder)
-
-      edges.value.push({
+      const newEdge = {
         id: `edge-${parentId}-${newNodeId}`,
         source: parentId,
-        target: newNodeId,
-      })
+        target: newNodeId
+      }
 
+      nodeCreationOrder.value.set(newNodeId, newOrder)
       changedNodeIds.value.add(newNodeId)
 
+      elements.value = [
+        ...nodes.value,
+        newNode,
+        ...edges.value,
+        newEdge
+      ]  
+    
       saveSnapshot()
       await nextTick()
 
@@ -4576,7 +4590,6 @@ async function addChildToNodeTextMode(payload) {
   // ==============================
   if (position === "inside_child") {
     parentId = anchorNodeId
-
     newOrder = computeInsertAsFirstChild({
       nodes: nodes.value,
       parentId,
@@ -4613,21 +4626,31 @@ async function addChildToNodeTextMode(payload) {
   nodeCreationOrder.value.set(newNodeId, newOrder)
   changedNodeIds.value.add(newNodeId)
 
-  nodes.value.push({
+  const newNode = {
     id: newNodeId,
     node_key: crypto.randomUUID(),
+    created_at: Date.now(), 
     data: {
       parentId,
       label: `<p>Nhánh mới</p>`,
       order: newOrder,
     },
-  })
+  }
 
-  edges.value.push({
+  nodes.value.push()
+
+  const newEdge = {
     id: `edge-${parentId}-${newNodeId}`,
     source: parentId,
-    target: newNodeId,
-  })
+    target: newNodeId
+  }
+
+  elements.value = [
+    ...nodes.value,
+    newNode,
+    ...edges.value,
+    newEdge
+  ]  
 
   saveSnapshot()
 

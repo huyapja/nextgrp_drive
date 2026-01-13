@@ -25,6 +25,8 @@ import { useRoute } from "vue-router"
 import { createResource } from "frappe-ui"
 import { getNodeIdFromSelection } from "./utils/getNodeIdFromSelection"
 import { useNodeEditingTracker } from "./components/MindmapTextNodeViewEditor/useNodeEditingTracker"
+import { createListItemDragPlugin } from "./components/plugins/listItemDragPlugin"
+import { ImageWithWrapper } from "./components/extensions/ImageWithWrapper"
 
 
 const REMOTE_USER_COLORS = [
@@ -82,7 +84,7 @@ const remoteUserColorMap = new Map()
 let colorCursor = 0
 
 const socket = inject("socket")
-
+const emitter = inject("emitter")
 
 const emit = defineEmits([
   "rename-title",
@@ -278,6 +280,65 @@ function handleRealtimeNodeEditing(payload) {
   mmNode.prepend(indicator)
 }
 
+let isInjectingTaskLink = false
+
+function handleInjectTaskLink(payload) {
+  if (!editor.value) return
+
+  isInjectingTaskLink = true
+
+  const { state, view } = editor.value
+  const { doc, schema } = state
+
+  let tr = state.tr
+  let inserted = false
+
+  doc.descendants((node, pos) => {
+    if (inserted) return false
+
+    if (
+      node.type.name === "listItem" &&
+      node.attrs?.nodeId === payload.nodeId
+    ) {
+      // tìm paragraph con đầu tiên
+      let paragraphPos = null
+      let offset = 1
+
+      for (let i = 0; i < node.childCount; i++) {
+        const child = node.child(i)
+        if (child.type.name === "paragraph") {
+          paragraphPos = pos + offset
+          break
+        }
+        offset += child.nodeSize
+      }
+
+      if (paragraphPos == null) return
+
+      const taskLinkNode = schema.nodes.taskLink.create({
+        href: payload.linkUrl,
+        title: payload.title || "Liên kết công việc",
+      })
+
+      // ✅ CHÈN NGAY SAU PARAGRAPH
+      const insertPos = paragraphPos + node.child(0).nodeSize
+      tr = tr.insert(insertPos, taskLinkNode)
+
+      inserted = true
+    }
+  })
+
+  if (inserted) {
+    tr.setMeta("ui-only", true)
+    view.dispatch(tr)
+  }
+
+  requestAnimationFrame(() => {
+    isInjectingTaskLink = false
+  })
+}
+
+
 
 onMounted(() => {
   editor.value = new Editor({
@@ -356,6 +417,7 @@ onMounted(() => {
           }
         },
       }),
+      ImageWithWrapper,
       ImageZoomClickExtension,
       ListItemChildrenSync,
     ],
@@ -364,6 +426,10 @@ onMounted(() => {
       attributes: {
         class: "min-h-[60vh]",
       },
+
+      plugins: [
+        createListItemDragPlugin({ editor }),
+      ],
 
       handleKeyDown: createEditorKeyDown({
         editor,
@@ -398,12 +464,9 @@ onMounted(() => {
 
           return false
         },
-
-
         mousedown: () => {
           return false
         },
-
         focus: () => {
           isEditorFocused = true
         },
@@ -508,6 +571,9 @@ onMounted(() => {
     }
 
   })
+  if (emitter) {
+    emitter.on("task-link-node", handleInjectTaskLink)
+  }
 
   if (!socket) return
   socket.on(
@@ -519,6 +585,9 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   editor.value?.destroy()
+  if (emitter) {
+    emitter.off("task-link-node", handleInjectTaskLink)
+  }
   if (!socket) return
   socket.off(
     "drive_mindmap:node_editing",
@@ -532,6 +601,8 @@ watch(
     if (!editor.value) return
     if (isEditorFocused) return
     if (isCreatingDraftNode) return
+    if (isInjectingTaskLink) return
+
     const nextEditable =
       hasMmNode(val) && props.permissions?.write === 1
 
@@ -600,11 +671,12 @@ defineExpose({
 
 <style scoped>
 .prose :deep(p) {
-  margin: 0.5em 0;
+  margin: 0;
 }
 
 .prose :deep(ul) {
   list-style-type: none;
+  /* margin:0 ; */
 }
 
 .prose :deep(.mm-node) {
@@ -673,6 +745,7 @@ defineExpose({
 }
 
 .prose :deep(.mm-node) {
+  position: relative;
   margin-bottom: 0px;
 }
 
@@ -690,10 +763,6 @@ defineExpose({
 .prose :deep(.mm-node.is-comment-hover:not(:has(span[data-inline-root]))) {
   background-color: #faedc2;
   border-radius: 3px;
-}
-
-.prose :deep(.mm-node) {
-  position: relative;
 }
 
 .prose :deep(.mm-node.is-comment-hover) {
@@ -778,16 +847,57 @@ defineExpose({
   opacity: 0.5;
 }
 
+.prose :deep(li[data-completed="true"] p),
+.prose :deep(li[data-completed="true"] a),
+.prose :deep(li[data-completed="true"] blockquote),
+.prose :deep(li[data-completed="true"] img) {
+  opacity: 0.5;
+}
+
+.prose :deep(li[data-has-children="true"] ul) {
+  position: relative
+}
+
+.prose :deep(li[data-has-children="true"] ul::before) {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 25px;
+  height: 100%;
+  width: 1px;
+  background-color: #dee0e3;
+}
+
+.prose :deep(ul li .image-wrapper) {
+  position: relative;
+  padding:20px 0;
+}
+
+.prose :deep(ul li[data-collapsed="false"] .image-wrapper::before) {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 25px;
+  height: 100%;
+  width: 1px;
+  background-color: #dee0e3;
+}
+
+.prose :deep(ul li blockquote) {
+  position: relative;
+}
+
 .prose :deep(img) {
   width: 400px;
   margin-left: 40px;
-  margin-bottom: 10px;
+  margin-bottom: 0px;
+  margin-top:0;
   outline: none;
   max-height: 450px;
 }
 
 .prose :deep(img + img) {
-  margin-top: 20px;
+  padding-top: 20px;
 }
 
 .prose :deep(.remote-node-indicator) {
