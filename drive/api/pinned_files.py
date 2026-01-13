@@ -9,63 +9,55 @@ from frappe import _
 @frappe.whitelist()
 def get_pinned_files():
     """
-    Get list of pinned files for current user
+    Get list of pinned files for current user (only active files)
     Returns list of pinned file objects with their details
+    Only includes files that are active and not trashed
     """
     user = frappe.session.user
 
     try:
-        # Query Drive Pin File records for current user
-        pinned_records = frappe.get_all(
-            "Drive Pin File",
-            filters={"user": user},
-            fields=["drive_file", "pinned_at", "order", "name"],
-            order_by="`order` asc",
+        # Query pinned files with JOIN to get only active, non-trashed files
+        pinned_files_data = frappe.db.sql(
+            """
+            SELECT 
+                df.name,
+                df.title,
+                df.mime_type as file_type,
+                df.is_group,
+                df.is_link,
+                df.modified,
+                df.owner,
+                dpf.pinned_at,
+                dpf.order
+            FROM 
+                `tabDrive Pin File` dpf
+            INNER JOIN 
+                `tabDrive File` df ON dpf.drive_file = df.name
+            WHERE 
+                dpf.user = %(user)s
+                AND df.is_active = 1
+            ORDER BY 
+                dpf.`order` ASC
+            """,
+            {"user": user},
+            as_dict=True,
         )
 
-        # Get file details for each pinned file
+        # Format the results
         pinned_files = []
-        invalid_pins = []
-
-        for record in pinned_records:
-            file_name = record.drive_file
-
-            # Check if file still exists
-            if not frappe.db.exists("Drive File", file_name):
-                # Mark for removal
-                invalid_pins.append(record.name)
-                frappe.logger("pinned_files").info(
-                    f"Pinned file {file_name} not found, will remove pin record."
-                )
-                continue
-
-            # Get file details
-            try:
-                file_doc = frappe.get_doc("Drive File", file_name)
-                file_info = {
-                    "name": file_doc.name,
-                    "title": file_doc.title,
-                    "file_type": getattr(file_doc, "mime_type", "Unknown"),
-                    "is_group": file_doc.is_group,
-                    "is_link": file_doc.is_link,
-                    "modified": file_doc.modified,
-                    "owner": file_doc.owner,
-                    "pinned_at": record.pinned_at,
-                    "order": record.order,
-                }
-                pinned_files.append(file_info)
-            except Exception as e:
-                frappe.logger("pinned_files").error(
-                    f"Error getting file details for {file_name}: {e}"
-                )
-                invalid_pins.append(record.name)
-
-        # Clean up invalid pins
-        for pin_name in invalid_pins:
-            frappe.delete_doc("Drive Pin File", pin_name, ignore_permissions=True)
-
-        if invalid_pins:
-            frappe.db.commit()
+        for file_data in pinned_files_data:
+            file_info = {
+                "name": file_data.name,
+                "title": file_data.title,
+                "file_type": file_data.file_type or "Unknown",
+                "is_group": file_data.is_group,
+                "is_link": file_data.is_link,
+                "modified": file_data.modified,
+                "owner": file_data.owner,
+                "pinned_at": file_data.pinned_at,
+                "order": file_data.order,
+            }
+            pinned_files.append(file_info)
 
         return pinned_files
 

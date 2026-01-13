@@ -2892,6 +2892,7 @@ def get_trash_files(
     only_parent=1,
     page=None,
     page_size=20,
+    search=None,
 ):
     """
     Lấy file trong thùng rác (is_active=0) của user
@@ -2900,6 +2901,12 @@ def get_trash_files(
     :param teams: Giữ để tương thích API
     :param entity_name: Không dùng cho trash (luôn hiển thị flat list)
     :param only_parent: Mặc định = 1 để chỉ hiển thị file xóa trực tiếp
+    :param search: Tìm kiếm theo tên file (title)
+    :param tag_list: Danh sách tags để filter
+    :param file_kinds: Danh sách loại file để filter
+    :param folders: Chỉ hiển thị folders (1) hoặc tất cả (0)
+    :param page: Số trang (pagination)
+    :param page_size: Số items mỗi trang
     :return: Danh sách các file trong thùng rác
     :rtype: list[frappe._dict]
     """
@@ -3051,6 +3058,17 @@ def get_trash_files(
         )
         tag_criteria = [DriveEntityTag.tag == tag for tag in tag_list_parsed]
         return query.where(Criterion.any(tag_criteria))
+
+    # ✅ Apply search filter
+    if search:
+        search_str = str(search).strip() if isinstance(search, str) else str(search)
+        if search_str:
+            original_files_query = original_files_query.where(
+                DriveFile.title.like(f"%{search_str}%")
+            )
+            shortcut_files_query = shortcut_files_query.where(
+                DriveFile.title.like(f"%{search_str}%")
+            )
 
     original_files_query = apply_file_kinds_filter(original_files_query, file_kinds)
     original_files_query = apply_tag_filter(original_files_query, tag_list)
