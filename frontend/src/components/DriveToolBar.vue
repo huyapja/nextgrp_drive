@@ -60,8 +60,9 @@
             v-tooltip="__('Filter')"
             @click.stop="toggleFilterMenu"
           />
+          <!-- Desktop Filter Menu -->
           <div
-            v-if="showFilterMenu"
+            v-if="showFilterMenu && !isMobile"
             ref="filter-menu"
             class="filter-menu"
           >
@@ -118,6 +119,80 @@
               </span>
             </div>
           </div>
+          
+          <!-- Mobile Filter Bottom Sheet -->
+          <Dialog
+            v-model:visible="showMobileFilterSheet"
+            v-if="isMobile"
+            :modal="true"
+            position="bottom"
+            :dismissableMask="true"
+            :showHeader="false"
+            :style="{ width: '100vw', maxWidth: '100vw', margin: 0 }"
+            :breakpoints="{ '960px': '100vw', '640px': '100vw' }"
+            :pt="{
+              root: { class: 'mobile-filter-bottom-sheet' },
+              mask: { class: 'mobile-filter-sheet-mask' }
+            }"
+          >
+            <div class="mobile-filter-container">
+              <div class="mobile-filter-handle"></div>
+              <div class="mobile-filter-title">{{ __('Lọc theo loại') }}</div>
+              <div class="mobile-filter-content">
+              <!-- Clear all button -->
+              <div
+                v-if="activeFilters.length > 0"
+                class="mobile-filter-item mobile-filter-clear"
+                @click="clearAllFilters"
+              >
+                <span class="text-red-600 font-medium">{{ __('Bỏ chọn tất cả') }}</span>
+                <span class="text-xs text-gray-500">({{ activeFilters.length }})</span>
+              </div>
+              <div v-if="activeFilters.length > 0" class="border-b border-gray-200 my-2"></div>
+              
+              <!-- Filter Options -->
+              <div
+                v-for="option in filterOptions"
+                :key="option.value"
+                class="mobile-filter-item"
+                @click="toggleFilter(option.value)"
+              >
+                <div class="flex items-center gap-3">
+                  <component
+                    :is="option.icon"
+                    class="mobile-filter-icon"
+                  />
+                  <span class="mobile-filter-label">{{ option.label }}</span>
+                </div>
+                <svg
+                  v-if="activeFilters.includes(option.value)"
+                  width="24"
+                  height="24"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="12"
+                    fill="#0149C1"
+                  />
+                  <path
+                    d="M7 12L10.5 15.5L17 9"
+                    stroke="white"
+                    stroke-width="2.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                <span
+                  v-else
+                  class="mobile-filter-unchecked"
+                ></span>
+              </div>
+            </div>
+            </div>
+          </Dialog>
         </div>
         <!-- Hiển thị tổng số filter đã chọn -->
         <!-- <div v-if="activeFilters.length" class="ml-2 text-xs text-gray-600">
@@ -210,8 +285,9 @@ import { TabButtons } from "frappe-ui"
 import Button from "primevue/button"
 import InputText from "primevue/inputtext"
 import Dropdown from "primevue/dropdown"
+import Dialog from "primevue/dialog"
 import Tooltip from "primevue/tooltip"
-import { ref, computed, watch, useTemplateRef } from "vue"
+import { ref, computed, watch, useTemplateRef, onMounted, onUnmounted } from "vue"
 import { ICON_TYPES, MIME_LIST_MAP, sortEntities } from "@/utils/files"
 import { useStore } from "vuex"
 import { onKeyDown } from "@vueuse/core"
@@ -244,8 +320,24 @@ const sortOrder = ref(store.state.sortOrder)
 const activeFilters = ref([])
 const activeTags = computed(() => store.state.activeTags)
 const showFilterMenu = ref(false)
+const showMobileFilterSheet = ref(false)
 const filterMenuRef = useTemplateRef("filter-menu")
 const filterWrapperRef = useTemplateRef("filter-wrapper")
+
+// Mobile detection
+const isMobile = ref(false)
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+}
+
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+})
 
 const search = ref("")
 const viewState = ref(store.state.view)
@@ -307,6 +399,7 @@ onKeyDown("Escape", () => {
   searchInput.value.el.blur()
   search.value = ""
   showFilterMenu.value = false
+  showMobileFilterSheet.value = false
 })
 
 onClickOutside(filterWrapperRef, () => {
@@ -314,7 +407,11 @@ onClickOutside(filterWrapperRef, () => {
 })
 
 function toggleFilterMenu() {
-  showFilterMenu.value = !showFilterMenu.value
+  if (isMobile.value) {
+    showMobileFilterSheet.value = !showMobileFilterSheet.value
+  } else {
+    showFilterMenu.value = !showFilterMenu.value
+  }
 }
 
 function clearAllFilters() {
@@ -682,6 +779,168 @@ watch(shareView, (newValue) => {
   .control-btn {
     height: 36px;
     width: 36px;
+  }
+}
+
+/* Mobile Bottom Sheet Styles */
+:deep(.mobile-filter-bottom-sheet) {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  border-radius: 20px 20px 0 0 !important;
+  max-height: 90vh !important;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15) !important;
+}
+
+:deep(.mobile-filter-bottom-sheet .p-dialog-content) {
+  padding: 0 !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Override any PrimeVue default constraints */
+:deep(.p-dialog.mobile-filter-bottom-sheet) {
+  transform: none !important;
+}
+
+:deep(.p-dialog-bottom.mobile-filter-bottom-sheet) {
+  width: 100vw !important;
+  max-width: 100vw !important;
+}
+
+:deep(.mobile-filter-sheet-mask) {
+  background-color: rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Force full width for all dialog wrappers */
+:deep(.p-dialog-mask) {
+  align-items: flex-end !important;
+}
+
+:deep(.p-dialog-mask .mobile-filter-bottom-sheet) {
+  margin-bottom: 0 !important;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.mobile-filter-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.mobile-filter-handle {
+  width: 48px;
+  height: 5px;
+  background-color: #d1d5db;
+  border-radius: 3px;
+  margin: 16px auto 12px;
+  flex-shrink: 0;
+}
+
+.mobile-filter-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f2937;
+  text-align: center;
+  padding: 8px 24px 16px;
+  border-bottom: 1px solid #e5e7eb;
+  flex-shrink: 0;
+  width: 100%;
+  box-sizing: border-box;
+  background-color: #ffffff;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.mobile-filter-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0 24px;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
+.mobile-filter-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f3f4f6;
+  min-height: 64px;
+  width: 100%;
+}
+
+.mobile-filter-item:active {
+  background-color: #f9fafb;
+}
+
+.mobile-filter-clear {
+  justify-content: space-between;
+}
+
+.mobile-filter-clear:active {
+  background-color: #fef2f2;
+}
+
+.mobile-filter-item .flex {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.mobile-filter-icon {
+  width: 26px;
+  height: 26px;
+  font-size: 26px;
+  flex-shrink: 0;
+  color: #6b7280;
+}
+
+.mobile-filter-label {
+  font-size: 17px;
+  font-weight: 500;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+.mobile-filter-unchecked {
+  display: inline-block;
+  width: 24px;
+  height: 24px;
+  border: 2px solid #d1d5db;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Animation for bottom sheet */
+:deep(.mobile-filter-bottom-sheet) {
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
   }
 }
 </style>

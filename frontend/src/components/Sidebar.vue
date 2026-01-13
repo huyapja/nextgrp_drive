@@ -69,7 +69,6 @@
               </p>
             </div>
 
-            <!-- Unpin Button -->
             <button
               @click.stop="handleUnpinFile(file)"
               class="flex-shrink-0 opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-gray-200 transition-all"
@@ -78,7 +77,6 @@
               <LucideX class="h-4 w-4 text-gray-600" />
             </button>
 
-            <!-- Active Indicator -->
             <div
               v-if="isCurrentPinnedFile(file)"
               class="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-[#0149C1] rounded-r"
@@ -772,11 +770,11 @@ const sidebarItems = computed(() => {
       route: `/t/${team.value}/favourites`,
       icon: StarDrive,
     },
-    {
-      label: __("Văn bản đã ghim"),
-      route: `/t/${team.value}/pinned`,
-      icon: LucidePin,
-    },
+    // {
+    //   label: __("Văn bản đã ghim"),
+    //   route: `/t/${team.value}/pinned`,
+    //   icon: LucidePin,
+    // },
     {
       label: __("Chia sẻ"),
       route: `/shared/`,
