@@ -54,8 +54,8 @@ import emitter from "@/emitter"
 import { userList } from "@/resources/permissions"
 import { computed, onMounted, onUnmounted, ref, watch } from "vue"
 import { useStore } from "vuex"
-import InfoPanel from "./InfoPanel.vue"
 import CommentsPanel from "./CommentsPanel.vue"
+import InfoPanel from "./InfoPanel.vue"
 
 const store = useStore()
 const isSmallScreen = ref(false)
@@ -75,7 +75,7 @@ const usersPermission = computed(() => {
 const tab = computed(() => store.state.infoSidebarTab)
 
 const checkScreenSize = () => {
-  isSmallScreen.value = window.innerWidth < 1440
+  isSmallScreen.value = window.innerWidth < 640
 }
 
 const closeDrawer = () => {

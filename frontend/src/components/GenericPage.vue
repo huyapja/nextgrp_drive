@@ -25,8 +25,8 @@
     v-else
     ref="container"
     class="flex flex-col overflow-auto h-[calc(100vh-144px)] sm:h-[calc(100vh-84px)] bg-surface-white pb-safe sm:pb-0"
-    :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }"
-  >
+    >
+    <!-- :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }" -->
     <!-- Content Area with Team Members -->
     <div class="flex flex-1">
       <!-- Main Content -->
@@ -128,19 +128,19 @@ import RenameIcon from "@/assets/Icons/RenameIcon.vue"
 import ShareIconBlack from "@/assets/Icons/ShareIconBlack.vue"
 import ShortcutIcon from "@/assets/Icons/ShortcutIcon.vue"
 import TrashIcon from "@/assets/Icons/TrashIcon.vue"
+import { usePinnedFiles } from "@/composables/usePinnedFiles"
 import { LucideHistory } from "lucide-vue-next"
 import LucideClock from "~icons/lucide/clock"
 import LucideExternalLink from "~icons/lucide/external-link"
 import LucideInfo from "~icons/lucide/info"
-import LucideRotateCcw from "~icons/lucide/rotate-ccw"
-import LucideStar from "~icons/lucide/star"
 import LucidePin from "~icons/lucide/pin"
 import LucidePinOff from "~icons/lucide/pin-off"
+import LucideRotateCcw from "~icons/lucide/rotate-ccw"
+import LucideStar from "~icons/lucide/star"
 import CopyIcon from "../assets/Icons/CopyIcon.vue"
 import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import { getTeams } from "../resources/files"
 import { createShortcut } from "../utils/files"
-import { usePinnedFiles } from "@/composables/usePinnedFiles"
 
 const props = defineProps({
   grouper: { type: Function, default: (d) => d },

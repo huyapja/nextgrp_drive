@@ -1,8 +1,8 @@
 <template>
-  <div class="pt-4 overflow-x-hidden relative" :class="{ 'pb-14': isSmallScreen }">
+  <div class="comments-panel-wrapper pt-4 overflow-x-hidden relative flex flex-col h-full">
     <div
-      class="px-5 overflow-y-auto"
-      :style="{ height: scrollableHeight }"
+      class="px-5 overflow-y-auto flex-1"
+      :style="{ maxHeight: scrollableHeight }"
       ref="scrollContainer"
     >
       <div class="flex justify-between items-center">
@@ -269,7 +269,7 @@
               </div>
 
               <div
-                class="flex flex-row items-center justify-start pl-1 pr-2 bg-white sticky z-[10] top-[100%] left-0 right-0 mt-1 border border-[#E5E5E5] rounded-[8px]"
+                class="flex flex-row items-center justify-start pl-1 pr-2 bg-white mt-1 border border-[#E5E5E5] rounded-[8px]"
                 @click.stop
               >
                 <div class="flex-1 min-w-0">
@@ -318,10 +318,11 @@
     <!-- New topic input -->
     <div
       ref="commentInputRef"
-      class="py-2 px-5"
+      class="py-2 px-5 flex-shrink-0 bg-white"
+      :class="{ 'sticky-input-mobile': isSmallScreen }"
     >
       <div
-        class="flex flex-row items-center justify-start pl-1 pr-2 bg-white sticky !z-[1] top-[100%] left-0 right-0 border border-[#E5E5E5] rounded-[8px]"
+        class="flex flex-row items-center justify-start pl-1 pr-2 bg-white !z-[1] border border-[#E5E5E5] rounded-[8px]"
       >
         <div class="flex-1 min-w-0">
           <RichCommentEditor
@@ -499,8 +500,16 @@ const fullName = computed(() => store.state.user.fullName)
 const imageURL = computed(() => store.state.user.imageURL)
 
 const scrollableHeight = computed(() => {
-  const bottomBarHeight = props.isSmallScreen ? 56 : 0
-  return `calc(100vh - ${commentInputHeight.value + 16 + bottomBarHeight}px)`
+  if (props.isSmallScreen) {
+    // Mobile: Sử dụng dynamic viewport height và trừ đi các phần cố định
+    // Header (với padding top) + Input area + safe area
+    const headerHeight = 64 // Header với padding
+    const inputHeight = commentInputHeight.value || 70
+    const safeAreaBottom = 20 // Safe area cho mobile
+    return `calc(100dvh - ${headerHeight + inputHeight + safeAreaBottom}px)`
+  }
+  // Desktop
+  return `calc(100vh - ${commentInputHeight.value}px)`
 })
 
 const emojiPickerStyle = computed(() => {
@@ -1464,6 +1473,73 @@ watch(
 </script>
 
 <style scoped>
+/* ============================================
+   MOBILE FIXES
+   ============================================ */
+.comments-panel-wrapper {
+  height: 100%;
+  max-height: 100vh;
+  max-height: 100dvh; /* Dynamic viewport height for mobile */
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sticky-input-mobile {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.08);
+  padding-bottom: env(safe-area-inset-bottom, 0px); /* iOS safe area */
+}
+
+@media (max-width: 768px) {
+  .comments-panel-wrapper {
+    max-height: 100dvh;
+    height: 100dvh;
+  }
+  
+  /* Ensure input doesn't get cut off on mobile */
+  .sticky-input-mobile {
+    margin-bottom: 0;
+    /* Prevent input from being hidden by keyboard */
+    position: sticky;
+    bottom: 0;
+  }
+  
+  /* Adjust scrollable area on mobile */
+  .overflow-y-auto {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+  }
+  
+  /* Ensure topics don't overlap with input */
+  .border.border-gray-200.rounded-lg.mb-6 {
+    margin-bottom: 1rem;
+  }
+  
+  .border.border-gray-200.rounded-lg.mb-6:last-of-type {
+    margin-bottom: 2rem;
+  }
+}
+
+/* Additional mobile keyboard handling */
+@supports (-webkit-touch-callout: none) {
+  /* iOS specific */
+  .sticky-input-mobile {
+    position: -webkit-sticky;
+    position: sticky;
+    bottom: calc(env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* Prevent scrollable area from overlapping input */
+.overflow-y-auto {
+  padding-bottom: 8px;
+}
+
 .comment-content {
   white-space: pre-wrap;
   word-break: break-word;

@@ -1,11 +1,15 @@
 <template>
-  <Dialog
-    v-model="show"
-    :options="{
-      title: 'Xác nhận',
-      size: 'md',
-    }"
-  >
+  <Teleport to="body">
+    <Dialog
+      v-model="show"
+      :options="{
+        title: 'Xác nhận',
+        size: 'md',
+        zIndex: 10000,
+      }"
+      class="permission-confirm-dialog-mobile"
+      :style="{ zIndex: 10000 }"
+    >
     <template #body-content>
       <div class="p-4">
         <!-- Header with icon and title -->
@@ -62,11 +66,12 @@
         </Button>
       </div>
     </template>
-  </Dialog>
+    </Dialog>
+  </Teleport>
 </template>
 
 <script>
-import { Avatar, Button, Dialog } from "frappe-ui"
+import { Avatar, Button, Dialog } from "frappe-ui";
 
 export default {
   name: "PermissionConfirmDialog",
@@ -152,5 +157,60 @@ export default {
   border-radius: 4px;
   padding: 2px 4px;
   font-weight: 500;
+}
+
+/* ============================================
+   HIGH Z-INDEX FOR DIALOG ON MOBILE
+   ============================================ */
+
+/* Ensure dialog appears above comment drawer (z-index: ~9999) */
+:deep(.permission-confirm-dialog-mobile) {
+  z-index: 10000 !important;
+}
+
+/* All dialog wrapper elements */
+:deep(.permission-confirm-dialog-mobile .modal-backdrop),
+:deep(.permission-confirm-dialog-mobile .modal-mask),
+:deep(.permission-confirm-dialog-mobile .modal-overlay) {
+  z-index: 9999 !important;
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+:deep(.permission-confirm-dialog-mobile .modal),
+:deep(.permission-confirm-dialog-mobile .modal-container),
+:deep(.permission-confirm-dialog-mobile .modal-wrapper) {
+  z-index: 10000 !important;
+}
+
+/* Mobile specific adjustments */
+@media (max-width: 768px) {
+  :deep(.permission-confirm-dialog-mobile) {
+    z-index: 10000 !important;
+    position: fixed !important;
+  }
+  
+  :deep(.permission-confirm-dialog-mobile .modal-container) {
+    z-index: 10000 !important;
+    position: fixed !important;
+  }
+  
+  :deep(.permission-confirm-dialog-mobile .modal-content) {
+    max-height: 90vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  /* Ensure backdrop covers entire screen */
+  :deep(.permission-confirm-dialog-mobile .modal-backdrop),
+  :deep(.permission-confirm-dialog-mobile .modal-mask) {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100dvh !important;
+  }
 }
 </style>
