@@ -194,38 +194,53 @@ export function createEditorKeyDown({
         const current = getCurrentListItem($from, schema)
         if (!current) return false
 
-        const hasChildren = !!current.node.attrs.hasChildren
-        const isCollapsed = !!current.node.attrs.collapsed
+        const parentNode = current.node
+        const parentPos = current.pos
+
+        const hasChildren = !!parentNode.attrs.hasChildren
+        const isCollapsed = !!parentNode.attrs.collapsed
 
         if (hasChildren && !isCollapsed) {
           // =========================
           // CASE: có con + đang mở → thêm CON
           // =========================
-          const parentNode = current.node
-          const parentPos = current.pos
 
-          const paragraph = parentNode.child(0)
-          const bulletList = parentNode.child(1)
+          // 1. tìm bulletList con (KHÔNG GIẢ ĐỊNH child index)
+          let bulletList = null
+          let bulletListOffset = null
 
-          if (bulletList && bulletList.type === schema.nodes.bulletList) {
+          parentNode.forEach((child, offset) => {
+            if (child.type === schema.nodes.bulletList) {
+              bulletList = child
+              bulletListOffset = offset
+            }
+          })
+
+          if (bulletList && bulletListOffset != null) {
             let tr = state.tr
 
+            // 2. tạo paragraph + li chuẩn
             const inlineRootMark = schema.marks.inlineRoot.create()
             const text = schema.text("Nhánh mới", [inlineRootMark])
             const p = schema.nodes.paragraph.create({}, text)
+
             const li = schema.nodes.listItem.create(
               { nodeId: newNodeId, hasCount: false },
               p
             )
 
-            // vị trí bắt đầu của bulletList
-            const bulletListPos = parentPos + 1 + paragraph.nodeSize
+            // 3. vị trí thật của bulletList trong document
+            const bulletListPos = parentPos + 1 + bulletListOffset
 
-            // insert vào đầu children
+            // insert vào ĐẦU ul con
             tr = tr.insert(bulletListPos + 1, li)
 
-            const caretPos = bulletListPos + 1 + 2 + text.nodeSize
-            tr = tr.setSelection(TextSelection.create(tr.doc, caretPos))
+            // 4. đặt caret vào paragraph của li mới
+            const liStartPos = bulletListPos + 1
+            const paragraphStartPos = liStartPos + 1
+            const textStartPos = paragraphStartPos + 1
+
+            tr = tr.setSelection(TextSelection.create(tr.doc, textStartPos))
 
             dispatch(tr)
 
@@ -794,7 +809,6 @@ export function createEditorKeyDown({
         climbDepth = parentLiDepth
         $climb = $parent
       }
-
       return false
     }
     return false

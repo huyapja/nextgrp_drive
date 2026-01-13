@@ -29,7 +29,7 @@ function ensureParagraphHTML(html) {
 }
 
 function extractInlineHTML(html) {
-  if (!html) return ""
+  if (!html) return ""  
 
   const div = document.createElement("div")
   div.innerHTML = html
@@ -113,7 +113,9 @@ function extractBlockHTML(html, nodeId) {
       blocks.push(
         `
 <div class="image-wrapper" data-image-src="${src}">
-  <img data-node-id="${nodeId}"  src="${src}" alt="${img.getAttribute("alt") || ""}" />
+  <img data-node-id="${nodeId}"  src="${src}" alt="${
+          img.getAttribute("alt") || ""
+        }" />
 </div>
       `.trim()
       )
@@ -165,7 +167,7 @@ export function buildTextFromMindmap(nodes, edges) {
     )
   }
 
-  function renderList(nodes) {
+  function renderList(nodes, level = 0) {
     if (!nodes.length) return ""
 
     return `
@@ -181,20 +183,19 @@ export function buildTextFromMindmap(nodes, edges) {
       if (!inline && !block) return ""
 
       const hasCount = Number(node.count) > 0
-
       const completed = !!node.data?.completed
 
-      const taskLink = node.data?.taskLink
-      const taskId = taskLink?.taskId || ""
-      const taskMode = taskLink?.mode || ""
-      const taskStatus = taskLink?.status || ""
-      const highlightBg = extractBackgroundColorFromLabel(node.data.label)
+      const taskLink = node.data?.taskLink || {}
+      const taskId = taskLink.taskId || ""
+      const taskMode = taskLink.mode || ""
+      const taskStatus = taskLink.status || ""
 
-      
+      const highlightBg = extractBackgroundColorFromLabel(node.data?.label)
 
       return `
 <li
   data-node-id="${node.id}"
+  data-level="${level}"
   data-completed="${completed}"
   ${highlightBg ? `data-highlight="${highlightBg}"` : ""}
   ${taskId ? `data-task-id="${taskId}"` : ""}
@@ -216,7 +217,7 @@ export function buildTextFromMindmap(nodes, edges) {
 
   ${block || ""}
 
-  ${renderList(node.children)}
+  ${renderList(node.children || [], level + 1)}
 </li>
 `.trim()
     })

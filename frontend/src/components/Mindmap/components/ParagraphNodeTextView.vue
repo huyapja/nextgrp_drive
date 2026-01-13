@@ -9,10 +9,11 @@
         }" @mousedown.prevent @click.stop="toggleCollapse" />
     </div>
 
-    <i v-if="isMindmapParagraph && canEditContent" class="mindmap-dot ml-1" v-tooltip.top="{
-      value: 'Bấm hiển thị thêm hành động',
-      pt: { text: { class: ['text-[12px]'] } }
-    }" @mousedown.prevent.stop @click.stop="toggleActions" />
+    <i v-if="isMindmapParagraph && canEditContent" class="mindmap-dot ml-1" data-drag-handle="true" draggable="false"
+      @mousedown="onDragHandleMouseDown" @click.stop="toggleActions" v-tooltip.top="{
+        value: 'Bấm hiển thị thêm hành động',
+        pt: { text: { class: ['text-[12px]'] } }
+      }" />
 
     <i v-else-if="isMindmapParagraph" class="mindmap-dot ml-1" @mousedown.prevent />
 
@@ -181,7 +182,7 @@
 </template>
 
 <script setup>
-import { ref, computed, inject, watchEffect, onMounted, watch, nextTick } from "vue"
+import { ref, computed, inject, watchEffect, watch, nextTick } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 import Popover from 'primevue/popover'
 import { useNodeActionPopover } from './MindmapTextNodeViewEditor/useNodeActionPopover'
@@ -283,6 +284,23 @@ function deleteNode(event) {
   props.editor?.options?.onDeleteNode?.(nodeId)
 }
 
+function scrollToSelection(editor) {
+  const { node } = editor.view.domAtPos(editor.state.selection.anchor)
+  if (node instanceof Element) {
+    node.scrollIntoView({ behavior: "auto" })
+  }
+}
+
+function onDragHandleMouseDown(e) {
+  const dot = e.currentTarget
+  dot.setAttribute("draggable", "true")
+}
+
+function onDragHandleMouseUp(e) {
+  const dot = e.currentTarget
+  dot.removeAttribute("draggable")
+}
+
 
 function insertDescriptionBlockquote() {
   const editor = props.editor
@@ -294,13 +312,13 @@ function insertDescriptionBlockquote() {
 
   const { state, view } = editor
   const { schema } = state
+  const { blockquote, paragraph, bulletList, orderedList } = schema.nodes
 
-  const blockquote = schema.nodes.blockquote
-  const paragraph = schema.nodes.paragraph
   if (!blockquote || !paragraph) return
 
   const $pos = state.doc.resolve(pos)
 
+  // 1️⃣ tìm listItem
   let liDepth = null
   for (let d = $pos.depth; d > 0; d--) {
     if ($pos.node(d).type.name === "listItem") {
@@ -313,87 +331,88 @@ function insertDescriptionBlockquote() {
   const liNode = $pos.node(liDepth)
   const liStartPos = $pos.before(liDepth)
 
-  // ================================
-  // 1️⃣ TÌM BLOCKQUOTE (NẾU CÓ)
-  // ================================
-  let blockquoteIndex = -1
-  let blockquoteNode = null
+  // 2️⃣ duyệt content listItem để:
+  let offset = 0
+  let blockquoteOffset = null
+  let insertOffset = 0
 
-  liNode.content.forEach((child, i) => {
-    if (child.type.name === "blockquote") {
-      blockquoteIndex = i
-      blockquoteNode = child
+  liNode.content.forEach(child => {
+    if (
+      blockquoteOffset == null &&
+      child.type === blockquote
+    ) {
+      blockquoteOffset = offset
     }
-  })
 
-  if (blockquoteIndex !== -1 && blockquoteNode) {
-    const { doc } = state
-
-    let blockquotePos = null
-
-    // 1️⃣ Tìm position thật của blockquote trong document
-    doc.nodesBetween(
-      liStartPos,
-      liStartPos + liNode.nodeSize,
-      (node, pos) => {
-        if (node === blockquoteNode) {
-          blockquotePos = pos
-          return false
-        }
-      }
-    )
-
-    if (blockquotePos == null) return
-
-    // 2️⃣ Lấy paragraph con
-    const paragraphNode = blockquoteNode.firstChild
-    if (!paragraphNode) return
-
-    // 3️⃣ paragraph bắt đầu ngay sau blockquotePos + 1
-    const paragraphPos = blockquotePos + 1
-
-    // 4️⃣ Focus cuối text thật sự
-    const focusPos =
-      paragraphPos + paragraphNode.nodeSize - 1
-
-    // 🔒 SAFETY CHECK
-    if (focusPos < 0 || focusPos > state.doc.content.size) {
+    if (
+      insertOffset === offset &&
+      (child.type === bulletList || child.type === orderedList)
+    ) {
+      // dừng trước nested list
       return
     }
 
-    const tr = state.tr.setSelection(
-      TextSelection.create(state.doc, focusPos)
-    )
+    offset += child.nodeSize
+    insertOffset = offset
+  })
+
+  // 3️⃣ ĐÃ CÓ BLOCKQUOTE → FOCUS
+  if (blockquoteOffset != null) {
+    const blockquotePos = liStartPos + 1 + blockquoteOffset
+
+    let blockquoteNode = null
+    liNode.content.forEach(child => {
+      if (child.type === blockquote && !blockquoteNode) {
+        blockquoteNode = child
+      }
+    })
+
+    const para = blockquoteNode?.firstChild
+    if (!para) return
+
+    const focusPos =
+      blockquotePos + 1 + para.nodeSize - 1
+
+    const tr = state.tr
+      .setSelection(TextSelection.create(state.doc, focusPos))
+      .scrollIntoView()
 
     tr.setMeta("ui-only", true)
     view.dispatch(tr)
-    view.focus()
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        scrollToSelection(editor)
+        view.focus()
+      })
+    })
     return
   }
 
 
-  // ================================
-  // 3️⃣ CHƯA CÓ → INSERT BLOCKQUOTE
-  // ================================
-  const insertPos = liStartPos + liNode.nodeSize - 1
 
-  const descNode = blockquote.create(
-    {},
-    paragraph.create()
+  const insertPos = liStartPos + 1 + insertOffset
+
+  let tr = state.tr.insert(
+    insertPos,
+    blockquote.create({}, paragraph.create())
   )
 
-  let tr = state.tr.insert(insertPos, descNode)
-
-  const $after = tr.doc.resolve(insertPos + 1)
-  tr = tr.setSelection(
-    TextSelection.near($after, 1)
-  )
+  tr = tr
+    .setSelection(
+      TextSelection.near(tr.doc.resolve(insertPos + 2), 1)
+    )
+    .scrollIntoView()
 
   tr.setMeta("ui-only", true)
-
   view.dispatch(tr)
-  view.focus()
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      scrollToSelection(editor)
+      view.focus()
+    })
+  })
 }
+
 
 
 
