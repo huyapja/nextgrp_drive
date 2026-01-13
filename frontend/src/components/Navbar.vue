@@ -56,7 +56,7 @@
           src="@/assets/images/icons/memberIcon.svg"
           alt="Team Members"
         />
-        <p class="text-[14px] font-medium text-[#404040] whitespace-nowrap">
+        <p class="text-[14px] font-medium text-[#404040] line-clamp-1">
           {{ getTeamMembers?.data?.length }} thành viên
         </p>
       </button>
@@ -172,7 +172,24 @@
           "
         />
       </Button>
+      
+      <Button
+        class="text-ink-gray-5 !px-0 !px-[6px] m-[-6px]"
+        variant="minimal"
+        @click="showFileContextMenu"
+        title="Thêm tùy chọn"
+      >
+        <LucideMoreVertical class="size-6 text-black" />
+      </Button>
     </div>
+    
+    <!-- Context Menu for File -->
+    <GroupedContextMenu
+      v-if="route.name === 'File'"
+      ref="fileContextMenuRef"
+      :action-items="dropdownActionItems(rootEntity)"
+      :close="() => {}"
+    />
 
     <Dialogs
       v-if="$route.name === 'File' || $route.name === 'Document'"
@@ -237,7 +254,6 @@
 <script setup>
 import CloudIconBlack from "@/assets/Icons/CloudIconBlack.vue"
 import InfoIcon from "@/assets/Icons/InfoIcon.vue"
-import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
 import LinkIcon from "@/assets/Icons/LinkIcon.vue"
 import MindmapIcon from "@/assets/Icons/MindmapIcon.vue"
 import MoveIcon from "@/assets/Icons/MoveIcon.vue"
@@ -255,6 +271,7 @@ import {
   getTrash,
 } from "@/resources/files"
 import { entitiesDownload } from "@/utils/download"
+import { createShortcut, removeShortcut } from "@/utils/files"
 import { toast } from "@/utils/toasts"
 import {
   Breadcrumbs,
@@ -280,6 +297,7 @@ import LucideFolderUp from "~icons/lucide/folder-up"
 import LucideHome from "~icons/lucide/home"
 import LucideLink from "~icons/lucide/link"
 import LucideMessageCircle from "~icons/lucide/message-circle"
+import LucideMoreVertical from "~icons/lucide/more-vertical"
 import LucideScan from "~icons/lucide/scan"
 import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"
@@ -288,6 +306,7 @@ import MoveOwnerIcon from "../assets/Icons/MoveOwnerIcon.vue"
 import ShortcutIcon from "../assets/Icons/ShortcutIcon.vue"
 import { getTeamMembers } from "../resources/team"
 import Dialogs from "./Dialogs.vue"
+import GroupedContextMenu from "./GroupedContextMenu.vue"
 import UsersBar from "./UsersBar.vue"
 
 const ChevronRight = LucideChevronRight
@@ -328,6 +347,9 @@ const mindMapForm = ref({
 // Import MindMap file input
 const importMindMapInput = ref(null)
 
+// Context menu ref for file
+const fileContextMenuRef = ref(null)
+
 // Fetch khi team thay đổi
 watch(() => route.params.team, (team) => {
   if (team) {
@@ -345,7 +367,6 @@ const connectedUsers = computed(() => store.state.connectedUsers)
 const rootEntity = computed(() => props.rootResource?.data)
 const showTeamMembers = computed(() => route.name === "Team")
 
-const dialogContextMenu = ref("")
 
 const tab = computed({
   get() {
@@ -375,10 +396,10 @@ const dropdownActionItems = (row) => {
       .filter((a) => !a.isEnabled || a.isEnabled(row))
       .map((a) => ({
         ...a,
-        handler: () => {
+        action: (entities) => {
           moreEvent.value = false
-          store.commit("setActiveEntity", row)
-          a.action([row])
+          store.commit("setActiveEntity", entities[0])
+          a.action(entities)
         },
       }))
   }
@@ -387,9 +408,9 @@ const dropdownActionItems = (row) => {
     {
       label: "Chia sẻ",
       icon: ShareIconBlack,
-      handler: () => {
+      action: ([entity]) => {
         moreEvent.value = false
-        dialogContextMenu.value = "s"
+        dialog.value = "s"
       },
       isEnabled: (e) => e.share,
       important: true,
@@ -397,33 +418,40 @@ const dropdownActionItems = (row) => {
     {
       label: "Tải xuống",
       icon: CloudIconBlack,
-      handler: () => {
+      action: ([entity]) => {
         moreEvent.value = false
-        entitiesDownload(route.params.team, [row])
+        entitiesDownload(route.params.team, [entity])
       },
     },
     {
       label: "Sao chép liên kết",
       icon: LinkIcon,
-      handler: () => {
+      action: ([entity]) => {
         moreEvent.value = false
         const currentUrl = window.location.origin + window.location.pathname
         navigator.clipboard.writeText(currentUrl)
+        toast({
+          title: "Đã sao chép liên kết",
+          indicator: "green"
+        })
       },
     },
     {
       label: "Chuyển quyền sở hữu",
       icon: MoveOwnerIcon,
-      handler: () => {
+      action: ([entity]) => {
         moreEvent.value = false
-        dialogContextMenu.value = "move_owner"
+        dialog.value = "move_owner"
       },
       isEnabled: (row) => currentUserEmail.value === row?.owner,
     },
     {
       label: "Tạo lối tắt",
       icon: ShortcutIcon,
-      action: ([entity]) => createShortcut(entity),
+      action: ([entity]) => {
+        moreEvent.value = false
+        createShortcut(entity)
+      },
       important: true,
       isEnabled: () =>
         !store.state.activeEntity?.is_shortcut || route.name !== "Home",
@@ -431,46 +459,38 @@ const dropdownActionItems = (row) => {
     {
       label: "Bỏ lối tắt",
       icon: ShortcutIcon,
-      action: ([entity]) => removeShortcut(entity),
+      action: ([entity]) => {
+        moreEvent.value = false
+        removeShortcut(entity)
+      },
       important: true,
       isEnabled: () => store.state.activeEntity?.is_shortcut && route.name === "Home",
     },
-    { divider: true },
     {
       label: "Di chuyển",
       icon: MoveIcon,
-      handler: () => {
+      action: ([entity]) => {
         moreEvent.value = false
-        dialogContextMenu.value = "m"
+        dialog.value = "move"
       },
       isEnabled: (row) => row?.write,
     },
     {
       label: "Đổi tên",
       icon: RenameIcon,
-      handler: () => {
+      action: ([entity]) => {
         moreEvent.value = false
-        dialogContextMenu.value = "rn"
+        dialog.value = "rn"
       },
       isEnabled: (row) => row?.write,
     },
     {
-      label: "Hiển thị thông tin",
-      icon: InfoIconBlack,
-      handler: () => {
-        moreEvent.value = false
-        store.commit("setShowInfo", true)
-        store.commit("setInfoSidebarTab", 0)
-      },
-    },
-    { divider: true },
-    {
       label: "Xóa",
       icon: TrashIcon,
       danger: true,
-      handler: () => {
+      action: ([entity]) => {
         moreEvent.value = false
-        dialogContextMenu.value = "remove"
+        dialog.value = "remove"
       },
       isEnabled: (row) => row?.write,
     },
@@ -769,6 +789,14 @@ const openSidebar = () => {
   store.commit("setIsSidebarExpanded", true)
   store.commit("setShowSidebarButton", false)
   store.commit("setShowPinnedSidebar", true)
+}
+
+// Show file context menu
+const showFileContextMenu = (event) => {
+  if (fileContextMenuRef.value && rootEntity.value) {
+    store.commit("setActiveEntity", rootEntity.value)
+    fileContextMenuRef.value.show(event)
+  }
 }
 </script>
 

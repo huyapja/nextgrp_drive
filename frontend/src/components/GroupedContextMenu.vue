@@ -1,5 +1,7 @@
 <template>
+  <!-- Desktop: ContextMenu -->
   <ContextMenu
+    v-if="!isMobile"
     ref="contextMenu"
     :model="groupedMenuItems"
     :pt="{
@@ -28,11 +30,78 @@
       </a>
     </template>
   </ContextMenu>
+
+  <!-- Mobile: Bottom Sheet Dialog -->
+  <Dialog
+    v-else
+    v-model:visible="showMobileMenu"
+    position="bottom"
+    :modal="true"
+    :dismissableMask="true"
+    :showHeader="false"
+    :style="{ width: '100vw', maxWidth: '100vw', margin: 0 }"
+    :breakpoints="{ '960px': '100vw', '640px': '100vw' }"
+    :pt="{
+      root: { class: 'mobile-bottom-sheet' },
+      mask: { class: 'mobile-sheet-mask' }
+    }"
+    @hide="handleMobileMenuClose"
+  >
+    <div class="mobile-menu-container">
+      <!-- Handle bar -->
+      <div class="mobile-menu-handle"></div>
+      
+      <!-- Menu items -->
+      <div class="mobile-menu-content">
+        <template v-for="(item, index) in flattenedMenuItems" :key="index">
+          <!-- Main action item -->
+          <div
+            v-if="!item.isSubItem"
+            class="mobile-menu-item"
+            :class="{ 'has-submenu': item.items && item.items.length > 0 }"
+            @click="item.items ? toggleSubMenu(index) : handleMobileItemClick(item)"
+          >
+            <div class="mobile-item-content">
+              <component 
+                v-if="item.iconComponent" 
+                :is="item.iconComponent" 
+                class="mobile-item-icon"
+                :class="item.class"
+              />
+              <i v-else-if="item.icon" :class="[item.icon, 'mobile-item-icon']"></i>
+              <span class="mobile-item-label">{{ item.label }}</span>
+            </div>
+            <i v-if="item.items" :class="['pi', expandedSubmenu === index ? 'pi-chevron-up' : 'pi-chevron-down', 'mobile-submenu-arrow']"></i>
+          </div>
+
+          <!-- Submenu items -->
+          <div v-if="item.items && expandedSubmenu === index" class="mobile-submenu">
+            <div
+              v-for="(subItem, subIndex) in item.items"
+              :key="subIndex"
+              class="mobile-submenu-item"
+              @click="handleMobileItemClick(subItem)"
+            >
+              <component 
+                v-if="subItem.iconComponent" 
+                :is="subItem.iconComponent" 
+                class="mobile-item-icon"
+                :class="subItem.class"
+              />
+              <i v-else-if="subItem.icon" :class="[subItem.icon, 'mobile-item-icon']"></i>
+              <span class="mobile-item-label">{{ subItem.label }}</span>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </Dialog>
 </template>
 
 <script setup>
 import ContextMenu from 'primevue/contextmenu'
-import { computed, ref } from 'vue'
+import Dialog from 'primevue/dialog'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useStore } from 'vuex'
 
 const props = defineProps({
@@ -50,6 +119,24 @@ const props = defineProps({
 
 const contextMenu = ref(null)
 const store = useStore()
+
+// Mobile detection
+const isMobile = ref(false)
+const showMobileMenu = ref(false)
+const expandedSubmenu = ref(null)
+
+const checkMobile = () => {
+  isMobile.value = window.innerWidth <= 768
+}
+
+onMounted(() => {
+  checkMobile()
+  window.addEventListener('resize', checkMobile)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+})
 
 // Định nghĩa các nhóm action theo cấu trúc như trong hình
 const actionGroups = {
@@ -301,13 +388,54 @@ const groupedMenuItems = computed(() => {
   return items
 })
 
+// Flattened menu items for mobile (không nested)
+const flattenedMenuItems = computed(() => {
+  return groupedMenuItems.value
+})
+
+// Mobile menu handlers
+const handleMobileItemClick = (item) => {
+  if (item.command) {
+    item.command()
+  }
+  showMobileMenu.value = false
+  expandedSubmenu.value = null
+  if (props.close) {
+    props.close()
+  }
+}
+
+const toggleSubMenu = (index) => {
+  if (expandedSubmenu.value === index) {
+    expandedSubmenu.value = null
+  } else {
+    expandedSubmenu.value = index
+  }
+}
+
+const handleMobileMenuClose = () => {
+  expandedSubmenu.value = null
+  if (props.close) {
+    props.close()
+  }
+}
+
 // Expose methods để có thể gọi từ parent component
 defineExpose({
   show: (event) => {
-    contextMenu.value.show(event)
+    if (isMobile.value) {
+      showMobileMenu.value = true
+    } else {
+      contextMenu.value?.show(event)
+    }
   },
   hide: () => {
-    closeMenu()
+    if (isMobile.value) {
+      showMobileMenu.value = false
+      expandedSubmenu.value = null
+    } else {
+      closeMenu()
+    }
   }
 })
 </script>
@@ -545,4 +673,272 @@ defineExpose({
   max-height: 16px !important;
   flex-shrink: 0;
 }
+
+/* ============================================
+   MOBILE BOTTOM SHEET STYLES
+   ============================================ */
+:deep(.mobile-bottom-sheet) {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  border-radius: 20px 20px 0 0 !important;
+  max-height: 90vh !important;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.15) !important;
+}
+
+:deep(.mobile-bottom-sheet .p-dialog-content) {
+  padding: 0 !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* Override any PrimeVue default constraints */
+:deep(.p-dialog.mobile-bottom-sheet) {
+  transform: none !important;
+}
+
+:deep(.p-dialog-bottom.mobile-bottom-sheet) {
+  width: 100vw !important;
+  max-width: 100vw !important;
+}
+
+:deep(.mobile-sheet-mask) {
+  background-color: rgba(0, 0, 0, 0.6) !important;
+}
+
+/* Force full width for all dialog wrappers */
+:deep(.p-dialog-mask) {
+  align-items: flex-end !important;
+}
+
+:deep(.p-dialog-mask .mobile-bottom-sheet) {
+  margin-bottom: 0 !important;
+}
+
+.mobile-menu-container {
+  display: flex;
+  flex-direction: column;
+  max-height: 90vh;
+  width: 100%;
+}
+
+.mobile-menu-handle {
+  width: 48px;
+  height: 5px;
+  background-color: #d1d5db;
+  border-radius: 3px;
+  margin: 16px auto 12px;
+  flex-shrink: 0;
+}
+
+.mobile-menu-content {
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0 24px;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
+.mobile-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f3f4f6;
+  min-height: 64px;
+  width: 100%;
+}
+
+.mobile-menu-item:active {
+  background-color: #f9fafb;
+}
+
+.mobile-menu-item.has-submenu {
+  background-color: #fafafa;
+}
+
+.mobile-item-content {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex: 1;
+}
+
+.mobile-item-icon {
+  width: 26px;
+  height: 26px;
+  font-size: 26px;
+  flex-shrink: 0;
+  color: #6b7280;
+}
+
+.mobile-item-label {
+  font-size: 17px;
+  font-weight: 500;
+  color: #1f2937;
+  line-height: 1.4;
+}
+
+.mobile-submenu-arrow {
+  font-size: 18px;
+  color: #9ca3af;
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.mobile-submenu {
+  background-color: #f9fafb;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  width: 100%;
+}
+
+.mobile-submenu-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 24px 18px 60px;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  border-bottom: 1px solid #f3f4f6;
+  min-height: 60px;
+  width: 100%;
+}
+
+.mobile-submenu-item:last-child {
+  border-bottom: none;
+}
+
+.mobile-submenu-item:active {
+  background-color: #f3f4f6;
+}
+
+.mobile-submenu-item .mobile-item-icon {
+  width: 24px;
+  height: 24px;
+  font-size: 24px;
+}
+
+.mobile-submenu-item .mobile-item-label {
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+/* Scrollbar for mobile menu */
+.mobile-menu-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.mobile-menu-content::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 8px 0;
+}
+
+.mobile-menu-content::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+.mobile-menu-content::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
+}
+
+/* Animation for bottom sheet */
+:deep(.mobile-bottom-sheet) {
+  animation: slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* Responsive adjustments for different mobile sizes */
+@media (max-width: 480px) {
+  .mobile-menu-item {
+    padding: 18px 20px;
+    min-height: 62px;
+  }
+
+  .mobile-item-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 24px;
+  }
+
+  .mobile-item-label {
+    font-size: 16px;
+  }
+
+  .mobile-submenu-arrow {
+    font-size: 16px;
+  }
+
+  .mobile-submenu-item {
+    padding: 16px 20px 16px 56px;
+    min-height: 58px;
+  }
+
+  .mobile-submenu-item .mobile-item-icon {
+    width: 22px;
+    height: 22px;
+    font-size: 22px;
+  }
+
+  .mobile-submenu-item .mobile-item-label {
+    font-size: 15px;
+  }
+}
+
+@media (min-width: 481px) and (max-width: 768px) {
+  /* Larger mobile/tablet devices - even bigger items */
+  .mobile-menu-item {
+    padding: 22px 28px;
+    min-height: 68px;
+  }
+
+  .mobile-item-icon {
+    width: 28px;
+    height: 28px;
+    font-size: 28px;
+  }
+
+  .mobile-item-label {
+    font-size: 18px;
+  }
+
+  .mobile-submenu-arrow {
+    font-size: 20px;
+  }
+
+  .mobile-submenu-item {
+    padding: 20px 28px 20px 64px;
+    min-height: 64px;
+  }
+
+  .mobile-submenu-item .mobile-item-icon {
+    width: 26px;
+    height: 26px;
+    font-size: 26px;
+  }
+
+  .mobile-submenu-item .mobile-item-label {
+    font-size: 17px;
+  }
+}
+
+/* Note: Mobile devices will use the bottom sheet component instead of context menu */
 </style>
