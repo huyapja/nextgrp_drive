@@ -90,8 +90,8 @@
             </div>
           </div>
 
-          <!-- Checkbox chuyển quyền sở hữu các file con -->
-          <div class="field-group pt-3 border-t border-gray-200">
+          <!-- Checkbox chuyển quyền sở hữu các file con (chỉ hiển thị cho Folder) -->
+          <div v-if="isFolder" class="field-group pt-3 border-t border-gray-200">
             <div class="checkbox-item">
               <Checkbox
                 v-model="transferChildFiles"
@@ -187,6 +187,10 @@ const openDialog = computed({
 })
 
 const userId = computed(() => store.state.user.id)
+
+const isFolder = computed(() => {
+  return props.entity?.is_group === true || props.entity?.file_type === 'Folder'
+})
 
 const getTeamMembers = computed(() => {
   if (userList.data?.length > 0) {

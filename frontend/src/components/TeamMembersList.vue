@@ -113,12 +113,12 @@
     <transition name="tooltip-fade">
       <div
         v-if="showTooltip && tooltipMember"
-        class="fixed z-[9999]"
+        class="fixed z-[9999] tooltip-container"
         :style="tooltipStyle"
         @mouseenter="handleTooltipMouseEnter"
         @mouseleave="handleMouseLeave"
       >
-        <div class="bg-white rounded-lg shadow-lg p-4 min-w-[280px] border" style="background-color: #ffffff; border-color: #0149C1;">
+        <div class="bg-white rounded-lg shadow-lg p-4 min-w-[280px] max-w-[320px] border overflow-y-auto" style="background-color: #ffffff; border-color: #0149C1;">
           <div class="flex items-start gap-3 mb-3">
             <img
               v-if="tooltipMember.user_image"
@@ -135,11 +135,11 @@
             </div>
             
             <div class="flex-1 min-w-0">
-              <h4 class="font-semibold text-gray-900 text-sm mb-1">{{ tooltipMember.full_name }}</h4>
-              <p v-if="tooltipMember?.department" class="text-xs text-gray-600 mb-1">
+              <h4 class="font-semibold text-gray-900 text-sm mb-1 break-words">{{ tooltipMember.full_name }}</h4>
+              <p v-if="tooltipMember?.department" class="text-xs text-gray-600 mb-1 break-words">
                 <span class="text-gray-900">{{ tooltipMember.department }}</span>
               </p>
-              <p v-if="tooltipMember?.position" class="text-xs text-gray-600 mb-1">
+              <p v-if="tooltipMember?.position" class="text-xs text-gray-600 mb-1 break-words">
                 <span class="text-gray-900">{{ tooltipMember.position }}</span>
               </p>
             </div>
@@ -327,33 +327,77 @@ const showTooltipForMember = (element, member, type) => {
 
   const rect = element.getBoundingClientRect()
   const tooltipWidth = 280
+  const tooltipHeight = 200 // Ước tính chiều cao tooltip (có thể điều chỉnh)
   const padding = 16
+  const offset = 8 // Khoảng cách giữa element và tooltip
   const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
   
+  // ===== POSITIONING HORIZONTAL (Chiều ngang) =====
   let left = rect.left + rect.width / 2 - tooltipWidth / 2
   let transformOrigin = 'center'
   let arrowLeft = '50%'
   let arrowTransform = '-translate-x-1/2'
   
+  // Kiểm tra tràn bên phải
   if (left + tooltipWidth + padding > viewportWidth) {
-    left = rect.right - tooltipWidth
+    left = viewportWidth - tooltipWidth - padding
     transformOrigin = 'right'
-    arrowLeft = `${rect.width / 2 + (rect.right - left - tooltipWidth)}px`
+    const centerOfElement = rect.left + rect.width / 2
+    arrowLeft = `${centerOfElement - left}px`
     arrowTransform = ''
   }
   
+  // Kiểm tra tràn bên trái
   if (left < padding) {
-    left = rect.left
+    left = padding
     transformOrigin = 'left'
-    arrowLeft = `${rect.width / 2}px`
+    const centerOfElement = rect.left + rect.width / 2
+    arrowLeft = `${centerOfElement - left}px`
     arrowTransform = ''
+  }
+
+  // ===== POSITIONING VERTICAL (Chiều dọc) =====
+  let top = rect.bottom + offset
+  let showAbove = false
+  
+  // Kiểm tra có đủ không gian ở dưới không
+  if (top + tooltipHeight + padding > viewportHeight) {
+    // Không đủ không gian ở dưới, thử hiển thị ở trên
+    const topPosition = rect.top - tooltipHeight - offset
+    
+    if (topPosition >= padding) {
+      // Đủ không gian ở trên
+      top = topPosition
+      showAbove = true
+      transformOrigin = transformOrigin + ' bottom'
+    } else {
+      // Không đủ không gian cả trên và dưới
+      // Hiển thị ở vị trí tốt nhất (có nhiều không gian hơn)
+      const spaceBelow = viewportHeight - rect.bottom
+      const spaceAbove = rect.top
+      
+      if (spaceAbove > spaceBelow) {
+        // Nhiều không gian hơn ở trên
+        top = padding
+        showAbove = true
+      } else {
+        // Nhiều không gian hơn ở dưới hoặc bằng nhau
+        top = rect.bottom + offset
+        // Đảm bảo không vượt quá viewport
+        if (top + tooltipHeight > viewportHeight - padding) {
+          top = viewportHeight - tooltipHeight - padding
+        }
+      }
+    }
   }
 
   tooltipMember.value = member
   tooltipType.value = type
   tooltipStyle.value = {
-    left: `${left}px`,
-    top: `${rect.bottom + 8}px`,
+    left: `${Math.max(padding, left)}px`,
+    top: `${Math.max(padding, top)}px`,
+    maxHeight: `${viewportHeight - padding * 2}px`,
     transformOrigin: transformOrigin
   }
   arrowStyle.value = {
@@ -437,9 +481,50 @@ const handleChat = (email) => {
 
 /* Tooltip transition */
 .tooltip-fade-enter-active, .tooltip-fade-leave-active {
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.2s ease;
 }
 .tooltip-fade-enter-from, .tooltip-fade-leave-to {
   opacity: 0;
+  transform: scale(0.95);
+}
+
+/* Tooltip container styles */
+.tooltip-container {
+  pointer-events: auto;
+}
+
+.tooltip-container > div {
+  max-height: inherit;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Custom scrollbar for tooltip */
+.tooltip-container > div::-webkit-scrollbar {
+  width: 6px;
+}
+
+.tooltip-container > div::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.tooltip-container > div::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.tooltip-container > div::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* Ensure text doesn't overflow */
+.tooltip-container h4,
+.tooltip-container p,
+.tooltip-container span {
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 </style>

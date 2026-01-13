@@ -74,7 +74,7 @@ def get_editor_config(entity_name):
         # callback_url = "https://5724eb6dec20.ngrok-free.app/api/method/drive.api.onlyoffice.save_document"
 
         # Xác định permissions
-        can_edit = has_edit and is_owner
+        can_edit = has_edit or is_owner
         show_review_changes = document_type == "word" and is_owner
 
         print(f"📝 Final permissions.edit: {can_edit}")
