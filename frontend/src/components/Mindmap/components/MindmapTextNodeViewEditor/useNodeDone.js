@@ -46,6 +46,9 @@ export function useNodeDone({
 
   function toggleDone(event) {
     if (!currentActionNode.value) return
+
+    console.log(">>>>>>> ủa alo");
+    
     
 
     const done = isStrikeActiveForWholeNode(editor, node, getPos)
