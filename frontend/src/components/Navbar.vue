@@ -253,7 +253,10 @@
 
 <script setup>
 import CloudIconBlack from "@/assets/Icons/CloudIconBlack.vue"
+import CopyIcon from "@/assets/Icons/CopyIcon.vue"
+import FavoriteIcon from "@/assets/Icons/FavoriteIcon.vue"
 import InfoIcon from "@/assets/Icons/InfoIcon.vue"
+import InfoIconBlack from "@/assets/Icons/InfoIconBlack.vue"
 import LinkIcon from "@/assets/Icons/LinkIcon.vue"
 import MindmapIcon from "@/assets/Icons/MindmapIcon.vue"
 import MoveIcon from "@/assets/Icons/MoveIcon.vue"
@@ -269,6 +272,7 @@ import {
   getFavourites,
   getRecents,
   getTrash,
+  toggleFav,
 } from "@/resources/files"
 import { entitiesDownload } from "@/utils/download"
 import { createShortcut, removeShortcut } from "@/utils/files"
@@ -296,6 +300,7 @@ import LucideFolderPlus from "~icons/lucide/folder-plus"
 import LucideFolderUp from "~icons/lucide/folder-up"
 import LucideHome from "~icons/lucide/home"
 import LucideLink from "~icons/lucide/link"
+import LucideHistory from "~icons/lucide/history"
 import LucideMessageCircle from "~icons/lucide/message-circle"
 import LucideMoreVertical from "~icons/lucide/more-vertical"
 import LucideScan from "~icons/lucide/scan"
@@ -467,6 +472,16 @@ const dropdownActionItems = (row) => {
       isEnabled: () => store.state.activeEntity?.is_shortcut && route.name === "Home",
     },
     {
+      label: "Tạo bản sao",
+      icon: CopyIcon,
+      action: ([entity]) => {
+        moreEvent.value = false
+        dialog.value = "copy"
+      },
+      important: true,
+      isEnabled: (e) => !e?.is_shortcut,
+    },
+    {
       label: "Di chuyển",
       icon: MoveIcon,
       action: ([entity]) => {
@@ -483,6 +498,59 @@ const dropdownActionItems = (row) => {
         dialog.value = "rn"
       },
       isEnabled: (row) => row?.write,
+    },
+    {
+      label: "Hiển thị thông tin",
+      icon: InfoIconBlack,
+      action: ([entity]) => {
+        moreEvent.value = false
+        if (store.state.showInfo == false) {
+          store.commit("setShowInfo", true)
+          store.commit("setInfoSidebarTab", 0)
+        }
+      },
+      isEnabled: () => store.state.activeEntity && !store.state.showInfo,
+    },
+    {
+      label: "Lịch sử truy cập",
+      icon: LucideHistory,
+      action: ([entity]) => {
+        moreEvent.value = false
+        dialog.value = "activity_download_and_view"
+      },
+      isEnabled: (e) => currentUserEmail.value === e?.owner,
+    },
+    {
+      label: "Ẩn thông tin",
+      icon: InfoIcon,
+      action: ([entity]) => {
+        moreEvent.value = false
+        dialog.value = "info"
+      },
+      isEnabled: () => store.state.activeEntity && store.state.showInfo,
+    },
+    {
+      label: "Yêu thích",
+      icon: FavoriteIcon,
+      action: ([entity]) => {
+        moreEvent.value = false
+        entity.is_favourite = true
+        toggleFav.submit({ entities: [entity] })
+      },
+      isEnabled: (e) => !e.is_favourite && e.is_active,
+      important: true,
+    },
+    {
+      label: "Bỏ yêu thích",
+      icon: LucideStar,
+      class: "stroke-amber-500 fill-amber-500",
+      action: ([entity]) => {
+        moreEvent.value = false
+        entity.is_favourite = false
+        toggleFav.submit({ entities: [entity] })
+      },
+      isEnabled: (e) => e.is_favourite && e.is_active,
+      important: true,
     },
     {
       label: "Xóa",
