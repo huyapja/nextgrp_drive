@@ -279,7 +279,7 @@
         </div>
 
         <div
-          v-show="currentView === 'text'"
+          v-if="currentView === 'text'"
           class="w-full h-[calc(100vh-84px)] flex items-center justify-center text-gray-400"
         >
           <MindmapTextModeView 
