@@ -41,22 +41,24 @@ function findFirstBulletListAfterPos(doc, startPos, schema) {
   return null
 }
 
-function removeEmptyParagraphBetween(doc, tr, fromPos, toPos, schema) {
-  let pos = fromPos
+function isDeletingLastCharInListItem($from, schema) {
+  // phải ở textblock
+  if (!$from.parent?.isTextblock) return false
 
-  while (pos < toPos) {
-    const node = tr.doc.nodeAt(pos)
-    if (!node) break
+  // paragraph rỗng
+  if ($from.parent.content.size !== 0) return false
 
-    if (node.type === schema.nodes.paragraph && node.content.size === 0) {
-      tr.delete(pos, pos + node.nodeSize)
-      continue
+  // caret ở đầu
+  if ($from.parentOffset !== 0) return false
+
+  // phải nằm trong listItem
+  for (let d = $from.depth; d > 0; d--) {
+    if ($from.node(d).type === schema.nodes.listItem) {
+      return true
     }
-
-    pos += node.nodeSize
   }
 
-  return tr
+  return false
 }
 
 export function createEditorKeyDown({
@@ -193,6 +195,31 @@ export function createEditorKeyDown({
         }
       }
     }
+
+    // ==============================
+    // BLOCK BACKSPACE XOÁ NODE
+    // ==============================
+    if (event.key === "Backspace") {
+      const { state } = view
+      const { selection, schema } = state
+
+      if (!(selection instanceof TextSelection)) return false
+      if (!selection.empty) return false
+
+      const { $from } = selection
+
+      if (isDeletingLastCharInListItem($from, schema)) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        // optional UX: rung nhẹ / toast
+        // toast("Không thể xoá node rỗng", { indicator: "orange" })
+
+        emitCaretAfterKeyAction()
+        return true
+      }
+    }
+
     // ==============================
     // ADD CHILD NODE
     // ==============================
