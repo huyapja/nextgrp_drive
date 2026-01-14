@@ -1063,7 +1063,7 @@ defineExpose({
   height: 1.2em;
   border-radius: 1px;
   position: absolute;
-  left: -1%;
+  left: -3%;
   transform: translateX(-20%);
 }
 
