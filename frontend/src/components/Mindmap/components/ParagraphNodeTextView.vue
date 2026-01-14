@@ -791,4 +791,15 @@ ul.more-actions li.delete-node:hover {
   background: #fef2f2;
   color: #dc2626
 }
+
+.toolbar-btn.is-active {
+  border-radius: 4px;
+  transition: background-color .1s ease;
+  background-color: rgba(51, 109, 244, 0.1);
+}
+
+.toolbar-btn.is-active svg,
+.toolbar-btn.is-active svg path {
+  fill: #336df4;
+}
 </style>
