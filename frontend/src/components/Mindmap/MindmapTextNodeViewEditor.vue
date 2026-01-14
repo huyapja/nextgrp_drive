@@ -820,9 +820,11 @@ defineExpose({
 
 .prose :deep(a.task-link) {
   padding: 0px;
-  margin: 0 0 0 40px;
+  padding-left: 40px;
+  margin: 0;
   color: #1d4ed8;
   font-size: 13px;
+  padding-bottom: 5px;
 }
 
 .prose :deep(.mindmap-dot) {
@@ -910,7 +912,7 @@ defineExpose({
 .prose :deep(li:not([data-level="0"])[data-has-children="true"] ul::before) {
   content: "";
   position: absolute;
-  top: -8px;
+  top: 0px;
   left: 25px;
   height: 100%;
   width: 1px;
@@ -925,6 +927,7 @@ defineExpose({
   height: 60%;
   width: 1px;
   background-color: #dee0e3;
+  display: none;
 }
 
 .prose :deep(li[data-has-children="true"][data-collapsed="false"] ul li[data-has-children="true"][data-collapsed="false"]::before) {
@@ -934,6 +937,45 @@ defineExpose({
   left: 32px;
   height: 60%;
   width: 1px;
+  background-color: #dee0e3;
+  display: none;
+}
+
+.prose :deep(ul li ul li) {
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.prose :deep(li[data-has-children="true"][data-collapsed="false"][data-level="0"] > div.li-inner > div > blockquote::before) {
+  content: "";
+  position: absolute;
+  top: -1px;
+  bottom: 108px;
+  left: 25px;
+  width: 1px;
+  height: 168%;
+  background-color: #dee0e3;
+}
+
+.prose :deep(li[data-has-children="true"][data-collapsed="false"][data-level="0"] > div.li-inner > div > a.task-link::before) {
+  content: "";
+  position: absolute;
+  top: 28px;
+  left: 31px;
+  width: 1px;
+  height: 21px;
+  background-color: #dee0e3;
+}
+
+.prose :deep(li[data-has-children="true"][data-collapsed="false"] ul li[data-has-children="true"][data-collapsed="false"] a.task-link::before) {
+  content: "";
+  position: absolute;
+  top: 32px;
+  left: 31px;
+  width: 1px;
+  height: 21px;
   background-color: #dee0e3;
 }
 
@@ -946,7 +988,6 @@ defineExpose({
   width: 1px;
   height: 168%;
   background-color: #dee0e3;
-  z-index: 10000;
 }
 
 .prose :deep(li[data-has-children="true"][data-collapsed="false"] ul li[data-has-children="true"][data-collapsed="true"] blockquote::before) {
