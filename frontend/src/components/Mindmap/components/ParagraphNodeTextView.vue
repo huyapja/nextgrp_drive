@@ -737,16 +737,6 @@ watch(
 
 
 <style scoped>
-.mindmap-dot {
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
-  transform-origin: center;
-}
-
-.mindmap-dot:hover {
-  transform: scale(1.4);
-  box-shadow: 0 0 0 3px rgba(56, 56, 56, 0.15);
-}
-
 .color-item {
   width: 22px;
   height: 22px;

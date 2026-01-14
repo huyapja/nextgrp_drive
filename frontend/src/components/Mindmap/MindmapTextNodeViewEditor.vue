@@ -829,6 +829,17 @@ defineExpose({
   border-radius: 50%;
   flex-shrink: 0;
   cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transform-origin: center;
+}
+
+.prose :deep(li[data-has-children="true"][data-collapsed="true"] .mindmap-dot)  {
+  box-shadow: 0 0 0 3px rgba(56, 56, 56, 0.15);
+}
+
+.prose :deep(.mindmap-dot:hover){
+  transform: scale(1.4);
+  box-shadow: 0 0 0 3px rgba(56, 56, 56, 0.15);
 }
 
 .prose :deep(blockquote .mm-node),
@@ -862,17 +873,36 @@ defineExpose({
   background-color: #dee0e3;
 }
 
-.prose :deep(li[data-level="0"][data-has-children="true"] ul::before) {
+.prose :deep(li[data-level="0"][data-has-children="true"] > ul::before) {
   content: "";
   position: absolute;
-  top:0px;
+  top: 0px;
   left: 25px;
   height: 100%;
   width: 1px;
   background-color: #dee0e3;
 }
 
-.prose :deep(li[data-collapsed="false"]::before) {
+.prose :deep(li[data-level="0"][data-has-children="true"] ul::before) {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 25px;
+  height: 120%;
+  width: 1px;
+  background-color: #dee0e3;
+}
+
+/* .prose :deep(li[data-collapsed="false"]::before) {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 32px;
+  height: 60%;
+  width: 1px;
+  background-color: #dee0e3;
+} */
+.prose :deep(li[data-has-children="true"][data-collapsed="false"]::before) {
   content: "";
   position: absolute;
   top: 22px;
@@ -882,17 +912,8 @@ defineExpose({
   background-color: #dee0e3;
 }
 
-.prose :deep(li[data-collapsed="true"][data-has-children="true"]::before) {
-  content: "";
-  position: absolute;
-  top: 22px;
-  left: 32px;
-  height: 60%;
-  width: 1px;
-  background-color: #dee0e3;
-}
-
-.prose :deep(ul > li:last-child::before) {
+.prose :deep(ul > li[data-has-children="false"]:last-child::before),
+.prose :deep(ul > li[data-has-children="true"][data-collapsed="true"]:last-child::before) {
   content: none;
 }
 
