@@ -819,12 +819,12 @@ defineExpose({
 }
 
 .prose :deep(a.task-link) {
-  padding: 0px;
-  padding-left: 40px;
+  padding: 0 0 5px 15px;
   margin: 0;
+  margin-left: 25px;
   color: #1d4ed8;
   font-size: 13px;
-  padding-bottom: 5px;
+  position: relative;
 }
 
 .prose :deep(.mindmap-dot) {
@@ -962,8 +962,8 @@ defineExpose({
 .prose :deep(li[data-has-children="true"][data-collapsed="false"][data-level="0"] > div.li-inner > div > a.task-link::before) {
   content: "";
   position: absolute;
-  top: 28px;
-  left: 31px;
+  top: 0px;
+  left: 0px;
   width: 1px;
   height: 21px;
   background-color: #dee0e3;
@@ -972,8 +972,8 @@ defineExpose({
 .prose :deep(li[data-has-children="true"][data-collapsed="false"] ul li[data-has-children="true"][data-collapsed="false"] a.task-link::before) {
   content: "";
   position: absolute;
-  top: 32px;
-  left: 31px;
+  top: 0px;
+  left: 0px;
   width: 1px;
   height: 21px;
   background-color: #dee0e3;
