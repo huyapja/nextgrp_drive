@@ -1,5 +1,5 @@
 <template>
-  <NodeViewWrapper as="p" class="mm-node relative" :class="{ 'is-comment-hover': isHover || isActive }"
+  <NodeViewWrapper :data-node-id="node.attrs.nodeId" as="p" class="mm-node relative" :class="{ 'is-comment-hover': isHover || isActive }"
     @click="onClickNode">
     <div v-if="isMindmapParagraph" class="collapse-slot">
       <i v-if="liState?.hasChildren" class="collapse-toggle pi"
@@ -10,7 +10,7 @@
     </div>
 
     <i v-if="isMindmapParagraph && canEditContent" class="mindmap-dot ml-1" data-drag-handle="true" draggable="false"
-      @mousedown="onDragHandleMouseDown" @click.stop="toggleActions" v-tooltip.top="{
+      @click.stop="toggleActions" v-tooltip.top="{
         value: 'Bấm hiển thị thêm hành động',
         pt: { text: { class: ['text-[12px]'] } }
       }" />
@@ -185,7 +185,6 @@
 import { ref, computed, inject, watchEffect, watch, nextTick } from "vue"
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
 import Popover from 'primevue/popover'
-import { useNodeActionPopover } from './MindmapTextNodeViewEditor/useNodeActionPopover'
 import { useNodeDone } from "./MindmapTextNodeViewEditor/useNodeDone"
 import { useNodeBoldItaliceUnderline } from "./MindmapTextNodeViewEditor/useNodeBoldItaliceUnderline"
 
@@ -291,15 +290,15 @@ function scrollToSelection(editor) {
   }
 }
 
-function onDragHandleMouseDown(e) {
-  const dot = e.currentTarget
-  dot.setAttribute("draggable", "true")
-}
+// function onDragHandleMouseDown(e) {
+//   const dot = e.currentTarget
+//   dot.setAttribute("draggable", "true")
+// }
 
-function onDragHandleMouseUp(e) {
-  const dot = e.currentTarget
-  dot.removeAttribute("draggable")
-}
+// function onDragHandleMouseUp(e) {
+//   const dot = e.currentTarget
+//   dot.removeAttribute("draggable")
+// }
 
 
 function insertDescriptionBlockquote() {
@@ -388,8 +387,6 @@ function insertDescriptionBlockquote() {
     return
   }
 
-
-
   const insertPos = liStartPos + 1 + insertOffset
 
   let tr = state.tr.insert(
@@ -412,9 +409,6 @@ function insertDescriptionBlockquote() {
     })
   })
 }
-
-
-
 
 const isSelectionInBlockquote = computed(() => {
   const editor = props.editor
@@ -440,8 +434,6 @@ const isSelectionInBlockquote = computed(() => {
 
   return false
 })
-
-const { toggle } = useNodeActionPopover()
 
 function toggleActions(event) {
   if (!canEditContent.value) return

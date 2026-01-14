@@ -25,7 +25,7 @@ import { useRoute } from "vue-router"
 import { createResource } from "frappe-ui"
 import { getNodeIdFromSelection } from "./utils/getNodeIdFromSelection"
 import { useNodeEditingTracker } from "./components/MindmapTextNodeViewEditor/useNodeEditingTracker"
-import { createListItemDragPlugin } from "./components/plugins/listItemDragPlugin"
+// import { createListItemDragPlugin } from "./components/plugins/listItemDragPlugin"
 import { ImageWithWrapper } from "./components/extensions/ImageWithWrapper"
 
 
@@ -57,8 +57,6 @@ function getRemoteUserColor(userId) {
 
   return color
 }
-
-
 
 /* ================================
  * Props / Emits
@@ -426,11 +424,6 @@ onMounted(() => {
       attributes: {
         class: "min-h-[60vh]",
       },
-
-      plugins: [
-        createListItemDragPlugin({ editor }),
-      ],
-
       handleKeyDown: createEditorKeyDown({
         editor,
         flags: {
@@ -854,26 +847,69 @@ defineExpose({
   opacity: 0.5;
 }
 
-.prose :deep(li[data-has-children="true"] ul) {
+.prose :deep(li[data-has-children="true"] ul),
+.prose :deep(li) {
   position: relative
 }
 
 .prose :deep(li[data-has-children="true"] ul::before) {
   content: "";
   position: absolute;
-  top: 0;
+  top: 10px;
   left: 25px;
   height: 100%;
   width: 1px;
   background-color: #dee0e3;
 }
 
-.prose :deep(ul li .image-wrapper) {
-  position: relative;
-  padding:20px 0;
+.prose :deep(li[data-level="0"][data-has-children="true"] ul::before) {
+  content: "";
+  position: absolute;
+  top:0px;
+  left: 25px;
+  height: 100%;
+  width: 1px;
+  background-color: #dee0e3;
 }
 
-.prose :deep(ul li[data-collapsed="false"] .image-wrapper::before) {
+.prose :deep(li[data-collapsed="false"]::before) {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 32px;
+  height: 60%;
+  width: 1px;
+  background-color: #dee0e3;
+}
+
+.prose :deep(li[data-collapsed="true"][data-has-children="true"]::before) {
+  content: "";
+  position: absolute;
+  top: 22px;
+  left: 32px;
+  height: 60%;
+  width: 1px;
+  background-color: #dee0e3;
+}
+
+.prose :deep(ul > li:last-child::before) {
+  content: none;
+}
+
+.prose :deep(ul:has(> li:nth-child(1)):not(:has(> li:nth-child(2))) > li:nth-child(1)::before) {
+  content: none;
+}
+
+.prose :deep(ul:has(> li:nth-child(2)):not(:has(> li:nth-child(3))) > li:nth-child(2)::before) {
+  content: none;
+}
+
+.prose :deep(ul li .image-wrapper) {
+  position: relative;
+  padding: 20px 0;
+}
+
+.prose :deep(ul li .image-wrapper::before) {
   content: "";
   position: absolute;
   top: 0;
@@ -891,7 +927,7 @@ defineExpose({
   width: 400px;
   margin-left: 40px;
   margin-bottom: 0px;
-  margin-top:0;
+  margin-top: 0;
   outline: none;
   max-height: 450px;
 }
