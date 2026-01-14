@@ -1,6 +1,6 @@
 <template>
-  <NodeViewWrapper :data-node-id="node.attrs.nodeId" as="p" class="mm-node relative" :class="{ 'is-comment-hover': isHover || isActive }"
-    @click="onClickNode">
+  <NodeViewWrapper :data-node-id="node.attrs.nodeId" as="p" class="mm-node relative"
+    :class="{ 'is-comment-hover': isHover || isActive }" @click="onClickNode">
     <div v-if="isMindmapParagraph" class="collapse-slot">
       <i v-if="liState?.hasChildren" class="collapse-toggle pi"
         :class="liState.collapsed ? 'pi-angle-right' : 'pi-angle-down'" v-tooltip.top="{
@@ -211,6 +211,17 @@ const currentActionNode = ref(null)
 const permissions = inject('editorPermissions')
 
 const getEditingUserOfNode = inject("getEditingUserOfNode")
+
+const activeActionNodeId = inject("activeActionNodeId")
+
+watch(activeActionNodeId, (newId) => {
+  const selfId = resolveNodeIdFromDOM(null)
+
+  // Nếu popover này KHÔNG phải node đang active → đóng
+  if (newId !== selfId) {
+    actionsPopover.value?.hide()
+  }
+})
 
 const canEditContent = computed(() => {
   return permissions.value?.write === 1
@@ -504,14 +515,19 @@ function toggleActions(event) {
   const popover = actionsPopover.value
   if (!popover) return
 
-  if (popover.visible) {
+  const selfNodeId = nodeId
+
+  if (activeActionNodeId.value === selfNodeId) {
+    activeActionNodeId.value = null
     popover.hide()
     return
   }
 
+  activeActionNodeId.value = selfNodeId
   nextTick(() => {
     popover.show(event)
   })
+
 }
 
 
@@ -519,6 +535,7 @@ function toggleActions(event) {
 function closeActionsPopover() {
   if (!actionsPopover.value) return
   actionsPopover.value.hide()
+  activeActionNodeId.value = null
 }
 
 

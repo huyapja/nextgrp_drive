@@ -185,6 +185,9 @@ const editor = ref(null)
 provide('editorPermissions', computed(() => props.permissions))
 
 
+const activeActionNodeId = ref(null)
+provide("activeActionNodeId", activeActionNodeId)
+
 const getCookie = name => {
   const value = `; ${document.cookie}`;
   const parts = value.split(`; ${name}=`);
@@ -823,8 +826,8 @@ defineExpose({
 }
 
 .prose :deep(.mindmap-dot) {
-  width: 6px;
-  height: 6px;
+  width: 7px;
+  height: 7px;
   background-color: #383838;
   border-radius: 50%;
   flex-shrink: 0;
@@ -833,11 +836,11 @@ defineExpose({
   transform-origin: center;
 }
 
-.prose :deep(li[data-has-children="true"][data-collapsed="true"] .mindmap-dot)  {
+.prose :deep(li[data-has-children="true"][data-collapsed="true"] .mindmap-dot) {
   box-shadow: 0 0 0 5px rgba(56, 56, 56, 0.15);
 }
 
-.prose :deep(.mindmap-dot:hover){
+.prose :deep(.mindmap-dot:hover) {
   transform: scale(1.4);
   box-shadow: 0 0 0 3px rgba(56, 56, 56, 0.15);
 }
@@ -859,8 +862,29 @@ defineExpose({
 }
 
 .prose :deep(li[data-has-children="true"] ul),
-.prose :deep(li) {
+.prose :deep(li),
+.prose :deep(blockquote) {
   position: relative
+}
+
+.prose :deep(blockquote) {
+  margin-left: 0;
+  padding-left: 28px;
+}
+
+.prose :deep(ul li ul) {
+  margin: 0;
+  /* padding:9px 0; */
+}
+
+.prose :deep(li[data-has-children="true"][data-level="0"] ul::before) {
+  content: "";
+  position: absolute;
+  top: 0px;
+  left: 25px;
+  height: 100%;
+  width: 1px;
+  background-color: #dee0e3;
 }
 
 .prose :deep(li[data-has-children="true"] ul::before) {
@@ -886,22 +910,13 @@ defineExpose({
 .prose :deep(li:not([data-level="0"])[data-has-children="true"] ul::before) {
   content: "";
   position: absolute;
-  top: -5px;
+  top: -8px;
   left: 25px;
   height: 100%;
   width: 1px;
   background-color: #dee0e3;
 }
 
-/* .prose :deep(li[data-collapsed="false"]::before) {
-  content: "";
-  position: absolute;
-  top: 22px;
-  left: 32px;
-  height: 60%;
-  width: 1px;
-  background-color: #dee0e3;
-} */
 .prose :deep(li[data-has-children="true"][data-collapsed="false"]::before) {
   content: "";
   position: absolute;
@@ -911,6 +926,41 @@ defineExpose({
   width: 1px;
   background-color: #dee0e3;
 }
+
+.prose :deep(li[data-has-children="true"][data-collapsed="false"] ul li[data-has-children="true"][data-collapsed="false"]::before) {
+  content: "";
+  position: absolute;
+  top: 25px;
+  left: 32px;
+  height: 60%;
+  width: 1px;
+  background-color: #dee0e3;
+}
+
+.prose :deep(li[data-has-children="true"][data-collapsed="false"] ul li[data-has-children="true"][data-collapsed="false"] blockquote::before) {
+  content: "";
+  position: absolute;
+  top: -1px;
+  bottom: 108px;
+  left: 25px;
+  width: 1px;
+  height: 168%;
+  background-color: #dee0e3;
+  z-index: 10000;
+}
+
+.prose :deep(li[data-has-children="true"][data-collapsed="false"] ul li[data-has-children="true"][data-collapsed="true"] blockquote::before) {
+  content: "";
+  position: absolute;
+  top: -1px;
+  bottom: 108px;
+  left: 25px;
+  width: 1px;
+  height: 168%;
+  background-color: #dee0e3;
+  z-index: 10000;
+}
+
 
 .prose :deep(ul > li[data-has-children="false"]:last-child::before),
 .prose :deep(ul > li[data-has-children="true"][data-collapsed="true"]:last-child::before) {
