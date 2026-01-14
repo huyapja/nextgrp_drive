@@ -834,7 +834,7 @@ defineExpose({
 }
 
 .prose :deep(li[data-has-children="true"][data-collapsed="true"] .mindmap-dot)  {
-  box-shadow: 0 0 0 3px rgba(56, 56, 56, 0.15);
+  box-shadow: 0 0 0 5px rgba(56, 56, 56, 0.15);
 }
 
 .prose :deep(.mindmap-dot:hover){
@@ -883,12 +883,12 @@ defineExpose({
   background-color: #dee0e3;
 }
 
-.prose :deep(li[data-level="0"][data-has-children="true"] ul::before) {
+.prose :deep(li:not([data-level="0"])[data-has-children="true"] ul::before) {
   content: "";
   position: absolute;
   top: -5px;
   left: 25px;
-  height: 120%;
+  height: 100%;
   width: 1px;
   background-color: #dee0e3;
 }

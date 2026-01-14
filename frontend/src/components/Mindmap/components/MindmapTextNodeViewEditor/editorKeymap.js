@@ -17,6 +17,48 @@ function getCurrentListItem($from, schema) {
   return null
 }
 
+function findFirstBulletListAfterPos(doc, startPos, schema) {
+  let pos = startPos
+
+  while (pos < doc.content.size) {
+    const node = doc.nodeAt(pos)
+    if (!node) break
+
+    // bỏ qua paragraph rỗng
+    if (node.type === schema.nodes.paragraph && node.content.size === 0) {
+      pos += node.nodeSize
+      continue
+    }
+
+    if (node.type === schema.nodes.bulletList) {
+      return { node, pos }
+    }
+
+    // gặp node khác → dừng
+    break
+  }
+
+  return null
+}
+
+function removeEmptyParagraphBetween(doc, tr, fromPos, toPos, schema) {
+  let pos = fromPos
+
+  while (pos < toPos) {
+    const node = tr.doc.nodeAt(pos)
+    if (!node) break
+
+    if (node.type === schema.nodes.paragraph && node.content.size === 0) {
+      tr.delete(pos, pos + node.nodeSize)
+      continue
+    }
+
+    pos += node.nodeSize
+  }
+
+  return tr
+}
+
 export function createEditorKeyDown({
   editor,
   flags,
@@ -160,6 +202,128 @@ export function createEditorKeyDown({
       if (!selection.empty) return false
 
       const { $from } = selection
+      // ==============================
+      // CASE: ENTER TRONG HEADING
+      // ==============================
+      let headingDepth = null
+      for (let d = $from.depth; d > 0; d--) {
+        if ($from.node(d).type === schema.nodes.heading) {
+          headingDepth = d
+          break
+        }
+      }
+
+      if (headingDepth) {
+        event.preventDefault()
+        event.stopPropagation()
+
+        const { state, view } = editor.value
+        const { doc, schema } = state
+
+        const headingEndPos = $from.after(headingDepth)
+
+        // ==========================
+        // CASE 1: ĐÃ CÓ LI → FOCUS LI ĐẦU
+        // ==========================
+        const found = findFirstBulletListAfterPos(doc, headingEndPos, schema)
+
+        if (found && found.node.childCount > 0) {
+          let tr = state.tr
+
+          const ulPos = found.pos
+          const firstLiPos = ulPos + 1 // vào <ul> → <li>
+
+          const liNode = tr.doc.nodeAt(firstLiPos)
+          if (!liNode) return true
+
+          let tbNode = null
+          let tbOffset = null
+
+          liNode.forEach((child, offset) => {
+            if (child.isTextblock && tbNode == null) {
+              tbNode = child
+              tbOffset = offset
+            }
+          })
+
+          if (!tbNode) return true
+
+          const textStartPos = firstLiPos + 1 + tbOffset + 1
+          const caretPos = textStartPos + tbNode.content.size // ✅ cuối text
+
+          tr = tr
+            .setSelection(TextSelection.create(tr.doc, caretPos))
+            .setStoredMarks([])
+            .setMeta("ui-only", true)
+
+          view.dispatch(tr)
+          view.focus()
+
+          emitCaretAfterKeyAction()
+          return true
+        }
+
+        // ==========================
+        // CASE 2: CHƯA CÓ LI → TẠO ROOT CHILD ĐẦU
+        // ==========================
+        const newNodeId = crypto.randomUUID()
+        flags.isCreatingDraftNode = true
+
+        const inlineRootMark = schema.marks.inlineRoot.create({ clean: true })
+        const text = schema.text("Nhánh mới", [inlineRootMark])
+        const paragraph = schema.nodes.paragraph.create({}, text)
+
+        const listItem = schema.nodes.listItem.create(
+          { nodeId: newNodeId, hasCount: false },
+          paragraph
+        )
+
+        const bulletList = schema.nodes.bulletList.create({}, listItem)
+
+        let tr = state.tr.insert(headingEndPos, bulletList)
+
+        const ulPos = headingEndPos
+        const firstLiPos = ulPos + 1
+
+        const liNode = tr.doc.nodeAt(firstLiPos)
+        if (!liNode) return true
+
+        let tbNode = null
+        let tbOffset = null
+
+        liNode.forEach((child, offset) => {
+          if (child.isTextblock && tbNode == null) {
+            tbNode = child
+            tbOffset = offset
+          }
+        })
+
+        if (!tbNode) return true
+
+        const textStartPos = firstLiPos + 1 + tbOffset + 1
+        const caretPos = textStartPos + tbNode.content.size
+
+        tr = tr
+          .setSelection(TextSelection.create(tr.doc, caretPos))
+          .setStoredMarks([])
+          .setMeta("ui-only", true)
+
+        view.dispatch(tr)
+        view.focus()
+
+        editor.value?.options?.onAddChildNode?.({
+          anchorNodeId: "root",
+          newNodeId,
+          position: "add_root_child",
+        })
+
+        requestAnimationFrame(() => {
+          flags.isCreatingDraftNode = false
+        })
+
+        emitCaretAfterKeyAction()
+        return true
+      }
 
       // tìm listItem
       let liDepth = null
@@ -169,6 +333,7 @@ export function createEditorKeyDown({
           break
         }
       }
+
       if (!liDepth) return false
 
       const liNode = $from.node(liDepth)
