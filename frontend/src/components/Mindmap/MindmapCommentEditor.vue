@@ -200,7 +200,7 @@ onMounted(() => {
                     )
 
                     // regex giống trigger mention
-                    if (/@[\p{L}\d_]*$/u.test(textBefore)) {
+                    if (/@[\p{L}\d_ ]*$/u.test(textBefore)) {
                         editor.value.storage.__mentionUserTriggered = true
                     }
                 }

@@ -10,20 +10,23 @@ function normalize(str = "") {
 function matchName(fullName, query) {
   if (!query) return true
 
-  const q = normalize(query)
-  const tokens = normalize(fullName).split(/\s+/)
+  const nameTokens = normalize(fullName).split(/\s+/)
+  const queryTokens = normalize(query).split(/\s+/)
 
-  return tokens.some((token) => token.startsWith(q))
+  if (queryTokens.length > nameTokens.length) return false
+
+  for (let i = 0; i < queryTokens.length; i++) {
+    if (!nameTokens[i].startsWith(queryTokens[i])) {
+      return false
+    }
+  }
+
+  return true
 }
 
 export function MentionSuggestion({ getMembers, nodeId }) {
   let activeIndex = 0
   let currentItems = []
-
-  // nếu bạn muốn cache normalize theo user thì dùng key này
-  function getUserKey(m) {
-    return m?.name || m?.email || m?.id || m?.full_name || JSON.stringify(m)
-  }
 
   // =============================
   // Panel expand/restore (NO JUMP)
@@ -124,6 +127,7 @@ export function MentionSuggestion({ getMembers, nodeId }) {
     },
 
     render: () => {
+      let lastItemsKey = ""
       let popup = null
       let lastClientRect = null
       let editorInstance = null
@@ -131,6 +135,13 @@ export function MentionSuggestion({ getMembers, nodeId }) {
       let lastQuery = ""
       let scrollContainer = null
       let onScroll = null
+      let inputMode = "keyboard"
+      let lockMouseUntilMove = false
+      const brokenAvatarMap = new Set()
+
+      function buildItemsKey(items) {
+        return items.map((m) => m.email || m.id).join("|")
+      }
 
       // exitReason:
       // - "select": Enter chọn mention
@@ -147,6 +158,30 @@ export function MentionSuggestion({ getMembers, nodeId }) {
             Math.min(activeIndex, currentItems.length - 1)
           )
         }
+      }
+
+      function updateActiveItem() {
+        if (!popup) return
+
+        popup
+          .querySelectorAll("[data-mention-active]")
+          .forEach((el) => el.removeAttribute("data-mention-active"))
+
+        const items = popup.children
+        const el = items[activeIndex]
+        if (!el) return
+
+        el.dataset.mentionActive = "1"
+        el.classList.add("bg-gray-100")
+
+        // remove bg của item khác
+        for (let i = 0; i < items.length; i++) {
+          if (i !== activeIndex) {
+            items[i].classList.remove("bg-gray-100")
+          }
+        }
+
+        scrollActiveItemIntoView()
       }
 
       function scrollActiveItemIntoView() {
@@ -202,17 +237,50 @@ export function MentionSuggestion({ getMembers, nodeId }) {
 
           el.className =
             "px-3 py-2 cursor-pointer text-sm flex items-center gap-2 " +
-            (isActive ? "bg-gray-100" : "hover:bg-gray-100")
+            (isActive ? "bg-gray-100" : "")
 
           if (isActive) el.dataset.mentionActive = "1"
 
-          el.innerHTML = `
-            <img
-              src="${item.imageURL || item.user_image || ""}"
-              class="w-5 h-5 rounded-full"
-            />
-            <span>${item.full_name}</span>
-          `
+          // el.innerHTML = `
+          //   <img
+          //     src="${item.imageURL || item.user_image || ""}"
+          //     class="w-5 h-5 rounded-full"
+          //   />
+          //   <span>${item.full_name}</span>
+          // `
+          const avatar = document.createElement("img")
+          avatar.className = "w-5 h-5 rounded-full"
+          avatar.loading = "lazy"
+
+          const avatarKey = item.email || item.id
+          const avatarSrc = item.imageURL || item.user_image
+
+          if (brokenAvatarMap.has(avatarKey) || !avatarSrc) {
+            avatar.src = "/default-avatar.svg" // ✅ icon mặc định
+          } else {
+            avatar.src = avatarSrc
+          }
+
+          avatar.onerror = () => {
+            brokenAvatarMap.add(avatarKey)
+            avatar.onerror = null
+            avatar.src = "/default-avatar.svg"
+          }
+
+          const name = document.createElement("span")
+          name.textContent = item.full_name
+
+          el.appendChild(avatar)
+          el.appendChild(name)
+
+          el.onmouseenter = () => {
+            if (lockMouseUntilMove) return
+            if (activeIndex === index) return
+
+            inputMode = "mouse"
+            activeIndex = index
+            updateActiveItem()
+          }
 
           el.onmousedown = (e) => {
             e.preventDefault()
@@ -226,26 +294,6 @@ export function MentionSuggestion({ getMembers, nodeId }) {
         })
 
         requestAnimationFrame(scrollActiveItemIntoView)
-      }
-
-      function hardClose() {
-        // đóng popup + remove listeners (không đụng selection)
-        editorInstance?.storage &&
-          (editorInstance.storage.__mentionOpen = false)
-
-        scrollContainer?.removeEventListener("scroll", onScroll)
-        scrollContainer = null
-        onScroll = null
-
-        popup?.remove()
-        popup = null
-
-        lastClientRect = null
-        currentItems = []
-        activeIndex = 0
-        lastQuery = ""
-        lastRange = null
-        editorInstance = null
       }
 
       function selectItem(item) {
@@ -324,6 +372,14 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           `
 
           popup.addEventListener(
+            "mousemove",
+            () => {
+              lockMouseUntilMove = false
+            },
+            { passive: true }
+          )
+
+          popup.addEventListener(
             "wheel",
             (e) => {
               // đừng cho wheel bubble lên scroll cha
@@ -360,7 +416,13 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           lastRange = props.range
           lastQuery = props.query || ""
 
+          const newItems = props.items || []
+          const newKey = buildItemsKey(newItems)
+
+          lastRange = props.range
+          lastQuery = props.query || ""
           const rect = props.clientRect?.()
+
           if (rect) lastClientRect = rect
 
           // soft-exit detection: khi mất match '@' (xóa @ hoặc biến @ thành thường)
@@ -371,8 +433,14 @@ export function MentionSuggestion({ getMembers, nodeId }) {
           if (!stillLooksLikeMention) exitReason = "soft"
 
           if (activeIndex >= currentItems.length) activeIndex = 0
-          clampIndex()
-          renderPopup()
+          if (newKey !== lastItemsKey) {
+            currentItems = newItems
+            lastItemsKey = newKey
+            clampIndex()
+            renderPopup()
+          } else {
+            updateActiveItem()
+          }
         },
 
         onKeyDown(props) {
@@ -390,17 +458,21 @@ export function MentionSuggestion({ getMembers, nodeId }) {
 
           if (event.key === "ArrowDown") {
             event.preventDefault()
+            inputMode = "keyboard"
+            lockMouseUntilMove = true
             activeIndex = (activeIndex + 1) % currentItems.length
-            renderPopup()
+            updateActiveItem()
             ensureCaretVisible(editorInstance)
             return true
           }
 
           if (event.key === "ArrowUp") {
             event.preventDefault()
+            inputMode = "keyboard"
+            lockMouseUntilMove = true
             activeIndex =
               (activeIndex - 1 + currentItems.length) % currentItems.length
-            renderPopup()
+            updateActiveItem()
             ensureCaretVisible(editorInstance)
             return true
           }
