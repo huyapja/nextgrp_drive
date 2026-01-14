@@ -306,7 +306,9 @@ export function createEditorKeyDown({
         )
 
         // nsert vào document
-        const tr = state.tr.insert(liPos, newListItem)
+        let tr = state.tr.insert(liPos, newListItem)
+
+        tr = tr.setStoredMarks([])
 
         dispatch(tr)
 
