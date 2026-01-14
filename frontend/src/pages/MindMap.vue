@@ -330,7 +330,7 @@ import MindmapExportDialog from "@/components/Mindmap/MindmapExportDialog.vue"
 import MindmapTaskLinkModal from "@/components/Mindmap/MindmapTaskLinkModal.vue"
 import MindmapToolbar from "@/components/Mindmap/MindmapToolbar.vue"
 import { provide } from "vue"
-import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertBeforeAnchor, computeInsertBeforeAnchorSplit, moveNodeAsLastChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
+import { computeInsertAfterAnchor, computeInsertAsFirstChild, computeInsertAsLastRootChild, computeInsertBeforeAnchor, computeInsertBeforeAnchorSplit, moveNodeAsLastChild } from "../components/Mindmap/components/engine/nodeOrderEngine"
 import MindmapTextModeView from "../components/Mindmap/MindmapTextModeView.vue"
 
 import { useMindmapClipboard } from '@/composables/useMindmapClipboard'
@@ -4498,6 +4498,59 @@ async function addChildToNodeTextMode(payload) {
   let parentId
   let newOrder
 
+  if (position === "add_root_child") {
+    isStructuralMutating.value = true
+
+    try {
+      parentId = "root"
+
+      newOrder = computeInsertAsLastRootChild({
+        nodes: nodes.value,
+        orderStore: nodeCreationOrder.value,
+      })
+
+      if (newOrder == null) return
+
+      const newNode = {
+        id: newNodeId,
+        node_key: crypto.randomUUID(),
+        created_at: Date.now(),
+        data: {
+          parentId,
+          label: `<p>Nhánh mới</p>`,
+          order: newOrder,
+        },
+      }
+
+      const newEdge = {
+        id: `edge-root-${newNodeId}`,
+        source: "root",
+        target: newNodeId,
+      }
+
+      nodeCreationOrder.value.set(newNodeId, newOrder)
+      changedNodeIds.value.add(newNodeId)
+
+      elements.value = [
+        ...nodes.value,
+        newNode,
+        ...edges.value,
+        newEdge,
+      ]
+
+      saveSnapshot()
+      await nextTick()
+
+      d3Renderer.render()
+      saveNode(newNodeId)
+    } finally {
+      isStructuralMutating.value = false
+    }
+
+    return
+  }
+
+
   if (position === "split_before") {
     isStructuralMutating.value = true
 
@@ -4714,172 +4767,6 @@ function handleInsertImagesTextMode(payload) {
     }
   )
 }
-
-// async function handleInsertImagesTextMode(payload) {
-//   const node = nodes.value.find(n => n.id === payload)
-//   if (!node) return
-//   const nodeId = node.id
-//   // ================================
-//   // 0️⃣ editor text mode
-//   // ================================
-//   const editor = d3Renderer?.getEditorInstance(nodeId)
-
-//   console.log(">>>>>>>> nodeID, editor:", nodeId, editor);
-  
-
-//   if (!editor?.view) return
-
-//   const { state, schema } = editor
-//   const { doc } = state
-
-//   // ================================
-//   // 1️⃣ chọn file
-//   // ================================
-//   const input = document.createElement('input')
-//   input.type = 'file'
-//   input.accept = '.jpg,.jpeg,.png,.gif,.webp,.bmp,.svg'
-//   input.style.display = 'none'
-//   document.body.appendChild(input)
-
-//   input.onchange = async () => {
-//     const file = input.files?.[0]
-//     input.remove()
-//     if (!file) return
-
-//     // ================================
-//     // 2️⃣ upload
-//     // ================================
-//     const res = await uploadImageToMindmap(
-//       file,
-//       props.team,
-//       props.entityName,
-//       mindmap.data?.is_private
-//     )
-
-//     const fileDoc = res?.message
-//     if (!fileDoc) return
-
-//     const src = fileDoc.path
-//       ? `/files/${fileDoc.path}`
-//       : `/files/${fileDoc.name}`
-
-//     // ================================
-//     // 3️⃣ tìm phạm vi listItem CỦA NODE
-//     // ================================
-//     let from = null
-//     let to = null
-
-//     doc.descendants((pmNode, pos) => {
-//       if (
-//         pmNode.type.name === 'listItem' &&
-//         pmNode.attrs?.nodeId === nodeId
-//       ) {
-//         from = pos
-//         to = pos + pmNode.nodeSize
-//         return false
-//       }
-//     })
-
-//     if (from == null || to == null) return
-
-//     // ================================
-//     // 4️⃣ chỉ duyệt BÊN TRONG NODE
-//     // ================================
-//     let blockquotePos = null
-//     let lastParagraphEnd = null
-//     let lastImageEnd = null
-
-//     doc.nodesBetween(from, to, (pmNode, pos) => {
-//       // blockquote
-//       if (pmNode.type.name === 'blockquote' && blockquotePos == null) {
-//         blockquotePos = pos
-//       }
-
-//       // paragraph (title)
-//       if (pmNode.type.name === 'paragraph') {
-//         const $pos = doc.resolve(pos)
-//         let inBlockquote = false
-//         for (let i = $pos.depth; i > 0; i--) {
-//           if ($pos.node(i).type.name === 'blockquote') {
-//             inBlockquote = true
-//             break
-//           }
-//         }
-//         if (!inBlockquote) {
-//           lastParagraphEnd = pos + pmNode.nodeSize
-//         }
-//       }
-
-//       // image (sau title)
-//       if (pmNode.type.name === 'image') {
-//         const $pos = doc.resolve(pos)
-//         let inBlockquote = false
-//         for (let i = $pos.depth; i > 0; i--) {
-//           if ($pos.node(i).type.name === 'blockquote') {
-//             inBlockquote = true
-//             break
-//           }
-//         }
-//         if (!inBlockquote) {
-//           lastImageEnd = pos + pmNode.nodeSize
-//         }
-//       }
-//     })
-
-//     // ================================
-//     // 5️⃣ xác định insertPos (AN TOÀN)
-//     // ================================
-//     let insertPos
-
-//     if (blockquotePos != null) {
-//       insertPos =
-//         lastImageEnd ??
-//         lastParagraphEnd ??
-//         blockquotePos
-//     } else {
-//       insertPos =
-//         lastImageEnd ??
-//         lastParagraphEnd ??
-//         to - 1
-//     }
-
-//     // ================================
-//     // 6️⃣ ép selection vào node này
-//     // ================================
-//     editor.commands.setTextSelection(from + 1)
-
-//     // ================================
-//     // 7️⃣ insert ảnh (transaction thuần)
-//     // ================================
-//     const tr = editor.state.tr.insert(
-//       insertPos,
-//       schema.nodes.image.create({
-//         src,
-//         alt: fileDoc.title || file.name || 'Image',
-//       })
-//     )
-
-//   editor.view.dispatch(tr)
-
-//   // 🔥 BẮT BUỘC: sync HTML về mindmap
-//   requestAnimationFrame(() => {
-//     const html = editor.getHTML()
-
-//     emit('update-nodes', [
-//       {
-//         nodeId,
-//         html,
-//       },
-//     ])
-//   })
-
-//   }
-//   console.log(">>>>>>>>>>>>>>>>>>>>>> upload file !");
-  
-//   input.click()
-// }
-
-
 function createFocusHandler(focusFn) {
   return (node) => {
     if (!node) return

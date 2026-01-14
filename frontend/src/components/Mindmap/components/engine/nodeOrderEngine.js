@@ -261,3 +261,21 @@ export function moveNodeAsFirstChild({
     newOrder,
   }
 }
+
+export function computeInsertAsLastRootChild({ nodes, orderStore }) {
+  const rootChildren = nodes.filter(
+    n => n.data?.parentId === "root"
+  )
+
+  if (rootChildren.length === 0) {
+    return 1
+  }
+
+  let maxOrder = 0
+  for (const n of rootChildren) {
+    const order = orderStore.get(n.id)
+    if (order > maxOrder) maxOrder = order
+  }
+
+  return maxOrder + 1
+}

@@ -1,8 +1,6 @@
-import { TextSelection } from "@tiptap/pm/state"
 import { computed, onMounted } from "vue"
 
 export function useNodeHighlight({ editor, node, getPos }) {
-  
   function normalizeColor(color) {
     if (!color) return null
 
@@ -112,12 +110,13 @@ export function useNodeHighlight({ editor, node, getPos }) {
           const node = $pos.node(d)
           if (node.type.name === "listItem") {
             const nodePos = $pos.before(d)
-            const next = isSame ? null : color.bg
 
             tr.setNodeMarkup(nodePos, undefined, {
               ...node.attrs,
-              highlight: next,
+              highlight: isSame ? null : color.bg,
             })
+
+            tr.setSelection(state.selection.map(tr.doc, tr.mapping))
 
             tr.setMeta("ui-only", true)
             return true
