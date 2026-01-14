@@ -99,6 +99,8 @@ def files(
     personal=-1,
     folders=0,
     only_parent=1,
+    page=None,
+    page_size=20,
 ):
     home = get_home_folder(team)["name"]
     field, ascending = order_by.split(" ")
@@ -338,6 +340,31 @@ def files(
                 key=lambda x: (not x.get("is_group", 0), x.get(field, "")),
                 reverse=reverse,
             )
+
+    # Apply page-based pagination if specified
+    total_count = len(res)
+
+    if page is not None:
+        try:
+            page = int(page)
+            page_size = int(page_size) if page_size else 20
+
+            # Calculate offset
+            offset = (page - 1) * page_size
+
+            # Apply pagination
+            paginated_results = res[offset : offset + page_size]
+
+            # Return paginated response with total count
+            return {
+                "data": paginated_results,
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+            }
+        except (ValueError, TypeError):
+            # If page/page_size conversion fails, return all results as list
+            pass
 
     return res
 

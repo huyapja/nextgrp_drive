@@ -1075,7 +1075,11 @@ class DriveFile(Document):
 
     @frappe.whitelist()
     def move_owner(
-        self, new_owner, old_owner_permissions=0, transfer_child_files=False
+        self,
+        new_owner,
+        old_owner_permissions=0,
+        transfer_child_files=False,
+        is_root_transfer=True,
     ):
         """
         Move ownership of this file or folder to the specified user
@@ -1083,6 +1087,7 @@ class DriveFile(Document):
         :param new_owner: User to whom ownership is to be transferred
         :param old_owner_permissions: Permissions for the old owner after transfer (0=read, 1=edit)
         :param transfer_child_files: If True, transfer ownership of all child files owned by old_owner in this folder
+        :param is_root_transfer: If True, this is the root file being transferred (will change parent_entity). If False, only change owner
         """
 
         try:
@@ -1090,27 +1095,134 @@ class DriveFile(Document):
             permission_old = int(old_owner_permissions) if old_owner_permissions else 0
             old_owner = self.owner  # Lưu owner cũ
             transfer_child_files = bool(transfer_child_files)  # Đảm bảo là boolean
+            is_root_transfer = bool(is_root_transfer)  # Đảm bảo là boolean
 
             if self.owner == new_owner:
                 return
-            print(f"Moving ownership of {self.name} from {old_owner} to {new_owner}")
+            print(
+                f"Moving ownership of {self.name} from {old_owner} to {new_owner}, is_root={is_root_transfer}"
+            )
             if not user_has_permission(self, "share", frappe.session.user):
                 frappe.throw("Not permitted", frappe.PermissionError)
 
-            frappe.db.set_value("Drive File", self.name, "owner", new_owner)
+            # Kiểm tra xem new_owner có phải là thành viên của team hiện tại không
+            is_new_owner_team_member = frappe.db.exists(
+                "Drive Team Member", {"parent": self.team, "user": new_owner}
+            )
 
-            if self.is_private:
-                new_owner_default_team = frappe.db.get_value(
-                    "Drive Settings",
-                    {"user": new_owner},
-                    "default_team"
+            # Chỉ thay đổi parent_entity và team nếu đây là file gốc được chuyển
+            if is_root_transfer:
+                # TH1: File is_private = 1 -> chuyển vào personal drive của new_owner
+                if self.is_private:
+                    print(f"TH1: File is private, moving to new owner's personal drive")
+
+                    new_owner_default_team = frappe.db.get_value(
+                        "Drive Settings", {"user": new_owner}, "default_team"
+                    )
+
+                    # ✅ FIX: Luôn cập nhật parent_entity về home folder của new_owner khi transfer
+                    # Vì đây là root transfer, file phải nằm ở root của new owner's My Drive
+                    if new_owner_default_team:
+                        new_home = get_home_folder(new_owner_default_team)["name"]
+                        frappe.db.set_value(
+                            "Drive File",
+                            self.name,
+                            {
+                                "owner": new_owner,
+                                "team": new_owner_default_team,
+                                "parent_entity": new_home,
+                            },
+                        )
+                    else:
+                        # Nếu new_owner chưa có default team, giữ nguyên team nhưng vẫn đổi owner và parent
+                        current_team_home = get_home_folder(self.team)["name"]
+                        frappe.db.set_value(
+                            "Drive File",
+                            self.name,
+                            {
+                                "owner": new_owner,
+                                "parent_entity": current_team_home,
+                            },
+                        )
+
+                # TH2: File trong team X, new_owner là member của team X -> chỉ đổi owner, GIỮ NGUYÊN vị trí
+                elif is_new_owner_team_member:
+                    print(
+                        f"TH2: New owner is team member, only changing owner (keep parent_entity)"
+                    )
+                    # ✅ Khi cùng team, chỉ đổi owner, GIỮ NGUYÊN parent_entity
+                    # Điều này cho phép folder B vẫn nằm trong folder A sau khi transfer
+                    frappe.db.set_value("Drive File", self.name, "owner", new_owner)
+
+                # TH3: File trong team X, new_owner KHÔNG phải member -> đổi owner + set is_private + chuyển vào personal drive
+                else:
+                    print(
+                        f"TH3: New owner is NOT team member, setting private and moving to personal drive"
+                    )
+                    new_owner_default_team = frappe.db.get_value(
+                        "Drive Settings", {"user": new_owner}, "default_team"
+                    )
+                    if new_owner_default_team:
+                        new_home = get_home_folder(new_owner_default_team)["name"]
+                        frappe.db.set_value(
+                            "Drive File",
+                            self.name,
+                            {
+                                "owner": new_owner,
+                                "is_private": 1,
+                                "team": new_owner_default_team,
+                                "parent_entity": new_home,
+                            },
+                        )
+                    else:
+                        # Nếu new_owner chưa có default team, giữ nguyên team nhưng vẫn move về team root
+                        current_team_home = get_home_folder(self.team)["name"]
+                        frappe.db.set_value(
+                            "Drive File",
+                            self.name,
+                            {
+                                "owner": new_owner,
+                                "is_private": 1,
+                                "parent_entity": current_team_home,
+                            },
+                        )
+            else:
+                # Đây là file con, chỉ đổi owner và is_private (nếu cần), KHÔNG đổi parent_entity
+                print(f"Child file: Only changing owner, keeping parent_entity intact")
+
+                # Nếu file cha đã chuyển sang is_private, file con cũng phải is_private
+                # Kiểm tra parent entity để xác định
+                parent_file = (
+                    frappe.get_doc("Drive File", self.parent_entity)
+                    if self.parent_entity
+                    else None
                 )
-                if new_owner_default_team and new_owner_default_team != self.team:
-                    new_home = get_home_folder(new_owner_default_team)["name"]
-                    frappe.db.set_value("Drive File", self.name, {
-                        "team": new_owner_default_team,
-                        "parent_entity": new_home
-                    })
+                should_be_private = (
+                    parent_file.is_private if parent_file else self.is_private
+                )
+
+                # ✅ FIX: Cập nhật team của file con để khớp với team của folder cha
+                parent_team = parent_file.team if parent_file else self.team
+
+                if should_be_private and not is_new_owner_team_member:
+                    frappe.db.set_value(
+                        "Drive File",
+                        self.name,
+                        {
+                            "owner": new_owner,
+                            "is_private": 1,
+                            "team": parent_team,  # Cập nhật team
+                        },
+                    )
+                else:
+                    frappe.db.set_value(
+                        "Drive File",
+                        self.name,
+                        {
+                            "owner": new_owner,
+                            "team": parent_team,  # Cập nhật team
+                        },
+                    )
 
             frappe.db.commit()
             if self.is_group and transfer_child_files:
@@ -1121,6 +1233,7 @@ class DriveFile(Document):
                             new_owner,
                             old_owner_permissions=0,
                             transfer_child_files=True,
+                            is_root_transfer=False,  # Đánh dấu đây là file con
                         )
 
             if self.document:

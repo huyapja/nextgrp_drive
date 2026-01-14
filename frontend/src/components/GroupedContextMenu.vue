@@ -365,7 +365,7 @@ const groupedMenuItems = computed(() => {
       class: item.class,
       command: () => {
         if (item.action) {
-          item.action([store.state.activeEntity])
+        item.action([store.state.activeEntity])
         }
         closeMenu()
       }

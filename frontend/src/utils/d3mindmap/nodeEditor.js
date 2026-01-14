@@ -133,7 +133,8 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	
 	// ⚠️ FIX: Check isEmpty đúng cách, bao gồm cả HTML rỗng như <p></p> hoặc <p><br></p>
 	// ⚠️ CRITICAL: Không coi là empty nếu có blockquote (mô tả), ngay cả khi title rỗng
-	let isEmpty = !value || !value.trim()
+	// ⚠️ FIX: Không dùng .trim() để preserve trailing spaces - space cũng là nội dung
+	let isEmpty = !value || value.length === 0
 	if (!isEmpty && value.includes('<')) {
 		// Nếu là HTML, parse và check text content
 		const tempDiv = document.createElement('div')
@@ -147,8 +148,9 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 			isEmpty = false
 		} else {
 			// Không có blockquote: kiểm tra text content như bình thường
-			const textContent = (tempDiv.textContent || tempDiv.innerText || '').trim()
-			isEmpty = !textContent || textContent === ''
+			// ⚠️ FIX: Không dùng .trim() để preserve trailing spaces
+			const textContent = (tempDiv.textContent || tempDiv.innerText || '')
+			isEmpty = !textContent || textContent.length === 0
 		}
 	}
 	
@@ -195,49 +197,52 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 		if (hasImages) {
 			currentWidth = maxWidth
 		} else {
-			// Không có ảnh: tính toán width dựa trên text
-			const text = value || ''
+		// Không có ảnh: tính toán width dựa trên text
+		const text = value || ''
+		
+		// Extract plain text từ HTML nếu cần
+		// ⚠️ CRITICAL: Không dùng .trim() để preserve trailing spaces
+		let plainText = text
+		if (text.includes('<')) {
+			const tempDiv = document.createElement('div')
+			tempDiv.innerHTML = text
+			plainText = (tempDiv.textContent || tempDiv.innerText || '')
+		}
+		
+		// ⚠️ FIX: Chỉ coi là empty khi không có ký tự nào (kể cả space)
+		// Nếu có space, coi như có nội dung để node tự động giãn ra
+		if (!plainText || plainText.length === 0) {
+			// Không có text: dùng minWidth hoặc minNodeWidth
+			currentWidth = Math.max(newWidth, minNodeWidth || minWidth)
+		} else {
+		// Parse HTML để tách riêng title (paragraph) và description (blockquote)
+		let titleText = ''
+		let descriptionText = ''
+		
+		if (text.includes('<')) {
+			const tempDiv = document.createElement('div')
+			tempDiv.innerHTML = text
 			
-			// Extract plain text từ HTML nếu cần
-			let plainText = text
-			if (text.includes('<')) {
-				const tempDiv = document.createElement('div')
-				tempDiv.innerHTML = text
-				plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
-			}
-			
-			if (!plainText || !plainText.trim()) {
-				// Không có text: dùng minWidth hoặc minNodeWidth
-				currentWidth = Math.max(newWidth, minNodeWidth || minWidth)
-			} else {
-			// Parse HTML để tách riêng title (paragraph) và description (blockquote)
-			let titleText = ''
-			let descriptionText = ''
-			
-			if (text.includes('<')) {
-				const tempDiv = document.createElement('div')
-				tempDiv.innerHTML = text
+			// Lấy tất cả paragraph không trong blockquote (title)
+			const paragraphs = tempDiv.querySelectorAll('p')
+			paragraphs.forEach(p => {
+				let inBlockquote = false
+				let parent = p.parentElement
+				while (parent && parent !== tempDiv) {
+					if (parent.tagName === 'BLOCKQUOTE') {
+						inBlockquote = true
+						break
+					}
+					parent = parent.parentElement
+				}
 				
-				// Lấy tất cả paragraph không trong blockquote (title)
-				const paragraphs = tempDiv.querySelectorAll('p')
-				paragraphs.forEach(p => {
-					let inBlockquote = false
-					let parent = p.parentElement
-					while (parent && parent !== tempDiv) {
-						if (parent.tagName === 'BLOCKQUOTE') {
-							inBlockquote = true
-							break
-						}
-						parent = parent.parentElement
-					}
-					
-					if (!inBlockquote) {
-						const paraText = p.textContent || p.innerText || ''
-						if (paraText.length > 0) {
-							titleText += (titleText ? '\n' : '') + paraText
-						}
-					}
-				})
+				if (!inBlockquote) {
+					// ⚠️ FIX: Không dùng .trim() và chấp nhận cả text rỗng/space
+					// để preserve trailing spaces và cho phép node giãn ra khi nhập space
+					const paraText = p.textContent || p.innerText || ''
+					titleText += (titleText ? '\n' : '') + paraText
+				}
+			})
 				
 				// Lấy tất cả text trong blockquote (description)
 				const blockquotes = tempDiv.querySelectorAll('blockquote')
@@ -252,28 +257,30 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 				titleText = plainText
 			}
 			
-			// Đo width của title (font-size 19px)
-			let titleWidth = 0
-			if (titleText) {
-				const titleLines = titleText.split('\n')
-				titleLines.forEach(line => {
-					if (line.length > 0) {
-						const lineSpan = document.createElement('span')
-						lineSpan.style.cssText = `
-							position: absolute;
-							visibility: hidden;
-							white-space: pre;
-							font-size: 19px;
-							font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-						`
-						lineSpan.textContent = line
-						document.body.appendChild(lineSpan)
-						void lineSpan.offsetHeight
-						titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
-						document.body.removeChild(lineSpan)
-					}
-				})
-			}
+		// Đo width của title (font-size 19px)
+		let titleWidth = 0
+		if (titleText) {
+			const titleLines = titleText.split('\n')
+			titleLines.forEach(line => {
+				// ⚠️ FIX: Luôn đo width ngay cả khi line chỉ có space
+				// Chỉ bỏ qua line hoàn toàn rỗng (length = 0)
+				if (line.length > 0) {
+					const lineSpan = document.createElement('span')
+					lineSpan.style.cssText = `
+						position: absolute;
+						visibility: hidden;
+						white-space: pre;
+						font-size: 19px;
+						font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+					`
+					lineSpan.textContent = line
+					document.body.appendChild(lineSpan)
+					void lineSpan.offsetHeight
+					titleWidth = Math.max(titleWidth, lineSpan.offsetWidth)
+					document.body.removeChild(lineSpan)
+				}
+			})
+		}
 			
 			// Đo width của description (font-size 16px)
 			let descriptionWidth = 0
@@ -988,13 +995,15 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	const rect = nodeGroup.select('.node-rect')
 	
 	// Check isEmpty: extract plain text từ HTML nếu cần
-	let isEmpty = !finalValue || !finalValue.trim()
+	// ⚠️ FIX: Không dùng .trim() để preserve trailing spaces - space cũng là nội dung
+	let isEmpty = !finalValue || finalValue.length === 0
 	if (!isEmpty && finalValue.includes('<')) {
 		// Nếu là HTML, extract plain text để check empty
 		const tempDiv = document.createElement('div')
 		tempDiv.innerHTML = finalValue
-		const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
-		isEmpty = !plainText || plainText === ''
+		// ⚠️ FIX: Không dùng .trim() để preserve trailing spaces
+		const plainText = (tempDiv.textContent || tempDiv.innerText || '')
+		isEmpty = !plainText || plainText.length === 0
 	}
 	const isRootNode = nodeData.data?.isRoot || nodeId === 'root'
 	const maxWidth = 400
@@ -1487,12 +1496,13 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 						// Blockquote sẽ được tính từ scrollHeight sau khi đã truncate
 						const textElements = Array.from(editorContent.children).filter((child) => {
 							// Loại trừ blockquote vì nó đã được truncate và sẽ được tính từ scrollHeight
-							if (child.tagName === 'BLOCKQUOTE') {
-								return false
-							}
-							const hasText = child.textContent?.trim().length > 0
-							const hasImage = child.querySelector('img') || child.querySelector('.image-wrapper-node')
-							const hasTaskLinkSection = child.querySelector('.node-task-link-section') || child.querySelector('[data-node-section="task-link"]')
+						if (child.tagName === 'BLOCKQUOTE') {
+							return false
+						}
+						// ⚠️ FIX: Không dùng .trim() để preserve trailing spaces
+						const hasText = (child.textContent?.length || 0) > 0
+						const hasImage = child.querySelector('img') || child.querySelector('.image-wrapper-node')
+						const hasTaskLinkSection = child.querySelector('.node-task-link-section') || child.querySelector('[data-node-section="task-link"]')
 							// Kiểm tra xem có phải là paragraph chứa task link không
 							const isTaskLinkParagraph = child.tagName === 'P' && (
 								child.textContent?.includes('Liên kết công việc') ||
@@ -1619,9 +1629,10 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 			editorDOM.classList.remove('ProseMirror-focused')
 		}
 		
-		// ⚠️ FIX: Fallback CHỈ KHI không đo được từ DOM (hasMeasuredFromDOM === false)
-		// ⚠️ NHƯNG: Nếu có ảnh, LUÔN set width = 400px, không dùng fallback
-		if (!hasMeasuredFromDOM && finalValue && finalValue.trim()) {
+	// ⚠️ FIX: Fallback CHỈ KHI không đo được từ DOM (hasMeasuredFromDOM === false)
+	// ⚠️ NHƯNG: Nếu có ảnh, LUÔN set width = 400px, không dùng fallback
+	// ⚠️ FIX: Không dùng .trim() để preserve trailing spaces
+	if (!hasMeasuredFromDOM && finalValue && finalValue.length > 0) {
 			// Kiểm tra xem có ảnh không để quyết định có dùng fallback không
 			const editorDOM = editor && editor.view && editor.view.dom ? editor.view.dom : null
 			const editorContent = editorDOM ? (editorDOM.querySelector('.mindmap-editor-prose') || editorDOM) : null
@@ -1654,13 +1665,14 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 				measuredWidth = Math.min(measuredWidth, maxWidth)
 			}
 		} else if (hasMeasuredFromDOM) {
-		}
-		// ⚠️ FIX: Fallback height CHỈ KHI không đo được từ DOM (hasMeasuredHeightFromDOM === false)
-		if (!hasMeasuredHeightFromDOM && finalValue && finalValue.trim()) {
-			const calculatedHeight = renderer.estimateNodeHeight(tempNode, measuredWidth)
-			measuredHeight = Math.max(calculatedHeight, singleLineHeight)
-		} else if (hasMeasuredHeightFromDOM) {
-		}
+	}
+	// ⚠️ FIX: Fallback height CHỈ KHI không đo được từ DOM (hasMeasuredHeightFromDOM === false)
+	// ⚠️ FIX: Không dùng .trim() để preserve trailing spaces
+	if (!hasMeasuredHeightFromDOM && finalValue && finalValue.length > 0) {
+		const calculatedHeight = renderer.estimateNodeHeight(tempNode, measuredWidth)
+		measuredHeight = Math.max(calculatedHeight, singleLineHeight)
+	} else if (hasMeasuredHeightFromDOM) {
+	}
 		
 		// ⚠️ FINAL CHECK: Nếu có ảnh, LUÔN đảm bảo width = 400px
 		// Kiểm tra lại một lần nữa để chắc chắn
