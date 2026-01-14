@@ -335,21 +335,38 @@ const groupedMenuItems = computed(() => {
     })
   }
   
-  // Nhóm Info (Thông tin, Đổi tên)
-  const infoItems = props.actionItems.filter(item => 
-    item.label?.includes('Thông tin') || 
-    item.label?.includes('Đổi tên') ||
-    item.label?.includes('Hiển thị thông tin') ||
-    item.label?.includes('Lịch sử truy cập') ||
-    item.label?.includes('Ẩn thông tin')
-  )
+  // Nhóm Info (Thông tin, Đổi tên, Hiển thị thông tin, Lịch sử truy cập)
+  // Tạo set các labels đã được xử lý ở các nhóm khác để tránh duplicate
+  const processedLabels = new Set()
+  shareItems.forEach(item => processedLabels.add(item.label))
+  pinItems.forEach(item => processedLabels.add(item.label))
+  organizeItems.forEach(item => processedLabels.add(item.label))
+  downloadItems.forEach(item => processedLabels.add(item.label))
+  
+  const infoItems = props.actionItems.filter(item => {
+    const label = item.label || ''
+    // Bỏ qua các items đã được xử lý ở nhóm khác
+    if (processedLabels.has(label)) {
+      return false
+    }
+    // Filter các items thuộc nhóm Info
+    return label.includes('Hiển thị thông tin') ||
+           label.includes('Lịch sử truy cập') ||
+           label.includes('Ẩn thông tin') ||
+           (label.includes('Thông tin') && !label.includes('Chia sẻ') && !label.includes('Chuyển')) ||
+           label.includes('Đổi tên')
+  })
+  
   if (infoItems.length > 0) {
     const infoSubItems = infoItems.map(item => ({
       label: item.label,
       icon: typeof item.icon === 'string' ? item.icon : null,
       iconComponent: typeof item.icon !== 'string' ? item.icon : null,
+      class: item.class,
       command: () => {
-        item.action([store.state.activeEntity])
+        if (item.action) {
+          item.action([store.state.activeEntity])
+        }
         closeMenu()
       }
     }))
