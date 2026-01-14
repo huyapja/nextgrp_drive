@@ -249,7 +249,7 @@ export function createEditorKeyDown({
           if (!tbNode) return true
 
           const textStartPos = firstLiPos + 1 + tbOffset + 1
-          const caretPos = textStartPos + tbNode.content.size // ✅ cuối text
+          const caretPos = textStartPos + tbNode.content.size
 
           tr = tr
             .setSelection(TextSelection.create(tr.doc, caretPos))
@@ -405,7 +405,13 @@ export function createEditorKeyDown({
             const paragraphStartPos = liStartPos + 1
             const textStartPos = paragraphStartPos + 1
 
-            tr = tr.setSelection(TextSelection.create(tr.doc, textStartPos))
+            const textLength = p.content.size
+            const caretPos = textStartPos + textLength
+
+            tr = tr
+              .setSelection(TextSelection.create(tr.doc, caretPos))
+              .setStoredMarks([])
+              .setMeta("ui-only", true)
 
             dispatch(tr)
 
