@@ -14,7 +14,7 @@ export const Mention = Node.create({
     return {
       suggestion: {
         char: "@",
-        allowSpaces: false,
+        allowSpaces: true,
         items: () => [],
         render: () => {},
       },
