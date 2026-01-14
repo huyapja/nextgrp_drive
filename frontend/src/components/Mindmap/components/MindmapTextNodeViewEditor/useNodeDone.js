@@ -14,6 +14,24 @@ function isCompletedStatus(status) {
   return status === "Completed" || status === "Hoàn thành"
 }
 
+function findParentListItemByPos(state, pos) {
+  const $pos = state.doc.resolve(pos)
+
+  for (let d = $pos.depth; d > 0; d--) {
+    const node = $pos.node(d)
+    if (node.type.name === "listItem") {
+      return {
+        node,
+        pos: $pos.before(d),
+      }
+    }
+  }
+
+  return null
+}
+
+
+
 export function useNodeDone({
   editor,
   node,
@@ -28,10 +46,11 @@ export function useNodeDone({
 
   function toggleDone(event) {
     if (!currentActionNode.value) return
+    
 
     const done = isStrikeActiveForWholeNode(editor, node, getPos)
 
-    const { completed, taskId, taskStatus, nodeId } = currentActionNode.value
+    const { completed, taskId, taskStatus, nodeId } = currentActionNode.value    
 
     const hasTask = !!taskId || !!taskStatus
 
@@ -40,9 +59,9 @@ export function useNodeDone({
     // =========================
     if (!hasTask) {
       if (done) {
-        removeStrikeForWholeNode(editor, node, getPos)
+        removeStrikeForWholeNode(editor, node, getPos, nodeId)
       } else {
-        applyStrikeForWholeNode(editor, node, getPos)
+        applyStrikeForWholeNode(editor, node, getPos, nodeId)
       }
 
       onDoneNode?.(nodeId)
@@ -55,7 +74,7 @@ export function useNodeDone({
     if (isInProgress(taskStatus)) {
       // không cho đánh xong
       if (done) {
-        removeStrikeForWholeNode(editor, node, getPos)
+        removeStrikeForWholeNode(editor, node, getPos, nodeId)
       }
 
       onDoneNode?.(nodeId)
@@ -80,9 +99,9 @@ export function useNodeDone({
     // RULE D: TASK KHÁC (fallback)
     // =========================
     if (done) {
-      removeStrikeForWholeNode(editor, node, getPos)
+      removeStrikeForWholeNode(editor, node, getPos, nodeId)
     } else {
-      applyStrikeForWholeNode(editor, node, getPos)
+      applyStrikeForWholeNode(editor, node, getPos, nodeId)
     }
 
     onDoneNode?.(nodeId)
@@ -94,42 +113,64 @@ export function useNodeDone({
   }
 }
 
-function removeStrikeForWholeNode(editor, node, getPos) {
+function removeStrikeForWholeNode(editor, node, getPos, nodeId) {
   const pos = getPos?.()
   if (pos == null) return
 
   const { state, view } = editor
-  const { schema, tr } = state
+  const { schema } = state
   const strike = schema.marks.strike
   if (!strike) return
 
-  const from = pos + 1
-  const to = pos + node.nodeSize - 1
+  let tr = state.tr
 
-  tr.removeMark(from, to, strike)
+  // 1️⃣ remove strike
+  tr.removeMark(pos + 1, pos + node.nodeSize - 1, strike)
+
+  // 2️⃣ tìm LI CHA
+  const found = findParentListItemByPos(state, pos)
+
+  if (found && found.node.attrs.completed === true) {
+    tr.setNodeMarkup(found.pos, undefined, {
+      ...found.node.attrs,
+      completed: false,
+    })
+  }
+
   tr.setMeta("ui-only", true)
-
   view.dispatch(tr)
 }
 
-function applyStrikeForWholeNode(editor, node, getPos) {
+
+function applyStrikeForWholeNode(editor, node, getPos, nodeId) {
   const pos = getPos?.()
   if (pos == null) return
 
   const { state, view } = editor
-  const { schema, tr } = state
-
+  const { schema } = state
   const markType = schema.marks.strike
   if (!markType) return
 
-  const from = pos + 1
-  const to = pos + node.nodeSize - 1
+  let tr = state.tr
 
-  tr.addMark(from, to, markType.create())
+  //  add strike cho paragraph (GIỮ NGUYÊN)
+  tr.addMark(pos + 1, pos + node.nodeSize - 1, markType.create())
+
+  //  tìm LI CHA (thay vì descendants)
+  const found = findParentListItemByPos(state, pos)
+
+  if (found && found.node.attrs.completed !== true) {
+    tr.setNodeMarkup(found.pos, undefined, {
+      ...found.node.attrs,
+      completed: true,
+    })
+  }
+
   tr.setMeta("ui-only", true)
-
   view.dispatch(tr)
 }
+
+
 
 function isStrikeActiveForWholeNode(editor, node, getPos) {
   const pos = getPos?.()
