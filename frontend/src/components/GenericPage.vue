@@ -531,30 +531,30 @@ const actionItems = computed(() => {
         multi: true,
       },
       {
-        label: "Ghim văn bản",
+        label: "Ghim tài liệu",
         icon: LucidePin,
         action: async ([entity]) => {
           const result = await pinFile(entity)
           if (result && result.success) {
             // Reload data để cập nhật is_pinned từ backend
             await props.getEntities.reload()
-            toast("Đã ghim văn bản")
+            toast("Đã ghim tài liệu")
           } else {
-            toast("Lỗi: " + (result?.message || "Không thể ghim văn bản"))
+            toast("Lỗi: " + (result?.message || "Không thể ghim tài liệu"))
           }
         },
         isEnabled: (e) => !e.is_group && !e.is_pinned && e.is_active,
         important: true,
       },
       {
-        label: "Bỏ ghim văn bản",
+        label: "Bỏ ghim tài liệu",
         icon: LucidePinOff,
         action: async ([entity]) => {
           const result = await unpinFile(entity.name)
           if (result && result.success) {
             // Reload data để cập nhật is_pinned từ backend
             await props.getEntities.reload()
-            toast("Đã bỏ ghim văn bản")
+            toast("Đã bỏ ghim tài liệu")
           } else {
             toast("Lỗi: " + (result?.message || "Không thể bỏ ghim"))
           }

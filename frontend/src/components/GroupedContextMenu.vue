@@ -235,10 +235,10 @@ const groupedMenuItems = computed(() => {
     })
   }
   
-  // Nhóm Pin (Ghim văn bản) - Hiển thị ở cấp 1
+  // Nhóm Pin (Ghim tài liệu) - Hiển thị ở cấp 1
   const pinItems = props.actionItems.filter(item => 
-    item.label?.includes('Ghim văn bản') ||
-    item.label?.includes('Bỏ ghim văn bản')
+    item.label?.includes('Ghim tài liệu') ||
+    item.label?.includes('Bỏ ghim tài liệu')
   )
   if (pinItems.length > 0) {
     // Nếu chỉ có 1 action ghim, hiển thị trực tiếp

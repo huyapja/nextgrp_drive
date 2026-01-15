@@ -536,7 +536,7 @@ const sidebarItems = computed(() => {
       icon: StarDrive,
     },
     // {
-    //   label: __("Văn bản đã ghim"),
+    //   label: __("Tài liệu đã ghim"),
     //   route: `/t/${team.value}/pinned`,
     //   icon: LucidePin,
     // },
@@ -733,8 +733,8 @@ const isCurrentPinnedFile = (file) => {
 
 const handleUnpinFile = (file) => {
   unpinFile(file.name)
-  toast("Đã bỏ ghim văn bản")
-}
+  toast("Đã bỏ ghim tài liệu")
+} 
 
 const getPinnedFileIcon = (file) => {
   if (file.is_group) return LucideFolder

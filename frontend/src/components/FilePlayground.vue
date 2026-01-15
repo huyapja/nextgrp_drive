@@ -63,10 +63,10 @@
       <div class="text-center px-4">
         <FileText class="h-20 w-20 mx-auto text-gray-300 mb-4" />
         <h3 class="text-lg font-semibold text-gray-900 mb-2">
-          Chưa chọn văn bản
+          Chưa chọn tài liệu
         </h3>
         <p class="text-sm text-gray-500 max-w-md">
-          Chọn một văn bản từ danh sách bên trái để xem nội dung
+          Chọn một tài liệu từ danh sách bên trái để xem nội dung
         </p>
       </div>
     </div>
@@ -74,18 +74,18 @@
 </template>
 
 <script setup>
-import { computed, watch } from 'vue'
+import ErrorPage from '@/components/ErrorPage.vue'
+import FileRender from '@/components/FileRender.vue'
 import { usePinnedFiles } from '@/composables/usePinnedFiles'
 import { createResource, LoadingIndicator } from 'frappe-ui'
-import FileRender from '@/components/FileRender.vue'
-import ErrorPage from '@/components/ErrorPage.vue'
-import { Download, PinOff, FileText } from 'lucide-vue-next'
+import { Download, FileText, PinOff } from 'lucide-vue-next'
+import { computed, watch } from 'vue'
 import LucideFile from '~icons/lucide/file'
 import LucideFileText from '~icons/lucide/file-text'
-import LucideImage from '~icons/lucide/image'
-import LucideVideo from '~icons/lucide/video'
-import LucideMusic from '~icons/lucide/music'
 import LucideFolder from '~icons/lucide/folder'
+import LucideImage from '~icons/lucide/image'
+import LucideMusic from '~icons/lucide/music'
+import LucideVideo from '~icons/lucide/video'
 
 const { currentPinnedFile, unpinFile } = usePinnedFiles()
 

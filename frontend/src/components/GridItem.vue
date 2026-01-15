@@ -43,7 +43,7 @@
         v-if="file.is_pinned"
         class="pinned-icon"
         :size="14"
-        title="Văn bản đã ghim"
+        title="Tài liệu đã ghim"
       />
     </div>
     <div class="mt-[5px] text-xs text-ink-gray-5">
@@ -72,11 +72,11 @@
   </div>
 </template>
 <script setup>
+import PinFilled from "@/assets/Icons/PinFilled.vue"
 import { getIconUrl, getThumbnailUrl } from "@/utils/getIconUrl"
 import { thumbnailQueue } from "@/utils/thumbnailQueue"
 import { createResource } from "frappe-ui"
-import { computed, ref, onMounted, onUnmounted } from "vue"
-import PinFilled from "@/assets/Icons/PinFilled.vue"
+import { computed, onMounted, onUnmounted, ref } from "vue"
 
 const props = defineProps({ file: Object })
 

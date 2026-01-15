@@ -2,46 +2,65 @@
   <nav
     ondragstart="return false;"
     ondrop="return false;"
-    class="bg-surface-white border-b w-full px-5 py-2.5 flex items-center flex-wrap gap-2 justify-between min-h-[56px] sm:min-h-[70px]"
+    class="bg-surface-white border-b w-full px-3 py-2 min-h-[48px] flex items-center flex-wrap gap-2 justify-between"
   >
-    <div class="flex flex-row flex-wrap gap-2 first-div">
+    <div class="flex flex-row align-center flex-wrap gap-2 first-div">
       <!-- Sidebar Toggle Button -->
        <div :class="store.state.showSidebarButton ? 'border-r border-gray-200 pr-2' : ''">
          <button
            v-if="store.state.showSidebarButton"
            @click="openSidebar"
-           class="flex items-center justify-center p-2 rounded hover:bg-gray-100 transition-colors"
+           class="flex items-center justify-center p-1.5 rounded hover:bg-gray-100 transition-colors"
            title="Mở sidebar"
          >
-           <ChevronRight class="h-5 w-5 text-gray-700" />
+           <ChevronRight class="h-4 w-4 text-gray-700" />
          </button>
        </div>
       
       <Breadcrumbs
         :items="store.state.breadcrumbs"
-        class="select-none !truncate breadcrumbs-custom"
+        class="select-none !truncate breadcrumbs-custom text-sm"
       >
         <template #prefix="{ item, index }">
           <LoadingIndicator
             v-if="item.loading"
-            width="20"
+            width="16"
             scale="70"
           />
           <div
             v-if="index == 0"
-            class="mr-1.5"
+            class="mr-1"
           >
             <component
               :is="COMPONENT_MAP[item.name]"
-              class="size-4 text-ink-gray-6 !truncate"
+              class="size-3.5 text-ink-gray-6"
             />
           </div>
         </template>
       </Breadcrumbs>
+      
+      <!-- Favorite Button - Hiển thị khi đang xem file -->
+      <button
+        v-if="route.name === 'File' && rootEntity"
+        @click="toggleFavorite"
+        class="flex items-center justify-center p-1 rounded hover:bg-gray-100 transition-colors"
+        :title="rootEntity?.is_favourite ? 'Bỏ yêu thích' : 'Yêu thích'"
+      >
+        <LucideStar
+          :class="[
+            'w-4 h-4',
+            rootEntity?.is_favourite 
+              ? 'stroke-amber-500 fill-amber-500' 
+              : 'stroke-gray-500 fill-none hover:fill-amber-100'
+          ]"
+        />
+      </button>
+      
+      <!-- Static Star Icon - Hiển thị ở các trang khác -->
       <LucideStar
-        v-if="rootEntity?.is_favourite"
-        width="16"
-        height="16"
+        v-else-if="rootEntity?.is_favourite"
+        width="14"
+        height="14"
         class="my-auto stroke-amber-500 fill-amber-500"
       />
     </div>
@@ -75,10 +94,10 @@
         >
           <Button
             variant="subtle"
-            class="rounded-[6px] px-3 h-[40px] !bg-[#0149C1] !text-white !font-[400px] whitespace-nowrap"
+            class="rounded-[6px] px-2.5 h-[32px] text-sm !bg-[#0149C1] !text-white !font-normal whitespace-nowrap"
           >
             <template #prefix>
-              <UploadDrive class="size-5" />
+              <UploadDrive class="size-4" />
             </template>
             Tải lên
           </Button>
@@ -89,10 +108,10 @@
         >
           <Button
             variant="subtle"
-            class="rounded-[6px] px-3 h-[40px] !bg-[#0149C1] !text-white !font-[400px]"
+            class="rounded-[6px] px-2.5 h-[32px] text-sm !bg-[#0149C1] !text-white !font-normal"
           >
             <template #prefix>
-              <NewDrive class="size-5" />
+              <NewDrive class="size-4" />
             </template>
             Thêm mới
           </Button>
@@ -124,62 +143,67 @@
       </div>
     </div>
     <div
-      class="flex flex-row items-center h-full gap-[12px] pt-3 px-2 z-0 bg-surface-white"
+      class="flex flex-row items-center gap-1 bg-surface-white"
       v-if="route.name === 'File'"
     >
-      <Button class="m-[-8px] !p-[8px] !px-[6px]" :variant="'ghost'" @click="downloadCurrentFile" title="Tải xuống">
-        <LucideDownload class="w-6 h-6 " />
+      <Button 
+        class="!p-2 !min-w-0" 
+        :variant="'ghost'" 
+        @click="downloadCurrentFile" 
+        title="Tải xuống"
+      >
+        <LucideDownload class="w-5 h-5 text-gray-700" />
       </Button>
-      <Button class="m-[-8px] !p-[8px] !px-[6px]" :variant="'ghost'" @click="enterFullScreen">
-        <LucideScan class="w-6 h-6" />
+      
+      <Button 
+        class="!p-2 !min-w-0" 
+        :variant="'ghost'" 
+        @click="enterFullScreen"
+        title="Toàn màn hình"
+      >
+        <LucideScan class="w-5 h-5 text-gray-700" />
       </Button>
       
       <Button
-        class="text-ink-gray-5 !px-0 !px-[6px] m-[-6px]"
-        :class="[
-          tab === 0
-            ? 'text-black bg-transparent'
-            : ' hover:bg-surface-menu-bar',
-        ]"
-        variant="minimal"
+        class="!p-2 !min-w-0"
+        :variant="'ghost'"
         @click="switchTab(0)"
+        title="Thông tin"
       >
         <InfoIcon
-          :class="
+          :class="[
+            'w-5 h-5',
             tab === 0 && store.state.showInfo
-              ? 'size-6 text-[#0149C1]'
-              : 'size-6 text-black'
-          "
+              ? 'text-[#0149C1]'
+              : 'text-gray-700'
+          ]"
         />
       </Button>
       
       <Button
         v-if="rootEntity?.comment"
-        class="text-ink-gray-5 !px-0 !px-[6px] m-[-6px]"
-        :class="[
-          tab === 1
-            ? 'text-black bg-transparent'
-            : ' hover:bg-surface-menu-bar',
-        ]"
-        variant="minimal"
+        class="!p-2 !min-w-0"
+        :variant="'ghost'"
         @click="switchTab(1)"
+        title="Bình luận"
       >
         <LucideMessageCircle
-          :class="
+          :class="[
+            'w-5 h-5',
             tab === 1 && store.state.showInfo
-              ? 'size-6 text-[#0149C1]'
-              : 'size-6 text-black'
-          "
+              ? 'text-[#0149C1]'
+              : 'text-gray-700'
+          ]"
         />
       </Button>
       
       <Button
-        class="text-ink-gray-5 !px-0 !px-[6px] m-[-6px]"
-        variant="minimal"
+        class="!p-2 !min-w-0"
+        :variant="'ghost'"
         @click="showFileContextMenu"
-        title="Thêm tùy chọn"
+        title="Thêm"
       >
-        <LucideMoreVertical class="size-6 text-black" />
+        <LucideMoreVertical class="w-5 h-5 text-gray-700" />
       </Button>
     </div>
     
@@ -187,7 +211,7 @@
     <GroupedContextMenu
       v-if="route.name === 'File'"
       ref="fileContextMenuRef"
-      :action-items="dropdownActionItems(rootEntity)"
+      :action-items="fileActionItems"
       :close="() => {}"
     />
 
@@ -265,6 +289,7 @@ import RenameIcon from "@/assets/Icons/RenameIcon.vue"
 import ShareIconBlack from "@/assets/Icons/ShareIconBlack.vue"
 import TrashIcon from "@/assets/Icons/TrashIcon.vue"
 import UploadDrive from "@/assets/Icons/UploadDrive.vue"
+import { usePinnedFiles } from "@/composables/usePinnedFiles"
 import emitter from "@/emitter"
 import {
   createDocument,
@@ -286,7 +311,7 @@ import PrimeButton from 'primevue/button'
 import Dialog from 'primevue/dialog'
 import InputText from 'primevue/inputtext'
 import Textarea from 'primevue/textarea'
-import { computed, ref, watch } from "vue"
+import { computed, onMounted, ref, watch } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import LucideBuilding2 from "~icons/lucide/building-2"
@@ -298,11 +323,13 @@ import LucideFilePlus2 from "~icons/lucide/file-plus-2"
 import LucideFileUp from "~icons/lucide/file-up"
 import LucideFolderPlus from "~icons/lucide/folder-plus"
 import LucideFolderUp from "~icons/lucide/folder-up"
+import LucideHistory from "~icons/lucide/history"
 import LucideHome from "~icons/lucide/home"
 import LucideLink from "~icons/lucide/link"
-import LucideHistory from "~icons/lucide/history"
 import LucideMessageCircle from "~icons/lucide/message-circle"
 import LucideMoreVertical from "~icons/lucide/more-vertical"
+import LucidePin from "~icons/lucide/pin"
+import LucidePinOff from "~icons/lucide/pin-off"
 import LucideScan from "~icons/lucide/scan"
 import LucideStar from "~icons/lucide/star"
 import LucideTrash from "~icons/lucide/trash"
@@ -341,6 +368,7 @@ const props = defineProps({
 const store = useStore()
 const route = useRoute()
 const router = useRouter()
+const { isPinned, togglePin, pinnedFiles, loadPinnedFiles } = usePinnedFiles()
 
 // MindMap Dialog
 const showMindMapDialog = ref(false)
@@ -354,6 +382,21 @@ const importMindMapInput = ref(null)
 
 // Context menu ref for file
 const fileContextMenuRef = ref(null)
+
+// Load pinned files khi component mount
+onMounted(async () => {
+  // Load pinned files để đảm bảo menu hiển thị đúng
+  if (store.getters.isLoggedIn && !store.state.pinnedFilesLoaded) {
+    await loadPinnedFiles()
+    // Force menu recompute sau khi load
+    menuRefreshKey.value++
+  }
+})
+
+// Watch pinnedFiles để force menu refresh khi thay đổi
+watch(() => store.state.pinnedFiles, () => {
+  menuRefreshKey.value++
+}, { deep: true })
 
 // Fetch khi team thay đổi
 watch(() => route.params.team, (team) => {
@@ -372,6 +415,13 @@ const connectedUsers = computed(() => store.state.connectedUsers)
 const rootEntity = computed(() => props.rootResource?.data)
 const showTeamMembers = computed(() => route.name === "Team")
 
+// File action items - computed để tự động cập nhật khi pinnedFiles thay đổi
+const fileActionItems = computed(() => {
+  // Access pinnedFiles và menuRefreshKey để tạo reactive dependency
+  const _ = pinnedFiles.value.length + menuRefreshKey.value
+  return rootEntity.value ? dropdownActionItems(rootEntity.value) : []
+})
+
 
 const tab = computed({
   get() {
@@ -383,6 +433,7 @@ const tab = computed({
 const dialog = ref("")
 const selectedEntity = ref(null)
 const moreEvent = ref(false)
+const menuRefreshKey = ref(0)
 
 // More button handler
 const onMoreClick = (event) => {
@@ -470,6 +521,42 @@ const dropdownActionItems = (row) => {
       },
       important: true,
       isEnabled: () => store.state.activeEntity?.is_shortcut && route.name === "Home",
+    },
+    {
+      label: "Ghim tài liệu",
+      icon: LucidePin,
+      action: async ([entity]) => {
+        moreEvent.value = false
+        const result = await togglePin(entity)
+        if (result?.success) {
+          // Force recompute menu items
+          menuRefreshKey.value++
+          toast({
+            title: "Đã ghim tài liệu",
+            indicator: "green"
+          })
+        }
+      },
+      important: true,
+      isEnabled: (e) => !isPinned(e?.name) && !e?.is_group,
+    },
+    {
+      label: "Bỏ ghim tài liệu",
+      icon: LucidePinOff,
+      action: async ([entity]) => {
+        moreEvent.value = false
+        const result = await togglePin(entity)
+        if (result?.success) {
+          // Force recompute menu items
+          menuRefreshKey.value++
+          toast({
+            title: "Đã bỏ ghim tài liệu",
+            indicator: "green"
+          })
+        }
+      },
+      important: true,
+      isEnabled: (e) => isPinned(e?.name),
     },
     {
       label: "Tạo bản sao",
@@ -575,6 +662,17 @@ function switchTab(val) {
   } else {
     store.commit("setInfoSidebarTab", val)
   }
+}
+
+// Toggle favorite
+function toggleFavorite() {
+  if (!rootEntity.value) return
+  
+  // Toggle state
+  rootEntity.value.is_favourite = !rootEntity.value.is_favourite
+  
+  // Submit sẽ tự động hiển thị toast thông qua onSuccess callback
+  toggleFav.submit({ entities: [rootEntity.value] })
 }
 
 // Watch selectedEntity
@@ -876,10 +974,16 @@ const showFileContextMenu = (event) => {
 .breadcrumbs-custom ::v-deep button,
 .breadcrumbs-custom ::v-deep a,
 .breadcrumbs-custom ::v-deep span {
-  max-width: 200px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   display: inline-block;
+  font-size: 0.875rem;
+}
+
+.breadcrumbs-custom ::v-deep .feather {
+  width: 0.875rem;
+  height: 0.875rem;
 }
 </style>

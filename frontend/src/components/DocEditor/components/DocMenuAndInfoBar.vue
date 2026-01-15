@@ -735,7 +735,7 @@
         </span>
         <Switch
           v-model="settings.docSize"
-          label="Văn bản ngắn"
+          label="Tài liệu ngắn"
         />
         <Switch
           v-model="settings.docSpellcheck"
