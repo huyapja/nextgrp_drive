@@ -67,6 +67,7 @@
 <script setup>
 import ErrorPage from "@/components/ErrorPage.vue"
 import FileRender from "@/components/FileRender.vue"
+import { useRecentFiles } from "@/composables/useRecentFiles"
 import { prettyData, setBreadCrumbs } from "@/utils/files"
 import { onKeyStroke } from "@vueuse/core"
 import { createResource, LoadingIndicator } from "frappe-ui"
@@ -93,6 +94,16 @@ const props = defineProps({
   entityName: String,
   team: String,
 })
+
+// Use recent files composable
+let addRecentFile = null
+try {
+  const recentFilesComposable = useRecentFiles()
+  addRecentFile = recentFilesComposable.addRecentFile
+  console.log('✅ useRecentFiles loaded successfully')
+} catch (error) {
+  console.error('❌ Error loading useRecentFiles:', error)
+}
 
 const showPermissionModal = ref(false)
 const permissionModalTimer = ref(null)
@@ -143,6 +154,8 @@ onKeyStroke("ArrowRight", (e) => {
 })
 
 const onSuccess = (entity) => {
+  console.log('🎉 onSuccess called with entity:', entity)
+  
   document.title = entity.title
   setBreadCrumbs(entity.breadcrumbs, entity.is_private, () =>
     emitter.emit("rename")
@@ -161,6 +174,49 @@ const onSuccess = (entity) => {
     // Mặc định mở tab thông tin (tab 0)
     console.log("Setting tab to Information (0)")
     store.commit("setInfoSidebarTab", 0)
+  }
+  
+  // Track file đã được xem vào recent files
+  console.log('🔍 Checking if should track file:', { entity: entity?.name, isGroup: entity?.is_group })
+  
+  if (entity && !entity.is_group) {
+    const fileInfo = {
+      name: entity.name,
+      title: entity.title,
+      mime_type: entity.mime_type,
+      file_ext: entity.file_ext,
+      modified: entity.modified,
+      owner: entity.owner,
+      is_group: entity.is_group,
+      team: props.team, // Include team info for correct URL generation
+    }
+    
+    console.log('📝 File info to track:', fileInfo)
+    
+    // Add to local recent files
+    if (addRecentFile) {
+      console.log('🔧 Calling addRecentFile...')
+      addRecentFile(fileInfo)
+    } else {
+      console.warn('⚠️ addRecentFile is not available')
+    }
+    
+    // Send message to parent window (MTP) if inside iframe
+    if (window.parent && window.parent !== window) {
+      try {
+        console.log('📤 Sending file_accessed message to parent:', fileInfo)
+        window.parent.postMessage({
+          type: 'drive:file_accessed',
+          payload: fileInfo
+        }, '*')
+      } catch (error) {
+        console.warn('Cannot send message to parent window:', error)
+      }
+    } else {
+      console.log('⚠️ Not in iframe, file tracking only local')
+    }
+  } else {
+    console.log('⏭️ Skipping file tracking (not a file or is a group)')
   }
   
   // Tự động mở drawer thông tin sau khi entity đã được load (chỉ trên desktop)

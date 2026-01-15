@@ -312,6 +312,7 @@ import { calculateNodeHeightWithImages } from '@/utils/d3mindmap/nodeSize.js'
 import { scrollToNode } from '@/utils/d3mindmap/viewUtils'
 import { installMindmapContextMenu } from '@/utils/mindmapExtensions'
 
+import { useRecentFiles } from "@/composables/useRecentFiles"
 import { setBreadCrumbs } from "@/utils/files"
 import { uploadImageToMindmap } from '@/utils/mindmapImageUpload'
 import { toast } from "@/utils/toasts"
@@ -376,6 +377,16 @@ const props = defineProps({
   team: String,
 })
 
+// Use recent files composable
+let addRecentFile = null
+try {
+  const recentFilesComposable = useRecentFiles()
+  addRecentFile = recentFilesComposable.addRecentFile
+  console.log('✅ [MindMap.vue] useRecentFiles loaded successfully')
+} catch (error) {
+  console.error('❌ [MindMap.vue] Error loading useRecentFiles:', error)
+}
+
 // Resources - khai báo trước để tránh temporal dead zone
 // Forward declarations để tránh temporal dead zone
 let initializeMindmap
@@ -408,6 +419,8 @@ const mindmapEntity = createResource({
     entity_name: props.entityName,
   },
   onSuccess(data) {
+    console.log('🎉 [MindMap.vue] mindmapEntity onSuccess called with data:', data)
+    
     permissions.value = {
       read: data.read || 0,
       write: data.write || 0,
@@ -419,6 +432,49 @@ const mindmapEntity = createResource({
       setBreadCrumbs(data.breadcrumbs, data.is_private, () => {
         data.write && emitter.emit("rename")
       })
+    }
+    
+    // Track mindmap file đã được xem vào recent files
+    console.log('🔍 [MindMap.vue] Checking if should track file:', { name: data.name, isGroup: data.is_group })
+    
+    if (data && !data.is_group) {
+      const fileInfo = {
+        name: data.name,
+        title: data.title,
+        mime_type: 'mindmap', // Mindmap có mime_type đặc biệt
+        file_ext: 'mindmap',
+        modified: data.modified,
+        owner: data.owner,
+        is_group: data.is_group,
+        team: props.team, // Include team info for correct URL generation
+      }
+      
+      console.log('📝 [MindMap.vue] File info to track:', fileInfo)
+      
+      // Add to local recent files
+      if (addRecentFile) {
+        console.log('🔧 [MindMap.vue] Calling addRecentFile...')
+        addRecentFile(fileInfo)
+      } else {
+        console.warn('⚠️ [MindMap.vue] addRecentFile is not available')
+      }
+      
+      // Send message to parent window (MTP) if inside iframe
+      if (window.parent && window.parent !== window) {
+        try {
+          console.log('📤 [MindMap.vue] Sending file_accessed message to parent:', fileInfo)
+          window.parent.postMessage({
+            type: 'drive:file_accessed',
+            payload: fileInfo
+          }, '*')
+        } catch (error) {
+          console.warn('[MindMap.vue] Cannot send message to parent window:', error)
+        }
+      } else {
+        console.log('⚠️ [MindMap.vue] Not in iframe, file tracking only local')
+      }
+    } else {
+      console.log('⏭️ [MindMap.vue] Skipping file tracking (not a file or is a group)')
     }
   },
 })

@@ -24,13 +24,13 @@
   <div
     v-else
     ref="container"
-    class="flex flex-col overflow-auto h-[calc(100vh-144px)] sm:h-[calc(100vh-84px)] bg-surface-white pb-safe sm:pb-0"
+    class="flex flex-col flex-1 bg-surface-white min-h-0"
+    :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }"
     >
-    <!-- :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }" -->
     <!-- Content Area with Team Members -->
-    <div class="flex flex-1">
+    <div class="flex flex-1 min-h-0">
       <!-- Main Content -->
-      <div class="flex-1 flex flex-col">
+      <div class="flex-1 flex flex-col min-h-0">
         <DriveToolBar
           v-model="rows"
           :action-items="actionItems"
@@ -61,6 +61,7 @@
           :get-entities="getEntities"
           :total-records="totalRecords"
           :loading="getEntities.loading"
+          class="flex-1 min-h-0"
           @dropped="onDrop"
           @page-change="onPageChange"
         />

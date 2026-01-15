@@ -1,5 +1,5 @@
 <template>
-  <div class="border-r bg-surface-menu-bar transition-all">
+  <div class="bottom-bar border-r bg-surface-menu-bar transition-all">
     <div
       ondragstart="return false;"
       ondrop="return false;"

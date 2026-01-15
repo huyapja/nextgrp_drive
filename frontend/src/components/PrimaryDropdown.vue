@@ -60,6 +60,11 @@ emitter.on("toggleShortcuts", () => {
 })
 
 function toggleCollapsed() {
-  store.commit("setIsSidebarExpanded", props.isExpanded ? false : true)
+  const newState = props.isExpanded ? false : true
+  // Clear MTP collapse flag when user manually expands
+  if (newState === true) {
+    sessionStorage.removeItem('sidebar_collapsed_by_mtp')
+  }
+  store.commit("setIsSidebarExpanded", newState)
 }
 </script>

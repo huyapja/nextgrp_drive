@@ -36,6 +36,7 @@
 import Navbar from "@/components/Navbar.vue"
 import { allUsers } from "@/resources/permissions"
 import router from "@/router"
+import { useRecentFiles } from "@/composables/useRecentFiles"
 import { prettyData, setBreadCrumbs } from "@/utils/files"
 import { watchDebounced } from "@vueuse/core"
 import { createResource, LoadingIndicator } from "frappe-ui"
@@ -63,6 +64,16 @@ const props = defineProps({
   entityName: String,
   team: String,
 })
+
+// Use recent files composable
+let addRecentFile = null
+try {
+  const recentFilesComposable = useRecentFiles()
+  addRecentFile = recentFilesComposable.addRecentFile
+  console.log('✅ [Document.vue] useRecentFiles loaded successfully')
+} catch (error) {
+  console.error('❌ [Document.vue] Error loading useRecentFiles:', error)
+}
 
 // Reactive data properties
 const oldTitle = ref(null)
@@ -139,6 +150,49 @@ const onSuccess = (data) => {
   setBreadCrumbs(data.breadcrumbs, data.is_private, () => {
     data.write && emitter.emit("rename")
   })
+  
+  // Track document/file đã được xem vào recent files
+  console.log('🔍 [Document.vue] Checking if should track file:', { name: data.name, isGroup: data.is_group })
+  
+  if (data && !data.is_group) {
+    const fileInfo = {
+      name: data.name,
+      title: data.title,
+      mime_type: data.mime_type,
+      file_ext: data.file_ext,
+      modified: data.modified,
+      owner: data.owner,
+      is_group: data.is_group,
+      team: props.team, // Include team info for correct URL generation
+    }
+    
+    console.log('📝 [Document.vue] File info to track:', fileInfo)
+    
+    // Add to local recent files
+    if (addRecentFile) {
+      console.log('🔧 [Document.vue] Calling addRecentFile...')
+      addRecentFile(fileInfo)
+    } else {
+      console.warn('⚠️ [Document.vue] addRecentFile is not available')
+    }
+    
+    // Send message to parent window (MTP) if inside iframe
+    if (window.parent && window.parent !== window) {
+      try {
+        console.log('📤 [Document.vue] Sending file_accessed message to parent:', fileInfo)
+        window.parent.postMessage({
+          type: 'drive:file_accessed',
+          payload: fileInfo
+        }, '*')
+      } catch (error) {
+        console.warn('[Document.vue] Cannot send message to parent window:', error)
+      }
+    } else {
+      console.log('⚠️ [Document.vue] Not in iframe, file tracking only local')
+    }
+  } else {
+    console.log('⏭️ [Document.vue] Skipping file tracking (not a file or is a group)')
+  }
 }
 const document = createResource({
   url: "drive.api.permissions.get_entity_with_permissions",

@@ -1962,6 +1962,357 @@ def call_controller_method(entity_name, method):
 
 
 @frappe.whitelist()
+def add_recent_file(entity_name):
+    """
+    Add or update a file in recent files list for current user
+    
+    :param entity_name: Document name of the file
+    :type entity_name: str
+    :return: Success message
+    """
+    from datetime import datetime
+    
+    if not entity_name:
+        frappe.throw("Entity name is required", ValueError)
+    
+    # Check if entity exists
+    if not frappe.db.exists("Drive File", entity_name):
+        frappe.throw(f"File '{entity_name}' does not exist", ValueError)
+    
+    # Check if already in recents - if yes, update last_accessed
+    existing_doc = frappe.db.exists(
+        {
+            "doctype": "Drive Recent File",
+            "entity": entity_name,
+            "user": frappe.session.user,
+        }
+    )
+    
+    if existing_doc:
+        # Update existing record - update last_accessed time
+        frappe.db.set_value(
+            "Drive Recent File", 
+            existing_doc, 
+            "last_accessed", 
+            datetime.now()
+        )
+        frappe.db.commit()
+        return {"message": "Recent file updated successfully"}
+    else:
+        # Create new record
+        doc = frappe.new_doc("Drive Recent File")
+        doc.user = frappe.session.user
+        doc.entity = entity_name
+        doc.last_accessed = datetime.now()
+        doc.insert(ignore_permissions=True)
+        frappe.db.commit()
+        return {"message": "File added to recents successfully"}
+
+
+@frappe.whitelist()
+def get_recent_files():
+    """
+    Get recent files for current user from Drive Recent File doctype
+    
+    :return: List of recent files with file details
+    """
+    DriveFile = frappe.qb.DocType("Drive File")
+    DriveRecentFile = frappe.qb.DocType("Drive Recent File")
+    DrivePermission = frappe.qb.DocType("Drive Permission")
+    
+    user = frappe.session.user
+    
+    # Query recent files with file details
+    query = (
+        frappe.qb.from_(DriveRecentFile)
+        .left_join(DriveFile)
+        .on(DriveRecentFile.entity == DriveFile.name)
+        .left_join(DrivePermission)
+        .on((DrivePermission.entity == DriveFile.name) & (DrivePermission.user == user))
+        .select(
+            DriveFile.name,
+            DriveFile.title,
+            DriveFile.is_group,
+            DriveFile.is_link,
+            DriveFile.is_active,
+            DriveFile.path,
+            DriveFile.modified,
+            DriveFile.creation,
+            DriveFile.file_size,
+            DriveFile.mime_type,
+            DriveFile.color,
+            DriveFile.document,
+            DriveFile.owner,
+            DriveFile.parent_entity,
+            DriveFile.is_private,
+            DriveFile.modified_by,
+            DriveFile.mindmap,
+            DriveFile.team,
+            DriveRecentFile.last_accessed,
+            DrivePermission.read,
+            DrivePermission.comment,
+            DrivePermission.share,
+            DrivePermission.write,
+        )
+        .where(
+            (DriveRecentFile.user == user)
+            & (DriveFile.is_active == 1)  # Only active files
+        )
+        .orderby(DriveRecentFile.display_order, order=frappe.qb.desc)
+        .orderby(DriveRecentFile.last_accessed, order=frappe.qb.desc)
+    )
+    
+    result = query.run(as_dict=True)
+    
+    # Add file_ext from title (extract extension)
+    for item in result:
+        if item.get('title'):
+            title = item['title']
+            # Extract extension from filename
+            if '.' in title and not item.get('is_group'):
+                item['file_ext'] = title.split('.')[-1].lower()
+            else:
+                item['file_ext'] = ''
+        else:
+            item['file_ext'] = ''
+    
+    return result
+
+
+@frappe.whitelist()
+def create_file_group(file_names, group_name=None, group_id=None):
+    """
+    Create a new group from selected files or add files to existing group
+    
+    :param file_names: List of entity names to group
+    :param group_name: Optional group name
+    :param group_id: Optional group ID (to add to existing group)
+    :return: Group info
+    """
+    import json
+    import uuid
+    
+    if isinstance(file_names, str):
+        file_names = json.loads(file_names)
+    
+    if not isinstance(file_names, list) or len(file_names) < 1:
+        frappe.throw("Need at least 1 file", ValueError)
+    
+    user = frappe.session.user
+    
+    print(f"🆕 Creating file group for user: {user}, files: {file_names}, group_id: {group_id}")
+    
+    # First, ensure all files exist in Drive Recent File (add them if not)
+    for entity_name in file_names:
+        existing_doc = frappe.db.exists(
+            {
+                "doctype": "Drive Recent File",
+                "entity": entity_name,
+                "user": user,
+            }
+        )
+        
+        if not existing_doc:
+            # Add file to recent files first
+            print(f"  📝 Adding {entity_name} to recent files first...")
+            try:
+                add_recent_file(entity_name)
+                frappe.db.commit()
+                print(f"  ✅ Added {entity_name} to recent files")
+            except Exception as e:
+                print(f"  ❌ Error adding file to recent: {str(e)}")
+                frappe.log_error(f"Error adding file to recent: {str(e)}")
+                # Continue even if this fails
+    
+    # If group_id is provided, use existing group
+    if group_id:
+        # Get existing group info from one of the files in that group
+        existing_group = frappe.db.get_value(
+            "Drive Recent File",
+            {
+                "group_id": group_id,
+                "user": user
+            },
+            ["group_name", "group_color"],
+            as_dict=True
+        )
+        
+        if existing_group:
+            group_name = existing_group.group_name
+            group_color = existing_group.group_color
+        else:
+            # Group not found, create new one
+            group_id = str(uuid.uuid4())[:8]
+            if not group_name:
+                group_name = f"Group {group_id[:4]}"
+            colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"]
+            group_color = colors[hash(group_id) % len(colors)]
+    else:
+        # Create new group - need at least 2 files
+        if len(file_names) < 2:
+            frappe.throw("Need at least 2 files to create a new group", ValueError)
+        
+        group_id = str(uuid.uuid4())[:8]  # Short UUID
+        
+        # Auto-generate group name if not provided
+        if not group_name:
+            group_name = f"Group {group_id[:4]}"
+        
+        # Group colors
+        colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"]
+        group_color = colors[hash(group_id) % len(colors)]
+    
+    # Update all files to belong to this group
+    print(f"  📂 Setting group info: {group_id} - {group_name} ({group_color})")
+    updated_count = 0
+    for entity_name in file_names:
+        existing_doc = frappe.db.exists(
+            {
+                "doctype": "Drive Recent File",
+                "entity": entity_name,
+                "user": user,
+            }
+        )
+        
+        if existing_doc:
+            frappe.db.set_value(
+                "Drive Recent File",
+                existing_doc,
+                {
+                    "group_id": group_id,
+                    "group_name": group_name,
+                    "group_color": group_color
+                }
+            )
+            updated_count += 1
+            print(f"    ✅ Updated {entity_name} with group info")
+        else:
+            print(f"    ⚠️ Warning: {entity_name} not found in recent files")
+    
+    frappe.db.commit()
+    
+    print(f"  ✅ Group created successfully! Updated {updated_count}/{len(file_names)} files")
+    
+    return {
+        "message": "Group created successfully",
+        "group_id": group_id,
+        "group_name": group_name,
+        "group_color": group_color,
+        "files_updated": updated_count
+    }
+
+
+@frappe.whitelist()
+def update_file_group(group_id, group_name=None, group_color=None):
+    """
+    Update group name or color
+    """
+    user = frappe.session.user
+    
+    # Find all files in this group
+    files = frappe.db.get_list(
+        "Drive Recent File",
+        filters={"user": user, "group_id": group_id},
+        fields=["name"]
+    )
+    
+    if not files:
+        frappe.throw("Group not found", ValueError)
+    
+    # Update all files in the group
+    update_dict = {}
+    if group_name:
+        update_dict["group_name"] = group_name
+    if group_color:
+        update_dict["group_color"] = group_color
+    
+    for file in files:
+        frappe.db.set_value("Drive Recent File", file.name, update_dict)
+    
+    frappe.db.commit()
+    return {"message": "Group updated successfully"}
+
+
+@frappe.whitelist()
+def remove_from_group(entity_names):
+    """
+    Remove files from their group
+    """
+    import json
+    
+    if isinstance(entity_names, str):
+        entity_names = json.loads(entity_names)
+    
+    user = frappe.session.user
+    
+    for entity_name in entity_names:
+        existing_doc = frappe.db.exists(
+            {
+                "doctype": "Drive Recent File",
+                "entity": entity_name,
+                "user": user,
+            }
+        )
+        
+        if existing_doc:
+            frappe.db.set_value(
+                "Drive Recent File",
+                existing_doc,
+                {
+                    "group_id": None,
+                    "group_name": None,
+                    "group_color": None
+                }
+            )
+    
+    frappe.db.commit()
+    return {"message": "Files removed from group"}
+
+
+@frappe.whitelist()
+def reorder_recent_files(file_order):
+    """
+    Update display order for recent files based on drag-and-drop
+    
+    :param file_order: List of entity names in new order
+    :type file_order: list[str]
+    :return: Success message
+    """
+    import json
+    
+    if isinstance(file_order, str):
+        file_order = json.loads(file_order)
+    
+    if not isinstance(file_order, list):
+        frappe.throw(f"Expected list but got {type(file_order)}", ValueError)
+    
+    user = frappe.session.user
+    
+    # Update display_order for each file (higher number = higher priority)
+    for index, entity_name in enumerate(file_order):
+        existing_doc = frappe.db.exists(
+            {
+                "doctype": "Drive Recent File",
+                "entity": entity_name,
+                "user": user,
+            }
+        )
+        
+        if existing_doc:
+            # Higher index = lower in list, so invert: len - index
+            display_order = len(file_order) - index
+            frappe.db.set_value(
+                "Drive Recent File",
+                existing_doc,
+                "display_order",
+                display_order
+            )
+    
+    frappe.db.commit()
+    return {"message": "File order updated successfully"}
+
+
+@frappe.whitelist()
 def remove_recents(entity_names=[], clear_all=False):
     """
     Clear recent DriveEntities for specified user
@@ -1972,7 +2323,7 @@ def remove_recents(entity_names=[], clear_all=False):
     """
 
     if clear_all:
-        return frappe.db.delete("Drive Entity Log", {"user": frappe.session.user})
+        return frappe.db.delete("Drive Recent File", {"user": frappe.session.user})
 
     if not isinstance(entity_names, list):
         frappe.throw(f"Expected list but got {type(entity_names)}", ValueError)
@@ -1980,13 +2331,13 @@ def remove_recents(entity_names=[], clear_all=False):
     for entity in entity_names:
         existing_doc = frappe.db.exists(
             {
-                "doctype": "Drive Entity Log",
-                "entity_name": entity,
+                "doctype": "Drive Recent File",
+                "entity": entity,
                 "user": frappe.session.user,
             }
         )
         if existing_doc:
-            frappe.delete_doc("Drive Entity Log", existing_doc)
+            frappe.delete_doc("Drive Recent File", existing_doc)
 
 
 @frappe.whitelist()
