@@ -87,7 +87,7 @@
                      v-if="slotProps.data.is_pinned"
                      class="pinned-icon"
                      :size="14"
-                     title="Văn bản đã ghim"
+                     title="Tài liệu đã ghim"
                    />
                  </div>
             </div>

@@ -11,16 +11,16 @@
         <ChevronLeft class="h-5 w-5" />
         <span class="text-sm font-medium">Quay lại</span>
       </button>
-      <h2 class="text-lg font-bold text-gray-900">Văn bản đã ghim</h2>
+      <h2 class="text-lg font-bold text-gray-900">Tài liệu đã ghim</h2>
     </div>
 
     <!-- Pinned Files List -->
     <div class="flex-1 overflow-y-auto p-2">
       <div v-if="pinnedFiles.length === 0" class="text-center py-8 px-4">
         <Pin class="h-12 w-12 mx-auto text-gray-300 mb-2" />
-        <p class="text-sm text-gray-500">Chưa có văn bản được ghim</p>
+        <p class="text-sm text-gray-500">Chưa có tài liệu được ghim</p>
         <p class="text-xs text-gray-400 mt-1">
-          Ghim văn bản để truy cập nhanh
+          Ghim tài liệu để truy cập nhanh
         </p>
       </div>
 
@@ -82,22 +82,21 @@
     <div class="p-3 border-t border-gray-100 bg-gray-50">
       <div class="flex items-start gap-2 text-xs text-gray-600">
         <Info class="h-4 w-4 flex-shrink-0 mt-0.5" />
-        <p>Click chuột phải vào file và chọn "Ghim văn bản" để thêm vào danh sách</p>
+        <p>Click chuột phải vào file và chọn "Ghim tài liệu" để thêm vào danh sách</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
 import { usePinnedFiles } from '@/composables/usePinnedFiles'
-import { ChevronLeft, Pin, X, Info } from 'lucide-vue-next'
+import { ChevronLeft, Info, Pin, X } from 'lucide-vue-next'
 import LucideFile from '~icons/lucide/file'
 import LucideFileText from '~icons/lucide/file-text'
-import LucideImage from '~icons/lucide/image'
-import LucideVideo from '~icons/lucide/video'
-import LucideMusic from '~icons/lucide/music'
 import LucideFolder from '~icons/lucide/folder'
+import LucideImage from '~icons/lucide/image'
+import LucideMusic from '~icons/lucide/music'
+import LucideVideo from '~icons/lucide/video'
 
 const {
   pinnedFiles,

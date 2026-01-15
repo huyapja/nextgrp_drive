@@ -164,10 +164,10 @@ const onSuccess = (entity) => {
   }
   
   // Tự động mở drawer thông tin sau khi entity đã được load (chỉ trên desktop)
-  const isMobile = window.innerWidth < 768
-  if (!isMobile) {
-    store.commit("setShowInfo", true)
-  }
+  // const isMobile = window.innerWidth < 768
+  // if (!isMobile) {
+  //   store.commit("setShowInfo", true)
+  // }
 }
 let file = createResource({
   url: "drive.api.permissions.get_entity_with_permissions",
@@ -308,6 +308,9 @@ function handleSocketPermissionRevoked(message) {
 }
 
 onMounted(() => {
+  // Đóng InfoPanel mặc định khi truy cập file
+  store.commit("setShowInfo", false)
+  
   // Lưu thông tin file share nếu user chưa login
   if (!store.getters.isLoggedIn) {
     const sharedFileInfo = {

@@ -192,7 +192,7 @@ function getFileTypeVi(type) {
     'jpeg': 'Ảnh JPG',
     'png': 'Ảnh PNG',
     'gif': 'Ảnh GIF',
-    'txt': 'Tệp văn bản',
+    'txt': 'Tệp tài liệu',
     'csv': 'Tệp CSV',
     'zip': 'Tệp nén ZIP',
     'rar': 'Tệp nén RAR',
