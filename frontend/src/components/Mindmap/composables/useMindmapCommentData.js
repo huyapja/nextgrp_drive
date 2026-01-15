@@ -76,12 +76,24 @@ export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
       return dy
     }
 
+    // 🔹 sort riêng cho root children
+    const compareRoot = (a, b) => {
+      const ao = a?.data?.order
+      const bo = b?.data?.order
+
+      if (Number.isFinite(ao) && Number.isFinite(bo)) {
+        return ao - bo
+      }
+      if (Number.isFinite(ao)) return -1
+      if (Number.isFinite(bo)) return 1
+
+      return comparePos(a, b)
+    }
+
     // ---- map & childrenMap ----
-    const nodeMap = {}
     const childrenMap = {}
 
     for (const n of nodes) {
-      nodeMap[n.id] = n
       childrenMap[n.id] = []
     }
 
@@ -108,11 +120,11 @@ export function useMindmapCommentData({ comments, mindmap, activeGroupKey }) {
       }
     }
 
-    // ---- 1. root children trước ----
+    // ---- 1. root children (sort theo order) ----
     const rootChildren = nodes
       .filter((n) => n.data?.parentId === "root")
       .slice()
-      .sort(comparePos)
+      .sort(compareRoot)
 
     for (const rootChild of rootChildren) {
       dfs(rootChild)
