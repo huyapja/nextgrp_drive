@@ -50,7 +50,7 @@
     <div class="controls-container">
       <template v-if="selections && !selections.length">
         <!-- Filter Button -->
-        <div class="relative" ref="filter-wrapper">
+        <div class="relative filter-wrapper" ref="filter-wrapper">
           <Button
             icon="pi pi-filter"
             text
@@ -60,11 +60,16 @@
             v-tooltip="__('Filter')"
             @click.stop="toggleFilterMenu"
           />
-          <!-- Desktop Filter Menu -->
+        </div>
+        
+        <!-- Desktop Filter Menu - Teleported to body -->
+        <Teleport to="body">
           <div
             v-if="showFilterMenu && !isMobile"
             ref="filter-menu"
-            class="filter-menu"
+            class="filter-menu-teleported"
+            :style="filterMenuPosition"
+            @click.stop
           >
             <!-- Clear all button -->
             <div
@@ -119,8 +124,9 @@
               </span>
             </div>
           </div>
+        </Teleport>
           
-          <!-- Mobile Filter Bottom Sheet -->
+        <!-- Mobile Filter Bottom Sheet -->
           <Dialog
             v-model:visible="showMobileFilterSheet"
             v-if="isMobile"
@@ -193,7 +199,6 @@
             </div>
             </div>
           </Dialog>
-        </div>
         <!-- Hiển thị tổng số filter đã chọn -->
         <!-- <div v-if="activeFilters.length" class="ml-2 text-xs text-gray-600">
           {{ activeFilters.length }} {{ __('filter selected') }}
@@ -324,6 +329,19 @@ const showMobileFilterSheet = ref(false)
 const filterMenuRef = useTemplateRef("filter-menu")
 const filterWrapperRef = useTemplateRef("filter-wrapper")
 
+// Calculate filter menu position when teleported
+const filterMenuPosition = computed(() => {
+  if (!filterWrapperRef.value) return {}
+  
+  const rect = filterWrapperRef.value.getBoundingClientRect()
+  return {
+    position: 'fixed',
+    top: `${rect.bottom + 4}px`,
+    right: `${window.innerWidth - rect.right}px`,
+    zIndex: 10000,
+  }
+})
+
 // Mobile detection
 const isMobile = ref(false)
 const checkMobile = () => {
@@ -402,7 +420,12 @@ onKeyDown("Escape", () => {
   showMobileFilterSheet.value = false
 })
 
-onClickOutside(filterWrapperRef, () => {
+// Close filter menu when clicking outside
+onClickOutside(filterWrapperRef, (event) => {
+  // Don't close if clicking on the teleported menu
+  if (filterMenuRef.value && filterMenuRef.value.contains(event.target)) {
+    return
+  }
   showFilterMenu.value = false
 })
 
@@ -491,7 +514,11 @@ watch(shareView, (newValue) => {
 /* Thêm vào phần <style scoped> của component */
 
 .drive-toolbar {
-  @apply flex flex-wrap items-center justify-between px-4 py-2.5 border-gray-200 bg-white gap-4 ;
+  @apply flex items-center justify-between px-4 py-2.5 border-gray-200 bg-white gap-4;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow: hidden; /* Ngăn tràn */
 }
 
 .selection-info {
@@ -503,12 +530,71 @@ watch(shareView, (newValue) => {
 }
 
 .search-container {
-  @apply flex-1 max-w-md flex items-center border border-gray-200 rounded-[6px] px-4 gap-2;
-  height: 40px; /* Chiều cao cố định */
+  @apply flex items-center border border-gray-200 rounded-[6px];
+  flex: 1 1 auto; /* Cho phép co lại */
+  min-width: 0 !important; /* CRITICAL: Force shrink */
+  width: auto !important; /* Override PrimeVue width */
+  height: 40px;
+  max-width: 100%;
+  box-sizing: border-box;
+  padding: 0 12px; /* Giảm từ 16px xuống 12px */
+  gap: 8px;
+}
+
+/* Force IconField và InputText có thể shrink */
+:deep(.search-container) {
+  min-width: 0 !important;
+  width: auto !important;
+}
+
+:deep(.search-container .p-inputtext) {
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+/* Chỉ giới hạn max-width trên desktop */
+@media (min-width: 769px) {
+  .search-container {
+    max-width: 448px; /* max-w-md */
+    padding: 0 16px; /* Desktop có thể dùng padding lớn hơn */
+  }
 }
 
 .search-input {
   @apply w-full !p-0 border-0 !shadow-none !outline-none !ring-0;
+  min-width: 0; /* Cho phép shrink */
+  overflow: hidden; /* Tránh text tràn */
+  text-overflow: ellipsis; /* Hiển thị ... khi tràn */
+}
+
+/* Icon search không chiếm quá nhiều không gian */
+:deep(.pi-search) {
+  flex-shrink: 0;
+  font-size: 1rem;
+}
+
+/* InputIcon wrapper cũng phải shrink được */
+:deep(.search-container .p-input-icon) {
+  flex-shrink: 0;
+}
+
+/* Icon nhỏ hơn trên mobile */
+@media (max-width: 640px) {
+  :deep(.search-container .pi-search) {
+    font-size: 0.9rem;
+  }
+}
+
+@media (max-width: 480px) {
+  :deep(.search-container .pi-search) {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 380px) {
+  :deep(.search-container .pi-search) {
+    font-size: 0.8rem;
+  }
 }
 
 .controls-container {
@@ -534,14 +620,28 @@ watch(shareView, (newValue) => {
   @apply !border !border-gray-300 !rounded-[8px];
   height: 40px; /* Chiều cao cố định */
   width: 40px; /* Vuông đều */
+  min-width: 40px; /* Đảm bảo không co nhỏ hơn */
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0; /* Không cho shrink */
+}
+
+.filter-wrapper {
+  position: relative;
+  z-index: 10000;
 }
 
 .filter-menu {
-  @apply absolute top-full right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg z-10 min-w-48;
+  @apply absolute top-full right-0 mt-1 bg-white border border-gray-300 rounded-md shadow-lg min-w-48;
+  z-index: 10001;
+}
+
+.filter-menu-teleported {
+  @apply bg-white border border-gray-300 rounded-md shadow-lg min-w-48;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
 .filter-option {
@@ -593,16 +693,19 @@ watch(shareView, (newValue) => {
 .view-controls {
   @apply flex bg-[#FAFAFA] items-center rounded-md;
   height: 40px; /* Chiều cao cố định */
+  flex-shrink: 0; /* Không cho shrink */
 }
 
 .view-btn {
   @apply rounded-md;
   height: 40px; /* Chiều cao cố định */
   width: 40px; /* Vuông đều */
+  min-width: 40px; /* Đảm bảo không co nhỏ hơn */
   padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0; /* Không cho shrink */
 }
 
 .view-btn.active {
@@ -633,26 +736,29 @@ watch(shareView, (newValue) => {
 /* Responsive Design */
 @media (max-width: 768px) {
   .drive-toolbar {
-    @apply gap-2 p-3;
+    gap: 8px; /* Giảm gap */
+    padding: 8px 12px; /* Giảm padding dọc */
   }
 
   .search-container {
-    /* Cho phép search container chiếm tối đa không gian có thể */
-    @apply max-w-none;
-    flex: 1 1 auto;
-    min-width: 120px; /* Đảm bảo có độ rộng tối thiểu */
-    height: 40px; /* Giữ chiều cao */
-    padding: 0 12px; /* Padding nhỏ hơn */
+    /* Search có thể co lại, không tràn */
+    flex: 1 1 0 !important;
+    min-width: 0 !important; /* Cho phép co nhỏ hơn */
+    width: auto !important;
+    max-width: 100%;
+    height: 40px;
+    padding: 0 8px; /* Giảm padding nhiều hơn */
+    gap: 6px;
   }
 
   .controls-container {
-    /* Chỉ chiếm không gian cần thiết */
+    /* Không cho shrink */
     flex: 0 0 auto;
-    height: 40px; /* Giữ chiều cao */
+    gap: 6px; /* Giảm gap */
+    height: 40px;
   }
 
   .view-controls {
-    /* Giữ nguyên, không ẩn */
     height: 40px;
   }
 
@@ -673,25 +779,29 @@ watch(shareView, (newValue) => {
 
 @media (max-width: 640px) {
   .drive-toolbar {
-    @apply p-2 gap-1.5;
+    gap: 6px; /* Gap nhỏ hơn */
+    padding: 6px 8px; /* Giảm padding */
   }
 
   .search-container {
-    /* Ưu tiên search bar trên mobile */
-    flex: 1 1 0%;
-    min-width: 0; /* Cho phép shrink nếu cần nhưng vẫn ưu tiên */
-    height: 40px; /* Giữ chiều cao */
-    padding: 0 8px; /* Padding nhỏ hơn */
+    /* Search co lại được, không tràn */
+    flex: 1 1 0 !important;
+    min-width: 0 !important; /* Cho phép co nhỏ */
+    width: auto !important;
+    max-width: 100%;
+    height: 40px;
+    padding: 0 6px; /* Padding tối thiểu */
+    gap: 6px;
   }
 
   .controls-container {
-    /* Compact controls */
-    @apply gap-1.5;
-    height: 40px; /* Giữ chiều cao */
+    /* Compact controls, không shrink */
+    flex: 0 0 auto;
+    gap: 4px; /* Gap nhỏ hơn */
+    height: 40px;
   }
 
   .view-controls {
-    /* Giữ nguyên view controls */
     height: 40px;
   }
 
@@ -713,72 +823,100 @@ watch(shareView, (newValue) => {
   }
 }
 
-/* Thêm breakpoint cho màn hình rất nhỏ */
+/* Breakpoint cho màn hình nhỏ */
 @media (max-width: 480px) {
   .drive-toolbar {
-    @apply gap-1;
+    gap: 4px; /* Gap rất nhỏ */
+    padding: 4px 6px; /* Padding tối thiểu */
   }
 
   .search-container {
-    height: 40px; /* Giữ chiều cao */
-    padding: 0 8px;
+    /* Search co lại được, không tràn */
+    flex: 1 1 0 !important;
+    min-width: 0 !important; /* Cho phép co nhỏ */
+    width: auto !important;
+    max-width: 100%;
+    height: 36px; /* Nhỏ hơn */
+    padding: 0 4px; /* Padding tối thiểu */
+    gap: 4px;
   }
 
   .search-input {
     font-size: 14px;
   }
 
+  .controls-container {
+    flex: 0 0 auto;
+    gap: 3px; /* Gap rất nhỏ */
+  }
+
   .control-btn {
-    height: 40px;
-    width: 40px;
+    height: 34px; /* Nhỏ hơn */
+    width: 34px;
+    min-width: 34px;
   }
 
   .view-btn {
-    height: 40px;
-    width: 40px;
+    height: 34px;
+    width: 34px;
+    min-width: 34px;
   }
 
   .view-controls {
-    height: 40px;
+    height: 34px;
   }
 
   :deep(.p-button .p-button-icon) {
-    font-size: 1rem;
+    font-size: 0.875rem; /* Icon nhỏ hơn */
   }
 }
 
-/* Breakpoint cho màn hình siêu nhỏ - view-controls xuống dòng */
+/* Breakpoint cho màn hình siêu nhỏ - compact tối đa */
 @media (max-width: 380px) {
   .drive-toolbar {
-    @apply gap-2;
+    gap: 2px; /* Gap tối thiểu */
+    padding: 4px; /* Padding tối thiểu */
   }
 
   .search-container {
-    flex: 1 1 100%;
-    order: 1;
+    /* Search co lại tối đa, không tràn */
+    flex: 1 1 0 !important;
+    min-width: 0 !important; /* Cho phép co rất nhỏ */
+    width: auto !important;
+    max-width: 100%;
+    height: 32px; /* Nhỏ hơn */
+    padding: 0 4px; /* Padding tối thiểu */
+    gap: 4px;
+  }
+
+  .search-input {
+    font-size: 13px; /* Font nhỏ hơn */
   }
 
   .controls-container {
-    flex: 1 1 100%;
-    order: 2;
-    /* justify-content: space-between; */
-    flex-wrap: wrap;
-    height: auto;
-    gap: 8px;
+    /* Compact controls */
+    flex: 0 0 auto;
+    gap: 2px; /* Gap tối thiểu */
   }
 
   .view-controls {
-    height: 36px;
+    height: 32px;
   }
 
   .view-btn {
-    height: 36px;
-    width: 36px;
+    height: 30px; /* Nhỏ hơn */
+    width: 30px;
+    min-width: 30px;
   }
 
   .control-btn {
-    height: 36px;
-    width: 36px;
+    height: 30px;
+    width: 30px;
+    min-width: 30px;
+  }
+
+  :deep(.p-button .p-button-icon) {
+    font-size: 0.75rem; /* Icon nhỏ hơn */
   }
 }
 

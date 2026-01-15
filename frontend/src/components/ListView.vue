@@ -1180,14 +1180,42 @@ const onSort = (event) => {
 
 .file-manager-container {
   @apply flex flex-col h-full bg-white;
+  min-height: 0;
 }
 
 .table-container {
-  @apply flex-1 overflow-x-auto overflow-y-hidden;
+  @apply flex-1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .file-table {
-  @apply h-fit min-w-[600px];
+  @apply min-w-[600px];
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Đảm bảo DataTable sử dụng flex layout đúng cách */
+:deep(.p-datatable) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Table wrapper có thể scroll */
+:deep(.p-datatable-wrapper) {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* Paginator cố định ở dưới */
+:deep(.p-paginator) {
+  flex-shrink: 0;
+  border-top: 1px solid #e5e7eb;
 }
 
 .disabled-row {

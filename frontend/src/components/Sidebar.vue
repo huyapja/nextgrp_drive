@@ -470,7 +470,11 @@ watch(isExpanded, (newValue, oldValue) => {
 // Ensure sidebar is always expanded and visible on mount
 onMounted(() => {
   store.commit("setShowSidebarButton", false)
-  store.commit("setIsSidebarExpanded", true)
+  // Only auto-expand if not collapsed by MTP
+  const collapsedByMTP = sessionStorage.getItem('sidebar_collapsed_by_mtp')
+  if (!collapsedByMTP) {
+    store.commit("setIsSidebarExpanded", true)
+  }
   store.commit("setShowPinnedSidebar", false)
 })
 
@@ -480,7 +484,11 @@ watch(
   (newRouteName) => {
     // Always show sidebar and keep it expanded by default
     store.commit("setShowSidebarButton", false)
-    store.commit("setIsSidebarExpanded", true)
+    // Only auto-expand if not collapsed by MTP
+    const collapsedByMTP = sessionStorage.getItem('sidebar_collapsed_by_mtp')
+    if (!collapsedByMTP) {
+      store.commit("setIsSidebarExpanded", true)
+    }
     store.commit("setShowPinnedSidebar", false)
   },
   { immediate: true } // Apply immediately on mount
@@ -566,6 +574,8 @@ const toggleExpanded = () => {
     }, 150)
   } else {
     // If we're expanding the sidebar, expand it immediately
+    // Clear the MTP collapse flag when user manually expands
+    sessionStorage.removeItem('sidebar_collapsed_by_mtp')
     store.commit("setIsSidebarExpanded", true)
     // Optionally auto-expand teams after sidebar is expanded
     setTimeout(() => {

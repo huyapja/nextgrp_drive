@@ -71,8 +71,8 @@ import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/minimap/dist/style.css'
 import { onKeyDown } from "@vueuse/core"
-import { computed, onMounted, provide, ref } from "vue"
-import { useRouter } from "vue-router"
+import { computed, onMounted, onUnmounted, provide, ref, watch } from "vue"
+import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
 import BottomBar from "./components/BottomBar.vue"
 import SearchPopup from "./components/SearchPopup.vue"
@@ -96,6 +96,7 @@ function handleOpenHistoryFromToast(data) {
 
 const store = useStore()
 const router = useRouter()
+const route = useRoute()
 const showSettings = ref(false)
 const suggestedTab = ref(0)
 
@@ -104,7 +105,68 @@ onMounted(() => {
     suggestedTab.value = tab
     showSettings.value = true
   })
+  
+  // Listen for messages from parent window (MTP)
+  window.addEventListener('message', handleParentMessage)
 })
+
+onUnmounted(() => {
+  window.removeEventListener('message', handleParentMessage)
+})
+
+// Handle messages from parent window
+function handleParentMessage(event) {
+  // Validate origin for security
+  const isLocalhost = event.origin.includes('localhost') || event.origin.includes('127.0.0.1')
+  if (!isLocalhost && event.origin !== window.location.origin) {
+    return
+  }
+  
+  if (event.data && event.data.type === 'mtp:collapse_sidebar') {
+    console.log('📥 [Drive App] Received collapse_sidebar message from parent')
+    if (event.data.payload && event.data.payload.collapse) {
+      // Set flag to prevent auto-expand
+      sessionStorage.setItem('sidebar_collapsed_by_mtp', 'true')
+      store.commit("setIsSidebarExpanded", false)
+      console.log('✅ [Drive App] Sidebar collapsed and flag set')
+    }
+  }
+}
+
+// Watch route changes và gửi message lên parent window (để clear active file trong sidebar)
+watch(
+  () => route.fullPath,
+  (newPath) => {
+    // Chỉ gửi message khi là iframe
+    if (window.parent && window.parent !== window) {
+      try {
+        console.log('📡 [Drive App] Route changed:', {
+          name: route.name,
+          path: newPath
+        });
+        
+        // Gửi message lên parent
+        window.parent.postMessage(
+          {
+            type: 'drive:url_changed',
+            payload: {
+              pathname: newPath,
+              title: document.title,
+              routeName: route.name,
+              search: window.location.search,
+            }
+          },
+          '*'
+        );
+        
+        console.log('✅ [Drive App] Sent drive:url_changed to parent');
+      } catch (error) {
+        console.warn('Cannot send route change to parent:', error);
+      }
+    }
+  },
+  { immediate: false }
+)
 
 const showSearchPopup = ref(false)
 const isLoggedIn = computed(() => store.getters.isLoggedIn)
