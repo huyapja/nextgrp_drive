@@ -100,7 +100,7 @@
       />
 
       <!-- Undo/Redo buttons - Top left -->
-      <div class="fixed top-[100px] left-[300px] z-10 flex gap-2">
+      <div class="fixed top-[100px] z-10 flex gap-2" :style="{ left: controlsLeft }">
         <!-- Undo Button -->
         <button 
           @click="undo" 
@@ -131,7 +131,7 @@
       </div>
 
       <!-- Change view mindmap -->
-      <div class="fixed top-[160px] left-[300px] z-10 flex flex-col gap-2">
+      <div class="fixed top-[160px] z-10 flex flex-col gap-2" :style="{ left: controlsLeft }">
         <!-- TEXT VIEW -->
         <button
           v-tooltip.right="{ value: 'Phác thảo', pt: { text: { class: ['text-[12px]'] } } }"
@@ -204,7 +204,7 @@
         <div ref="d3Container" class="d3-mindmap-wrapper"></div>
 
         <!-- Controls -->
-        <div class="d3-controls">
+        <div class="d3-controls" :style="{ left: controlsLeft }">
           <button @click="fitView" class="control-btn" title="Fit View">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round">
@@ -363,6 +363,16 @@ const emitter = inject("emitter")
 const socket = inject("socket")
 const suppressPanelAutoFocus = ref(false)
 provide("suppressPanelAutoFocus", suppressPanelAutoFocus)
+
+// ⚠️ FIX: Tính toán vị trí controls dựa trên trạng thái sidebar
+// Sidebar expanded: 260px, collapsed: 60px
+// Margin: 40px
+const controlsLeft = computed(() => {
+  const isSidebarExpanded = store.state.IsSidebarExpanded
+  const sidebarWidth = isSidebarExpanded ? 260 : 60
+  const margin = 40
+  return `${sidebarWidth + margin}px`
+})
 
 const pageError = computed(() => {
   const bootError = window.frappe?.boot?.error
