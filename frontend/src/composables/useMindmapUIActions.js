@@ -112,9 +112,10 @@ export function useMindmapUIActions({
       if (renderer) {
         renderer.selectCommentNode?.(nodeId, false)
         
-        if (typeof scrollToNodeWithRetry === 'function') {
-          scrollToNodeWithRetry(nodeId)
-        }
+        // ⚠️ REMOVED: Không scroll đến node khi mở comment panel
+        // if (typeof scrollToNodeWithRetry === 'function') {
+        //   scrollToNodeWithRetry(nodeId)
+        // }
       }
 
       if (focus) {

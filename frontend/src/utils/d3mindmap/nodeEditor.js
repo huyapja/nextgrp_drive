@@ -696,6 +696,15 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	// Cập nhật cache với kích thước mới (để các lần tính toán sau dùng)
 	renderer.nodeSizeCache.set(nodeId, { width: currentWidth, height: currentHeight })
 	
+	// ⚠️ FIX: Cập nhật fixedWidth/fixedHeight vào node.data để đảm bảo khi re-render, size được giữ nguyên
+	// Điều này quan trọng trong trường hợp multi-user: khi user khác update node khác trigger re-render,
+	// node đang edit sẽ giữ đúng size đã được resize
+	if (!nodeData.data) nodeData.data = {}
+	if (!isRootNode) {
+		nodeData.data.fixedWidth = currentWidth
+		nodeData.data.fixedHeight = currentHeight
+	}
+	
 	// Trigger callback để cập nhật dữ liệu
 	if (renderer.callbacks.onNodeUpdate) {
 		renderer.callbacks.onNodeUpdate(nodeId, { label: value })

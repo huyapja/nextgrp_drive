@@ -166,3 +166,95 @@ export function scrollToNode(renderer, nodeId, options = {}) {
   
 }
 
+/**
+ * Scroll to node minimally - only if node is outside viewport
+ * Scrolls just enough to bring node into view, without centering
+ */
+export function scrollToNodeMinimal(renderer, nodeId, options = {}) {
+  const { margin = 50 } = options
+  
+  if (!renderer.positions || !renderer.positions.has(nodeId)) {
+    console.warn('Node position not found:', nodeId)
+    return
+  }
+  
+  const pos = renderer.positions.get(nodeId)
+  if (!pos) {
+    console.warn('Node position is null:', nodeId)
+    return
+  }
+  
+  const node = renderer.nodes.find(n => n.id === nodeId)
+  if (!node) {
+    console.warn('Node not found:', nodeId)
+    return
+  }
+  
+  const size = renderer.nodeSizeCache.get(nodeId) || renderer.estimateNodeSize(node)
+  
+  const fullWidth = renderer.options.width
+  const fullHeight = renderer.options.height
+  
+  const currentTransform = d3.zoomTransform(renderer.svg.node())
+  const scale = currentTransform.k
+  
+  // Calculate node bounds in screen coordinates
+  const nodeScreenX = currentTransform.x + pos.x * scale
+  const nodeScreenY = currentTransform.y + pos.y * scale
+  const nodeScreenWidth = size.width * scale
+  const nodeScreenHeight = size.height * scale
+  
+  // Calculate current viewport bounds (with margin)
+  const viewLeft = margin
+  const viewRight = fullWidth - margin
+  const viewTop = margin
+  const viewBottom = fullHeight - margin
+  
+  // Check if node is already fully visible
+  const isVisible = 
+    nodeScreenX >= viewLeft &&
+    nodeScreenX + nodeScreenWidth <= viewRight &&
+    nodeScreenY >= viewTop &&
+    nodeScreenY + nodeScreenHeight <= viewBottom
+  
+  if (isVisible) {
+    // Node is already visible, no need to scroll
+    return
+  }
+  
+  // Calculate minimal translation adjustment needed
+  let adjustX = 0
+  let adjustY = 0
+  
+  // Horizontal adjustment
+  if (nodeScreenX < viewLeft) {
+    // Node is too far left
+    adjustX = viewLeft - nodeScreenX
+  } else if (nodeScreenX + nodeScreenWidth > viewRight) {
+    // Node is too far right
+    adjustX = viewRight - (nodeScreenX + nodeScreenWidth)
+  }
+  
+  // Vertical adjustment
+  if (nodeScreenY < viewTop) {
+    // Node is too far up
+    adjustY = viewTop - nodeScreenY
+  } else if (nodeScreenY + nodeScreenHeight > viewBottom) {
+    // Node is too far down
+    adjustY = viewBottom - (nodeScreenY + nodeScreenHeight)
+  }
+  
+  // Apply minimal translation
+  const newTranslate = [
+    currentTransform.x + adjustX,
+    currentTransform.y + adjustY
+  ]
+  
+  renderer.svg.transition()
+    .duration(300)
+    .call(
+      renderer.zoom.transform,
+      d3.zoomIdentity.translate(newTranslate[0], newTranslate[1]).scale(scale)
+    )
+}
+

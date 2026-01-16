@@ -533,8 +533,17 @@ const exportToPDF = async (fileName) => {
       nodeGroups.forEach(group => {
         const nodeId = group.getAttribute('data-node-id')
         const node = props.d3Renderer.nodes.find(n => n.id === nodeId)
-        const taskLink = node?.data?.taskLink
-        if (!taskLink?.linkUrl) return
+        
+        const fo = group.querySelector('foreignObject')
+        if (!fo) return
+        
+        // ⚠️ FIX: Extract link từ thẻ <a> trong label thay vì từ node.data.taskLink
+        const taskLinkAnchor = fo.querySelector('a[href*="task_id"], a[href*="/mtp/project/"]')
+        if (!taskLinkAnchor) return
+        
+        // Extract URL từ href của thẻ <a>
+        const linkUrl = taskLinkAnchor.getAttribute('href')
+        if (!linkUrl) return
         
         const pos = props.d3Renderer.positions.get(nodeId)
         if (!pos) return
@@ -542,12 +551,6 @@ const exportToPDF = async (fileName) => {
         const size = props.d3Renderer.nodeSizeCache?.get(nodeId) || 
                     props.d3Renderer.estimateNodeSize?.(node) || 
                     { width: 200, height: 100 }
-        
-        const fo = group.querySelector('foreignObject')
-        if (!fo) return
-        
-        const taskLinkAnchor = fo.querySelector('a[href*="task_id"], a[href*="/mtp/project/"]')
-        if (!taskLinkAnchor) return
         
         const badge = taskLinkAnchor.closest('p') || taskLinkAnchor.closest('section') || taskLinkAnchor.parentElement
         if (!badge) return
@@ -564,7 +567,7 @@ const exportToPDF = async (fileName) => {
           y: pos.y + badgeOffsetTop,
           width: size.width,
           height: badgeHeight,
-          url: taskLink.linkUrl
+          url: linkUrl
         })
       })
       

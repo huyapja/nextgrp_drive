@@ -87,9 +87,16 @@ export function createEditorKeyDown({ editor, flags, getEditingUserOfNode }) {
         if (editingUser) {
           const now = Date.now()
 
-          if (lastBlockedNodeId !== nodeId || now - lastToastAt > 1500) {
+          // ⚠️ FIX: Sử dụng cơ chế global throttle để tránh spam toast
+          if (!window.__lastEditingToast) {
+            window.__lastEditingToast = {}
+          }
+          const lastToast = window.__lastEditingToast[nodeId] || 0
+          
+          if (lastBlockedNodeId !== nodeId || now - lastToast > 2000) {
             lastBlockedNodeId = nodeId
             lastToastAt = now
+            window.__lastEditingToast[nodeId] = now
 
             toast({
               title: `${editingUser.userName} đang chỉnh sửa node này`,
