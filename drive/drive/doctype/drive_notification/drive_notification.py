@@ -18,7 +18,7 @@ class DriveNotification(Document):
         if self.type == "Share":
             message_data = {
                 "key": "share_document",
-                "title": f"{full_name} đã chia sẻ với bạn tài liệu:",
+                "title": f"{full_name} đã chia sẻ với bạn tài liệu {self.file_name}",
                 "full_name_owner": full_name,
                 "to_user": self.to_user,
                 "type": self.type,
@@ -43,7 +43,7 @@ class DriveNotification(Document):
         if self.type == "Mention":
             message_data = {
                 "key": "mention_document",
-                "title": f"{full_name} đã nhắc đến bạn trong",
+                "title": f"{full_name} đã nhắc đến bạn trong {self.file_name}",
                 "full_name_owner": full_name,
                 "to_user": self.to_user,
                 "full_name_to_user": full_name_to_user,
