@@ -81,6 +81,11 @@ export function useMindmapSave({
     const node = nodes.value.find(n => n.id === nodeId)
     if (!node) return
 
+    console.log('💾 [saveNode] Saving node:', nodeId, {
+      parentId: node.data?.parentId,
+      stackTrace: new Error().stack.split('\n').slice(1, 4).join('\n')
+    });
+
     const { count, ...nodeData } = node
     const nodeWithPos = { ...nodeData }
 
@@ -112,6 +117,7 @@ export function useMindmapSave({
     }
 
     savingCount.value++
+    console.log('📤 [saveNode] Calling API save_mindmap_node for:', nodeId);
     saveNodeResource.submit(params)
 
     changedNodeIds.value.delete(nodeId)
@@ -125,6 +131,10 @@ export function useMindmapSave({
     }
 
     if (changedNodeIds.value.size > 0) {
+      console.log('💾 [saveImmediately] Called with changedNodeIds:', Array.from(changedNodeIds.value), {
+        stackTrace: new Error().stack.split('\n').slice(1, 5).join('\n')
+      });
+      
       isSaving.value = true
 
       const nodeIdsArray = Array.from(changedNodeIds.value)

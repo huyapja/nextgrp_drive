@@ -992,6 +992,13 @@ const initD3Renderer = () => {
 
       // 2. parentId (re-parent khi drag & drop)
       if (updates.parentId !== undefined) {
+        console.log('🔄 [onNodeUpdate] parentId change detected:', {
+          nodeId,
+          oldParent: node.data?.parentId,
+          newParent: updates.parentId,
+          stackTrace: new Error().stack
+        });
+        
         // Validate: Không cho phép node thành con của chính nó
         if (nodeId === updates.parentId) {
           console.warn(`Cannot make node ${nodeId} a child of itself`)
@@ -1012,6 +1019,22 @@ const initD3Renderer = () => {
           toast.error("Không thể di chuyển node vào nhánh con của chính nó")
           return
         }
+        
+        // Check if parentId already matches (avoid duplicate save)
+        if (node.data?.parentId === updates.parentId) {
+          console.log('⏭️ [onNodeUpdate] ParentId unchanged, skipping save');
+          return;
+        }
+        
+        // Track parentId update để onNodeReorder biết skip save
+        window.__lastParentIdUpdate = nodeId;
+        window.__lastParentIdUpdateTime = Date.now();
+        
+        // Track node đang được save do parentId change để tránh duplicate save
+        if (!window.__parentIdChangeSaving) {
+          window.__parentIdChangeSaving = new Set();
+        }
+        window.__parentIdChangeSaving.add(nodeId);
         
         // Lưu snapshot trước khi thay đổi parent (drag & drop)
         saveSnapshot()
@@ -1041,6 +1064,16 @@ const initD3Renderer = () => {
         
         // ⚠️ CRITICAL: Lưu ngay sau khi thay đổi parent (drag & drop)
         saveImmediately()
+        
+        // Clear flag sau khi saveImmediately xử lý xong (sau 500ms để đảm bảo save đã được trigger)
+        // saveImmediately sẽ clear changedNodeIds sau khi save, nên flag cũng nên được clear
+        setTimeout(() => {
+          if (window.__parentIdChangeSaving) {
+            window.__parentIdChangeSaving.delete(nodeId);
+            console.log('🧹 [onNodeUpdate] Cleared parentIdChangeSaving flag for:', nodeId);
+          }
+        }, 500);
+        
         return
       }
 
@@ -1073,6 +1106,7 @@ const initD3Renderer = () => {
       nodeCreationOrder.value.set(nodeId, newOrder)
       
       // ⚠️ CRITICAL: Đánh dấu node đã thay đổi để save
+      // (onNodeUpdate sẽ tự động save, không cần gọi saveImmediately ở đây)
       changedNodeIds.value.add(nodeId)
 
       // Cập nhật renderer với nodeCreationOrder mới
@@ -1081,7 +1115,8 @@ const initD3Renderer = () => {
         d3Renderer.render()
       }
 
-      saveImmediately()
+      // ⚠️ REMOVED: Không gọi saveImmediately ở đây nữa
+      // onNodeUpdate sẽ tự động save khi có parentId change hoặc các thay đổi khác
       // textViewVersion.value++
     },
     onNodeEditingStart: (nodeId) => {
