@@ -24,13 +24,13 @@
   <div
     v-else
     ref="container"
-    class="flex flex-col flex-1 bg-surface-white min-h-0"
+    class="flex flex-col flex-1 bg-surface-white min-h-0 h-full"
     :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }"
     >
     <!-- Content Area with Team Members -->
-    <div class="flex flex-1 min-h-0">
+    <div class="flex flex-1 min-h-0 h-full">
       <!-- Main Content -->
-      <div class="flex-1 flex flex-col min-h-0">
+      <div class="flex-1 flex flex-col min-h-0 h-full">
         <DriveToolBar
           v-model="rows"
           :action-items="actionItems"

@@ -1,7 +1,6 @@
 <template>
   <div
-    class="flex flex-col items-center m-auto"
-    style="transform: translate(0, -88.5px)"
+    class="flex flex-col items-center justify-center flex-1 min-h-0 h-full mb-[100px]"
   >
     <div v-if="icon">
       <component

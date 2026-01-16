@@ -1,6 +1,6 @@
 <template>
-  <div class="flex flex-row">
-    <div class="w-full">
+  <div class="flex flex-row h-screen">
+    <div class="w-full flex-1 h-full">
       <GenericPage
         :get-entities="getHome"
         :icon="LucideBuilding2"

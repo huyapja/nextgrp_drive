@@ -630,7 +630,7 @@ watch(shareView, (newValue) => {
 
 .filter-wrapper {
   position: relative;
-  z-index: 10000;
+  z-index: 0;
 }
 
 .filter-menu {
@@ -641,7 +641,6 @@ watch(shareView, (newValue) => {
 .filter-menu-teleported {
   @apply bg-white border border-gray-300 rounded-md shadow-lg min-w-48;
   max-height: 400px;
-  overflow-y: auto;
 }
 
 .filter-option {

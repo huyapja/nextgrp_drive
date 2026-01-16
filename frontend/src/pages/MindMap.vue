@@ -100,7 +100,7 @@
       />
 
       <!-- Undo/Redo buttons - Top left -->
-      <div class="fixed top-[100px] left-[300px] z-10 flex gap-2">
+      <div class="fixed top-[100px] z-10 flex gap-2" :style="{ left: controlsLeft }">
         <!-- Undo Button -->
         <button 
           @click="undo" 
@@ -131,7 +131,7 @@
       </div>
 
       <!-- Change view mindmap -->
-      <div class="fixed top-[160px] left-[300px] z-10 flex flex-col gap-2">
+      <div class="fixed top-[160px] z-10 flex flex-col gap-2" :style="{ left: controlsLeft }">
         <!-- TEXT VIEW -->
         <button
           v-tooltip.right="{ value: 'Phác thảo', pt: { text: { class: ['text-[12px]'] } } }"
@@ -204,7 +204,7 @@
         <div ref="d3Container" class="d3-mindmap-wrapper"></div>
 
         <!-- Controls -->
-        <div class="d3-controls">
+        <div class="d3-controls" :style="{ left: controlsLeft }">
           <button @click="fitView" class="control-btn" title="Fit View">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"
               stroke-linecap="round" stroke-linejoin="round">
@@ -363,6 +363,16 @@ const emitter = inject("emitter")
 const socket = inject("socket")
 const suppressPanelAutoFocus = ref(false)
 provide("suppressPanelAutoFocus", suppressPanelAutoFocus)
+
+// ⚠️ FIX: Tính toán vị trí controls dựa trên trạng thái sidebar
+// Sidebar expanded: 260px, collapsed: 60px
+// Margin: 40px
+const controlsLeft = computed(() => {
+  const isSidebarExpanded = store.state.IsSidebarExpanded
+  const sidebarWidth = isSidebarExpanded ? 260 : 60
+  const margin = 40
+  return `${sidebarWidth + margin}px`
+})
 
 const pageError = computed(() => {
   const bootError = window.frappe?.boot?.error
@@ -982,6 +992,13 @@ const initD3Renderer = () => {
 
       // 2. parentId (re-parent khi drag & drop)
       if (updates.parentId !== undefined) {
+        console.log('🔄 [onNodeUpdate] parentId change detected:', {
+          nodeId,
+          oldParent: node.data?.parentId,
+          newParent: updates.parentId,
+          stackTrace: new Error().stack
+        });
+        
         // Validate: Không cho phép node thành con của chính nó
         if (nodeId === updates.parentId) {
           console.warn(`Cannot make node ${nodeId} a child of itself`)
@@ -1002,6 +1019,22 @@ const initD3Renderer = () => {
           toast.error("Không thể di chuyển node vào nhánh con của chính nó")
           return
         }
+        
+        // Check if parentId already matches (avoid duplicate save)
+        if (node.data?.parentId === updates.parentId) {
+          console.log('⏭️ [onNodeUpdate] ParentId unchanged, skipping save');
+          return;
+        }
+        
+        // Track parentId update để onNodeReorder biết skip save
+        window.__lastParentIdUpdate = nodeId;
+        window.__lastParentIdUpdateTime = Date.now();
+        
+        // Track node đang được save do parentId change để tránh duplicate save
+        if (!window.__parentIdChangeSaving) {
+          window.__parentIdChangeSaving = new Set();
+        }
+        window.__parentIdChangeSaving.add(nodeId);
         
         // Lưu snapshot trước khi thay đổi parent (drag & drop)
         saveSnapshot()
@@ -1031,6 +1064,16 @@ const initD3Renderer = () => {
         
         // ⚠️ CRITICAL: Lưu ngay sau khi thay đổi parent (drag & drop)
         saveImmediately()
+        
+        // Clear flag sau khi saveImmediately xử lý xong (sau 500ms để đảm bảo save đã được trigger)
+        // saveImmediately sẽ clear changedNodeIds sau khi save, nên flag cũng nên được clear
+        setTimeout(() => {
+          if (window.__parentIdChangeSaving) {
+            window.__parentIdChangeSaving.delete(nodeId);
+            console.log('🧹 [onNodeUpdate] Cleared parentIdChangeSaving flag for:', nodeId);
+          }
+        }, 500);
+        
         return
       }
 
@@ -1063,6 +1106,7 @@ const initD3Renderer = () => {
       nodeCreationOrder.value.set(nodeId, newOrder)
       
       // ⚠️ CRITICAL: Đánh dấu node đã thay đổi để save
+      // (onNodeUpdate sẽ tự động save, không cần gọi saveImmediately ở đây)
       changedNodeIds.value.add(nodeId)
 
       // Cập nhật renderer với nodeCreationOrder mới
@@ -1071,7 +1115,8 @@ const initD3Renderer = () => {
         d3Renderer.render()
       }
 
-      saveImmediately()
+      // ⚠️ REMOVED: Không gọi saveImmediately ở đây nữa
+      // onNodeUpdate sẽ tự động save khi có parentId change hoặc các thay đổi khác
       // textViewVersion.value++
     },
     onNodeEditingStart: (nodeId) => {
