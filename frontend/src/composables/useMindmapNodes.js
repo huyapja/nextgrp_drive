@@ -1,4 +1,5 @@
-import { scrollToNode } from '@/utils/d3mindmap/viewUtils'
+import { computeInsertAfterAnchor } from '@/components/Mindmap/components/engine/nodeOrderEngine'
+import { scrollToNode, scrollToNodeMinimal } from '@/utils/d3mindmap/viewUtils'
 import { toast } from '@/utils/toasts'
 import { nextTick } from 'vue'
 
@@ -32,6 +33,28 @@ export function useMindmapNodes({
     const tryScroll = () => {
       if (d3Renderer.value.positions && d3Renderer.value.positions.has(nodeId)) {
         scrollToNode(d3Renderer.value, nodeId)
+        return
+      }
+      
+      retries++
+      if (retries < maxRetries) {
+        setTimeout(tryScroll, delay)
+      } else {
+        console.warn('Failed to scroll to node after retries:', nodeId)
+      }
+    }
+    
+    tryScroll()
+  }
+
+  const scrollToNodeMinimalWithRetry = (nodeId, maxRetries = 10, delay = 100) => {
+    if (!d3Renderer.value || !nodeId) return
+    
+    let retries = 0
+    
+    const tryScroll = () => {
+      if (d3Renderer.value.positions && d3Renderer.value.positions.has(nodeId)) {
+        scrollToNodeMinimal(d3Renderer.value, nodeId, { margin: 80 })
         return
       }
       
@@ -123,7 +146,7 @@ export function useMindmapNodes({
           const timeoutId2 = setTimeout(() => {
             d3Renderer.value.selectNode(newNodeId)
             
-            scrollToNodeWithRetry(newNodeId, 15, 150)
+            scrollToNodeMinimalWithRetry(newNodeId, 15, 150)
 
             const timeoutId3 = setTimeout(() => {
               const nodeGroup = d3Renderer.value.g.select(`[data-node-id="${newNodeId}"]`)
@@ -220,7 +243,19 @@ export function useMindmapNodes({
       target: newNodeId
     }
 
-    nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+    // ⚠️ FIX: Tính order mới để node mới nằm ngay sau node hiện tại (không phải ở cuối)
+    // Sử dụng computeInsertAfterAnchor để tính order chính xác
+    const newOrder = computeInsertAfterAnchor({
+      nodes: nodes.value,
+      anchorNodeId: nodeId,
+      parentId: parentId,
+      orderStore: nodeCreationOrder.value
+    })
+    
+    // Nếu không tính được order (node không có trong siblings), fallback về creationOrderCounter
+    const finalOrder = newOrder !== null && newOrder !== undefined ? newOrder : creationOrderCounter++
+    
+    nodeCreationOrder.value.set(newNodeId, finalOrder)
     changedNodeIds.value.add(newNodeId)
 
     elements.value = [
@@ -266,7 +301,7 @@ export function useMindmapNodes({
           const timeoutId2 = setTimeout(() => {
             d3Renderer.value.selectNode(newNodeId)
 
-            scrollToNodeWithRetry(newNodeId, 15, 150)
+            scrollToNodeMinimalWithRetry(newNodeId, 15, 150)
 
             const timeoutId3 = setTimeout(() => {
               const nodeGroup = d3Renderer.value.g.select(`[data-node-id="${newNodeId}"]`)

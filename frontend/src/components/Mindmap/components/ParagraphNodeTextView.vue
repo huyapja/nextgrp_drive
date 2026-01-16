@@ -461,12 +461,21 @@ function toggleActions(event) {
   // ==============================
   const editingUser = getEditingUserOfNode?.(nodeId)
   if (editingUser) {
-    toast({
-      title: `${editingUser.userName} đang chỉnh sửa node này`,
-      text: "Vui lòng đợi họ hoàn thành",
-      indicator: "orange",
-      timeout: 3,
-    })
+    // ⚠️ FIX: Chỉ hiển thị toast 1 lần mỗi 2 giây để tránh spam
+    const now = Date.now()
+    if (!window.__lastEditingToast) {
+      window.__lastEditingToast = {}
+    }
+    const lastToast = window.__lastEditingToast[nodeId] || 0
+    if (now - lastToast > 2000) {
+      window.__lastEditingToast[nodeId] = now
+      toast({
+        title: `${editingUser.userName} đang chỉnh sửa node này`,
+        text: "Vui lòng đợi họ hoàn thành",
+        indicator: "orange",
+        timeout: 3,
+      })
+    }
     return
   }
 
