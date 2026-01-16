@@ -1415,6 +1415,13 @@ def set_favourite(entities=None, clear_all=False):
             if not entity_name:
                 frappe.throw("Entity missing name field", ValueError)
 
+            # Check if entity exists in Drive File before adding to favourites
+            if not frappe.db.exists("Drive File", entity_name):
+                frappe.throw(
+                    f"Drive File not found: {entity_name}",
+                    frappe.DoesNotExistError
+                )
+
             existing_doc = frappe.db.exists(
                 {
                     "doctype": "Drive Favourite",
@@ -1440,14 +1447,15 @@ def set_favourite(entities=None, clear_all=False):
                 # Remove from favourites
                 frappe.delete_doc("Drive Favourite", existing_doc)
             elif entity["is_favourite"] and not existing_doc:
-                # Add to favourites
+                # Add to favourites - use ignore_links to skip link validation
+                # since we've already verified the entity exists
                 frappe.get_doc(
                     {
                         "doctype": "Drive Favourite",
                         "entity": entity_name,
                         "user": frappe.session.user,
                     }
-                ).insert()
+                ).insert(ignore_links=True)
 
     frappe.db.commit()
 
@@ -2049,6 +2057,10 @@ def get_recent_files():
             DriveFile.mindmap,
             DriveFile.team,
             DriveRecentFile.last_accessed,
+            DriveRecentFile.group_id,
+            DriveRecentFile.group_name,
+            DriveRecentFile.group_color,
+            DriveRecentFile.display_order,
             DrivePermission.read,
             DrivePermission.comment,
             DrivePermission.share,
@@ -2139,31 +2151,71 @@ def create_file_group(file_names, group_name=None, group_id=None):
         
         if existing_group:
             group_name = existing_group.group_name
-            group_color = existing_group.group_color
         else:
             # Group not found, create new one
             group_id = str(uuid.uuid4())[:8]
             if not group_name:
-                group_name = f"Group {group_id[:4]}"
-            colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"]
-            group_color = colors[hash(group_id) % len(colors)]
+                # Get next group number
+                # Get all unique group_id and group_name pairs
+                existing_groups_raw = frappe.db.get_all(
+                    "Drive Recent File",
+                    filters={"user": user, "group_id": ["!=", ""]},
+                    fields=["group_id", "group_name"],
+                )
+                # Use dict to get unique groups (group_id as key)
+                unique_groups = {}
+                for g in existing_groups_raw:
+                    if g.group_id and g.group_id not in unique_groups:
+                        unique_groups[g.group_id] = g.group_name
+                
+                # Extract numbers from existing group names (format: "Nhóm N")
+                max_number = 0
+                for group_name_val in unique_groups.values():
+                    if group_name_val:
+                        # Try to extract number from "Nhóm N" format
+                        match = re.search(r'Nhóm\s*(\d+)', group_name_val, re.IGNORECASE)
+                        if match:
+                            max_number = max(max_number, int(match.group(1)))
+                        elif group_name_val.isdigit():
+                            # Fallback for old format (just number)
+                            max_number = max(max_number, int(group_name_val))
+                group_name = f"Nhóm {max_number + 1}"
     else:
-        # Create new group - need at least 2 files
-        if len(file_names) < 2:
-            frappe.throw("Need at least 2 files to create a new group", ValueError)
+        # Create new group - allow 1 file minimum
+        if len(file_names) < 1:
+            frappe.throw("Need at least 1 file to create a new group", ValueError)
         
         group_id = str(uuid.uuid4())[:8]  # Short UUID
         
-        # Auto-generate group name if not provided
+        # Auto-generate group name if not provided - use sequential number
         if not group_name:
-            group_name = f"Group {group_id[:4]}"
-        
-        # Group colors
-        colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"]
-        group_color = colors[hash(group_id) % len(colors)]
+            # Get all existing groups for this user
+            existing_groups_raw = frappe.db.get_all(
+                "Drive Recent File",
+                filters={"user": user, "group_id": ["!=", ""]},
+                fields=["group_id", "group_name"],
+            )
+            # Use dict to get unique groups (group_id as key)
+            unique_groups = {}
+            for g in existing_groups_raw:
+                if g.group_id and g.group_id not in unique_groups:
+                    unique_groups[g.group_id] = g.group_name
+            
+            # Extract numbers from existing group names (format: "Nhóm N")
+            max_number = 0
+            for group_name_val in unique_groups.values():
+                if group_name_val:
+                    # Try to extract number from "Nhóm N" format
+                    match = re.search(r'Nhóm\s*(\d+)', group_name_val, re.IGNORECASE)
+                    if match:
+                        max_number = max(max_number, int(match.group(1)))
+                    elif group_name_val.isdigit():
+                        # Fallback for old format (just number)
+                        max_number = max(max_number, int(group_name_val))
+            group_name = f"Nhóm {max_number + 1}"
     
     # Update all files to belong to this group
-    print(f"  📂 Setting group info: {group_id} - {group_name} ({group_color})")
+    print(f"  📂 Setting group info: {group_id} - {group_name}")
     updated_count = 0
     for entity_name in file_names:
         existing_doc = frappe.db.exists(
@@ -2181,7 +2233,7 @@ def create_file_group(file_names, group_name=None, group_id=None):
                 {
                     "group_id": group_id,
                     "group_name": group_name,
-                    "group_color": group_color
+                    "group_color": None  # Don't store color, use CSS default
                 }
             )
             updated_count += 1
@@ -2197,7 +2249,6 @@ def create_file_group(file_names, group_name=None, group_id=None):
         "message": "Group created successfully",
         "group_id": group_id,
         "group_name": group_name,
-        "group_color": group_color,
         "files_updated": updated_count
     }
 

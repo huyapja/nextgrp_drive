@@ -17,48 +17,49 @@
          </button>
        </div>
       
-      <Breadcrumbs
-        :items="store.state.breadcrumbs"
-        class="select-none !truncate breadcrumbs-custom text-sm"
-      >
-        <template #prefix="{ item, index }">
-          <LoadingIndicator
-            v-if="item.loading"
-            width="16"
-            scale="70"
-          />
-          <div
-            v-if="index == 0"
-            class="mr-1"
-          >
-            <component
-              :is="COMPONENT_MAP[item.name]"
-              class="size-3.5 text-ink-gray-6"
+      <div class="flex items-center gap-1">
+        <Breadcrumbs
+          :items="store.state.breadcrumbs"
+          class="select-none !truncate breadcrumbs-custom text-sm"
+        >
+          <template #prefix="{ item, index }">
+            <LoadingIndicator
+              v-if="item.loading"
+              width="16"
+              scale="70"
             />
-          </div>
-        </template>
-      </Breadcrumbs>
+            <div
+              v-if="index == 0"
+              class="mr-1"
+            >
+              <component
+                :is="COMPONENT_MAP[item.name]"
+                class="size-3.5 text-ink-gray-6"
+              />
+            </div>
+          </template>
+        </Breadcrumbs>
+        <!-- Favorite icon cạnh tên file trong breadcrumb -->
+        <button
+          v-if="['File', 'Document', 'MindMap'].includes(route.name) && rootEntity"
+          @click.stop="toggleFavorite"
+          class="flex items-center justify-center p-0.5 rounded hover:bg-gray-100 transition-colors flex-shrink-0"
+          :title="rootEntity?.is_favourite ? 'Bỏ yêu thích' : 'Yêu thích'"
+        >
+          <LucideStar
+            :class="[
+              'w-3.5 h-3.5',
+              rootEntity?.is_favourite 
+                ? 'stroke-amber-500 fill-amber-500' 
+                : 'stroke-gray-400 fill-none hover:fill-amber-100'
+            ]"
+          />
+        </button>
+      </div>
       
-      <!-- Favorite Button - Hiển thị khi đang xem file -->
-      <button
-        v-if="route.name === 'File' && rootEntity"
-        @click="toggleFavorite"
-        class="flex items-center justify-center p-1 rounded hover:bg-gray-100 transition-colors"
-        :title="rootEntity?.is_favourite ? 'Bỏ yêu thích' : 'Yêu thích'"
-      >
-        <LucideStar
-          :class="[
-            'w-4 h-4',
-            rootEntity?.is_favourite 
-              ? 'stroke-amber-500 fill-amber-500' 
-              : 'stroke-gray-500 fill-none hover:fill-amber-100'
-          ]"
-        />
-      </button>
-      
-      <!-- Static Star Icon - Hiển thị ở các trang khác -->
+      <!-- Static Star Icon - Hiển thị ở các trang khác (không phải File/Document/MindMap) -->
       <LucideStar
-        v-else-if="rootEntity?.is_favourite"
+        v-if="!['File', 'Document', 'MindMap'].includes(route.name) && rootEntity?.is_favourite"
         width="14"
         height="14"
         class="my-auto stroke-amber-500 fill-amber-500"
@@ -668,11 +669,26 @@ function switchTab(val) {
 function toggleFavorite() {
   if (!rootEntity.value) return
   
+  // For MindMap, use route params entityName instead of rootEntity.name
+  // because rootEntity might contain mindmap node data instead of Drive File entity
+  let entityToFavorite = { ...rootEntity.value }
+  
+  if (route.name === 'MindMap' && route.params.entityName) {
+    // Use route params entityName for MindMap to ensure we use Drive File entity name
+    entityToFavorite.name = route.params.entityName
+  }
+  
+  // Ensure we have a valid entity name
+  if (!entityToFavorite.name) {
+    console.error('Cannot toggle favorite: missing entity name', rootEntity.value)
+    return
+  }
+  
   // Toggle state
-  rootEntity.value.is_favourite = !rootEntity.value.is_favourite
+  entityToFavorite.is_favourite = !entityToFavorite.is_favourite
   
   // Submit sẽ tự động hiển thị toast thông qua onSuccess callback
-  toggleFav.submit({ entities: [rootEntity.value] })
+  toggleFav.submit({ entities: [entityToFavorite] })
 }
 
 // Watch selectedEntity
