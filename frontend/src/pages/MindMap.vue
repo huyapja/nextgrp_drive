@@ -1,6 +1,6 @@
 <template>
   <div class="flex flex-col w-full mindmap-page">
-    <Navbar v-if="!pageError && !mindmap.error && !mindmapEntity.error" :root-resource="mindmap" />
+    <Navbar v-if="!pageError && !mindmap.error && !mindmapEntity.error" :root-resource="mindmapEntity" />
     <ErrorPage v-if="pageError || mindmap.error || mindmapEntity.error" :error="pageError || mindmap.error || mindmapEntity.error" />
     <LoadingIndicator v-else-if="!mindmap.data && mindmap.loading" class="w-10 h-full text-neutral-100 mx-auto" />
 

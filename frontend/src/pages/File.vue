@@ -97,9 +97,11 @@ const props = defineProps({
 
 // Use recent files composable
 let addRecentFile = null
+let clearActiveFile = null
 try {
   const recentFilesComposable = useRecentFiles()
   addRecentFile = recentFilesComposable.addRecentFile
+  clearActiveFile = recentFilesComposable.clearActiveFile
   console.log('✅ useRecentFiles loaded successfully')
 } catch (error) {
   console.error('❌ Error loading useRecentFiles:', error)
@@ -442,6 +444,25 @@ onBeforeUnmount(() => {
   // Đóng drawer thông tin và reset tab khi rời khỏi trang file
   store.commit("setShowInfo", false)
   store.commit("setInfoSidebarTab", 0)
+  
+  // Clear active file khi rời khỏi trang file
+  if (clearActiveFile) {
+    console.log('🔄 Clearing active file on unmount')
+    clearActiveFile()
+  }
+  
+  // Send message to parent window (MTP) to clear active file
+  if (window.parent && window.parent !== window) {
+    try {
+      console.log('📤 Sending file_closed message to parent')
+      window.parent.postMessage({
+        type: 'drive:file_closed',
+        payload: { entityName: props.entityName }
+      }, '*')
+    } catch (error) {
+      console.warn('Cannot send message to parent window:', error)
+    }
+  }
 })
 
 let userInfo = createResource({

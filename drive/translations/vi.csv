@@ -410,9 +410,9 @@ Go,Đi đến,Button Label
 All favourites cleared,Đã xóa tất cả yêu thích,Toast Message
 {0} items unfavourited,Đã bỏ yêu thích {0} mục,Toast Message
 {0} items favourited,Đã yêu thích {0} mục,Toast Message
-Removed {0} file{1} from Recents.,Đã xóa {0} tệp{1} khỏi Gần đây.,Toast Message
+Removed {0} from Recents.,Đã xóa {0} tệp khỏi Gần đây.,Toast Message
 Removed all files from Recents.,Đã xóa tất cả tệp khỏi Gần đây.,Toast Message
-Permanently deleted {0} file{1}.,Đã xóa vĩnh viễn {0} tệp{1}.,Toast Message
+Permanently deleted {0} file{1}.,Đã xóa vĩnh viễn {0} tệp.,Toast Message
 Permanently deleted all files.,Đã xóa vĩnh viễn tất cả tệp.,Toast Message
 There is already a file with this name!,Đã có tệp với tên này!,Error Message
 There was an error,Đã xảy ra lỗi,Error Message

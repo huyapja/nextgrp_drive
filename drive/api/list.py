@@ -1360,6 +1360,8 @@ def get_recent_files_multi_team(
     tag_list=[],
     file_kinds=[],
     folders=0,
+    page=None,
+    page_size=20,
 ):
     """
     Lấy danh sách file gần đây mà user đã access
@@ -1622,7 +1624,33 @@ def get_recent_files_multi_team(
                     filtered_results.append(r)
             all_results = filtered_results
 
-    # Apply limit
+    # Calculate total count before pagination
+    total_count = len(all_results)
+
+    # Apply page-based pagination if specified
+    if page is not None:
+        try:
+            page = int(page)
+            page_size = int(page_size) if page_size else 20
+
+            # Calculate offset
+            offset = (page - 1) * page_size
+
+            # Apply pagination
+            paginated_results = all_results[offset : offset + page_size]
+
+            # Return paginated response with total count
+            return {
+                "data": paginated_results,
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+            }
+        except (ValueError, TypeError):
+            # If page/page_size conversion fails, return all results as list
+            pass
+
+    # Apply limit if specified (for backward compatibility)
     if limit:
         all_results = all_results[: int(limit)]
 
@@ -1640,6 +1668,8 @@ def get_favourites_multi_team(
     tag_list=[],
     file_kinds=[],
     folders=0,
+    page=None,
+    page_size=20,
 ):
     """
     Lấy danh sách file/folder yêu thích của user
@@ -2007,7 +2037,33 @@ def get_favourites_multi_team(
                     filtered_results.append(r)
             all_results = filtered_results
 
-    # Apply limit
+    # Calculate total count before pagination
+    total_count = len(all_results)
+
+    # Apply page-based pagination if specified
+    if page is not None:
+        try:
+            page = int(page)
+            page_size = int(page_size) if page_size else 20
+
+            # Calculate offset
+            offset = (page - 1) * page_size
+
+            # Apply pagination
+            paginated_results = all_results[offset : offset + page_size]
+
+            # Return paginated response with total count
+            return {
+                "data": paginated_results,
+                "total": total_count,
+                "page": page,
+                "page_size": page_size,
+            }
+        except (ValueError, TypeError):
+            # If page/page_size conversion fails, return all results as list
+            pass
+
+    # Apply limit if specified (for backward compatibility)
     if limit:
         all_results = all_results[: int(limit)]
 

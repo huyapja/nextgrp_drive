@@ -1,36 +1,37 @@
 <template>
-  <Navbar
-    v-if="!verify?.error && !getEntities.error"
-    :actions="
-      verify?.data &&
-      actionItems
-        .filter((k) => k.isEnabled?.(verify.data))
-        .slice(1)
-        .toSpliced(4, 1)
-        .map((k) => ({ ...k, onClick: () => k.action([verify.data]) }))
-    "
-    :trigger-root="
-      () => ((selections = new Set()), store.commit('setActiveEntity', null))
-    "
-    :root-resource="verify"
-    @show-team-members="emit('show-team-members')"
-  />
+  <div class="flex flex-col h-full min-h-0 overflow-hidden">
+    <Navbar
+      v-if="!verify?.error && !getEntities.error"
+      :actions="
+        verify?.data &&
+        actionItems
+          .filter((k) => k.isEnabled?.(verify.data))
+          .slice(1)
+          .toSpliced(4, 1)
+          .map((k) => ({ ...k, onClick: () => k.action([verify.data]) }))
+      "
+      :trigger-root="
+        () => ((selections = new Set()), store.commit('setActiveEntity', null))
+      "
+      :root-resource="verify"
+      @show-team-members="emit('show-team-members')"
+    />
 
-  <ErrorPage
-    v-if="verify?.error || getEntities.error"
-    :error="verify?.error || getEntities.error"
-  />
+    <ErrorPage
+      v-if="verify?.error || getEntities.error"
+      :error="verify?.error || getEntities.error"
+    />
 
-  <div
-    v-else
-    ref="container"
-    class="flex flex-col flex-1 bg-surface-white min-h-0 h-full"
-    :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }"
-    >
+    <div
+      v-else
+      ref="container"
+      class="flex flex-col flex-1 bg-surface-white min-h-0 overflow-hidden"
+      :style="{ paddingBottom: isMobile ? bottomBarHeight : '0' }"
+      >
     <!-- Content Area with Team Members -->
-    <div class="flex flex-1 min-h-0 h-full">
+    <div class="flex flex-1 min-h-0">
       <!-- Main Content -->
-      <div class="flex-1 flex flex-col min-h-0 h-full">
+      <div class="flex-1 flex flex-col min-h-0">
         <DriveToolBar
           v-model="rows"
           :action-items="actionItems"
@@ -76,6 +77,7 @@
       </div>
     </div>
     <InfoPopup :entities="infoEntities" />
+    </div>
   </div>
 
   <Dialogs
@@ -170,6 +172,7 @@ const rows = ref(props.getEntities.data)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const totalRecords = ref(0)
+const isAutoNavigatingToPage1 = ref(false) // Flag để tránh vòng lặp khi tự động quay về trang 1
 
 // Filter and search state
 const activeFilters = ref([])
@@ -212,7 +215,7 @@ onUnmounted(() => {
 
 watch(
   () => props.getEntities.data,
-  (val) => {
+  async (val) => {
     if (!val) {
       rows.value = null
       totalRecords.value = 0
@@ -221,14 +224,41 @@ watch(
     
     // Handle paginated response
     if (typeof val === 'object' && 'data' in val && 'total' in val) {
+      const responsePage = Number(val.page) || currentPage.value
       totalRecords.value = Number(val.total) || 0
       rows.value = val.data
       console.log("GenericPage watch - paginated response:", {
         total: val.total,
         totalRecords: totalRecords.value,
         rowsLength: rows.value.length,
-        dataType: typeof val.total
+        page: responsePage,
+        currentPage: currentPage.value
       })
+      
+      // Nếu trang hiện tại không còn dữ liệu nhưng vẫn có tổng số bản ghi > 0
+      // và đang ở trang > 1, thì quay về trang 1
+      if (rows.value.length === 0 && totalRecords.value > 0 && responsePage > 1 && !isAutoNavigatingToPage1.value) {
+        console.log("Trang hiện tại trống, quay về trang 1")
+        isAutoNavigatingToPage1.value = true
+        currentPage.value = 1
+        // Fetch lại với trang 1
+        try {
+          await props.getEntities.fetch(buildApiParams())
+        } catch (error) {
+          console.error("Error fetching page 1:", error)
+        } finally {
+          // Reset flag sau khi fetch xong
+          setTimeout(() => {
+            isAutoNavigatingToPage1.value = false
+          }, 100)
+        }
+        return
+      }
+      
+      // Reset flag nếu không phải trường hợp tự động quay về trang 1
+      if (isAutoNavigatingToPage1.value && rows.value.length > 0) {
+        isAutoNavigatingToPage1.value = false
+      }
     } else if (Array.isArray(val)) {
       // For backward compatibility with non-paginated response
       rows.value = val

@@ -71,11 +71,45 @@ export const getRecents = createResource({
   transform(data) {
     if (!data) return data
 
-    const transformedData = data.map((item) => ({
-      ...item,
-      team_name: item.is_private === 1 ? null : item.team_name,
-    }))
-    return prettyData(transformedData)
+    // Frappe-ui automatically extracts message field, but handle both cases
+    let actualData = data
+    
+    // If data is wrapped in message field (frappe response format)
+    if (data && typeof data === 'object' && 'message' in data && data.message) {
+      actualData = data.message
+    }
+
+    // Handle paginated response {data: [...], total: X, page: Y, page_size: Z}
+    if (actualData && typeof actualData === 'object' && actualData !== null && !Array.isArray(actualData) && 'data' in actualData) {
+      if (Array.isArray(actualData.data)) {
+        const transformedData = actualData.data.map((item) => ({
+          ...item,
+          team_name: item.is_private === 1 ? null : item.team_name,
+        }))
+        return {
+          ...actualData,
+          data: prettyData(transformedData)
+        }
+      } else {
+        // If data field exists but is not an array, log warning
+        console.warn('getRecents: data field is not an array:', actualData)
+        return actualData
+      }
+    }
+    
+    // Handle non-paginated response (backward compatibility - array)
+    if (Array.isArray(actualData)) {
+      const transformedData = actualData.map((item) => ({
+        ...item,
+        team_name: item.is_private === 1 ? null : item.team_name,
+      }))
+      return prettyData(transformedData)
+    }
+
+    // If actualData is not an array and not a paginated response, return as is
+    // This handles edge cases where API might return something unexpected
+    console.warn('getRecents: Unexpected data format:', actualData)
+    return actualData
   },
 })
 
@@ -98,11 +132,45 @@ export const getFavourites = createResource({
   transform(data) {
     if (!data) return data
 
-    const transformedData = data.map((item) => ({
-      ...item,
-      team_name: item.is_private === 1 ? null : item.team_name,
-    }))
-    return prettyData(transformedData)
+    // Frappe-ui automatically extracts message field, but handle both cases
+    let actualData = data
+    
+    // If data is wrapped in message field (frappe response format)
+    if (data && typeof data === 'object' && 'message' in data && data.message) {
+      actualData = data.message
+    }
+
+    // Handle paginated response {data: [...], total: X, page: Y, page_size: Z}
+    if (actualData && typeof actualData === 'object' && actualData !== null && !Array.isArray(actualData) && 'data' in actualData) {
+      if (Array.isArray(actualData.data)) {
+        const transformedData = actualData.data.map((item) => ({
+          ...item,
+          team_name: item.is_private === 1 ? null : item.team_name,
+        }))
+        return {
+          ...actualData,
+          data: prettyData(transformedData)
+        }
+      } else {
+        // If data field exists but is not an array, log warning
+        console.warn('getFavourites: data field is not an array:', actualData)
+        return actualData
+      }
+    }
+    
+    // Handle non-paginated response (backward compatibility - array)
+    if (Array.isArray(actualData)) {
+      const transformedData = actualData.map((item) => ({
+        ...item,
+        team_name: item.is_private === 1 ? null : item.team_name,
+      }))
+      return prettyData(transformedData)
+    }
+
+    // If actualData is not an array and not a paginated response, return as is
+    // This handles edge cases where API might return something unexpected
+    console.warn('getFavourites: Unexpected data format:', actualData)
+    return actualData
   },
 })
 
@@ -273,11 +341,36 @@ export const toggleFav = createResource({
     }
     
     getFavourites.setData((d) => {
+      if (!d) return d
+      
+      // Handle paginated response {data: [...], total: X, page: Y, page_size: Z}
+      let favouritesArray = []
+      let isPaginated = false
+      let paginationMeta = {}
+      
+      if (typeof d === 'object' && 'data' in d && Array.isArray(d.data)) {
+        // Paginated response
+        isPaginated = true
+        favouritesArray = d.data
+        paginationMeta = {
+          total: d.total,
+          page: d.page,
+          page_size: d.page_size
+        }
+      } else if (Array.isArray(d)) {
+        // Non-paginated response (array)
+        favouritesArray = d
+      } else {
+        console.warn('toggleFav: Unexpected getFavourites data format:', d)
+        return d
+      }
+      
       const currentFavourites = new Set(
-        d.map((item) => (item.is_shortcut ? item.shortcut_name : item.name))
+        favouritesArray.map((item) => (item.is_shortcut ? item.shortcut_name : item.name))
       )
 
-      let updatedFavourites = [...d]
+      let updatedFavourites = [...favouritesArray]
+      let removedCount = 0
 
       data.entities.forEach((entity) => {
         const entityId = entity.is_shortcut ? entity.shortcut_name : entity.name
@@ -291,15 +384,28 @@ export const toggleFav = createResource({
           }
         } else {
           // Xóa khỏi favourites nếu có
+          const beforeLength = updatedFavourites.length
           updatedFavourites = updatedFavourites.filter((item) => {
             const itemId = item.is_shortcut ? item.shortcut_name : item.name
             return itemId !== entityId
           })
-          currentFavourites.delete(entityId)
+          if (updatedFavourites.length < beforeLength) {
+            removedCount++
+            currentFavourites.delete(entityId)
+          }
         }
       })
 
-      return updatedFavourites
+      // Return in the same format as input
+      if (isPaginated) {
+        return {
+          ...paginationMeta,
+          total: Math.max(0, (paginationMeta.total || 0) - removedCount),
+          data: updatedFavourites
+        }
+      } else {
+        return updatedFavourites
+      }
     })
     
     // QUAN TRỌNG: Gửi đúng format cho backend
@@ -352,24 +458,60 @@ export const clearRecent = createResource({
       getRecents.setData([])
       return { clear_all: true }
     }
-    const entity_names = data.entities.map(({ name }) => name)
-    getRecents.setData((d) =>
-      d.filter(({ name }) => !entity_names.includes(name))
-    )
+    
+    // Handle both { entities: [...] } and direct array
+    const entities = data.entities || (Array.isArray(data) ? data : [])
+    
+    if (!Array.isArray(entities) || entities.length === 0) {
+      console.warn('clearRecent: Invalid entities format', data)
+      return { clear_all: false, entity_names: [] }
+    }
+    
+    const entity_names = entities.map((entity) => {
+      // Handle both entity object and entity name string
+      if (typeof entity === 'string') {
+        return entity
+      }
+      return entity.name || entity.shortcut_name || entity
+    }).filter(Boolean)
+    
+    // Update local data - handle both paginated and non-paginated response
+    const currentData = getRecents.data
+    if (currentData) {
+      if (typeof currentData === 'object' && 'data' in currentData && Array.isArray(currentData.data)) {
+        // Paginated response
+        const filteredData = currentData.data.filter(({ name, shortcut_name, is_shortcut }) => {
+          const entityName = is_shortcut ? shortcut_name : name
+          return !entity_names.includes(entityName)
+        })
+        getRecents.setData({
+          ...currentData,
+          data: filteredData,
+          total: Math.max(0, (currentData.total || 0) - entity_names.length)
+        })
+      } else if (Array.isArray(currentData)) {
+        // Non-paginated response
+        const filteredData = currentData.filter(({ name, shortcut_name, is_shortcut }) => {
+          const entityName = is_shortcut ? shortcut_name : name
+          return !entity_names.includes(entityName)
+        })
+        getRecents.setData(filteredData)
+      }
+    }
+    
     return {
       entity_names,
     }
   },
   onSuccess: () => {
-    const files = clearRecent.params.entity_names?.length
-    toast(
-      files
-        ? __("Removed {0} file{1} from Recents.").format(
-            files,
-            files === 1 ? "" : "s"
-          )
-        : __("Removed all files from Recents.")
-    )
+    const files = clearRecent.params?.entity_names?.length || 0
+    if (files > 0) {
+      toast(
+        __("Đã xóa {0} tệp khỏi Gần đây.").format(files)
+      )
+    }
+    // Reload data to ensure consistency
+    getRecents.fetch()
   },
 })
 
