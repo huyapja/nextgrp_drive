@@ -75,7 +75,7 @@
     v-if="dialog === 's'"
     v-model="dialog"
     :entity="selections[0]"
-    @success="handleRefresh"
+    @success="handleShareSuccess"
   />
 
   <MoveOwnerDialog
@@ -229,8 +229,43 @@ const handleRefresh = () => {
   }
 }
 
+const handleShareSuccess = () => {
+  // Đợi một chút để đảm bảo backend đã cập nhật share_count
+  setTimeout(async () => {
+    if (props.getEntities) {
+      // Dùng reload() để clear cache và fetch lại dữ liệu mới nhất
+      if (props.getEntities.reload) {
+        await props.getEntities.reload()
+      } else if (props.getEntities.fetch) {
+        // Fallback: nếu không có reload, dùng fetch với params hiện tại
+        await props.getEntities.fetch(props.getEntities.params)
+      }
+      
+      // Force update bằng cách tạo object/array mới hoàn toàn
+      // Đảm bảo Vue detect được thay đổi
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
+      const currentData = props.getEntities.data
+      if (currentData) {
+        if (currentData && typeof currentData === 'object' && 'data' in currentData) {
+          // Paginated response - tạo object mới hoàn toàn
+          props.getEntities.setData({
+            ...currentData,
+            data: currentData.data.map(item => ({ ...item }))
+          })
+        } else if (Array.isArray(currentData)) {
+          // Non-paginated response - tạo array mới hoàn toàn
+          props.getEntities.setData(currentData.map(item => ({ ...item })))
+        }
+      }
+    }
+  }, 500)
+}
+
 function addFromList() {
-  props.getEntities.fetch()
+  if (props.getEntities?.fetch) {
+    props.getEntities.fetch()
+  }
   resetDialog()
 }
 

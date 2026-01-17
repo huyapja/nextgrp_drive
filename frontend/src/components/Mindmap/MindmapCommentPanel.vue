@@ -373,41 +373,41 @@
 
 <script setup>
 
-import { ref, watch, computed, nextTick, inject, defineExpose, onMounted, onBeforeUnmount, provide } from "vue"
 import { call, createResource } from "frappe-ui"
+import { Dialog, Galleria, Tooltip } from "primevue"
+import Image from 'primevue/image'
+import { computed, defineExpose, inject, nextTick, onBeforeUnmount, onMounted, provide, ref, watch } from "vue"
 import { useRoute } from "vue-router"
 import { useStore } from "vuex"
 import CustomAvatar from "../CustomAvatar.vue"
-import { Dialog, Galleria, Tooltip } from "primevue"
-import { useMindmapCommentRealtime } from "./composables/useMindmapCommentRealtime"
-import { useMindmapCommentNavigation } from "./composables/useMindmapCommentNavigation"
-import { useMindmapCommentData } from "./composables/useMindmapCommentData"
-import { useMindmapCommentInput } from "./composables/useMindmapCommentInput"
-import { useMindmapCommentEditInput } from "./composables/useMindmapCommentEditInput"
-import { useScrollToActiveNode } from "./composables/useScrollToActiveNode"
-import { useMindmapCommentMenu } from "./composables/useMindmapCommentMenu"
-import { useMindmapAPI } from "./composables/useMindmapAPI"
-import CommentEditor from "./MindmapCommentEditor.vue"
 import { useCommentRefs } from "./composables/useCommentRefs"
+import { useMindmapAPI } from "./composables/useMindmapAPI"
+import { useMindmapCommentData } from "./composables/useMindmapCommentData"
+import { useMindmapCommentEditInput } from "./composables/useMindmapCommentEditInput"
 import { useMindmapCommentImageUpload } from "./composables/useMindmapCommentImageUpload"
-import Image from 'primevue/image';
+import { useMindmapCommentInput } from "./composables/useMindmapCommentInput"
+import { useMindmapCommentMenu } from "./composables/useMindmapCommentMenu"
+import { useMindmapCommentNavigation } from "./composables/useMindmapCommentNavigation"
+import { useMindmapCommentRealtime } from "./composables/useMindmapCommentRealtime"
+import { useScrollToActiveNode } from "./composables/useScrollToActiveNode"
+import CommentEditor from "./MindmapCommentEditor.vue"
 
-import { useMindmapGallery } from "./composables/useMindmapGallery"
-import { useGalleryZoom } from "./composables/useGalleryZoom"
-import { useParsedComments } from "./composables/useParsedComments"
-import { usePanelClose } from "./composables/usePanelClose"
 import { useClickOutsideToResetActiveNode } from "./composables/useClickOutsideToResetActiveNode"
-import { useResolvedNode } from "./composables/useResolvedNode"
+import { useGalleryZoom } from "./composables/useGalleryZoom"
 import { useMindmapCommentReactions } from './composables/useMindmapCommentReactions'
+import { useMindmapGallery } from "./composables/useMindmapGallery"
+import { usePanelClose } from "./composables/usePanelClose"
+import { useParsedComments } from "./composables/useParsedComments"
+import { useResolvedNode } from "./composables/useResolvedNode"
 
 
-import MindmapCommentHistory from './MindmapCommentHistory.vue'
 import Popover from "primevue/popover"
 import { useToast } from "primevue/usetoast"
+import MindmapCommentHistory from './MindmapCommentHistory.vue'
 
 
-import { timeAgo } from "./utils/timeAgo"
 import MindmapCommentQuickReaction from "./MindmapCommentQuickReaction.vue"
+import { timeAgo } from "./utils/timeAgo"
 
 // -----------------------------
 const props = defineProps({
@@ -437,6 +437,8 @@ const previewImages = ref([])
 const hasLoadedOnce = ref(false)
 const openMenuCommentId = ref(null)
 const hashCommentIdInternal = ref(null)
+// Track comments being submitted to prevent duplicate from realtime
+const pendingCommentIds = ref(new Set())
 const hasData = ref(false)
 const isUploadingImage = ref(false)
 const pendingScroll = ref(null)
@@ -593,7 +595,9 @@ const {
   entityName,
   emit,
   previewImages,
-  commentEditorRef
+  commentEditorRef,
+  comments, // Pass comments ref to add comment immediately after submit
+  pendingCommentIds, // Pass ref to Set to track pending comments
 })
 
 const submittingMap = ref({})
@@ -797,7 +801,8 @@ useMindmapCommentRealtime({
   socket,
   entityName,
   comments,
-  activeGroupKey
+  activeGroupKey,
+  pendingCommentIds, // Pass ref to Set to track pending comments
 })
 
 

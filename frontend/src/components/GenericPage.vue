@@ -226,7 +226,8 @@ watch(
     if (typeof val === 'object' && 'data' in val && 'total' in val) {
       const responsePage = Number(val.page) || currentPage.value
       totalRecords.value = Number(val.total) || 0
-      rows.value = val.data
+      // Tạo array mới để đảm bảo Vue detect được thay đổi
+      rows.value = val.data ? [...val.data] : []
       console.log("GenericPage watch - paginated response:", {
         total: val.total,
         totalRecords: totalRecords.value,
@@ -261,7 +262,8 @@ watch(
       }
     } else if (Array.isArray(val)) {
       // For backward compatibility with non-paginated response
-      rows.value = val
+      // Tạo array mới để đảm bảo Vue detect được thay đổi
+      rows.value = [...val]
       totalRecords.value = val.length
       console.log("GenericPage watch - array response, totalRecords:", totalRecords.value)
     } else {
@@ -271,7 +273,7 @@ watch(
       console.log("GenericPage watch - fallback, totalRecords:", totalRecords.value)
     }
   },
-  { immediate: true }
+  { immediate: true, deep: true }
 )
 
 // Reset to first page when sorting changes

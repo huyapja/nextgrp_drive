@@ -322,6 +322,7 @@ const props = defineProps({
 })
 
 const copyLoading = ref(false)
+const successHandled = ref(false)
 const currentTeam = ref(null)
 
 // Tree structures
@@ -1055,29 +1056,20 @@ function performCopy() {
   //   }
 
   copyLoading.value = true
-  const movePromise = moveResource.submit({
+  successHandled.value = false
+  moveResource.submit({
     entity_name: props.entities[0].name,
     new_parent: currentFolder.value,
     is_private: breadcrumbs.value[breadcrumbs.value.length - 1].is_private,
     team: currentTeam.value,
   })
-
-  movePromise
-    .then(() => {
-      copyLoading.value = false
-      emit("success")
-      open.value = false
-    })
-    .catch((error) => {
-      copyLoading.value = false
-      console.error("Move failed:", error)
-    })
 }
 
 const moveResource = createResource({
   url: "drive.api.files.copy_file_or_folder",
   onSuccess: (data) => {
     copyLoading.value = false
+    successHandled.value = true
     // Show success message
     console.log("Move success:", breadcrumbs.value, data)
     toast(__("Đã sao chép đến") + " " + breadcrumbs.value[breadcrumbs.value.length - 1].title)
@@ -1086,6 +1078,29 @@ const moveResource = createResource({
   },
   onError: (error) => {
     copyLoading.value = false
+    
+    // If success was already handled, don't show error toast
+    if (successHandled.value) {
+      return
+    }
+    
+    // Check if this is actually an error or just a warning
+    // If onSuccess was already called, don't show error toast
+    if (moveResource.data) {
+      // Success data exists, this might be a false error
+      // Only show error if there's a real error message
+      const hasRealError = error?.messages?.length || 
+                          error?._server_messages || 
+                          (error?.exception && !error.exception.includes("Warning"))
+      
+      if (!hasRealError) {
+        // Likely a false error, don't show toast
+        successHandled.value = true
+        emit("success")
+        open.value = false
+        return
+      }
+    }
     
     let errorMessage = __("Tạo bản sao thất bại")
     let serverMessage = ""
@@ -1120,11 +1135,14 @@ const moveResource = createResource({
     if (serverMessage?.includes("không tồn tại") || serverMessage?.includes("đã bị xóa")) {
       errorMessage = __("Tệp gốc không còn tồn tại")
       emit("success")
+      open.value = false
     } else if (serverMessage && !serverMessage.includes("Traceback") && !serverMessage.includes("/api/")) {
       errorMessage = serverMessage
+      toast(errorMessage)
+    } else {
+      // Only show error toast if there's a real error
+      toast(errorMessage)
     }
-    
-    toast(errorMessage)
   },
 })
 
