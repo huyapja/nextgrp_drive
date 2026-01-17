@@ -6,16 +6,15 @@
 
       panelPositionClass,
 
-      enableSlideAnimation && 'transition-all duration-300',
-      enableSlideAnimation
-        ? (visible ? 'translate-x-0' : 'translate-x-full')
-        : 'translate-x-0',
+      visible && 'transition-all duration-300',
+      (visible ? 'translate-x-0' : 'translate-x-full'),
 
-      enableSlideAnimation && closing && 'animate-slide-out'
+
+      closing && 'animate-slide-out'
     ]">
       <!-- Header -->
       <div class="flex py-4 px-3 items-center">
-        <p v-if="enableSlideAnimation" class="font-medium">Nhận xét ({{ totalComments }})</p>
+        <p class="font-medium">Nhận xét ({{ totalComments }})</p>
         <Popover @hide="clearCommentIdFromUrl" :dismissable="!galleryVisible" ref="op"
           class="w-[360px] history-mindmap-popover">
           <MindmapCommentHistory :visible="isHistoryOpen" :mindmapId="entityName" :scrollTarget="historyScrollTarget"
@@ -25,7 +24,7 @@
           <i ref="historyIconRef" @click="toggleHistory"
             v-tooltip.top="{ value: 'Lịch sử bình luận', pt: { text: { class: ['text-[12px]'] } } }"
             class="pi pi-history cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out" />
-          <i v-if="enableSlideAnimation" v-tooltip.top="{ value: 'Đóng', pt: { text: { class: ['text-[12px]'] } } }"
+          <i v-tooltip.top="{ value: 'Đóng', pt: { text: { class: ['text-[12px]'] } } }"
             class="pi pi-times cursor-pointer hover:text-[#3b82f6] transition-all duration-200 ease-out ml-5"
             @click="handleClose" />
         </div>
@@ -302,52 +301,51 @@
       </div>
     </div>
     <Teleport to=" body">
-                  <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
-                    class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
-                    <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2"
-                      @click="handleEditAndFocus">
-                      <span>Chỉnh sửa</span>
-                    </div>
+      <div v-if="activeComment" :style="dropdownStyle" data-comment-dropdown
+        class="w-[160px] bg-white border rounded-lg shadow-lg py-1 text-xs text-gray-700">
+        <div class="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2" @click="handleEditAndFocus">
+          <span>Chỉnh sửa</span>
+        </div>
 
-                    <div class="px-3 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-2"
-                      @click="handleDeleteComment(deleteComment)">
-                      <span>Xoá</span>
-                    </div>
-                  </div>
-  </Teleport>
+        <div class="px-3 py-2 hover:bg-red-50 text-red-600 cursor-pointer flex items-center gap-2"
+          @click="handleDeleteComment(deleteComment)">
+          <span>Xoá</span>
+        </div>
+      </div>
+    </Teleport>
 
-  <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header"
-    contentClass="!p-0">
-    <Galleria :value="galleryItems" v-model:activeIndex="galleryIndex" :responsiveOptions="[
-      { breakpoint: '1400px', numVisible: 5 },
-      { breakpoint: '1024px', numVisible: 4 },
-      { breakpoint: '768px', numVisible: 3 },
-      { breakpoint: '560px', numVisible: 2 }
-    ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false"
-      containerStyle="width: 100%; height: 100%;" class="w-full h-full">
-      <!-- Ảnh full -->
-      <template #item="{ item }">
-        <div class="flex items-center justify-center w-full h-full overflow-hidden">
-          <!-- ROTATE LAYER -->
-          <div class="flex items-center justify-center transition-transform duration-200" :style="{
-            transform: `rotate(${rotateDeg}deg)`
-          }">
-            <!-- SCALE LAYER -->
-            <div class="transition-transform duration-150" :style="{
-              transform: `scale(${imageScale})`,
-              transformOrigin: `${originX}% ${originY}%`
-            }" @wheel="handleImageWheel">
-              <img :src="item.itemImageSrc" draggable="false"
-                class="max-w-full max-h-[70vh] object-contain select-none pointer-events-none" />
+    <Dialog :showHeader="false" dismissableMask v-model:visible="galleryVisible" modal class="hide-dialog-header"
+      contentClass="!p-0">
+      <Galleria :value="galleryItems" v-model:activeIndex="galleryIndex" :responsiveOptions="[
+        { breakpoint: '1400px', numVisible: 5 },
+        { breakpoint: '1024px', numVisible: 4 },
+        { breakpoint: '768px', numVisible: 3 },
+        { breakpoint: '560px', numVisible: 2 }
+      ]" :showThumbnails="false" :showIndicators="false" :fullScreen="false"
+        containerStyle="width: 100%; height: 100%;" class="w-full h-full">
+        <!-- Ảnh full -->
+        <template #item="{ item }">
+          <div class="flex items-center justify-center w-full h-full overflow-hidden">
+            <!-- ROTATE LAYER -->
+            <div class="flex items-center justify-center transition-transform duration-200" :style="{
+              transform: `rotate(${rotateDeg}deg)`
+            }">
+              <!-- SCALE LAYER -->
+              <div class="transition-transform duration-150" :style="{
+                transform: `scale(${imageScale})`,
+                transformOrigin: `${originX}% ${originY}%`
+              }" @wheel="handleImageWheel">
+                <img :src="item.itemImageSrc" draggable="false"
+                  class="max-w-full max-h-[70vh] object-contain select-none pointer-events-none" />
+              </div>
             </div>
           </div>
-        </div>
-      </template>
+        </template>
 
 
 
-    </Galleria>
-    <div v-if="galleryVisible" class="
+      </Galleria>
+      <div v-if="galleryVisible" class="
   absolute top-4 right-6 z-20
   flex items-center gap-2
   px-3 py-1
@@ -356,15 +354,16 @@
   bg-black/60 text-white
   select-none
 ">
-      {{ galleryCounterText }}
+        {{ galleryCounterText }}
 
-      <div class="flex gap-2 ml-2 border-l border-white/30 pl-2">
-        <i class="pi pi-refresh cursor-pointer hover:text-blue-400" title="Xoay trái" @click="rotateLeft" />
-        <i class="pi pi-refresh cursor-pointer rotate-180 hover:text-blue-400" title="Xoay phải" @click="rotateRight" />
+        <div class="flex gap-2 ml-2 border-l border-white/30 pl-2">
+          <i class="pi pi-refresh cursor-pointer hover:text-blue-400" title="Xoay trái" @click="rotateLeft" />
+          <i class="pi pi-refresh cursor-pointer rotate-180 hover:text-blue-400" title="Xoay phải"
+            @click="rotateRight" />
+        </div>
       </div>
-    </div>
 
-  </Dialog>
+    </Dialog>
 
   </Teleport>
 
@@ -457,8 +456,8 @@ const enableSlideAnimation = computed(() => {
 
 const panelPositionClass = computed(() => {
   return enableSlideAnimation.value
-    ? 'right-0 top-[70px] bottom-[0px]'
-    : 'right-5 top-[70px] bottom-[0px]'
+    ? 'right-0 top-[50px] bottom-[0px]'
+    : 'right-0 top-[48px] bottom-[0px]'
 })
 
 const suppressAutoOpenFromQuery =
@@ -1450,29 +1449,6 @@ watch(
   },
   { once: true }
 )
-
-function ensureCommentSession(nodeId) {
-  if (!nodeId) return
-
-  const hasSession = comments.value.some(
-    c => c.node_id === nodeId && c.session_index === 1
-  )
-
-  if (hasSession) return
-
-  comments.value.push({
-    __draft: true,
-    name: `${nodeId}-1`,
-    node_id: nodeId,
-    session_index: 1,
-    content: "",
-    creation: new Date().toISOString(),
-    modified: new Date().toISOString(),
-    user: currentUser.value,
-  })
-}
-
-// provide("ensureCommentSession", ensureCommentSession)
 
 </script>
 
