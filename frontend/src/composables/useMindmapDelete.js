@@ -82,8 +82,15 @@ export function useMindmapDelete({
    * Thực hiện xóa node (cascade)
    */
   const performDelete = async (nodeId) => {
-    // Lưu snapshot trước khi xóa
-    saveSnapshot()
+    // ⚠️ FIX: Lưu snapshot trước khi xóa
+    // Đảm bảo luôn lưu snapshot khi xóa node để có thể undo
+    console.log('[Delete] 💾 Gọi saveSnapshot() trước khi xóa node:', nodeId)
+    
+    // ⚠️ CRITICAL: Force save snapshot khi xóa node
+    // Lý do: saveSnapshot() được gọi TRƯỚC khi node bị xóa khỏi elements.value
+    // Nếu không force, nó sẽ so sánh và thấy không có thay đổi (vì node chưa bị xóa) → skip
+    // Force = true để đảm bảo luôn lưu snapshot trước khi xóa node
+    saveSnapshot(true)
 
     const nodesToDelete = new Set([nodeId])
 

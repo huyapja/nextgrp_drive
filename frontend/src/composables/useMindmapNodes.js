@@ -1,5 +1,5 @@
-import { computeInsertAfterAnchor } from '@/components/Mindmap/components/engine/nodeOrderEngine'
-import { scrollToNode, scrollToNodeMinimal } from '@/utils/d3mindmap/viewUtils'
+import { computeInsertAfterAnchor, computeInsertAsLastChild } from '@/components/Mindmap/components/engine/nodeOrderEngine'
+import { scrollToNode, scrollToNodeMinimal, scrollToNodeVertical } from '@/utils/d3mindmap/viewUtils'
 import { toast } from '@/utils/toasts'
 import { nextTick } from 'vue'
 
@@ -69,6 +69,28 @@ export function useMindmapNodes({
     tryScroll()
   }
 
+  const scrollToNodeVerticalWithRetry = (nodeId, maxRetries = 10, delay = 100) => {
+    if (!d3Renderer.value || !nodeId) return
+    
+    let retries = 0
+    
+    const tryScroll = () => {
+      if (d3Renderer.value.positions && d3Renderer.value.positions.has(nodeId)) {
+        scrollToNodeVertical(d3Renderer.value, nodeId, { margin: 80 })
+        return
+      }
+      
+      retries++
+      if (retries < maxRetries) {
+        setTimeout(tryScroll, delay)
+      } else {
+        console.warn('Failed to scroll to node after retries:', nodeId)
+      }
+    }
+    
+    tryScroll()
+  }
+
   const addChildToNode = async (parentId) => {
     if (!permissions.value.write) {
       toast.error("Bạn không có quyền thêm node mới")
@@ -83,13 +105,21 @@ export function useMindmapNodes({
 
     const newNodeId = generateNodeId()
 
+    // ⚠️ FIX: Tính order để node mới ở dưới cùng so với các node con cùng cấp
+    const newOrder = computeInsertAsLastChild({
+      nodes: nodes.value,
+      parentId: parentId,
+      orderStore: nodeCreationOrder.value,
+    })
+
     const newNode = {
       id: newNodeId,
       node_key: crypto.randomUUID(),
       created_at: Date.now(), 
       data: {
         label: 'Nhánh mới',
-        parentId: parentId
+        parentId: parentId,
+        order: newOrder
       }
     }
 
@@ -99,7 +129,7 @@ export function useMindmapNodes({
       target: newNodeId
     }
 
-    nodeCreationOrder.value.set(newNodeId, creationOrderCounter++)
+    nodeCreationOrder.value.set(newNodeId, newOrder)
 
     elements.value = [
       ...nodes.value,
@@ -469,7 +499,8 @@ export function useMindmapNodes({
     getNodeSize,
     copyNode,
     setCreationOrderCounter,
-    scrollToNodeWithRetry
+    scrollToNodeWithRetry,
+    scrollToNodeVerticalWithRetry
   }
 }
 
