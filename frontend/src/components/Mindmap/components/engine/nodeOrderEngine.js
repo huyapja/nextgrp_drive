@@ -190,6 +190,35 @@ export function computeInsertAsFirstChild({
   return minOrder - 1
 }
 
+export function computeInsertAsLastChild({
+  nodes,
+  parentId,
+  orderStore,
+}) {
+  const siblings = nodes.filter(
+    n => n.data.parentId === parentId
+  )
+
+  // chưa có con nào → node đầu tiên
+  if (!siblings.length) {
+    return 1
+  }
+
+  let maxOrder = -Infinity
+
+  siblings.forEach(n => {
+    const o =
+      orderStore.get(n.id) ??
+      n.data.order ??
+      0
+
+    if (o > maxOrder) maxOrder = o
+  })
+
+  // chèn xuống cuối
+  return maxOrder + 1
+}
+
 export function moveNodeAsLastChild({
   nodeId,
   newParentId,

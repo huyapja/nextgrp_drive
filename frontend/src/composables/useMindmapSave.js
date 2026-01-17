@@ -88,6 +88,28 @@ export function useMindmapSave({
 
     const { count, ...nodeData } = node
     const nodeWithPos = { ...nodeData }
+    
+    // ⚠️ FIX: Nếu editor đang mount, lấy label từ editor.getHTML() thay vì node.data.label
+    // Tránh dùng label bị corrupt từ realtime update
+    if (d3Renderer) {
+      const editorInstance = d3Renderer.getEditorInstance?.(nodeId)
+      if (editorInstance && !editorInstance.isDestroyed && editorInstance.getHTML) {
+        const editorLabel = editorInstance.getHTML()
+        if (editorLabel) {
+          console.log('[DEBUG] 📝 Lấy label từ editor.getHTML() thay vì node.data.label:', {
+            nodeId,
+            editorLabelLength: editorLabel.length,
+            editorLabelPreview: editorLabel.substring(0, 100),
+            nodeLabelLength: nodeWithPos.data?.label?.length || 0,
+            nodeLabelPreview: nodeWithPos.data?.label?.substring(0, 100) || ''
+          })
+          if (!nodeWithPos.data) {
+            nodeWithPos.data = {}
+          }
+          nodeWithPos.data.label = editorLabel
+        }
+      }
+    }
 
     if (d3Renderer && d3Renderer.positions) {
       const pos = d3Renderer.positions.get(nodeId)

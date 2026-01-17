@@ -258,3 +258,78 @@ export function scrollToNodeMinimal(renderer, nodeId, options = {}) {
     )
 }
 
+/**
+ * Scroll to node vertically only - only adjusts Y position
+ * Keeps X position unchanged, only scrolls vertically to bring node into view
+ */
+export function scrollToNodeVertical(renderer, nodeId, options = {}) {
+  const { margin = 50 } = options
+  
+  if (!renderer.positions || !renderer.positions.has(nodeId)) {
+    console.warn('Node position not found:', nodeId)
+    return
+  }
+  
+  const pos = renderer.positions.get(nodeId)
+  if (!pos) {
+    console.warn('Node position is null:', nodeId)
+    return
+  }
+  
+  const node = renderer.nodes.find(n => n.id === nodeId)
+  if (!node) {
+    console.warn('Node not found:', nodeId)
+    return
+  }
+  
+  const size = renderer.nodeSizeCache.get(nodeId) || renderer.estimateNodeSize(node)
+  
+  const fullHeight = renderer.options.height
+  
+  const currentTransform = d3.zoomTransform(renderer.svg.node())
+  const scale = currentTransform.k
+  
+  // Calculate node bounds in screen coordinates (only Y)
+  const nodeScreenY = currentTransform.y + pos.y * scale
+  const nodeScreenHeight = size.height * scale
+  
+  // Calculate current viewport bounds (with margin) - only vertical
+  const viewTop = margin
+  const viewBottom = fullHeight - margin
+  
+  // Check if node is already fully visible vertically
+  const isVisible = 
+    nodeScreenY >= viewTop &&
+    nodeScreenY + nodeScreenHeight <= viewBottom
+  
+  if (isVisible) {
+    // Node is already visible vertically, no need to scroll
+    return
+  }
+  
+  // Calculate minimal vertical translation adjustment needed
+  let adjustY = 0
+  
+  // Vertical adjustment only
+  if (nodeScreenY < viewTop) {
+    // Node is too far up
+    adjustY = viewTop - nodeScreenY
+  } else if (nodeScreenY + nodeScreenHeight > viewBottom) {
+    // Node is too far down
+    adjustY = viewBottom - (nodeScreenY + nodeScreenHeight)
+  }
+  
+  // Apply vertical translation only (keep X unchanged)
+  const newTranslate = [
+    currentTransform.x, // Keep X unchanged
+    currentTransform.y + adjustY // Only adjust Y
+  ]
+  
+  renderer.svg.transition()
+    .duration(300)
+    .call(
+      renderer.zoom.transform,
+      d3.zoomIdentity.translate(newTranslate[0], newTranslate[1]).scale(scale)
+    )
+}
+

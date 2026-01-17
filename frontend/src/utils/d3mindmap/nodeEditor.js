@@ -1000,6 +1000,17 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	// Lưu HTML để giữ formatting (bold, italic, etc.)
 	let finalValue = editor ? editor.getHTML() : (nodeData.data?.label || '')
 	
+	// ⚠️ DEBUG: Log để kiểm tra encoding khi blur
+	console.log('[DEBUG] 📝 Editor blur - getHTML():', {
+		nodeId,
+		hasEditor: !!editor,
+		finalValueLength: finalValue.length,
+		finalValuePreview: finalValue.substring(0, 100),
+		finalValueFull: finalValue,
+		finalValueBytes: Array.from(new TextEncoder().encode(finalValue)).slice(0, 50),
+		nodeDataLabelBefore: nodeData.data?.label?.substring(0, 100) || ''
+	})
+	
 	const nodeGroup = d3.select(foElement.parentNode)
 	const rect = nodeGroup.select('.node-rect')
 	

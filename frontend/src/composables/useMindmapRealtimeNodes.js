@@ -308,12 +308,26 @@ export function useMindmapRealtimeNodes({
       const nodeIndex = nodes.value.findIndex(n => n.id === remoteNode.id)
       const isNodeBeingEdited = remoteNode.id === editingNodeId
       const isNodeSelected = remoteNode.id === selectedNodeId && remoteNode.id !== editingNodeId
+      const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
+      
+      // ⚠️ FIX: Không cập nhật elements.value nếu node đang được local user edit
+      // Tránh overwrite label đang được edit với label bị corrupt từ remote
+      const shouldUpdateElements = !isNodeBeingEdited && !isNodeSelected && !hasLocalChanges
       
       // ⚠️ CRITICAL: Phải update elements.value (không phải nodes.value vì nó là computed)
       const elementIndex = elements.value.findIndex(el => el.id === remoteNode.id && !el.source && !el.target)
       if (elementIndex !== -1) {
-        elements.value[elementIndex] = { ...remoteNode }
-        console.log('✅ Đã cập nhật node vào elements.value:', remoteNode.id)
+        if (shouldUpdateElements) {
+          elements.value[elementIndex] = { ...remoteNode }
+          console.log('✅ Đã cập nhật node vào elements.value:', remoteNode.id)
+        } else {
+          console.log('⏭️ Bỏ qua cập nhật elements.value vì node đang được local user edit:', {
+            nodeId: remoteNode.id,
+            isNodeBeingEdited,
+            isNodeSelected,
+            hasLocalChanges
+          })
+        }
       } else {
         elements.value.push({ ...remoteNode })
         console.log('✅ Đã thêm node mới vào elements.value:', remoteNode.id)
@@ -393,7 +407,32 @@ export function useMindmapRealtimeNodes({
           
           const d3Node = renderer.nodes.find(n => n.id === remoteNode.id)
           if (d3Node) {
-            d3Node.data.label = remoteNode.data.label
+            // ⚠️ FIX: Chỉ cập nhật label nếu node không đang được local user edit
+            // Tránh overwrite label đang được edit với label bị corrupt từ remote
+            const isLocalEditing = remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId
+            const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
+            
+            if (!isLocalEditing && !hasLocalChanges) {
+              // ⚠️ DEBUG: Log để kiểm tra encoding
+              const remoteLabel = remoteNode.data?.label || ''
+              console.log('[Realtime] 📝 Cập nhật d3Node.data.label:', {
+                nodeId: remoteNode.id,
+                labelLength: remoteLabel.length,
+                labelPreview: remoteLabel.substring(0, 100),
+                labelFull: remoteLabel,
+                isLocalEditing,
+                hasLocalChanges
+              })
+              
+              d3Node.data.label = remoteNode.data.label
+            } else {
+              console.log('[Realtime] ⏭️ Bỏ qua cập nhật label vì node đang được local user edit:', {
+                nodeId: remoteNode.id,
+                isLocalEditing,
+                hasLocalChanges
+              })
+            }
+            
             if (d3Node.data.fixedWidth || d3Node.data.fixedHeight) {
               delete d3Node.data.fixedWidth
               delete d3Node.data.fixedHeight

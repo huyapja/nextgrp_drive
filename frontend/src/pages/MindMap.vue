@@ -536,10 +536,12 @@ const {
 } = useMindmapClipboard()
 
 // Constants và variables cần giữ lại
-const SAVE_DELAY = 2000
+const SAVE_DELAY = 1000
 const TEXT_INPUT_SAVE_DELAY = 300
+const TEXT_INPUT_SNAPSHOT_DELAY = 100 // Debounce time để lưu snapshot khi nhập text (dài hơn để tránh tạo quá nhiều snapshots)
 let saveTimeout = null
 let textInputSaveTimeout = null
+let textInputSnapshotTimeout = null
 let nodeFocusTimeouts = []
 let nodeCounter = 0
 let creationOrderCounter = 0
@@ -615,7 +617,8 @@ const {
   getNodeSize,
   copyNode: copyNodeFromComposable,
   setCreationOrderCounter,
-  scrollToNodeWithRetry
+  scrollToNodeWithRetry,
+  scrollToNodeVerticalWithRetry
 } = nodeOperations
 
 // Setup Keyboard composable (Phase 5)
@@ -1097,6 +1100,17 @@ const initD3Renderer = () => {
         scheduleSave()
         textInputSaveTimeout = null
       }, TEXT_INPUT_SAVE_DELAY)
+      
+      // ⚠️ FIX: Lưu snapshot với debounce khi nhập text để có thể undo từng bước
+      // Debounce time dài hơn (1 giây) để tránh tạo quá nhiều snapshots
+      if (textInputSnapshotTimeout) {
+        clearTimeout(textInputSnapshotTimeout)
+      }
+      textInputSnapshotTimeout = setTimeout(() => {
+        console.log(`[TextInput] 💾 Lưu snapshot sau khi nhập text cho node ${nodeId}`)
+        saveSnapshot()
+        textInputSnapshotTimeout = null
+      }, TEXT_INPUT_SNAPSHOT_DELAY)
     },
     onNodeReorder: (nodeId, newOrder) => {
       // ⚠️ FIX: Lưu snapshot trước khi reorder
@@ -1142,9 +1156,10 @@ const initD3Renderer = () => {
       
       // ⚠️ CRITICAL: Lưu snapshot TRƯỚC khi bắt đầu edit
       // Đảm bảo có snapshot "before" để undo về
-      // Không force vì realtime handler đã force save khi nhận node mới
+      // Force = true để đảm bảo luôn lưu snapshot, ngay cả khi so sánh thấy không có thay đổi
+      // (vì node chưa được edit nên có thể so sánh thấy giống snapshot trước)
       console.log('[EditStart] 💾 Lưu snapshot trước khi bắt đầu edit node:', nodeId)
-      saveSnapshot()
+      saveSnapshot(true)
       
       editingNode.value = nodeId
       editingStartTime.value = Date.now()
@@ -1155,20 +1170,23 @@ const initD3Renderer = () => {
       // Chỉ khi KẾT THÚC edit mới đổi tên file nếu là node root
       const finishedNodeId = nodeId || editingNode.value
       console.log(`[EditEnd] ✅ Kết thúc edit node: ${finishedNodeId}`)
+      
+      // ⚠️ FIX: Clear text input snapshot timeout khi blur để đảm bảo snapshot được lưu ngay
+      if (textInputSnapshotTimeout) {
+        clearTimeout(textInputSnapshotTimeout)
+        textInputSnapshotTimeout = null
+      }
+      
       if (finishedNodeId) {
         const node = nodes.value.find(n => n.id === finishedNodeId)
         if (node) {
           // node.data.label đã được cập nhật trong renderer on('blur')
           
-          // ⚠️ FIX: CHỈ lưu snapshot nếu node có thay đổi thực sự (được đánh dấu trong changedNodeIds)
-          const hasChanges = changedNodeIds.value.has(finishedNodeId)
-          
-          if (hasChanges) {
-            console.log(`[EditEnd] 💾 Node có thay đổi, gọi saveSnapshot() cho node ${finishedNodeId}`)
-            saveSnapshot()
-          } else {
-            console.log(`[EditEnd] ⏭️ Node không có thay đổi, bỏ qua saveSnapshot() cho node ${finishedNodeId}`)
-          }
+          // ⚠️ FIX: Luôn lưu snapshot khi blur để đảm bảo có snapshot với nội dung đã nhập
+          // Không kiểm tra hasChanges vì ngay cả khi không có thay đổi, vẫn cần snapshot
+          // để đảm bảo undo hoạt động đúng (quay về trạng thái trước khi blur)
+          console.log(`[EditEnd] 💾 Lưu snapshot sau khi blur node ${finishedNodeId}`)
+          saveSnapshot()
 
           // Nếu là root node, đổi tên file
           if (node.id === 'root' || node.data?.isRoot) {
@@ -1187,6 +1205,7 @@ const initD3Renderer = () => {
           }
 
           // Lưu ngay lập tức nếu có thay đổi (không đợi debounce)
+          const hasChanges = changedNodeIds.value.has(finishedNodeId)
           if (hasChanges) {
             if (saveTimeout) {
               clearTimeout(saveTimeout)
@@ -1212,9 +1231,21 @@ const initD3Renderer = () => {
       hoveredNode.value = isHovering ? nodeId : null
     },
     onNodeCollapse: (nodeId, isCollapsed) => {
-      
       // Re-render sẽ được xử lý trong renderer
       updateD3Renderer()
+      
+      // ⚠️ FIX: Nếu collapse node, scroll theo chiều dọc đến node cha sau khi render xong
+      if (isCollapsed) {
+        // Đợi render xong rồi mới scroll
+        nextTick(() => {
+          setTimeout(() => {
+            if (d3Renderer && nodeId) {
+              // Scroll theo chiều dọc đến node cha vừa được collapse (không căn giữa)
+              scrollToNodeVerticalWithRetry(nodeId, 15, 150)
+            }
+          }, 300) // Delay để đảm bảo render đã hoàn tất
+        })
+      }
     },
     onRenderComplete: () => {
       // ⚠️ NEW: Scroll to node from hash sau khi render hoàn tất
@@ -2944,10 +2975,15 @@ const handleImportComplete = async () => {
 
 
 const handleBeforeUnload = (e) => {
-  if (textInputSaveTimeout || saveTimeout) {
+  if (textInputSaveTimeout || saveTimeout || textInputSnapshotTimeout) {
     if (textInputSaveTimeout) {
       clearTimeout(textInputSaveTimeout)
       textInputSaveTimeout = null
+    }
+    if (textInputSnapshotTimeout) {
+      clearTimeout(textInputSnapshotTimeout)
+      saveSnapshot()
+      textInputSnapshotTimeout = null
     }
     if (saveTimeout) {
       clearTimeout(saveTimeout)
@@ -2959,10 +2995,15 @@ const handleBeforeUnload = (e) => {
 
 const handleVisibilityChange = () => {
   if (document.visibilityState === 'hidden') {
-    if (textInputSaveTimeout || saveTimeout) {
+    if (textInputSaveTimeout || saveTimeout || textInputSnapshotTimeout) {
       if (textInputSaveTimeout) {
         clearTimeout(textInputSaveTimeout)
         textInputSaveTimeout = null
+      }
+      if (textInputSnapshotTimeout) {
+        clearTimeout(textInputSnapshotTimeout)
+        saveSnapshot()
+        textInputSnapshotTimeout = null
       }
       if (saveTimeout) {
         clearTimeout(saveTimeout)
@@ -3116,6 +3157,12 @@ onBeforeUnmount(() => {
     clearTimeout(textInputSaveTimeout)
     saveImmediately()
     textInputSaveTimeout = null
+  }
+  
+  if (textInputSnapshotTimeout) {
+    clearTimeout(textInputSnapshotTimeout)
+    saveSnapshot()
+    textInputSnapshotTimeout = null
   }
   // ⚠️ NEW: Cleanup socket listeners với safety check
   if (socket) {
@@ -3530,24 +3577,27 @@ async function pasteFromSystemClipboard(targetNodeId) {
     if (d3Renderer) {
       d3Renderer.selectedNode = newNodeId
       d3Renderer.nodeSizeCache.delete(newNodeId)
-    }
-
-    nextTick(() => {
-      setTimeout(() => {
-        if (d3Renderer) {
+      
+      // ⚠️ Force re-render để hiển thị node mới ngay lập tức
+      nextTick(() => {
+        d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+        d3Renderer.render()
+        
+        setTimeout(() => {
           scrollToNode(d3Renderer, newNodeId)
-        }
-        const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newNodeId}"]`)
-        if (nodeGroup && !nodeGroup.empty()) {
-          setTimeout(() => {
-            const editorInstance = d3Renderer?.getEditorInstance?.(newNodeId)
-            if (editorInstance) {
-              editorInstance.commands.focus('end')
-            }
-          }, 200)
-        }
-      }, 30)
-    })
+          
+          const nodeGroup = d3Renderer?.g?.select(`[data-node-id="${newNodeId}"]`)
+          if (nodeGroup && !nodeGroup.empty()) {
+            setTimeout(() => {
+              const editorInstance = d3Renderer?.getEditorInstance?.(newNodeId)
+              if (editorInstance) {
+                editorInstance.commands.focus('end')
+              }
+            }, 200)
+          }
+        }, 30)
+      })
+    }
 
     scheduleSave()
   } catch (error) {
