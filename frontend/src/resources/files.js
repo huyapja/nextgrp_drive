@@ -100,10 +100,10 @@ export const getRecents = createResource({
     // Handle non-paginated response (backward compatibility - array)
     if (Array.isArray(actualData)) {
       const transformedData = actualData.map((item) => ({
-        ...item,
-        team_name: item.is_private === 1 ? null : item.team_name,
-      }))
-      return prettyData(transformedData)
+      ...item,
+      team_name: item.is_private === 1 ? null : item.team_name,
+    }))
+    return prettyData(transformedData)
     }
 
     // If actualData is not an array and not a paginated response, return as is
@@ -161,10 +161,10 @@ export const getFavourites = createResource({
     // Handle non-paginated response (backward compatibility - array)
     if (Array.isArray(actualData)) {
       const transformedData = actualData.map((item) => ({
-        ...item,
-        team_name: item.is_private === 1 ? null : item.team_name,
-      }))
-      return prettyData(transformedData)
+      ...item,
+      team_name: item.is_private === 1 ? null : item.team_name,
+    }))
+    return prettyData(transformedData)
     }
 
     // If actualData is not an array and not a paginated response, return as is
@@ -391,8 +391,8 @@ export const toggleFav = createResource({
           })
           if (updatedFavourites.length < beforeLength) {
             removedCount++
-            currentFavourites.delete(entityId)
-          }
+          currentFavourites.delete(entityId)
+        }
         }
       })
 
@@ -404,7 +404,7 @@ export const toggleFav = createResource({
           data: updatedFavourites
         }
       } else {
-        return updatedFavourites
+      return updatedFavourites
       }
     })
     
@@ -506,9 +506,9 @@ export const clearRecent = createResource({
   onSuccess: () => {
     const files = clearRecent.params?.entity_names?.length || 0
     if (files > 0) {
-      toast(
+    toast(
         __("Đã xóa {0} tệp khỏi Gần đây.").format(files)
-      )
+          )
     }
     // Reload data to ensure consistency
     getRecents.fetch()
