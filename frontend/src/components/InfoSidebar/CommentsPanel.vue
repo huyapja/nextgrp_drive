@@ -428,6 +428,7 @@ import Button from "primevue/button"
 import Dialog from "primevue/dialog"
 import {
   computed,
+  inject,
   nextTick,
   onMounted,
   onUnmounted,
@@ -437,6 +438,7 @@ import {
 } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { useStore } from "vuex"
+import { useCommentsRealtime } from "../../composables/useCommentsRealtime"
 import { handleResourceError } from "../../utils/errorHandler"
 import { formatDate } from "../../utils/format"
 import { toast } from "../../utils/toasts"
@@ -458,6 +460,7 @@ defineEmits(["close"])
 const store = useStore()
 const route = useRoute()
 const router = useRouter()
+const socket = inject("socket", null)
 
 // State management
 const newTopicComment = ref("")
@@ -544,6 +547,16 @@ const topics = createResource({
     })
   },
   auto: true,
+})
+
+// Setup realtime for comments
+const { trackComment } = useCommentsRealtime({
+  socket,
+  entityName: computed(() => props.entity?.name),
+  topics,
+  formatDate,
+  currentUserId: userId.value,
+  currentUserFullName: fullName.value,
 })
 
 const deleteComment = createResource({
@@ -871,13 +884,29 @@ async function submitComment(topicName) {
           comment_by: fullName.value,
           comment_email: userId.value,
           content: commentContent,
-          creation: formatDate(new Date().toISOString()),
+          creation: formatDate(newComment.creation || new Date().toISOString()),
           user_image: imageURL.value,
           reactions: [],
           reaction_users: {},
         }
 
-        topic.comments = [...(topic.comments || []), newCommentData]
+        // Check if comment already exists to prevent duplicate from realtime
+        const existingComment = topic.comments?.find(
+          (c) => 
+            (c.name && newCommentData.name && c.name === newCommentData.name) ||
+            (c.comment_email === newCommentData.comment_email && 
+             c.content === newCommentData.content &&
+             c.creation &&
+             Math.abs(new Date(c.creation).getTime() - new Date(newCommentData.creation).getTime()) < 5000)
+        )
+        
+        if (!existingComment) {
+          topic.comments = [...(topic.comments || []), newCommentData]
+          // Track comment to prevent duplicate from realtime
+          if (newCommentData.name) {
+            trackComment(newCommentData.name)
+          }
+        }
         updatedTopics[topicIndex] = topic
 
         topics.setData({
@@ -1263,23 +1292,56 @@ async function submitTopics() {
     })
 
     if (topics.data && topics.data.topics) {
+      // Format comment dates if comments exist and track them
+      const formattedComments = (newTopic.comments || []).map((comment) => {
+        // Track comment to prevent duplicate from realtime
+        if (comment.name) {
+          trackComment(comment.name)
+        }
+        return {
+          ...comment,
+          creation: formatDate(comment.creation || new Date().toISOString()),
+        }
+      })
+
       const newTopicData = {
         name: newTopic.name || Date.now().toString(),
         title: newTopic.title || "New Topic",
         owner: userId.value,
-        creation: new Date().toISOString(),
-        modified: new Date().toISOString(),
-        comments: newTopic.comments || [],
+        creation: newTopic.creation || new Date().toISOString(),
+        modified: newTopic.modified || new Date().toISOString(),
+        comments: formattedComments,
       }
 
       topicComments[newTopicData.name] = ""
       topicMentionedUsers[newTopicData.name] = []
 
-      topics.setData({
-        ...topics.data,
-        topics: [...topics.data.topics, newTopicData],
-        total_count: topics.data.topics.length + 1,
-      })
+      // Check if topic already exists (from realtime event)
+      const existingTopicIndex = topics.data.topics.findIndex(
+        (t) => t.name === newTopicData.name
+      )
+      
+      if (existingTopicIndex === -1) {
+        // Topic doesn't exist, add it
+        topics.setData({
+          ...topics.data,
+          topics: [...topics.data.topics, newTopicData],
+          total_count: topics.data.topics.length + 1,
+        })
+      } else {
+        // Topic already exists (from realtime), just update it to ensure comments are correct
+        const updatedTopics = [...topics.data.topics]
+        updatedTopics[existingTopicIndex] = {
+          ...updatedTopics[existingTopicIndex],
+          ...newTopicData,
+          // Merge comments to avoid duplicates
+          comments: formattedComments,
+        }
+        topics.setData({
+          ...topics.data,
+          topics: updatedTopics,
+        })
+      }
     }
 
     newTopicComment.value = ""
@@ -1371,41 +1433,8 @@ async function toggleReaction(comment, emoji) {
       comment_id: comment.name,
       emoji,
     })
-
-    if (topics.data && topics.data.topics) {
-      const updatedTopics = topics.data.topics.map((topic) => {
-        const updatedComments = topic.comments.map((c) => {
-          if (c.name === comment.name) {
-            const updatedComment = { ...c }
-            if (!updatedComment.reactions) updatedComment.reactions = []
-
-            const existing = updatedComment.reactions.find(
-              (r) => r.emoji === emoji
-            )
-            if (existing) {
-              if (existing.reacted) {
-                existing.count = Math.max(0, (existing.count || 1) - 1)
-                existing.reacted = false
-              } else {
-                existing.count = (existing.count || 0) + 1
-                existing.reacted = true
-              }
-            } else {
-              updatedComment.reactions.push({ emoji, count: 1, reacted: true })
-            }
-
-            return updatedComment
-          }
-          return c
-        })
-        return { ...topic, comments: updatedComments }
-      })
-
-      topics.setData({
-        ...topics.data,
-        topics: updatedTopics,
-      })
-    }
+    // UI will be updated via realtime event
+    // No need for optimistic update to avoid conflicts
   } catch (e) {
     console.log(e)
     topics.fetch()

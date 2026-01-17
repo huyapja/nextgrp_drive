@@ -1,6 +1,6 @@
 // composables/useMindmapCommentInput.js
-import { ref, watch, computed } from "vue"
 import { call } from "frappe-ui"
+import { computed, ref, watch } from "vue"
 
 /**
  * =========================
@@ -61,6 +61,8 @@ export function useMindmapCommentInput({
   emit,
   previewImages,
   commentEditorRef,
+  comments, // Optional: if provided, add comment to local state immediately
+  pendingCommentIds, // Optional: Set to track comments being submitted to prevent duplicate from realtime
 }) {
   const inputValue = ref("")
 
@@ -148,6 +150,29 @@ export function useMindmapCommentInput({
       comment: JSON.stringify(payload),
       node_key,
     })
+
+    // ✅ Add comment to local state immediately to prevent duplicate from realtime
+    if (comments && res.comment) {
+      const commentId = res.comment.name
+      
+      // Mark this comment as pending (being added from API response)
+      // This will help realtime handler skip it if it arrives later
+      if (pendingCommentIds && commentId) {
+        pendingCommentIds.value.add(commentId)
+      }
+      
+      const existed = comments.value.find((c) => c.name === commentId)
+      if (!existed) {
+        comments.value.push(res.comment)
+      }
+      
+      // Remove from pending after a short delay to allow realtime to check
+      if (pendingCommentIds && commentId) {
+        setTimeout(() => {
+          pendingCommentIds.value.delete(commentId)
+        }, 1000)
+      }
+    }
 
     // ✅ clear draft đúng scope
     delete commentCache.value[activeGroupKey.value]

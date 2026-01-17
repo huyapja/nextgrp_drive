@@ -20,7 +20,11 @@ def mark_as_viewed(entity):
     )
     if entity_log:
         frappe.db.set_value(
-            "Drive Entity Log", entity_log, "last_interaction", now(), update_modified=False
+            "Drive Entity Log",
+            entity_log,
+            "last_interaction",
+            now(),
+            update_modified=False,
         )
         return
     doc = frappe.new_doc("Drive Entity Log")
@@ -71,6 +75,9 @@ def add_comment(
     )
 
     comment.insert(ignore_permissions=True)
+    
+    # Get user_image for comment
+    user_image = frappe.db.get_value("User", comment_email, "user_image")
 
     # Parse JSON strings if needed
     if isinstance(reply_to, str):
@@ -156,7 +163,10 @@ def add_comment(
 
         comments = frappe.get_all(
             "Comment",
-            filters={"reference_name": topic.name, "reference_doctype": "Topic Comment"},
+            filters={
+                "reference_name": topic.name,
+                "reference_doctype": "Topic Comment",
+            },
             fields=["owner"],
         )
 
@@ -175,14 +185,22 @@ def add_comment(
             #     owner_email=drive_file.owner,
             # )
             notify_comment_to_owner_file(
-                entity_name=drive_file.name, comment_doc=comment, owner_email=drive_file.owner
+                entity_name=drive_file.name,
+                comment_doc=comment,
+                owner_email=drive_file.owner,
             )
 
         # Notify other members
         if comments and len(comments) > 0:
             # Get unique member emails (exclude owner)
             member_emails = list(
-                set([c.get("owner") for c in comments if c.get("owner") != drive_file.owner])
+                set(
+                    [
+                        c.get("owner")
+                        for c in comments
+                        if c.get("owner") != drive_file.owner
+                    ]
+                )
             )
 
             # Remove mentioned users
@@ -218,6 +236,25 @@ def add_comment(
 
     except ImportError:
         frappe.log_error("notify_comment_to_owner_file not available")
+
+    # Publish realtime event for new comment
+    frappe.publish_realtime(
+        event="drive_file:new_comment",
+        message={
+            "entity_name": drive_file.name,
+            "topic_name": reference_name,
+            "comment": {
+                "name": comment.name,
+                "comment_by": comment.comment_by,
+                "comment_email": comment.comment_email,
+                "content": comment.content,
+                "creation": comment.creation.isoformat() if hasattr(comment.creation, "isoformat") else str(comment.creation),
+                "user_image": user_image,
+            },
+        },
+        doctype="Drive File",
+        docname=drive_file.name,
+    )
 
     return comment
 
@@ -276,6 +313,17 @@ def create_topic(drive_entity_id: str, content: str, mentions=None):
         topic_dict = topic.as_dict()
         topic_dict["comments"] = comment_with_image if comment_with_image else []
 
+        # Publish realtime event for new topic
+        frappe.publish_realtime(
+            event="drive_file:new_topic",
+            message={
+                "entity_name": drive_entity_id,
+                "topic": topic_dict,
+            },
+            doctype="Drive File",
+            docname=drive_entity_id,
+        )
+
         return topic_dict
 
     except frappe.DoesNotExistError as e:
@@ -321,6 +369,14 @@ def delete_comment(comment_id: str, entity_id):
             limit=1,
         )
 
+        # Lấy thông tin drive_file trước khi xóa
+        topic = frappe.db.get_value(
+            "Topic Comment", topic_id, ["reference_name"], as_dict=True
+        )
+        drive_file_name = None
+        if topic:
+            drive_file_name = topic.reference_name
+
         # Xóa comment
         comment.delete()
 
@@ -337,6 +393,21 @@ def delete_comment(comment_id: str, entity_id):
                 # Vẫn tiếp tục vì comment đã xóa thành công
 
         frappe.db.commit()
+        
+        # Publish realtime event for deleted comment
+        if drive_file_name:
+            frappe.publish_realtime(
+                event="drive_file:comment_deleted",
+                message={
+                    "entity_name": drive_file_name,
+                    "topic_name": topic_id,
+                    "comment_id": comment_id,
+                    "topic_deleted": topic_deleted,
+                },
+                doctype="Drive File",
+                docname=drive_file_name,
+            )
+        
         return {
             "success": True,
             "message": _("Comment deleted successfully"),
@@ -376,6 +447,30 @@ def edit_comment(comment_id: str, new_content: str, mentions=None):
         drive_file = frappe.db.get_value(
             "Drive File", topic.reference_name, ["name", "owner"], as_dict=True
         )
+        
+        # Get user_image for comment
+        user_image = frappe.db.get_value("User", comment.comment_email, "user_image")
+        
+        # Publish realtime event for edited comment
+        if drive_file:
+            frappe.publish_realtime(
+                event="drive_file:comment_updated",
+                message={
+                    "entity_name": drive_file.name,
+                    "topic_name": comment.reference_name,
+                    "comment": {
+                        "name": comment.name,
+                        "comment_by": comment.comment_by,
+                        "comment_email": comment.comment_email,
+                        "content": comment.content,
+                        "modified": comment.modified.isoformat() if hasattr(comment.modified, "isoformat") else str(comment.modified),
+                        "is_edited": True,
+                        "user_image": user_image,
+                    },
+                },
+                doctype="Drive File",
+                docname=drive_file.name,
+            )
         # Handle mentions in edited comment
         if isinstance(mentions, str):
             from drive.api.notifications import notify_comment_mentions
@@ -411,7 +506,10 @@ def get_topics_for_file(drive_entity_id: str):
 
         topics = frappe.get_all(
             "Topic Comment",
-            filters={"reference_doctype": "Drive File", "reference_name": drive_entity_id},
+            filters={
+                "reference_doctype": "Drive File",
+                "reference_name": drive_entity_id,
+            },
             fields=[
                 "name",
                 "title",
@@ -484,7 +582,9 @@ def get_topics_for_file(drive_entity_id: str):
                         normalized_emoji = unicodedata.normalize(
                             "NFC", (row.content or "").strip()
                         )
-                        counts.setdefault(row.reference_name, {}).setdefault(normalized_emoji, 0)
+                        counts.setdefault(row.reference_name, {}).setdefault(
+                            normalized_emoji, 0
+                        )
                         counts[row.reference_name][normalized_emoji] += 1
 
                     # also indicate whether current user has reacted with each emoji
@@ -505,14 +605,18 @@ def get_topics_for_file(drive_entity_id: str):
                         normalized_emoji = unicodedata.normalize(
                             "NFC", (row.content or "").strip()
                         )
-                        user_map.setdefault(row.reference_name, set()).add(normalized_emoji)
+                        user_map.setdefault(row.reference_name, set()).add(
+                            normalized_emoji
+                        )
 
                     # get reactor full names for tooltip per emoji
                     reactors_rows = (
                         frappe.qb.from_(Reaction)
                         .left_join(User)
                         .on(Reaction.comment_email == User.name)
-                        .select(Reaction.reference_name, Reaction.content, User.full_name)
+                        .select(
+                            Reaction.reference_name, Reaction.content, User.full_name
+                        )
                         .where(
                             (Reaction.comment_type == "Like")
                             & (Reaction.reference_doctype == "Comment")
@@ -591,7 +695,9 @@ def get_country_info():
         ]
 
         try:
-            res = requests.get(f"https://pro.ip-api.com/json/{ip}?fields={','.join(fields)}")
+            res = requests.get(
+                f"https://pro.ip-api.com/json/{ip}?fields={','.join(fields)}"
+            )
             data = res.json()
             if data.get("status") != "fail":
                 return data

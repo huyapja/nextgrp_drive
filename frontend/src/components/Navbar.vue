@@ -144,60 +144,64 @@
       </div>
     </div>
     <div
-      class="flex flex-row items-center gap-1 bg-surface-white"
-      v-if="route.name === 'File'"
+      class="flex flex-row items-center gap-1 bg-surface-white file-toolbar-buttons"
+      v-if="route.name === 'File' || route.name === 'MindMap'"
     >
-      <Button 
-        class="!p-2 !min-w-0" 
-        :variant="'ghost'" 
-        @click="downloadCurrentFile" 
-        title="Tải xuống"
-      >
-        <LucideDownload class="w-5 h-5 text-gray-700" />
-      </Button>
+      <!-- File buttons: Download, Fullscreen, Info, Comments, More -->
+      <template v-if="route.name === 'File'">
+        <Button 
+          class="!p-2 !min-w-0" 
+          :variant="'ghost'" 
+          @click="downloadCurrentFile" 
+          title="Tải xuống"
+        >
+          <LucideDownload class="w-5 h-5 text-gray-700" />
+        </Button>
+        
+        <Button 
+          class="!p-2 !min-w-0" 
+          :variant="'ghost'" 
+          @click="enterFullScreen"
+          title="Toàn màn hình"
+        >
+          <LucideScan class="w-5 h-5 text-gray-700" />
+        </Button>
+        
+        <Button
+          class="!p-2 !min-w-0"
+          :variant="'ghost'"
+          @click="switchTab(0)"
+          title="Thông tin"
+        >
+          <InfoIcon
+            :class="[
+              'w-5 h-5',
+              tab === 0 && store.state.showInfo
+                ? 'text-[#0149C1]'
+                : 'text-gray-700'
+            ]"
+          />
+        </Button>
+        
+        <Button
+          v-if="rootEntity?.comment"
+          class="!p-2 !min-w-0"
+          :variant="'ghost'"
+          @click="switchTab(1)"
+          title="Bình luận"
+        >
+          <LucideMessageCircle
+            :class="[
+              'w-5 h-5',
+              tab === 1 && store.state.showInfo
+                ? 'text-[#0149C1]'
+                : 'text-gray-700'
+            ]"
+          />
+        </Button>
+      </template>
       
-      <Button 
-        class="!p-2 !min-w-0" 
-        :variant="'ghost'" 
-        @click="enterFullScreen"
-        title="Toàn màn hình"
-      >
-        <LucideScan class="w-5 h-5 text-gray-700" />
-      </Button>
-      
-      <Button
-        class="!p-2 !min-w-0"
-        :variant="'ghost'"
-        @click="switchTab(0)"
-        title="Thông tin"
-      >
-        <InfoIcon
-          :class="[
-            'w-5 h-5',
-            tab === 0 && store.state.showInfo
-              ? 'text-[#0149C1]'
-              : 'text-gray-700'
-          ]"
-        />
-      </Button>
-      
-      <Button
-        v-if="rootEntity?.comment"
-        class="!p-2 !min-w-0"
-        :variant="'ghost'"
-        @click="switchTab(1)"
-        title="Bình luận"
-      >
-        <LucideMessageCircle
-          :class="[
-            'w-5 h-5',
-            tab === 1 && store.state.showInfo
-              ? 'text-[#0149C1]'
-              : 'text-gray-700'
-          ]"
-        />
-      </Button>
-      
+      <!-- More button for both File and MindMap -->
       <Button
         class="!p-2 !min-w-0"
         :variant="'ghost'"
@@ -208,16 +212,16 @@
       </Button>
     </div>
     
-    <!-- Context Menu for File -->
+    <!-- Context Menu for File and MindMap -->
     <GroupedContextMenu
-      v-if="route.name === 'File'"
+      v-if="route.name === 'File' || route.name === 'MindMap'"
       ref="fileContextMenuRef"
       :action-items="fileActionItems"
       :close="() => {}"
     />
 
     <Dialogs
-      v-if="$route.name === 'File' || $route.name === 'Document'"
+      v-if="$route.name === 'File' || $route.name === 'Document' || $route.name === 'MindMap'"
       v-model="dialog"
       :root-resource="rootResource"
       :get-entities="getEntities"
@@ -1013,5 +1017,24 @@ const showFileContextMenu = (event) => {
 .breadcrumbs-custom ::v-deep .feather {
   width: 0.875rem;
   height: 0.875rem;
+}
+
+/* Ensure Navbar stays above dialog overlays */
+nav {
+  position: relative;
+  /* z-index: 1001; */
+}
+
+/* Ensure toolbar buttons (File/MindMap) stay fixed on the right when dialogs are open */
+.file-toolbar-buttons {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 1002;
+  background-color: white;
+  padding: 4px;
+  border-radius: 4px;
+  /* box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); */
 }
 </style>

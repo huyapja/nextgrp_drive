@@ -57,24 +57,36 @@ def react_to_comment(comment_id: str, emoji: str, entity_id: str = None):
         ):
             existing = reaction["name"]
             break
+    # Get topic and entity info for realtime
+    topic_name = parent.reference_name
+    topic = frappe.get_value(
+        "Topic Comment",
+        topic_name,
+        ["reference_name"],
+        as_dict=True
+    )
+    entity_name = topic.reference_name if topic else None
+    
+    reacted = False
     if existing:
         # Toggle off -> delete existing reaction
         frappe.delete_doc("Comment", existing)
-        return {"status": "removed"}
-
-    # Otherwise, create a new reaction comment
-    reaction = frappe.get_doc(
-        {
-            "doctype": "Comment",
-            "comment_type": "Like",
-            "reference_doctype": "Comment",
-            "reference_name": comment_id,
-            "comment_email": user,
-            "comment_by": frappe.db.get_value("User", user, "full_name"),
-            "content": emoji,
-        }
-    )
-    reaction.insert(ignore_permissions=True)
+        reacted = False
+    else:
+        # Otherwise, create a new reaction comment
+        reaction = frappe.get_doc(
+            {
+                "doctype": "Comment",
+                "comment_type": "Like",
+                "reference_doctype": "Comment",
+                "reference_name": comment_id,
+                "comment_email": user,
+                "comment_by": frappe.db.get_value("User", user, "full_name"),
+                "content": emoji,
+            }
+        )
+        reaction.insert(ignore_permissions=True)
+        reacted = True
 
     # Notify the owner of the original comment (if different user)
     try:
@@ -121,4 +133,50 @@ def react_to_comment(comment_id: str, emoji: str, entity_id: str = None):
         # Do not block on notification errors
         pass
 
-    return {"status": "added"}
+    # Publish realtime event for reaction update
+    if entity_name:
+        # Get user info for realtime
+        user_doc = frappe.get_doc("User", user)
+        
+        # Get current reaction counts and users
+        reactions = frappe.get_all(
+            "Comment",
+            filters={
+                "comment_type": "Like",
+                "reference_doctype": "Comment",
+                "reference_name": comment_id,
+            },
+            fields=["comment_email", "content"],
+        )
+        
+        # Group reactions by emoji - get ALL reactions, not just the current emoji
+        reaction_counts = {}
+        reaction_users_map = {}
+        for r in reactions:
+            emoji_key = r["content"]
+            if emoji_key not in reaction_counts:
+                reaction_counts[emoji_key] = 0
+                reaction_users_map[emoji_key] = []
+            reaction_counts[emoji_key] += 1
+            # Get user full name
+            user_full_name = frappe.db.get_value("User", r["comment_email"], "full_name") or r["comment_email"]
+            reaction_users_map[emoji_key].append(user_full_name)
+        
+        frappe.publish_realtime(
+            event="drive_file:comment_reaction_updated",
+            message={
+                "entity_name": entity_name,
+                "topic_name": topic_name,
+                "comment_id": comment_id,
+                "emoji": emoji,
+                "reacted": reacted,
+                "user": user,
+                "user_full_name": user_doc.full_name,
+                "reaction_counts": reaction_counts,  # All reactions, not just current emoji
+                "reaction_users": reaction_users_map,  # All reaction users
+            },
+            doctype="Drive File",
+            docname=entity_name,
+        )
+
+    return {"status": "added" if reacted else "removed"}

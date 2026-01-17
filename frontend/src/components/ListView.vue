@@ -60,7 +60,7 @@
             >
               <div 
                 class="file-container"
-                v-memo="[slotProps.data.uniqueKey || getRowUniqueId(slotProps.data), slotProps.data.file_type, slotProps.data.name]"
+                v-memo="[slotProps.data.uniqueKey || getRowUniqueId(slotProps.data), slotProps.data.file_type, slotProps.data.name, slotProps.data.share_count]"
               >
                 <img
                   :key="`thumbnail-${slotProps.data.uniqueKey || getRowUniqueId(slotProps.data)}`"
@@ -555,6 +555,10 @@ const getShareIcon = (shareCount) => {
 }
 
 const getShareText = (shareCount) => {
+  // Handle undefined, null, or 0
+  if (shareCount === undefined || shareCount === null) {
+    return __("-")
+  }
   if (shareCount === -2) return __("Công khai")
   else if (shareCount === -1) return __("Nhóm")
   else if (shareCount > 0) {
@@ -809,26 +813,31 @@ const formattedRowsWithKeys = computed(() => {
 const rowsCache = new Map()
 const sortedRowsWithKeys = computed(() => {
   const rows = sortedRows.value
-  const cacheKey = rows.map(r => getRowUniqueId(r)).join(',')
+  // Include share_count in cache key to invalidate cache when share_count changes
+  const cacheKey = rows.map(r => `${getRowUniqueId(r)}:${r.share_count ?? 'null'}`).join(',')
   
-  // Check if we have cached version with same row IDs
+  // Check if we have cached version with same row IDs and share_count
   if (rowsCache.has(cacheKey)) {
     const cached = rowsCache.get(cacheKey)
     // Verify cached rows still match (in case row data changed)
     if (cached.length === rows.length && 
-        cached.every((cachedRow, i) => getRowUniqueId(cachedRow) === getRowUniqueId(rows[i]))) {
+        cached.every((cachedRow, i) => {
+          const rowIdMatch = getRowUniqueId(cachedRow) === getRowUniqueId(rows[i])
+          const shareCountMatch = cachedRow.share_count === rows[i].share_count
+          return rowIdMatch && shareCountMatch
+        })) {
       return cached
     }
   }
   
-  // Create new rows with uniqueKey
+  // Create new rows with uniqueKey - ensure all properties including share_count are copied
   const newRows = rows.map((row) => {
     const uniqueKey = getRowUniqueId(row)
     // If row already has uniqueKey and it matches, return row as-is
     if (row.uniqueKey === uniqueKey) {
       return row
     }
-    // Create new object with uniqueKey
+    // Create new object with uniqueKey - ensure share_count is included
     return { ...row, uniqueKey }
   })
   

@@ -1549,16 +1549,141 @@ const restoreSnapshot = async (snapshot) => {
       
       console.log('[Undo/Redo] 📏 Update content và recalculate size cho', nodesToUpdate.length, 'nodes')
       
+      // ⚠️ FIX: Đợi DOM được render trước khi set content
+      await nextTick()
+      await new Promise(resolve => setTimeout(resolve, 100))
+      
       for (const restoredNode of nodesToUpdate) {
-        const editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
+        // ⚠️ FIX: Retry để đảm bảo editor instance sẵn sàng
+        let editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
+        let attempts = 0
+        const maxAttempts = 20
+        
+        while ((!editorInstance || editorInstance.isDestroyed) && attempts < maxAttempts) {
+          await new Promise(resolve => setTimeout(resolve, 50))
+          editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
+          attempts++
+        }
+        
         if (editorInstance && !editorInstance.isDestroyed) {
           try {
+            // ⚠️ FIX: Kiểm tra xem container có children không (Vue component đã mount chưa)
+            const nodeGroup = d3Renderer.g.select(`[data-node-id="${restoredNode.id}"]`)
+            const editorContainer = nodeGroup.select('.node-editor-container')
+            const containerNode = editorContainer.node()
+            const hasVueApp = d3Renderer.vueApps.has(restoredNode.id)
+            const containerHasChildren = containerNode && containerNode.children.length > 0
+            
+            console.log(`[Undo/Redo] 🔍 Node ${restoredNode.id} - Kiểm tra mount:`, {
+              hasNodeGroup: !nodeGroup.empty(),
+              hasContainer: !!containerNode,
+              hasVueApp,
+              containerHasChildren,
+              editorInstanceReady: !!editorInstance && !editorInstance.isDestroyed
+            })
+            
+            // ⚠️ FIX: Nếu container rỗng nhưng có Vue app, unmount và mount lại
+            if (hasVueApp && !containerHasChildren) {
+              console.warn(`[Undo/Redo] ⚠️ Node ${restoredNode.id} có Vue app nhưng container rỗng, unmount và mount lại`)
+              
+              // Unmount Vue app cũ
+              d3Renderer.unmountNodeEditor(restoredNode.id)
+              
+              // Trigger render lại để mount Vue component mới
+              d3Renderer.render()
+              await nextTick()
+              await new Promise(resolve => setTimeout(resolve, 150))
+              
+              // Kiểm tra lại sau khi render
+              const retryContainerNode = d3Renderer.g.select(`[data-node-id="${restoredNode.id}"]`)
+                .select('.node-editor-container')
+                .node()
+              const retryHasChildren = retryContainerNode && retryContainerNode.children.length > 0
+              
+              if (!retryHasChildren) {
+                console.warn(`[Undo/Redo] ⚠️ Node ${restoredNode.id} vẫn rỗng sau khi render lại, thử mount thủ công`)
+                // Thử mount thủ công nếu vẫn rỗng
+                if (retryContainerNode) {
+                  const nodeData = d3Renderer.nodes.find(n => n.id === restoredNode.id)
+                  if (nodeData) {
+                    const text = nodeData.data?.label || ''
+                    const isRootNode = nodeData.id === 'root' || nodeData.data?.isRoot
+                    const color = nodeData.data?.color || '#1f2937'
+                    
+                    d3Renderer.mountNodeEditor(restoredNode.id, retryContainerNode, {
+                      value: text,
+                      placeholder: 'Nhập...',
+                      color: color,
+                      minHeight: '43px',
+                      width: '100%',
+                      height: 'auto',
+                      isRoot: isRootNode,
+                      uploadImage: d3Renderer.uploadImage || null,
+                      editable: d3Renderer.options?.permissions?.write === 1,
+                      onInput: (value) => {
+                        // Handle input sẽ được set sau
+                      },
+                      onFocus: () => {
+                        // Handle focus sẽ được set sau
+                      },
+                      onBlur: () => {
+                        // Handle blur sẽ được set sau
+                      },
+                    })
+                    await nextTick()
+                  }
+                }
+              }
+              
+              // Lấy lại editor instance sau khi mount
+              editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
+            }
+            
+            // ⚠️ FIX: Đảm bảo content không rỗng và convert plain text sang HTML nếu cần
+            let contentToSet = restoredNode.data?.label || ''
+            
+            // Nếu là plain text, convert sang HTML
+            if (contentToSet && !/<[a-z][\s\S]*>/i.test(contentToSet.trim())) {
+              contentToSet = `<p data-type="node-title">${contentToSet}</p>`
+            } else if (!contentToSet || contentToSet.trim() === '' || contentToSet === '<p></p>') {
+              contentToSet = '<p data-type="node-title"></p>'
+            }
+            
             // setContent
-            editorInstance.commands.setContent(restoredNode.data.label, false)
+            editorInstance.commands.setContent(contentToSet, false)
+            
+            // ⚠️ FIX: Force update editor view để đảm bảo DOM được cập nhật
+            if (editorInstance.view) {
+              requestAnimationFrame(() => {
+                const tr = editorInstance.view.state.tr
+                editorInstance.view.dispatch(tr)
+              })
+            }
+            
+            // ⚠️ FIX: Đợi một chút và kiểm tra DOM content
+            await nextTick()
+            await new Promise(resolve => setTimeout(resolve, 50))
+            
+            const editorDOM = editorInstance.view?.dom
+            if (editorDOM) {
+              const proseElement = editorDOM.querySelector('.mindmap-editor-prose')
+              const domContent = proseElement?.innerHTML || editorDOM.innerHTML
+              const actualContent = editorInstance.getHTML()
+              
+              console.log(`[Undo/Redo] 📝 Node ${restoredNode.id} - Content sau khi set:`, {
+                expected: contentToSet.substring(0, 50),
+                actual: actualContent?.substring(0, 50) || '',
+                domContent: domContent?.substring(0, 50) || '',
+                hasDOM: !!domContent
+              })
+            }
+            
             console.log(`[Undo/Redo] ✅ Set content cho node ${restoredNode.id}`)
           } catch (e) {
             console.error(`[Undo/Redo] ❌ Lỗi khi update node ${restoredNode.id}:`, e)
           }
+        } else {
+          console.warn(`[Undo/Redo] ⚠️ Không thể lấy editor instance cho node ${restoredNode.id}`)
         }
       }
       
