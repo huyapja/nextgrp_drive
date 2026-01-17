@@ -24,7 +24,7 @@
       </div>
 
       <Teleport to="body">
-        <div v-if="currentView === 'visual'" @click="showPanel = true" class="absolute cursor-pointer top-[120px] right-0 z-10 text-sm
+        <div @click="showPanel = true" class="absolute cursor-pointer top-[120px] right-0 z-10 text-sm
               border border-gray-300 border-r-0
               rounded-tl-[20px] rounded-bl-[20px]
               bg-white pl-3 py-3 flex
@@ -4676,7 +4676,6 @@ watch(currentView, (next, prev) => {
   }
 
   if (next === "text") {
-    showPanel.value = true
     textViewVersion.value++
   }
 })
