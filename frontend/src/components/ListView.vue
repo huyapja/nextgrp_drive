@@ -13,7 +13,7 @@
         v-model:selection="selectedRows"
         :value="sortedRowsWithKeys"
         :loading="loading || !folderContents"
-        paginator
+        :paginator="shouldShowPaginator"
         :rows="pageSize"
         v-model:first="first"
         :totalRecords="computedTotalRecords"
@@ -58,8 +58,12 @@
               @mousemove="onCellMouseMove"
               @mouseleave="onCellMouseLeave"
             >
-              <div class="file-container">
+              <div 
+                class="file-container"
+                v-memo="[slotProps.data.uniqueKey || getRowUniqueId(slotProps.data), slotProps.data.file_type, slotProps.data.name]"
+              >
                 <img
+                  :key="`thumbnail-${slotProps.data.uniqueKey || getRowUniqueId(slotProps.data)}`"
                   :src="
                     getThumbnailUrl(
                       slotProps.data.name,
@@ -295,7 +299,7 @@ import { getThumbnailUrl } from "@/utils/getIconUrl"
 import ThumbnailImage from "@/components/ThumbnailImage.vue"
 import { useStore } from "vuex"
 import { useRoute, useRouter } from "vue-router"
-import { computed, ref, watch, onMounted, onUnmounted, nextTick } from "vue"
+import { computed, ref, watch, onMounted, onUnmounted, nextTick, shallowRef } from "vue"
 import GroupedContextMenu from "@/components/GroupedContextMenu.vue"
 import { openEntity } from "@/utils/files"
 import { formatDate } from "@/utils/format"
@@ -502,6 +506,13 @@ const computedTotalRecords = computed(() => {
   })
   
   return total
+})
+
+// Computed để kiểm tra có nên hiển thị paginator không (chỉ hiển thị khi có nhiều hơn 1 trang)
+const shouldShowPaginator = computed(() => {
+  const total = computedTotalRecords.value
+  const pages = Math.ceil(total / pageSize.value)
+  return pages > 1
 })
 
 // Data display methods
@@ -794,11 +805,40 @@ const formattedRowsWithKeys = computed(() => {
 })
 
 // Sorted rows with keys for display
+// Cache to avoid recreating objects unnecessarily when only selection changes
+const rowsCache = new Map()
 const sortedRowsWithKeys = computed(() => {
-  return sortedRows.value.map((row) => ({
-    ...row,
-    uniqueKey: getRowUniqueId(row),
-  }))
+  const rows = sortedRows.value
+  const cacheKey = rows.map(r => getRowUniqueId(r)).join(',')
+  
+  // Check if we have cached version with same row IDs
+  if (rowsCache.has(cacheKey)) {
+    const cached = rowsCache.get(cacheKey)
+    // Verify cached rows still match (in case row data changed)
+    if (cached.length === rows.length && 
+        cached.every((cachedRow, i) => getRowUniqueId(cachedRow) === getRowUniqueId(rows[i]))) {
+      return cached
+    }
+  }
+  
+  // Create new rows with uniqueKey
+  const newRows = rows.map((row) => {
+    const uniqueKey = getRowUniqueId(row)
+    // If row already has uniqueKey and it matches, return row as-is
+    if (row.uniqueKey === uniqueKey) {
+      return row
+    }
+    // Create new object with uniqueKey
+    return { ...row, uniqueKey }
+  })
+  
+  // Cache the result (keep only last cache to avoid memory leak)
+  if (rowsCache.size > 1) {
+    rowsCache.clear()
+  }
+  rowsCache.set(cacheKey, newRows)
+  
+  return newRows
 })
 
 watch(selectedRows, (newSelections) => {
@@ -1203,19 +1243,25 @@ const onSort = (event) => {
   display: flex;
   flex-direction: column;
   height: 100%;
+  max-height: 100%;
 }
 
 /* Table wrapper có thể scroll */
 :deep(.p-datatable-wrapper) {
-  flex: 1;
+  flex: 1 1 auto;
   overflow: auto;
   min-height: 0;
+  max-height: 100%;
 }
 
 /* Paginator cố định ở dưới */
 :deep(.p-paginator) {
   flex-shrink: 0;
+  flex-grow: 0;
   border-top: 1px solid #e5e7eb;
+  position: relative;
+  z-index: 1;
+  background-color: white;
 }
 
 .disabled-row {

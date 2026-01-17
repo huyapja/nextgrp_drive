@@ -48,7 +48,7 @@
         >
           <LucideStar
             :class="[
-              'w-3.5 h-3.5',
+              'w-4 h-4',
               rootEntity?.is_favourite 
                 ? 'stroke-amber-500 fill-amber-500' 
                 : 'stroke-gray-400 fill-none hover:fill-amber-100'
@@ -685,10 +685,22 @@ function toggleFavorite() {
   }
   
   // Toggle state
-  entityToFavorite.is_favourite = !entityToFavorite.is_favourite
+  const newFavoriteState = !entityToFavorite.is_favourite
+  entityToFavorite.is_favourite = newFavoriteState
+  
+  // Optimistic update: Update rootResource.data immediately
+  if (props.rootResource?.data) {
+    props.rootResource.data.is_favourite = newFavoriteState
+  }
   
   // Submit sẽ tự động hiển thị toast thông qua onSuccess callback
-  toggleFav.submit({ entities: [entityToFavorite] })
+  toggleFav.submit({ entities: [entityToFavorite] }).catch((error) => {
+    // Revert on error
+    if (props.rootResource?.data) {
+      props.rootResource.data.is_favourite = !newFavoriteState
+    }
+    console.error('Failed to toggle favorite:', error)
+  })
 }
 
 // Watch selectedEntity

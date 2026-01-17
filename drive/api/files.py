@@ -1418,8 +1418,7 @@ def set_favourite(entities=None, clear_all=False):
             # Check if entity exists in Drive File before adding to favourites
             if not frappe.db.exists("Drive File", entity_name):
                 frappe.throw(
-                    f"Drive File not found: {entity_name}",
-                    frappe.DoesNotExistError
+                    f"Drive File not found: {entity_name}", frappe.DoesNotExistError
                 )
 
             existing_doc = frappe.db.exists(
@@ -1973,20 +1972,20 @@ def call_controller_method(entity_name, method):
 def add_recent_file(entity_name):
     """
     Add or update a file in recent files list for current user
-    
+
     :param entity_name: Document name of the file
     :type entity_name: str
     :return: Success message
     """
     from datetime import datetime
-    
+
     if not entity_name:
         frappe.throw("Entity name is required", ValueError)
-    
+
     # Check if entity exists
     if not frappe.db.exists("Drive File", entity_name):
         frappe.throw(f"File '{entity_name}' does not exist", ValueError)
-    
+
     # Check if already in recents - if yes, update last_accessed
     existing_doc = frappe.db.exists(
         {
@@ -1995,14 +1994,11 @@ def add_recent_file(entity_name):
             "user": frappe.session.user,
         }
     )
-    
+
     if existing_doc:
         # Update existing record - update last_accessed time
         frappe.db.set_value(
-            "Drive Recent File", 
-            existing_doc, 
-            "last_accessed", 
-            datetime.now()
+            "Drive Recent File", existing_doc, "last_accessed", datetime.now()
         )
         frappe.db.commit()
         return {"message": "Recent file updated successfully"}
@@ -2021,15 +2017,15 @@ def add_recent_file(entity_name):
 def get_recent_files():
     """
     Get recent files for current user from Drive Recent File doctype
-    
+
     :return: List of recent files with file details
     """
     DriveFile = frappe.qb.DocType("Drive File")
     DriveRecentFile = frappe.qb.DocType("Drive Recent File")
     DrivePermission = frappe.qb.DocType("Drive Permission")
-    
+
     user = frappe.session.user
-    
+
     # Query recent files with file details
     query = (
         frappe.qb.from_(DriveRecentFile)
@@ -2073,21 +2069,21 @@ def get_recent_files():
         .orderby(DriveRecentFile.display_order, order=frappe.qb.desc)
         .orderby(DriveRecentFile.last_accessed, order=frappe.qb.desc)
     )
-    
+
     result = query.run(as_dict=True)
-    
+
     # Add file_ext from title (extract extension)
     for item in result:
-        if item.get('title'):
-            title = item['title']
+        if item.get("title"):
+            title = item["title"]
             # Extract extension from filename
-            if '.' in title and not item.get('is_group'):
-                item['file_ext'] = title.split('.')[-1].lower()
+            if "." in title and not item.get("is_group"):
+                item["file_ext"] = title.split(".")[-1].lower()
             else:
-                item['file_ext'] = ''
+                item["file_ext"] = ""
         else:
-            item['file_ext'] = ''
-    
+            item["file_ext"] = ""
+
     return result
 
 
@@ -2095,7 +2091,7 @@ def get_recent_files():
 def create_file_group(file_names, group_name=None, group_id=None):
     """
     Create a new group from selected files or add files to existing group
-    
+
     :param file_names: List of entity names to group
     :param group_name: Optional group name
     :param group_id: Optional group ID (to add to existing group)
@@ -2103,17 +2099,19 @@ def create_file_group(file_names, group_name=None, group_id=None):
     """
     import json
     import uuid
-    
+
     if isinstance(file_names, str):
         file_names = json.loads(file_names)
-    
+
     if not isinstance(file_names, list) or len(file_names) < 1:
         frappe.throw("Need at least 1 file", ValueError)
-    
+
     user = frappe.session.user
-    
-    print(f"🆕 Creating file group for user: {user}, files: {file_names}, group_id: {group_id}")
-    
+
+    print(
+        f"🆕 Creating file group for user: {user}, files: {file_names}, group_id: {group_id}"
+    )
+
     # First, ensure all files exist in Drive Recent File (add them if not)
     for entity_name in file_names:
         existing_doc = frappe.db.exists(
@@ -2123,7 +2121,7 @@ def create_file_group(file_names, group_name=None, group_id=None):
                 "user": user,
             }
         )
-        
+
         if not existing_doc:
             # Add file to recent files first
             print(f"  📝 Adding {entity_name} to recent files first...")
@@ -2135,20 +2133,17 @@ def create_file_group(file_names, group_name=None, group_id=None):
                 print(f"  ❌ Error adding file to recent: {str(e)}")
                 frappe.log_error(f"Error adding file to recent: {str(e)}")
                 # Continue even if this fails
-    
+
     # If group_id is provided, use existing group
     if group_id:
         # Get existing group info from one of the files in that group
         existing_group = frappe.db.get_value(
             "Drive Recent File",
-            {
-                "group_id": group_id,
-                "user": user
-            },
+            {"group_id": group_id, "user": user},
             ["group_name", "group_color"],
-            as_dict=True
+            as_dict=True,
         )
-        
+
         if existing_group:
             group_name = existing_group.group_name
         else:
@@ -2167,13 +2162,15 @@ def create_file_group(file_names, group_name=None, group_id=None):
                 for g in existing_groups_raw:
                     if g.group_id and g.group_id not in unique_groups:
                         unique_groups[g.group_id] = g.group_name
-                
+
                 # Extract numbers from existing group names (format: "Nhóm N")
                 max_number = 0
                 for group_name_val in unique_groups.values():
                     if group_name_val:
                         # Try to extract number from "Nhóm N" format
-                        match = re.search(r'Nhóm\s*(\d+)', group_name_val, re.IGNORECASE)
+                        match = re.search(
+                            r"Nhóm\s*(\d+)", group_name_val, re.IGNORECASE
+                        )
                         if match:
                             max_number = max(max_number, int(match.group(1)))
                         elif group_name_val.isdigit():
@@ -2184,9 +2181,9 @@ def create_file_group(file_names, group_name=None, group_id=None):
         # Create new group - allow 1 file minimum
         if len(file_names) < 1:
             frappe.throw("Need at least 1 file to create a new group", ValueError)
-        
+
         group_id = str(uuid.uuid4())[:8]  # Short UUID
-        
+
         # Auto-generate group name if not provided - use sequential number
         if not group_name:
             # Get all existing groups for this user
@@ -2200,20 +2197,20 @@ def create_file_group(file_names, group_name=None, group_id=None):
             for g in existing_groups_raw:
                 if g.group_id and g.group_id not in unique_groups:
                     unique_groups[g.group_id] = g.group_name
-            
+
             # Extract numbers from existing group names (format: "Nhóm N")
             max_number = 0
             for group_name_val in unique_groups.values():
                 if group_name_val:
                     # Try to extract number from "Nhóm N" format
-                    match = re.search(r'Nhóm\s*(\d+)', group_name_val, re.IGNORECASE)
+                    match = re.search(r"Nhóm\s*(\d+)", group_name_val, re.IGNORECASE)
                     if match:
                         max_number = max(max_number, int(match.group(1)))
                     elif group_name_val.isdigit():
                         # Fallback for old format (just number)
                         max_number = max(max_number, int(group_name_val))
             group_name = f"Nhóm {max_number + 1}"
-    
+
     # Update all files to belong to this group
     print(f"  📂 Setting group info: {group_id} - {group_name}")
     updated_count = 0
@@ -2225,7 +2222,7 @@ def create_file_group(file_names, group_name=None, group_id=None):
                 "user": user,
             }
         )
-        
+
         if existing_doc:
             frappe.db.set_value(
                 "Drive Recent File",
@@ -2233,23 +2230,25 @@ def create_file_group(file_names, group_name=None, group_id=None):
                 {
                     "group_id": group_id,
                     "group_name": group_name,
-                    "group_color": None  # Don't store color, use CSS default
-                }
+                    "group_color": None,  # Don't store color, use CSS default
+                },
             )
             updated_count += 1
             print(f"    ✅ Updated {entity_name} with group info")
         else:
             print(f"    ⚠️ Warning: {entity_name} not found in recent files")
-    
+
     frappe.db.commit()
-    
-    print(f"  ✅ Group created successfully! Updated {updated_count}/{len(file_names)} files")
-    
+
+    print(
+        f"  ✅ Group created successfully! Updated {updated_count}/{len(file_names)} files"
+    )
+
     return {
         "message": "Group created successfully",
         "group_id": group_id,
         "group_name": group_name,
-        "files_updated": updated_count
+        "files_updated": updated_count,
     }
 
 
@@ -2259,27 +2258,27 @@ def update_file_group(group_id, group_name=None, group_color=None):
     Update group name or color
     """
     user = frappe.session.user
-    
+
     # Find all files in this group
     files = frappe.db.get_list(
         "Drive Recent File",
         filters={"user": user, "group_id": group_id},
-        fields=["name"]
+        fields=["name"],
     )
-    
+
     if not files:
         frappe.throw("Group not found", ValueError)
-    
+
     # Update all files in the group
     update_dict = {}
     if group_name:
         update_dict["group_name"] = group_name
     if group_color:
         update_dict["group_color"] = group_color
-    
+
     for file in files:
         frappe.db.set_value("Drive Recent File", file.name, update_dict)
-    
+
     frappe.db.commit()
     return {"message": "Group updated successfully"}
 
@@ -2290,12 +2289,12 @@ def remove_from_group(entity_names):
     Remove files from their group
     """
     import json
-    
+
     if isinstance(entity_names, str):
         entity_names = json.loads(entity_names)
-    
+
     user = frappe.session.user
-    
+
     for entity_name in entity_names:
         existing_doc = frappe.db.exists(
             {
@@ -2304,18 +2303,14 @@ def remove_from_group(entity_names):
                 "user": user,
             }
         )
-        
+
         if existing_doc:
             frappe.db.set_value(
                 "Drive Recent File",
                 existing_doc,
-                {
-                    "group_id": None,
-                    "group_name": None,
-                    "group_color": None
-                }
+                {"group_id": None, "group_name": None, "group_color": None},
             )
-    
+
     frappe.db.commit()
     return {"message": "Files removed from group"}
 
@@ -2324,21 +2319,21 @@ def remove_from_group(entity_names):
 def reorder_recent_files(file_order):
     """
     Update display order for recent files based on drag-and-drop
-    
+
     :param file_order: List of entity names in new order
     :type file_order: list[str]
     :return: Success message
     """
     import json
-    
+
     if isinstance(file_order, str):
         file_order = json.loads(file_order)
-    
+
     if not isinstance(file_order, list):
         frappe.throw(f"Expected list but got {type(file_order)}", ValueError)
-    
+
     user = frappe.session.user
-    
+
     # Update display_order for each file (higher number = higher priority)
     for index, entity_name in enumerate(file_order):
         existing_doc = frappe.db.exists(
@@ -2348,17 +2343,14 @@ def reorder_recent_files(file_order):
                 "user": user,
             }
         )
-        
+
         if existing_doc:
             # Higher index = lower in list, so invert: len - index
             display_order = len(file_order) - index
             frappe.db.set_value(
-                "Drive Recent File",
-                existing_doc,
-                "display_order",
-                display_order
+                "Drive Recent File", existing_doc, "display_order", display_order
             )
-    
+
     frappe.db.commit()
     return {"message": "File order updated successfully"}
 
@@ -2367,28 +2359,41 @@ def reorder_recent_files(file_order):
 def remove_recents(entity_names=[], clear_all=False):
     """
     Clear recent DriveEntities for specified user
+    Uses Drive Entity Log doctype (not Drive Recent File)
 
     :param entity_names: List of document-names
     :type entity_names: list[str]
     :raises ValueError: If decoded entity_names is not a list
     """
+    user = frappe.session.user
 
     if clear_all:
-        return frappe.db.delete("Drive Recent File", {"user": frappe.session.user})
+        frappe.db.sql(
+            """
+            DELETE FROM `tabDrive Entity Log`
+            WHERE user = %(user)s
+            """,
+            {"user": user},
+        )
+        frappe.db.commit()
+        return
 
     if not isinstance(entity_names, list):
         frappe.throw(f"Expected list but got {type(entity_names)}", ValueError)
 
-    for entity in entity_names:
-        existing_doc = frappe.db.exists(
-            {
-                "doctype": "Drive Recent File",
-                "entity": entity,
-                "user": frappe.session.user,
-            }
-        )
-        if existing_doc:
-            frappe.delete_doc("Drive Recent File", existing_doc)
+    if not entity_names:
+        return
+
+    # Delete all matching records in one query for better performance
+    frappe.db.sql(
+        """
+        DELETE FROM `tabDrive Entity Log`
+        WHERE entity_name IN %(entity_names)s
+        AND user = %(user)s
+        """,
+        {"entity_names": entity_names, "user": user},
+    )
+    frappe.db.commit()
 
 
 @frappe.whitelist()
@@ -2490,7 +2495,7 @@ def search(query, team):
     user = frappe.db.escape(frappe.session.user)
     team = frappe.db.escape(team)
     like_query = frappe.db.escape(f"%{query}%")
-    
+
     try:
         result = frappe.db.sql(
             f"""
