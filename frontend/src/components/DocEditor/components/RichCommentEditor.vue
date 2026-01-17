@@ -45,6 +45,8 @@ export default {
     return {
       editor: null,
       usersData: [],
+      userPermissions: {}, // Cache permissions để tránh check lại
+      permissionsChecked: false, // Track xem đã check permissions chưa
       lockedMentionId: null, // Track mention bị lock
     }
   },
@@ -61,54 +63,13 @@ export default {
     },
   },
   async mounted() {
-    // Fetch users first, then init editor
-    try {
-      const response = await call("drive.api.product.get_system_users")
-      console.log("Raw users response:", response)
-
-      // Get user emails for permission check
-      const userEmails = response.map((user) => user.email)
-
-      // Check permissions for all users
-      let userPermissions = {}
-      try {
-        const permissionResponse = await call(
-          "drive.api.product.check_users_permissions",
-          {
-            entity_name: this.entityName,
-            user_emails: JSON.stringify(userEmails),
-          }
-        )
-
-        permissionResponse.forEach((perm) => {
-          userPermissions[perm.email] = perm.has_permission
-        })
-        console.log("User permissions:", userPermissions)
-      } catch (permError) {
-        console.error("Failed to check permissions:", permError)
-        // Default to false if permission check fails
-        userEmails.forEach((email) => {
-          userPermissions[email] = false
-        })
-      }
-
-      this.usersData = response.map((item) => ({
-        id: item.email,
-        label: item.full_name,
-        value: item.email,
-        user_image: item.user_image,
-        type: "user",
-        author: this.$store?.state?.user?.id || "Administrator",
-        has_permission: userPermissions[item.email] || false,
-      }))
-
-      console.log("Transformed users data:", this.usersData)
-    } catch (error) {
-      console.error("Failed to fetch users:", error)
-      this.usersData = []
-    }
-
+    // ⚠️ Initialize editor immediately, don't wait for users/permissions
+    // Users data will be loaded in background and mention will work once loaded
     this.initEditor()
+    
+    // Load users only (without permissions check) - non-blocking
+    // Permissions will be checked lazily when mention menu opens
+    this.loadUsers()
   },
   beforeUnmount() {
     if (this.editor) {
@@ -116,6 +77,81 @@ export default {
     }
   },
   methods: {
+    // Load users only (without permissions check) - fast, non-blocking
+    async loadUsers() {
+      try {
+        const response = await call("drive.api.product.get_system_users")
+        console.log("Raw users response:", response)
+
+        // Load users without permissions check initially
+        // Permissions will be checked lazily when mention menu opens
+        this.usersData = response.map((item) => ({
+          id: item.email,
+          label: item.full_name,
+          value: item.email,
+          user_image: item.user_image,
+          type: "user",
+          author: this.$store?.state?.user?.id || "Administrator",
+          has_permission: true, // Default to true, will be updated when permissions are checked
+        }))
+
+        console.log("Users loaded (permissions not checked yet):", this.usersData)
+      } catch (error) {
+        console.error("Failed to fetch users:", error)
+        this.usersData = []
+      }
+    },
+    
+    // Check permissions lazily (only when mention menu opens)
+    async checkUsersPermissions() {
+      // Skip if already checked
+      if (this.permissionsChecked) {
+        return
+      }
+      
+      try {
+        // Get user emails for permission check
+        const userEmails = this.usersData.map((user) => user.id)
+
+        if (userEmails.length === 0) {
+          return
+        }
+
+        // Check permissions for all users
+        try {
+          const permissionResponse = await call(
+            "drive.api.product.check_users_permissions",
+            {
+              entity_name: this.entityName,
+              user_emails: JSON.stringify(userEmails),
+            }
+          )
+
+          permissionResponse.forEach((perm) => {
+            this.userPermissions[perm.email] = perm.has_permission
+          })
+          
+          // Update usersData with permissions
+          this.usersData = this.usersData.map((user) => ({
+            ...user,
+            has_permission: this.userPermissions[user.id] ?? true, // Default to true if not found
+          }))
+          
+          this.permissionsChecked = true
+          console.log("User permissions checked:", this.userPermissions)
+        } catch (permError) {
+          console.error("Failed to check permissions:", permError)
+          // Default to true if permission check fails (allow mention)
+          this.usersData = this.usersData.map((user) => ({
+            ...user,
+            has_permission: true,
+          }))
+          this.permissionsChecked = true
+        }
+      } catch (error) {
+        console.error("Failed to check permissions:", error)
+      }
+    },
     // Hàm bỏ dấu tiếng Việt
     removeVietnameseTones(str) {
       if (!str) return ""
@@ -514,6 +550,10 @@ export default {
                 return {
                   onStart: (props) => {
                     console.log("Mention popup onStart called")
+                    // ⚠️ Check permissions when mention popup opens (user types @)
+                    if (!self.permissionsChecked) {
+                      self.checkUsersPermissions() // Check permissions in background
+                    }
                     component = new VueRenderer(MentionList, {
                       props,
                       editor: props.editor,
