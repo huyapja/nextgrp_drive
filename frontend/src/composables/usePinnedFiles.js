@@ -46,6 +46,30 @@ export function usePinnedFiles() {
           modified: file.modified,
           owner: file.owner,
         })
+        
+        // Send message to parent window (MTP) to update RecentFilesDropdown
+        if (window.parent && window.parent !== window) {
+          try {
+            const fileInfo = {
+              name: file.name,
+              title: file.title || file.file_name || file.name,
+              mime_type: file.mime_type,
+              file_ext: file.file_ext || '',
+              modified: file.modified,
+              owner: file.owner,
+              is_group: file.is_group,
+              team: file.team,
+            }
+            
+            console.log('📤 [Drive] Sending file_pinned message to parent:', fileInfo)
+            window.parent.postMessage({
+              type: 'drive:file_pinned',
+              payload: fileInfo
+            }, '*')
+          } catch (error) {
+            console.warn('Cannot send file_pinned message to parent:', error)
+          }
+        }
       } else {
         console.error('Pin failed:', result?.message || 'Unknown error')
       }
@@ -75,6 +99,19 @@ export function usePinnedFiles() {
         // If we're currently viewing this file, close it
         if (currentPinnedFile.value?.name === fileName) {
           closePinnedFile()
+        }
+        
+        // Send message to parent window (MTP) to update RecentFilesDropdown
+        if (window.parent && window.parent !== window) {
+          try {
+            console.log('📤 [Drive] Sending file_unpinned message to parent:', fileName)
+            window.parent.postMessage({
+              type: 'drive:file_unpinned',
+              payload: { name: fileName }
+            }, '*')
+          } catch (error) {
+            console.warn('Cannot send file_unpinned message to parent:', error)
+          }
         }
       } else {
         console.error('Unpin failed:', result?.message || 'Unknown error')

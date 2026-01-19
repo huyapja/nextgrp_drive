@@ -130,6 +130,18 @@ function handleParentMessage(event) {
       store.commit("setIsSidebarExpanded", false)
       console.log('✅ [Drive App] Sidebar collapsed and flag set')
     }
+  } else if (event.data && event.data.type === 'mtp:file_unpinned') {
+    console.log('📥 [Drive App] Received file_unpinned message from parent:', event.data.payload)
+    if (event.data.payload && event.data.payload.fileName) {
+      // Emit event để các component có thể listen và cập nhật
+      emitter.emit('file_unpinned', event.data.payload.fileName)
+    }
+  } else if (event.data && event.data.type === 'mtp:file_pinned') {
+    console.log('📥 [Drive App] Received file_pinned message from parent:', event.data.payload)
+    if (event.data.payload && event.data.payload.fileName) {
+      // Emit event để các component có thể listen và cập nhật
+      emitter.emit('file_pinned', event.data.payload.fileName)
+    }
   }
 }
 

@@ -60,7 +60,7 @@
             >
               <div 
                 class="file-container"
-                v-memo="[slotProps.data.uniqueKey || getRowUniqueId(slotProps.data), slotProps.data.file_type, slotProps.data.name, slotProps.data.share_count]"
+                v-memo="[slotProps.data.uniqueKey || getRowUniqueId(slotProps.data), slotProps.data.file_type, slotProps.data.name, slotProps.data.share_count, slotProps.data.is_pinned, slotProps.data.title, slotProps.data.shortcut_title]"
               >
                 <img
                   :key="`thumbnail-${slotProps.data.uniqueKey || getRowUniqueId(slotProps.data)}`"
@@ -75,7 +75,7 @@
                     )[1]
                   "
                   class="file-icon"
-                  :alt="slotProps.data.title"
+                  :alt="slotProps.data.is_shortcut ? (slotProps.data.shortcut_title || slotProps.data.title) : slotProps.data.title"
                   @error="onThumbnailError($event, slotProps.data)"
                 />
                 <span
@@ -86,9 +86,9 @@
                 </span>
                 </div>
                  <div class="file-name-wrapper">
-                   <span class="file-name-text">{{ slotProps.data.title }}</span>
+                   <span class="file-name-text">{{ slotProps.data.is_shortcut ? (slotProps.data.shortcut_title || slotProps.data.title) : slotProps.data.title }}</span>
                    <PinFilled 
-                     v-if="slotProps.data.is_pinned"
+                     v-if="slotProps.data.is_pinned && !slotProps.data.is_shortcut"
                      class="pinned-icon"
                      :size="14"
                      title="Tài liệu đã ghim"
@@ -813,10 +813,13 @@ const formattedRowsWithKeys = computed(() => {
 const rowsCache = new Map()
 const sortedRowsWithKeys = computed(() => {
   const rows = sortedRows.value
-  // Include share_count in cache key to invalidate cache when share_count changes
-  const cacheKey = rows.map(r => `${getRowUniqueId(r)}:${r.share_count ?? 'null'}`).join(',')
+  // Include share_count, is_pinned, and title in cache key to invalidate cache when these change
+  const cacheKey = rows.map(r => {
+    const title = r.is_shortcut ? (r.shortcut_title || '') : (r.title || '')
+    return `${getRowUniqueId(r)}:${r.share_count ?? 'null'}:${r.is_pinned ? 'pinned' : 'unpinned'}:${title}`
+  }).join(',')
   
-  // Check if we have cached version with same row IDs and share_count
+  // Check if we have cached version with same row IDs, share_count, is_pinned, and title
   if (rowsCache.has(cacheKey)) {
     const cached = rowsCache.get(cacheKey)
     // Verify cached rows still match (in case row data changed)
@@ -824,20 +827,24 @@ const sortedRowsWithKeys = computed(() => {
         cached.every((cachedRow, i) => {
           const rowIdMatch = getRowUniqueId(cachedRow) === getRowUniqueId(rows[i])
           const shareCountMatch = cachedRow.share_count === rows[i].share_count
-          return rowIdMatch && shareCountMatch
+          const pinnedMatch = cachedRow.is_pinned === rows[i].is_pinned
+          const cachedTitle = cachedRow.is_shortcut ? (cachedRow.shortcut_title || '') : (cachedRow.title || '')
+          const rowTitle = rows[i].is_shortcut ? (rows[i].shortcut_title || '') : (rows[i].title || '')
+          const titleMatch = cachedTitle === rowTitle
+          return rowIdMatch && shareCountMatch && pinnedMatch && titleMatch
         })) {
       return cached
     }
   }
   
-  // Create new rows with uniqueKey - ensure all properties including share_count are copied
+  // Create new rows with uniqueKey - ensure all properties including share_count and is_pinned are copied
   const newRows = rows.map((row) => {
     const uniqueKey = getRowUniqueId(row)
     // If row already has uniqueKey and it matches, return row as-is
     if (row.uniqueKey === uniqueKey) {
       return row
     }
-    // Create new object with uniqueKey - ensure share_count is included
+    // Create new object with uniqueKey - ensure share_count and is_pinned are included
     return { ...row, uniqueKey }
   })
   

@@ -88,7 +88,7 @@ export function useMindmapSave({
 
     const { count, ...nodeData } = node
     const nodeWithPos = { ...nodeData }
-    
+
     // ⚠️ FIX: Nếu editor đang mount, lấy label từ editor.getHTML() thay vì node.data.label
     // Tránh dùng label bị corrupt từ realtime update
     if (d3Renderer) {

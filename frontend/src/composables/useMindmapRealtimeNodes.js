@@ -318,8 +318,8 @@ export function useMindmapRealtimeNodes({
       const elementIndex = elements.value.findIndex(el => el.id === remoteNode.id && !el.source && !el.target)
       if (elementIndex !== -1) {
         if (shouldUpdateElements) {
-          elements.value[elementIndex] = { ...remoteNode }
-          console.log('✅ Đã cập nhật node vào elements.value:', remoteNode.id)
+        elements.value[elementIndex] = { ...remoteNode }
+        console.log('✅ Đã cập nhật node vào elements.value:', remoteNode.id)
         } else {
           console.log('⏭️ Bỏ qua cập nhật elements.value vì node đang được local user edit:', {
             nodeId: remoteNode.id,
@@ -424,7 +424,7 @@ export function useMindmapRealtimeNodes({
                 hasLocalChanges
               })
               
-              d3Node.data.label = remoteNode.data.label
+            d3Node.data.label = remoteNode.data.label
             } else {
               console.log('[Realtime] ⏭️ Bỏ qua cập nhật label vì node đang được local user edit:', {
                 nodeId: remoteNode.id,
