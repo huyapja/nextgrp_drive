@@ -17,6 +17,7 @@ def get_pinned_files():
 
     try:
         # Query pinned files with JOIN to get only active, non-trashed files
+        # Also LEFT JOIN with Drive Recent File to get group information
         pinned_files_data = frappe.db.sql(
             """
             SELECT 
@@ -27,12 +28,18 @@ def get_pinned_files():
                 df.is_link,
                 df.modified,
                 df.owner,
+                df.team,
                 dpf.pinned_at,
-                dpf.order
+                dpf.order,
+                drf.group_id,
+                drf.group_name,
+                drf.group_color
             FROM 
                 `tabDrive Pin File` dpf
             INNER JOIN 
                 `tabDrive File` df ON dpf.drive_file = df.name
+            LEFT JOIN 
+                `tabDrive Recent File` drf ON drf.entity = df.name AND drf.user = %(user)s
             WHERE 
                 dpf.user = %(user)s
                 AND df.is_active = 1
@@ -54,8 +61,12 @@ def get_pinned_files():
                 "is_link": file_data.is_link,
                 "modified": file_data.modified,
                 "owner": file_data.owner,
+                "team": file_data.team,
                 "pinned_at": file_data.pinned_at,
                 "order": file_data.order,
+                "group_id": file_data.group_id,
+                "group_name": file_data.group_name,
+                "group_color": file_data.group_color,
             }
             pinned_files.append(file_info)
 
@@ -136,6 +147,7 @@ def pin_file(entity_name):
 def unpin_file(entity_name):
     """
     Unpin a file for current user
+    Also removes it from Drive Recent File if it exists there
 
     Args:
         entity_name: Name of the Drive File to unpin
@@ -156,6 +168,23 @@ def unpin_file(entity_name):
         # Delete pin record(s)
         for pin in pin_records:
             frappe.delete_doc("Drive Pin File", pin.name, ignore_permissions=True)
+
+        # Also remove from Drive Recent File if it exists
+        recent_file_doc = frappe.db.exists(
+            {
+                "doctype": "Drive Recent File",
+                "entity": entity_name,
+                "user": user,
+            }
+        )
+        
+        if recent_file_doc:
+            try:
+                frappe.delete_doc("Drive Recent File", recent_file_doc, ignore_permissions=True)
+                frappe.logger().info(f"Removed {entity_name} from Drive Recent File after unpinning")
+            except Exception as e:
+                # Log error but don't fail the unpin operation
+                frappe.logger().warning(f"Error removing from Drive Recent File: {str(e)}")
 
         frappe.db.commit()
 

@@ -112,6 +112,7 @@ import { allUsers } from "@/resources/permissions"
 import { entitiesDownload } from "@/utils/download"
 import { getLink } from "@/utils/getLink"
 
+import emitter from "@/emitter"
 import { allFolders, move } from "@/resources/files"
 import { settings } from "@/resources/permissions"
 import { openEntity } from "@/utils/files"
@@ -207,10 +208,16 @@ onMounted(() => {
   window.addEventListener('resize', updateResponsive)
   // Update sau khi DOM render xong
   setTimeout(updateResponsive, 100)
+  
+  // Listen for file_unpinned and file_pinned events
+  emitter.on('file_unpinned', handleFileUnpinned)
+  emitter.on('file_pinned', handleFilePinned)
 })
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateResponsive)
+  emitter.off('file_unpinned', handleFileUnpinned)
+  emitter.off('file_pinned', handleFilePinned)
 })
 
 watch(
@@ -399,6 +406,76 @@ if (team) {
 }
 if (!settings.fetched) settings.fetch()
 
+// Listen for file_unpinned event from parent window (MTP app)
+const handleFileUnpinned = (fileName) => {
+  console.log('📥 [GenericPage] Received file_unpinned event:', fileName)
+  
+  // Cập nhật trong rows.value
+  if (rows.value && Array.isArray(rows.value)) {
+    const rowIndex = rows.value.findIndex(r => 
+      (r.is_shortcut ? r.shortcut_name : r.name) === fileName
+    )
+    if (rowIndex !== -1) {
+      rows.value[rowIndex].is_pinned = false
+    }
+  }
+  
+  // Cập nhật trong getEntities.data
+  if (Array.isArray(props.getEntities.data)) {
+    const entityIndex = props.getEntities.data.findIndex(e => 
+      (e.is_shortcut ? e.shortcut_name : e.name) === fileName
+    )
+    if (entityIndex !== -1) {
+      props.getEntities.data[entityIndex].is_pinned = false
+    }
+  } else if (props.getEntities.data && typeof props.getEntities.data === 'object' && 'data' in props.getEntities.data) {
+    const entityIndex = props.getEntities.data.data.findIndex(e => 
+      (e.is_shortcut ? e.shortcut_name : e.name) === fileName
+    )
+    if (entityIndex !== -1) {
+      props.getEntities.data.data[entityIndex].is_pinned = false
+    }
+  }
+  
+  props.getEntities.setData(props.getEntities.data)
+  console.log('✅ [GenericPage] Updated is_pinned to false for:', fileName)
+}
+
+// Listen for file_pinned event from parent window (MTP app)
+const handleFilePinned = (fileName) => {
+  console.log('📥 [GenericPage] Received file_pinned event:', fileName)
+  
+  // Cập nhật trong rows.value
+  if (rows.value && Array.isArray(rows.value)) {
+    const rowIndex = rows.value.findIndex(r => 
+      (r.is_shortcut ? r.shortcut_name : r.name) === fileName
+    )
+    if (rowIndex !== -1) {
+      rows.value[rowIndex].is_pinned = true
+    }
+  }
+  
+  // Cập nhật trong getEntities.data
+  if (Array.isArray(props.getEntities.data)) {
+    const entityIndex = props.getEntities.data.findIndex(e => 
+      (e.is_shortcut ? e.shortcut_name : e.name) === fileName
+    )
+    if (entityIndex !== -1) {
+      props.getEntities.data[entityIndex].is_pinned = true
+    }
+  } else if (props.getEntities.data && typeof props.getEntities.data === 'object' && 'data' in props.getEntities.data) {
+    const entityIndex = props.getEntities.data.data.findIndex(e => 
+      (e.is_shortcut ? e.shortcut_name : e.name) === fileName
+    )
+    if (entityIndex !== -1) {
+      props.getEntities.data.data[entityIndex].is_pinned = true
+    }
+  }
+  
+  props.getEntities.setData(props.getEntities.data)
+  console.log('✅ [GenericPage] Updated is_pinned to true for:', fileName)
+}
+
 // Drag and drop
 const onDrop = (targetFile, draggedItem) => {
   if (!targetFile.is_group || draggedItem === targetFile.name || !draggedItem)
@@ -569,14 +646,42 @@ const actionItems = computed(() => {
         action: async ([entity]) => {
           const result = await pinFile(entity)
           if (result && result.success) {
-            // Reload data để cập nhật is_pinned từ backend
+            // Cập nhật ngay lập tức trong entity object
+            entity.is_pinned = true
+            // Cập nhật trong rows.value để trigger re-render
+            if (rows.value && Array.isArray(rows.value)) {
+              const rowIndex = rows.value.findIndex(r => 
+                (r.is_shortcut ? r.shortcut_name : r.name) === (entity.is_shortcut ? entity.shortcut_name : entity.name)
+              )
+              if (rowIndex !== -1) {
+                rows.value[rowIndex].is_pinned = true
+              }
+            }
+            // Cập nhật trong getEntities.data
+            if (Array.isArray(props.getEntities.data)) {
+              const entityIndex = props.getEntities.data.findIndex(e => 
+                (e.is_shortcut ? e.shortcut_name : e.name) === (entity.is_shortcut ? entity.shortcut_name : entity.name)
+              )
+              if (entityIndex !== -1) {
+                props.getEntities.data[entityIndex].is_pinned = true
+              }
+            } else if (props.getEntities.data && typeof props.getEntities.data === 'object' && 'data' in props.getEntities.data) {
+              const entityIndex = props.getEntities.data.data.findIndex(e => 
+                (e.is_shortcut ? e.shortcut_name : e.name) === (entity.is_shortcut ? entity.shortcut_name : entity.name)
+              )
+              if (entityIndex !== -1) {
+                props.getEntities.data.data[entityIndex].is_pinned = true
+              }
+            }
+            props.getEntities.setData(props.getEntities.data)
+            // Reload data để đảm bảo sync với backend
             await props.getEntities.reload()
             toast("Đã ghim tài liệu")
           } else {
             toast("Lỗi: " + (result?.message || "Không thể ghim tài liệu"))
           }
         },
-        isEnabled: (e) => !e.is_group && !e.is_pinned && e.is_active,
+        isEnabled: (e) => !e.is_group && !e.is_pinned && e.is_active && !e.is_shortcut,
         important: true,
       },
       {
@@ -585,14 +690,42 @@ const actionItems = computed(() => {
         action: async ([entity]) => {
           const result = await unpinFile(entity.name)
           if (result && result.success) {
-            // Reload data để cập nhật is_pinned từ backend
+            // Cập nhật ngay lập tức trong entity object
+            entity.is_pinned = false
+            // Cập nhật trong rows.value để trigger re-render
+            if (rows.value && Array.isArray(rows.value)) {
+              const rowIndex = rows.value.findIndex(r => 
+                (r.is_shortcut ? r.shortcut_name : r.name) === (entity.is_shortcut ? entity.shortcut_name : entity.name)
+              )
+              if (rowIndex !== -1) {
+                rows.value[rowIndex].is_pinned = false
+              }
+            }
+            // Cập nhật trong getEntities.data
+            if (Array.isArray(props.getEntities.data)) {
+              const entityIndex = props.getEntities.data.findIndex(e => 
+                (e.is_shortcut ? e.shortcut_name : e.name) === (entity.is_shortcut ? entity.shortcut_name : entity.name)
+              )
+              if (entityIndex !== -1) {
+                props.getEntities.data[entityIndex].is_pinned = false
+              }
+            } else if (props.getEntities.data && typeof props.getEntities.data === 'object' && 'data' in props.getEntities.data) {
+              const entityIndex = props.getEntities.data.data.findIndex(e => 
+                (e.is_shortcut ? e.shortcut_name : e.name) === (entity.is_shortcut ? entity.shortcut_name : entity.name)
+              )
+              if (entityIndex !== -1) {
+                props.getEntities.data.data[entityIndex].is_pinned = false
+              }
+            }
+            props.getEntities.setData(props.getEntities.data)
+            // Reload data để đảm bảo sync với backend
             await props.getEntities.reload()
             toast("Đã bỏ ghim tài liệu")
           } else {
             toast("Lỗi: " + (result?.message || "Không thể bỏ ghim"))
           }
         },
-        isEnabled: (e) => !e.is_group && e.is_pinned && e.is_active,
+        isEnabled: (e) => !e.is_group && e.is_pinned && e.is_active && !e.is_shortcut,
         important: true,
       },
       {
