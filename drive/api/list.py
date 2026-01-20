@@ -3505,3 +3505,193 @@ def _build_team_subfolders(parent):
         }
         for r in rows
     ]
+
+
+@frappe.whitelist()
+def get_all_accessible_folders(team=None):
+    """
+    Get all folders that the current user has view permission.
+    Returns a flat list of folders with their team information.
+
+    Args:
+        team: Optional team name. If provided, only returns folders from that team.
+              If None, returns folders from all teams the user is a member of.
+
+    Returns:
+        List of folder objects with: name, title, team, team_title, is_private
+    """
+    user = frappe.session.user if frappe.session.user != "Guest" else ""
+    if not user:
+        return []
+
+    # Get teams user is a member of
+    if team:
+        teams = [team] if team in get_teams() else []
+    else:
+        teams = get_teams()
+
+    all_folders = []
+    seen_folder_names = set()  # Track folders we've already added
+
+    # First, get folders from teams user is a member of
+    for team_name in teams:
+        try:
+            # Get team info
+            team_info = frappe.db.get_value(
+                "Drive Team", team_name, ["name", "title"], as_dict=True
+            )
+            team_title = team_info.title if team_info else team_name
+
+            # Query for all folders in team
+            query = (
+                frappe.qb.from_(DriveFile)
+                .where(
+                    (DriveFile.team == team_name)
+                    & (DriveFile.is_group == 1)
+                    & (DriveFile.is_active == 1)
+                    & (DriveFile.parent_entity != "")
+                )
+                .left_join(DrivePermission)
+                .on(
+                    (DrivePermission.entity == DriveFile.name)
+                    & (DrivePermission.user == user)
+                )
+                .select(
+                    DriveFile.name,
+                    DriveFile.title,
+                    DriveFile.is_private,
+                    DriveFile.owner,
+                    DriveFile.parent_entity,
+                    DriveFile.team,
+                    fn.Coalesce(DrivePermission.read, 0).as_("user_permission_read"),
+                )
+            )
+
+            results = query.run(as_dict=True)
+
+            # Filter folders user has access to using get_user_access for proper permission checking
+            for folder in results:
+                if folder.name in seen_folder_names:
+                    continue
+
+                try:
+                    # Get folder entity to check access
+                    folder_entity = frappe.get_doc("Drive File", folder.name)
+                    user_access = get_user_access(folder_entity, user)
+
+                    # User has access if read permission is True
+                    if user_access["read"]:
+                        # Get team info for this folder (might be different from current team_name)
+                        folder_team_info = frappe.db.get_value(
+                            "Drive Team", folder.team, ["name", "title"], as_dict=True
+                        )
+                        folder_team_title = (
+                            folder_team_info.title if folder_team_info else folder.team
+                        )
+
+                        all_folders.append(
+                            {
+                                "name": folder.name,
+                                "title": folder.title or folder.name,
+                                "team": folder.team,
+                                "team_title": folder_team_title,
+                                "is_private": folder.is_private,
+                                "parent_entity": folder.parent_entity,
+                            }
+                        )
+                        seen_folder_names.add(folder.name)
+                except Exception as e:
+                    # Skip folders that don't exist or user doesn't have access
+                    frappe.logger().debug(
+                        f"Error checking access for folder {folder.name}: {str(e)}"
+                    )
+                    continue
+
+        except Exception as e:
+            frappe.logger().error(
+                f"Error getting folders for team {team_name}: {str(e)}"
+            )
+            continue
+
+    # Second, get folders shared with user that are NOT in user's teams
+    # These are folders from other teams that have been explicitly shared
+    try:
+        shared_folders_query = (
+            frappe.qb.from_(DrivePermission)
+            .join(DriveFile)
+            .on(DrivePermission.entity == DriveFile.name)
+            .where(
+                (DrivePermission.user == user)
+                & (DrivePermission.read == 1)
+                & (DriveFile.is_group == 1)
+                & (DriveFile.is_active == 1)
+                & (DriveFile.parent_entity != "")
+            )
+            .select(
+                DriveFile.name,
+                DriveFile.title,
+                DriveFile.is_private,
+                DriveFile.owner,
+                DriveFile.parent_entity,
+                DriveFile.team,
+            )
+        )
+
+        # Only filter by team if user has teams (to avoid getting folders from user's own teams)
+        if teams:
+            shared_folders_query = shared_folders_query.where(
+                DriveFile.team.notin(teams)
+            )
+
+        shared_results = shared_folders_query.run(as_dict=True)
+
+        # Add shared folders that user has access to
+        for folder in shared_results:
+            if folder.name in seen_folder_names:
+                continue
+
+            try:
+                # Verify access using get_user_access
+                folder_entity = frappe.get_doc("Drive File", folder.name)
+                user_access = get_user_access(folder_entity, user)
+
+                if user_access["read"]:
+                    # Get team info for this folder
+                    folder_team_info = frappe.db.get_value(
+                        "Drive Team", folder.team, ["name", "title"], as_dict=True
+                    )
+                    folder_team_title = (
+                        folder_team_info.title if folder_team_info else folder.team
+                    )
+
+                    all_folders.append(
+                        {
+                            "name": folder.name,
+                            "title": folder.title or folder.name,
+                            "team": folder.team,
+                            "team_title": folder_team_title,
+                            "is_private": folder.is_private,
+                            "parent_entity": folder.parent_entity,
+                        }
+                    )
+                    seen_folder_names.add(folder.name)
+            except Exception as e:
+                frappe.logger().debug(
+                    f"Error checking access for shared folder {folder.name}: {str(e)}"
+                )
+                continue
+    except Exception as e:
+        frappe.logger().error(f"Error getting shared folders: {str(e)}")
+
+    # Remove duplicates (same folder might appear in multiple teams)
+    seen = set()
+    unique_folders = []
+    for folder in all_folders:
+        if folder["name"] not in seen:
+            seen.add(folder["name"])
+            unique_folders.append(folder)
+
+    # Sort by title
+    unique_folders.sort(key=lambda x: (x["title"] or "").lower())
+
+    return unique_folders
