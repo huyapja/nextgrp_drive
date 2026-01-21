@@ -193,6 +193,11 @@ watch(
         e.stopPropagation()
         window.parent.postMessage({ type: 'next_drive:mtp_open_quick_create' }, '*')
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        e.stopPropagation()
+        window.parent.postMessage({ type: 'mtp_open_quick_create_task' }, '*')
+      }      
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
         e.preventDefault()
         e.stopPropagation()
