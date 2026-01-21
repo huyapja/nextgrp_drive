@@ -1031,7 +1031,7 @@ nav {
   right: 12px;
   top: 50%;
   transform: translateY(-50%);
-  z-index: 1002;
+  z-index: 10;
   background-color: white;
   padding: 4px;
   border-radius: 4px;
