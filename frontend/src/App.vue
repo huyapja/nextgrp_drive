@@ -168,6 +168,29 @@ watch(
   { immediate: false }
 )
 
+  window.addEventListener(
+    'keydown',
+    (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'f') {
+        e.preventDefault()
+        e.stopPropagation()
+        window.parent.postMessage({ type: 'next_drive:mtp_open_search' }, '*')
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault()
+        e.stopPropagation()
+        window.parent.postMessage({ type: 'next_drive:mtp_open_quick_create' }, '*')
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'h') {
+        e.preventDefault()
+        e.stopPropagation()
+        window.parent.postMessage({ type: 'next_drive:mtp_open_history' }, '*')
+      }
+    },
+    true
+  )
+
+
 const showSearchPopup = ref(false)
 const isLoggedIn = computed(() => store.getters.isLoggedIn)
 const showUploadTracker = computed(
