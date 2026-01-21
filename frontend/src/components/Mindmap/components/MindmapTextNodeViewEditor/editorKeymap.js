@@ -42,13 +42,17 @@ function findFirstBulletListAfterPos(doc, startPos, schema) {
 }
 
 function isDeletingLastCharInListItem($from, schema) {
-  // phải ở textblock
   if (!$from.parent?.isTextblock) return false
 
-  // paragraph rỗng
-  if ($from.parent.content.size !== 0) return false
+  const text = $from.parent.textContent
 
-  // caret ở đầu
+  const isEffectivelyEmpty =
+    text === "" ||
+    text === "\u200b"
+
+  if (!isEffectivelyEmpty) return false
+
+  // caret phải ở đầu
   if ($from.parentOffset !== 0) return false
 
   // phải nằm trong listItem
@@ -60,6 +64,7 @@ function isDeletingLastCharInListItem($from, schema) {
 
   return false
 }
+
 
 export function createEditorKeyDown({
   editor,
@@ -214,6 +219,9 @@ export function createEditorKeyDown({
       if (!selection.empty) return false
 
       const { $from } = selection
+
+      console.log(">>>>>>>>> i am here");
+      
 
       if (isDeletingLastCharInListItem($from, schema)) {
         event.preventDefault()
