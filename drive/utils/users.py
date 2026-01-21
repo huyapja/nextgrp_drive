@@ -75,7 +75,7 @@ def add_comment(
     )
 
     comment.insert(ignore_permissions=True)
-    
+
     # Get user_image for comment
     user_image = frappe.db.get_value("User", comment_email, "user_image")
 
@@ -94,6 +94,8 @@ def add_comment(
         "Drive File", topic.reference_name, ["name", "owner"], as_dict=True
     )
 
+    reply_email = reply_to.get("comment_email") if reply_to else None
+
     if not topic or not drive_file:
         return comment
 
@@ -103,7 +105,7 @@ def add_comment(
         mention_ids = set([m.get("id") for m in mentions if m.get("id")])
 
         # Remove owner from mentions
-        if drive_file.owner in mention_ids:
+        if drive_file.owner in mention_ids and drive_file.owner == reply_email:
             mention_ids.remove(drive_file.owner)
 
         if mention_ids:  # Chỉ notify nếu còn người được mention
@@ -127,9 +129,9 @@ def add_comment(
                 )
             except ImportError:
                 frappe.log_error("notify_comment_mentions not available")
-
+        return
     # Notify reply
-    reply_email = reply_to.get("comment_email") if reply_to else None
+
     if reply_email:
         try:
             from drive.api.notifications import notify_reply_comment
@@ -151,6 +153,7 @@ def add_comment(
                 comment_doc=comment,
                 reply_email=reply_email,
             )
+            return
         except ImportError:
             frappe.log_error("notify_reply_comment not available")
 
@@ -248,7 +251,11 @@ def add_comment(
                 "comment_by": comment.comment_by,
                 "comment_email": comment.comment_email,
                 "content": comment.content,
-                "creation": comment.creation.isoformat() if hasattr(comment.creation, "isoformat") else str(comment.creation),
+                "creation": (
+                    comment.creation.isoformat()
+                    if hasattr(comment.creation, "isoformat")
+                    else str(comment.creation)
+                ),
                 "user_image": user_image,
             },
         },
@@ -393,7 +400,7 @@ def delete_comment(comment_id: str, entity_id):
                 # Vẫn tiếp tục vì comment đã xóa thành công
 
         frappe.db.commit()
-        
+
         # Publish realtime event for deleted comment
         if drive_file_name:
             frappe.publish_realtime(
@@ -407,7 +414,7 @@ def delete_comment(comment_id: str, entity_id):
                 doctype="Drive File",
                 docname=drive_file_name,
             )
-        
+
         return {
             "success": True,
             "message": _("Comment deleted successfully"),
@@ -447,10 +454,10 @@ def edit_comment(comment_id: str, new_content: str, mentions=None):
         drive_file = frappe.db.get_value(
             "Drive File", topic.reference_name, ["name", "owner"], as_dict=True
         )
-        
+
         # Get user_image for comment
         user_image = frappe.db.get_value("User", comment.comment_email, "user_image")
-        
+
         # Publish realtime event for edited comment
         if drive_file:
             frappe.publish_realtime(
@@ -463,7 +470,11 @@ def edit_comment(comment_id: str, new_content: str, mentions=None):
                         "comment_by": comment.comment_by,
                         "comment_email": comment.comment_email,
                         "content": comment.content,
-                        "modified": comment.modified.isoformat() if hasattr(comment.modified, "isoformat") else str(comment.modified),
+                        "modified": (
+                            comment.modified.isoformat()
+                            if hasattr(comment.modified, "isoformat")
+                            else str(comment.modified)
+                        ),
                         "is_edited": True,
                         "user_image": user_image,
                     },
