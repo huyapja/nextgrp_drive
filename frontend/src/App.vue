@@ -116,9 +116,15 @@ onUnmounted(() => {
 
 // Handle messages from parent window
 function handleParentMessage(event) {
+  // Log tất cả messages để debug
+  if (event.data && (event.data.type === 'mtp:navigate_drive' || event.data.type === 'mtp:navigate_file')) {
+    console.log('📥 [Drive App] Received message:', event.data.type, event.data.payload, 'from origin:', event.origin)
+  }
+  
   // Validate origin for security
   const isLocalhost = event.origin.includes('localhost') || event.origin.includes('127.0.0.1')
   if (!isLocalhost && event.origin !== window.location.origin) {
+    console.warn('⚠️ [Drive App] Message from invalid origin:', event.origin, 'Expected:', window.location.origin)
     return
   }
   
@@ -129,6 +135,98 @@ function handleParentMessage(event) {
       sessionStorage.setItem('sidebar_collapsed_by_mtp', 'true')
       store.commit("setIsSidebarExpanded", false)
       console.log('✅ [Drive App] Sidebar collapsed and flag set')
+    }
+  } else if (event.data && event.data.type === 'mtp:navigate_drive') {
+    console.log('📥 [Drive App] Received navigate_drive message from parent:', event.data.payload)
+    if (event.data.payload && event.data.payload.path) {
+      try {
+        let path = event.data.payload.path
+        // Đảm bảo path bắt đầu bằng /
+        if (!path.startsWith('/')) {
+          path = '/' + path
+        }
+        // Loại bỏ /drive prefix nếu có (vì router đã biết đang ở trong /drive)
+        if (path.startsWith('/drive')) {
+          path = path.replace('/drive', '')
+        }
+        
+        // Check nếu đang ở cùng route, force navigate bằng replace với query param
+        const currentPath = route.path
+        const isSameRoute = currentPath === path
+        
+        console.log('🔄 [Drive App] Navigating to:', path, isSameRoute ? '(same route, forcing)' : '')
+        
+        if (isSameRoute) {
+          // Force navigate bằng cách replace với query parameter tạm thời
+          const tempPath = path + '?_mtp_nav=' + Date.now()
+          router.replace(tempPath).then(() => {
+            // Sau đó replace lại path gốc để remove query param
+            setTimeout(() => {
+              router.replace(path)
+            }, 50)
+          }).catch(err => {
+            console.warn('Force navigate failed, trying normal push:', err)
+            router.push(path).catch(() => {})
+          })
+        } else {
+          router.push(path).catch(err => {
+            // Ignore navigation errors (e.g., same route)
+            if (err.name !== 'NavigationDuplicated') {
+              console.error('❌ [Drive App] Error navigating:', err)
+            }
+          })
+        }
+      } catch (error) {
+        console.error('❌ [Drive App] Error navigating:', error)
+      }
+    }
+  } else if (event.data && event.data.type === 'mtp:navigate_file') {
+    console.log('📥 [Drive App] Received navigate_file message from parent:', event.data.payload)
+    if (event.data.payload) {
+      try {
+        const { fileId, team, entityType } = event.data.payload
+        const routeType = entityType || 'document'
+        
+        let path
+        if (team) {
+          path = `/t/${team}/${routeType}/${fileId}`
+        } else {
+          const recentTeam = localStorage.getItem('recentTeam')
+          if (recentTeam) {
+            path = `/t/${recentTeam}/${routeType}/${fileId}`
+          } else {
+            path = `/${routeType}/${fileId}`
+          }
+        }
+        
+        // Check nếu đang ở cùng route, force navigate
+        const currentPath = route.path
+        const isSameRoute = currentPath === path
+        
+        console.log('🔄 [Drive App] Navigating to file:', path, isSameRoute ? '(same route, forcing)' : '')
+        
+        if (isSameRoute) {
+          // Force navigate bằng cách replace với query parameter tạm thời
+          const tempPath = path + '?_mtp_nav=' + Date.now()
+          router.replace(tempPath).then(() => {
+            setTimeout(() => {
+              router.replace(path)
+            }, 50)
+          }).catch(err => {
+            console.warn('Force navigate failed, trying normal push:', err)
+            router.push(path).catch(() => {})
+          })
+        } else {
+          router.push(path).catch(err => {
+            // Ignore navigation errors (e.g., same route)
+            if (err.name !== 'NavigationDuplicated') {
+              console.error('❌ [Drive App] Error navigating to file:', err)
+            }
+          })
+        }
+      } catch (error) {
+        console.error('❌ [Drive App] Error navigating to file:', error)
+      }
     }
   } else if (event.data && event.data.type === 'mtp:file_unpinned') {
     console.log('📥 [Drive App] Received file_unpinned message from parent:', event.data.payload)
