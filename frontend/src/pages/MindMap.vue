@@ -2017,12 +2017,19 @@ const confirmTaskLink = async () => {
         mindmap_title: mindmapTitle,
         link_url: taskPayload.linkUrl
       })
+
+      console.log(">>>>>>>> mode:", taskPayload.mode);
+      console.log(">>>>>>>> status:", taskPayload.status);
+      
+
       emitter.emit("task-link-node", {
         nodeId: targetNode.id,
         taskId: taskPayload.taskId,
         projectId,
         linkUrl: taskOpenLink,
-        title: taskPayload.title
+        title: taskPayload.title,
+        mode: taskPayload.mode,
+        status: taskPayload.status,
       })           
     }
 
@@ -2843,6 +2850,16 @@ const handleCreateTask = async (formData) => {
             // Continue even if comment creation fails
           }
         }
+
+        emitter.emit("task-link-node", {
+          nodeId: linkNode.id,
+          taskId: taskId,
+          projectId: projectId,
+          linkUrl: getTaskOpenUrl(taskId, projectId),
+          title: formData.task_name,
+          mode: 'existing',
+          status: 'Thực hiện'
+        })        
       } else {
         // Không có linkNode - task được tạo nhưng không liên kết với node
         console.warn('[handleCreateTask] Task created successfully but no linkNode found')
@@ -4737,6 +4754,9 @@ function applyTextEdits(changes) {
   if (isStructuralMutating.value) return
   let changed = false
 
+  console.log(">>>>>> changes:", changes);
+  
+
   changes.forEach(({ nodeId, label }) => {
     const node = nodes.value.find(n => n.id === nodeId)
     if (!node) return
@@ -4745,15 +4765,10 @@ function applyTextEdits(changes) {
       changed = true
       d3Renderer?.updateNodeLabelFromExternal(nodeId, label)
       changedNodeIds.value.add(nodeId)
-      saveNode(nodeId)
+      // saveNode(nodeId)
     }
   })
-
-  // if (changed) {
-  //   // Lưu snapshot trước khi apply text edits
-  //   saveSnapshot()
-  //   scheduleSave()
-  // }
+  saveImmediately()
 }
 
 function onOpenComment(payload) {

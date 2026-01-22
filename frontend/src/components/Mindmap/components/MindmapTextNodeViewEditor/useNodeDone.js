@@ -1,4 +1,6 @@
 import { computed } from "vue"
+import { toast } from '@/utils/toasts'
+
 
 function isInProgress(status) {
   if (!status) return false
@@ -6,6 +8,7 @@ function isInProgress(status) {
     status === "In Progress" ||
     status === "In-Progress" ||
     status === "Doing" ||
+    status === "Thực hiện" ||
     status === "Đang làm"
   )
 }
@@ -30,35 +33,47 @@ function findParentListItemByPos(state, pos) {
   return null
 }
 
-
-
 export function useNodeDone({
   editor,
   node,
   getPos,
   onDoneNode,
-  resolveNodeIdFromDOM,
-  currentActionNode,
 }) {
   const isDone = computed(() => {
     return isStrikeActiveForWholeNode(editor, node, getPos)
   })
 
   function toggleDone(event) {
-    if (!currentActionNode.value) return
+    const pos = getPos?.()
+    if (pos == null) return
 
-    console.log(">>>>>>> ủa alo");
-    
-    
+    const { state } = editor
+    const found = findParentListItemByPos(state, pos)
+    if (!found) return
+
+    const liNode = found.node
+    const nodeId = liNode.attrs.nodeId
+
+    const taskId = liNode.attrs.taskId
+    const taskStatus = liNode.attrs.taskStatus
 
     const done = isStrikeActiveForWholeNode(editor, node, getPos)
-
-    const { completed, taskId, taskStatus, nodeId } = currentActionNode.value    
-
     const hasTask = !!taskId || !!taskStatus
 
+    if (hasTask && isInProgress(taskStatus)) {
+      removeStrikeForWholeNode(editor, node, getPos, nodeId)
+      toast({
+        title:
+          "Công việc chưa hoàn thành. Nhánh sẽ tự chuyển sang Hoàn thành khi công việc được kéo sang trạng thái Hoàn thành.",
+        description: "",
+        indicator: "orange",
+        duration: 5000,
+      })
+      return
+    }
+
     // =========================
-    // RULE A: NODE THƯỜNG
+    // NODE KHÔNG GẮN TASK
     // =========================
     if (!hasTask) {
       if (done) {
@@ -72,10 +87,9 @@ export function useNodeDone({
     }
 
     // =========================
-    // RULE B: TASK IN PROGRESS
+    // TASK IN PROGRESS
     // =========================
     if (isInProgress(taskStatus)) {
-      // không cho đánh xong
       if (done) {
         removeStrikeForWholeNode(editor, node, getPos, nodeId)
       }
@@ -85,21 +99,15 @@ export function useNodeDone({
     }
 
     // =========================
-    // RULE C: TASK COMPLETED
+    // TASK COMPLETED
     // =========================
     if (isCompletedStatus(taskStatus)) {
-      // nếu đã strike → KHÔNG cho bỏ
-      if (!done) {
-        // cũng không cho apply thủ công
-        // (strike phải đến từ sync completed)
-      }
-
       onDoneNode?.(nodeId)
       return
     }
 
     // =========================
-    // RULE D: TASK KHÁC (fallback)
+    // FALLBACK
     // =========================
     if (done) {
       removeStrikeForWholeNode(editor, node, getPos, nodeId)
@@ -144,7 +152,6 @@ function removeStrikeForWholeNode(editor, node, getPos, nodeId) {
   view.dispatch(tr)
 }
 
-
 function applyStrikeForWholeNode(editor, node, getPos, nodeId) {
   const pos = getPos?.()
   if (pos == null) return
@@ -172,8 +179,6 @@ function applyStrikeForWholeNode(editor, node, getPos, nodeId) {
   tr.setMeta("ui-only", true)
   view.dispatch(tr)
 }
-
-
 
 function isStrikeActiveForWholeNode(editor, node, getPos) {
   const pos = getPos?.()
