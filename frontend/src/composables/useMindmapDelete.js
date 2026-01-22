@@ -1,5 +1,5 @@
-import { ref } from 'vue'
 import { call } from 'frappe-ui'
+import { ref } from 'vue'
 
 /**
  * Mindmap Delete Operations
@@ -83,7 +83,7 @@ export function useMindmapDelete({
    */
   const performDelete = async (nodeId) => {
     // ⚠️ FIX: Lưu snapshot trước khi xóa
-    // Đảm bảo luôn lưu snapshot khi xóa node để có thể undo
+    // Đảm bảo luôn lưu snapshot khi xóa node để có thể khôi phục
     console.log('[Delete] 💾 Gọi saveSnapshot() trước khi xóa node:', nodeId)
     
     // ⚠️ CRITICAL: Force save snapshot khi xóa node

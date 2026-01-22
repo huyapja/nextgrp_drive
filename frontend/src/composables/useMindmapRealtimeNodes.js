@@ -338,7 +338,7 @@ export function useMindmapRealtimeNodes({
       }
       
       // ⚠️ CRITICAL: Force lưu snapshot khi nhận node mới từ remote
-      // Đảm bảo user có snapshot base để undo về
+      // Đảm bảo user có snapshot base để khôi phục về
       if (saveSnapshot && elementIndex === -1) {
         console.log('💾 [Realtime] Force save snapshot sau khi nhận node mới:', remoteNode.id)
         // Dùng nextTick để đảm bảo computed nodes đã được update

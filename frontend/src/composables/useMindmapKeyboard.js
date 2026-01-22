@@ -10,8 +10,6 @@ export function useMindmapKeyboard({
   addChildToNode,
   addSiblingToNode,
   deleteSelectedNode,
-  undo,
-  redo,
   handleToolbarDone,
   copyNode,
   cutNode,
@@ -74,18 +72,6 @@ export function useMindmapKeyboard({
 
     const key = event.key
 
-    if ((event.ctrlKey || event.metaKey) && !event.shiftKey && key === 'z') {
-      event.preventDefault()
-      event.stopPropagation()
-      undo()
-      return
-    }
-    if ((event.ctrlKey || event.metaKey) && (key === 'y' || (key === 'z' && event.shiftKey))) {
-      event.preventDefault()
-      event.stopPropagation()
-      redo()
-      return
-    }
 
     if (isInEditor || editingNode.value) {
       trackAlphaKey(event.key)
@@ -127,10 +113,6 @@ export function useMindmapKeyboard({
       return
     }
     
-    const isUndoRedoKey = (event.ctrlKey || event.metaKey) && (key === 'z' || key === 'y')
-    if (isComposing && !isUndoRedoKey) {
-      return
-    }
 
     if (key === 'Tab') {
       event.preventDefault()

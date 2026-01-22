@@ -99,36 +99,6 @@
         @createTask="handleCreateTask"
       />
 
-      <!-- Undo/Redo buttons - Top left -->
-      <div class="fixed top-[100px] z-10 flex gap-2" :style="{ left: controlsLeft }">
-        <!-- Undo Button -->
-        <button 
-          @click="undo" 
-          class="control-btn transition-colors" 
-          :class="{ 'opacity-50 cursor-not-allowed': !canUndo }"
-          :disabled="!canUndo"
-          v-tooltip.right="{ value: 'Hoàn tác (Ctrl+Z)', pt: { text: { class: ['text-[12px]'] } } }"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 7v6h6"/>
-            <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/>
-          </svg>
-        </button>
-        
-        <!-- Redo Button -->
-        <button 
-          @click="redo" 
-          class="control-btn transition-colors" 
-          :class="{ 'opacity-50 cursor-not-allowed': !canRedo }"
-          :disabled="!canRedo"
-          v-tooltip.right="{ value: 'Làm lại (Ctrl+Y)', pt: { text: { class: ['text-[12px]'] } } }"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M21 7v6h-6"/>
-            <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/>
-          </svg>
-        </button>
-      </div>
 
       <!-- Change view mindmap -->
       <div class="fixed top-[160px] z-10 flex flex-col gap-2" :style="{ left: controlsLeft }">
@@ -528,7 +498,7 @@ const {
 
 const {
   historyStack, historyIndex, MAX_HISTORY_SIZE, isRestoringSnapshot,
-  canUndo, canRedo, saveSnapshot: saveSnapshotFromComposable, logHistory
+  saveSnapshot: saveSnapshotFromComposable, logHistory
 } = useMindmapHistory()
 
 const {
@@ -631,8 +601,6 @@ const keyboardOperations = useMindmapKeyboard({
   addChildToNode,
   addSiblingToNode,
   deleteSelectedNode: () => deleteSelectedNode(),
-  undo: () => undo(),
-  redo: () => redo(),
   handleToolbarDone,
   copyNode,
   cutNode,
@@ -1083,7 +1051,7 @@ const initD3Renderer = () => {
       // 3. skipSizeCalculation: chỉ lưu không tính lại size (formatting updates)
       if (updates.skipSizeCalculation) {
       console.log('skipSizeCalculation', updates)
-        // ⚠️ FIX: Lưu snapshot vào undo/redo history cho formatting changes
+        // ⚠️ FIX: Lưu snapshot cho formatting changes
         // Formatting changes là thao tác rời rạc (click button bold, italic, etc.)
         // nên cần lưu snapshot ngay, không giống text typing
         saveSnapshot()
@@ -1101,7 +1069,7 @@ const initD3Renderer = () => {
         textInputSaveTimeout = null
       }, TEXT_INPUT_SAVE_DELAY)
       
-      // ⚠️ FIX: Lưu snapshot với debounce khi nhập text để có thể undo từng bước
+      // ⚠️ FIX: Lưu snapshot với debounce khi nhập text
       // Debounce time dài hơn (1 giây) để tránh tạo quá nhiều snapshots
       if (textInputSnapshotTimeout) {
         clearTimeout(textInputSnapshotTimeout)
@@ -1155,7 +1123,7 @@ const initD3Renderer = () => {
       }
       
       // ⚠️ CRITICAL: Lưu snapshot TRƯỚC khi bắt đầu edit
-      // Đảm bảo có snapshot "before" để undo về
+      // Đảm bảo có snapshot "before" để khôi phục về trạng thái trước
       // Force = true để đảm bảo luôn lưu snapshot, ngay cả khi so sánh thấy không có thay đổi
       // (vì node chưa được edit nên có thể so sánh thấy giống snapshot trước)
       console.log('[EditStart] 💾 Lưu snapshot trước khi bắt đầu edit node:', nodeId)
@@ -1184,7 +1152,7 @@ const initD3Renderer = () => {
           
           // ⚠️ FIX: Luôn lưu snapshot khi blur để đảm bảo có snapshot với nội dung đã nhập
           // Không kiểm tra hasChanges vì ngay cả khi không có thay đổi, vẫn cần snapshot
-          // để đảm bảo undo hoạt động đúng (quay về trạng thái trước khi blur)
+          // để đảm bảo khôi phục hoạt động đúng (quay về trạng thái trước khi blur)
           console.log(`[EditEnd] 💾 Lưu snapshot sau khi blur node ${finishedNodeId}`)
           saveSnapshot()
 
@@ -1333,7 +1301,7 @@ const saveSnapshot = (force = false) => {
   })
   console.log('  Gọi từ:', caller)
   
-  // Xóa các snapshot sau vị trí hiện tại (khi có thao tác mới sau khi undo)
+  // Xóa các snapshot sau vị trí hiện tại (khi có thao tác mới sau khi khôi phục)
   if (historyIndex.value < historyStack.value.length - 1) {
     const removedCount = historyStack.value.length - historyIndex.value - 1
     historyStack.value = historyStack.value.slice(0, historyIndex.value + 1)
@@ -1363,7 +1331,6 @@ const logHistoryStack = () => {
   console.log('📚 LỊCH SỬ SNAPSHOT:')
   console.log(`Tổng số: ${historyStack.value.length} snapshots`)
   console.log(`Vị trí hiện tại: index ${historyIndex.value} (snapshot #${historyIndex.value + 1})`)
-  console.log(`Có thể undo: ${canUndo.value}, Có thể redo: ${canRedo.value}`)
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
   
   historyStack.value.forEach((snapshot, index) => {
@@ -1402,537 +1369,8 @@ const logHistoryStack = () => {
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━')
 }
 
-// Undo: Khôi phục state trước đó
-const undo = () => {
-  console.log('[Undo/Redo] ⏪ Undo được gọi:', {
-    historyStackLength: historyStack.value.length,
-    currentIndex: historyIndex.value,
-    canUndo: canUndo.value
-  })
-  
-  // Kiểm tra có history không
-  if (historyStack.value.length === 0 || historyIndex.value < 0) {
-    console.log('[Undo/Redo] ❌ Không có history để undo')
-    return
-  }
-  
-  // Nếu đang ở snapshot đầu tiên, không thể undo
-  if (historyIndex.value === 0) {
-    console.log('[Undo/Redo] ❌ Đã ở snapshot đầu tiên, không thể undo')
-    return
-  }
-  
-  // Di chuyển về snapshot trước
-  historyIndex.value--
-  const snapshot = historyStack.value[historyIndex.value]
-  
-  console.log('[Undo/Redo] 📖 Khôi phục snapshot:', {
-    index: historyIndex.value,
-    timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
-    nodesCount: snapshot.elements.filter(el => el.id && !el.source && !el.target).length,
-    selectedNodeId: snapshot.selectedNodeId
-  })
-  
-  // Khôi phục state
-  restoreSnapshot(snapshot)
-  
-  // Log lịch sử sau khi undo
-  logHistoryStack()
-}
 
-// Redo: Khôi phục state tiếp theo
-const redo = () => {
-  console.log('[Undo/Redo] ⏩ Redo được gọi:', {
-    historyStackLength: historyStack.value.length,
-    currentIndex: historyIndex.value,
-    canRedo: historyIndex.value < historyStack.value.length - 1
-  })
-  
-  if (historyIndex.value >= historyStack.value.length - 1) {
-    console.log('[Undo/Redo] ❌ Không có history để redo')
-    return
-  }
-  
-  // Di chuyển đến snapshot tiếp theo
-  historyIndex.value++
-  const snapshot = historyStack.value[historyIndex.value]
-  
-  console.log('[Undo/Redo] 📖 Khôi phục snapshot:', {
-    index: historyIndex.value,
-    timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
-    nodesCount: snapshot.elements.filter(el => el.id && !el.source && !el.target).length,
-    selectedNodeId: snapshot.selectedNodeId
-  })
-  
-  // Khôi phục state
-  restoreSnapshot(snapshot)
-  
-  // Log lịch sử sau khi redo
-  logHistoryStack()
-}
 
-// Khôi phục state từ snapshot
-const restoreSnapshot = async (snapshot) => {
-  if (!snapshot) {
-    console.log('[Undo/Redo] ❌ restoreSnapshot: snapshot không tồn tại')
-    return
-  }
-  
-  // Lưu lại nodes hiện tại để so sánh (trước khi restore)
-  const oldNodesMap = new Map()
-  nodes.value.forEach(node => {
-    oldNodesMap.set(node.id, node)
-  })
-  
-  isRestoringSnapshot.value = true
-  
-  try {
-    console.log('[Undo/Redo] 🔄 Bắt đầu restore snapshot:', {
-      timestamp: new Date(snapshot.timestamp).toLocaleTimeString('vi-VN'),
-      elementsCount: snapshot.elements.length
-    })
-    
-    // ⚠️ Lấy lại nodes từ JSON snapshot
-    const restoredElements = JSON.parse(JSON.stringify(snapshot.elements))
-    const restoredNodes = restoredElements.filter(el => el.id && !el.source && !el.target)
-    
-    console.log('[Undo/Redo] 📦 Nodes được khôi phục:', {
-      nodesCount: restoredNodes.length
-    })
-    
-    // Khôi phục elements
-    elements.value = restoredElements
-    
-    // Khôi phục nodeCreationOrder
-    nodeCreationOrder.value = new Map(snapshot.nodeCreationOrder)
-    
-    // ⚠️ FIX: Sau undo/redo, KHÔNG focus vào node nào cả
-    selectedNode.value = null
-    if (d3Renderer) {
-      d3Renderer.selectedNode = null
-    }
-    
-    // Update renderer
-    await nextTick()
-    if (d3Renderer) {
-      d3Renderer.options.nodeCreationOrder = nodeCreationOrder.value
-      
-      // ⚠️ OPTIMIZATION: So sánh snapshot để chỉ unmount các node thay đổi
-      // Tìm các node đã thay đổi (thêm, xóa, hoặc thay đổi nội dung)
-      const previousNodes = new Map()
-      d3Renderer.nodes.forEach(node => {
-        previousNodes.set(node.id, node)
-      })
-      
-      const changedNodeIds = new Set()
-      const newNodes = new Map()
-      nodes.value.forEach(node => {
-        newNodes.set(node.id, node)
-        const prevNode = previousNodes.get(node.id)
-        if (!prevNode) {
-          // Node mới được thêm
-          changedNodeIds.add(node.id)
-        } else if (prevNode.data?.label !== node.data?.label) {
-          // Node đã thay đổi nội dung
-          changedNodeIds.add(node.id)
-        }
-      })
-      
-      // Tìm các node đã bị xóa
-      previousNodes.forEach((node, id) => {
-        if (!newNodes.has(id)) {
-          changedNodeIds.add(id)
-        }
-      })
-      
-      // ⚠️ FIX: Áp dụng logic giống realtime update
-      console.log('[Undo/Redo] 🔄 Clear cache và prepare cho', changedNodeIds.size, 'nodes bị thay đổi')
-      
-      // Step 1: Clear cache và xóa fixedWidth/Height cho nodes bị thay đổi (giống realtime)
-      changedNodeIds.forEach(nodeId => {
-        if (nodeId !== 'root') {
-          // Clear size cache
-          if (d3Renderer.nodeSizeCache) {
-            d3Renderer.nodeSizeCache.delete(nodeId)
-          }
-          
-          // Xóa fixedWidth/fixedHeight từ d3Node
-          const d3Node = d3Renderer.nodes.find(n => n.id === nodeId)
-          if (d3Node?.data) {
-            delete d3Node.data.fixedWidth
-            delete d3Node.data.fixedHeight
-          }
-        }
-      })
-      
-      // Step 2: setData và render (giống realtime dòng 6155-6156)
-      d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
-      d3Renderer.render()
-      
-      await nextTick()
-      
-      // Step 3: Update content và recalculate size cho nodes bị thay đổi (giống realtime)
-      const nodesToUpdate = restoredNodes.filter(n => 
-        n.id !== 'root' && 
-        n.data?.label && 
-        changedNodeIds.has(n.id)
-      )
-      
-      console.log('[Undo/Redo] 📏 Update content và recalculate size cho', nodesToUpdate.length, 'nodes')
-      
-      // ⚠️ FIX: Đợi DOM được render trước khi set content
-      await nextTick()
-      await new Promise(resolve => setTimeout(resolve, 100))
-      
-      for (const restoredNode of nodesToUpdate) {
-        // ⚠️ FIX: Retry để đảm bảo editor instance sẵn sàng
-        let editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
-        let attempts = 0
-        const maxAttempts = 20
-        
-        while ((!editorInstance || editorInstance.isDestroyed) && attempts < maxAttempts) {
-          await new Promise(resolve => setTimeout(resolve, 50))
-          editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
-          attempts++
-        }
-        
-        if (editorInstance && !editorInstance.isDestroyed) {
-          try {
-            // ⚠️ FIX: Kiểm tra xem container có children không (Vue component đã mount chưa)
-            const nodeGroup = d3Renderer.g.select(`[data-node-id="${restoredNode.id}"]`)
-            const editorContainer = nodeGroup.select('.node-editor-container')
-            const containerNode = editorContainer.node()
-            const hasVueApp = d3Renderer.vueApps.has(restoredNode.id)
-            const containerHasChildren = containerNode && containerNode.children.length > 0
-            
-            console.log(`[Undo/Redo] 🔍 Node ${restoredNode.id} - Kiểm tra mount:`, {
-              hasNodeGroup: !nodeGroup.empty(),
-              hasContainer: !!containerNode,
-              hasVueApp,
-              containerHasChildren,
-              editorInstanceReady: !!editorInstance && !editorInstance.isDestroyed
-            })
-            
-            // ⚠️ FIX: Nếu container rỗng nhưng có Vue app, unmount và mount lại
-            if (hasVueApp && !containerHasChildren) {
-              console.warn(`[Undo/Redo] ⚠️ Node ${restoredNode.id} có Vue app nhưng container rỗng, unmount và mount lại`)
-              
-              // Unmount Vue app cũ
-              d3Renderer.unmountNodeEditor(restoredNode.id)
-              
-              // Trigger render lại để mount Vue component mới
-              d3Renderer.render()
-              await nextTick()
-              await new Promise(resolve => setTimeout(resolve, 150))
-              
-              // Kiểm tra lại sau khi render
-              const retryContainerNode = d3Renderer.g.select(`[data-node-id="${restoredNode.id}"]`)
-                .select('.node-editor-container')
-                .node()
-              const retryHasChildren = retryContainerNode && retryContainerNode.children.length > 0
-              
-              if (!retryHasChildren) {
-                console.warn(`[Undo/Redo] ⚠️ Node ${restoredNode.id} vẫn rỗng sau khi render lại, thử mount thủ công`)
-                // Thử mount thủ công nếu vẫn rỗng
-                if (retryContainerNode) {
-                  const nodeData = d3Renderer.nodes.find(n => n.id === restoredNode.id)
-                  if (nodeData) {
-                    const text = nodeData.data?.label || ''
-                    const isRootNode = nodeData.id === 'root' || nodeData.data?.isRoot
-                    const color = nodeData.data?.color || '#1f2937'
-                    
-                    d3Renderer.mountNodeEditor(restoredNode.id, retryContainerNode, {
-                      value: text,
-                      placeholder: 'Nhập...',
-                      color: color,
-                      minHeight: '43px',
-                      width: '100%',
-                      height: 'auto',
-                      isRoot: isRootNode,
-                      uploadImage: d3Renderer.uploadImage || null,
-                      editable: d3Renderer.options?.permissions?.write === 1,
-                      onInput: (value) => {
-                        // Handle input sẽ được set sau
-                      },
-                      onFocus: () => {
-                        // Handle focus sẽ được set sau
-                      },
-                      onBlur: () => {
-                        // Handle blur sẽ được set sau
-                      },
-                    })
-                    await nextTick()
-                  }
-                }
-              }
-              
-              // Lấy lại editor instance sau khi mount
-              editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
-            }
-            
-            // ⚠️ FIX: Đảm bảo content không rỗng và convert plain text sang HTML nếu cần
-            let contentToSet = restoredNode.data?.label || ''
-            
-            // Nếu là plain text, convert sang HTML
-            if (contentToSet && !/<[a-z][\s\S]*>/i.test(contentToSet.trim())) {
-              contentToSet = `<p data-type="node-title">${contentToSet}</p>`
-            } else if (!contentToSet || contentToSet.trim() === '' || contentToSet === '<p></p>') {
-              contentToSet = '<p data-type="node-title"></p>'
-            }
-            
-            // setContent
-            editorInstance.commands.setContent(contentToSet, false)
-            
-            // ⚠️ FIX: Force update editor view để đảm bảo DOM được cập nhật
-            if (editorInstance.view) {
-              requestAnimationFrame(() => {
-                const tr = editorInstance.view.state.tr
-                editorInstance.view.dispatch(tr)
-              })
-            }
-            
-            // ⚠️ FIX: Đợi một chút và kiểm tra DOM content
-            await nextTick()
-            await new Promise(resolve => setTimeout(resolve, 50))
-            
-            const editorDOM = editorInstance.view?.dom
-            if (editorDOM) {
-              const proseElement = editorDOM.querySelector('.mindmap-editor-prose')
-              const domContent = proseElement?.innerHTML || editorDOM.innerHTML
-              const actualContent = editorInstance.getHTML()
-              
-              console.log(`[Undo/Redo] 📝 Node ${restoredNode.id} - Content sau khi set:`, {
-                expected: contentToSet.substring(0, 50),
-                actual: actualContent?.substring(0, 50) || '',
-                domContent: domContent?.substring(0, 50) || '',
-                hasDOM: !!domContent
-              })
-            }
-            
-            console.log(`[Undo/Redo] ✅ Set content cho node ${restoredNode.id}`)
-          } catch (e) {
-            console.error(`[Undo/Redo] ❌ Lỗi khi update node ${restoredNode.id}:`, e)
-          }
-        } else {
-          console.warn(`[Undo/Redo] ⚠️ Không thể lấy editor instance cho node ${restoredNode.id}`)
-        }
-      }
-      
-      // Đợi content được apply
-      await nextTick()
-      await new Promise(resolve => setTimeout(resolve, 50))
-      
-      // Force auto-resize bằng cách XÓA fixed dimensions và để D3 tự tính toán lại
-      for (const restoredNode of nodesToUpdate) {
-        try {
-          // XÓA tất cả fixed dimensions từ node.data
-          const d3Node = d3Renderer.nodes.find(n => n.id === restoredNode.id)
-          if (d3Node?.data) {
-            delete d3Node.data.fixedWidth
-            delete d3Node.data.fixedHeight
-            delete d3Node.data.rect
-          }
-          
-          // Xóa cache để D3 tính toán lại
-          d3Renderer.nodeSizeCache.delete(restoredNode.id)
-          d3Renderer.positions?.delete(restoredNode.id)
-          
-          console.log(`[Undo/Redo] ✅ Cleared fixed dimensions cho node ${restoredNode.id}`)
-        } catch (e) {
-          console.error(`[Undo/Redo] ❌ Lỗi khi clear dimensions node ${restoredNode.id}:`, e)
-        }
-      }
-      
-      // Step 4: Re-estimate size và APPLY TRỰC TIẾP vào DOM
-      if (d3Renderer) {
-        // Gọi setData để D3 biết nodes đã thay đổi
-        d3Renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
-        
-        // Re-estimate size và apply vào DOM ngay lập tức
-        for (const restoredNode of nodesToUpdate) {
-          try {
-            const d3Node = d3Renderer.nodes.find(n => n.id === restoredNode.id)
-            if (d3Node) {
-              // Force D3 re-estimate size dựa vào label mới
-              const newSize = d3Renderer.estimateNodeSize(d3Node)
-              d3Renderer.nodeSizeCache.set(restoredNode.id, newSize)
-              
-              // ⚠️ QUAN TRỌNG: Apply size TRỰC TIẾP vào DOM ngay lập tức
-              const nodeGroup = d3Renderer.g.select(`[data-node-id="${restoredNode.id}"]`)
-              if (!nodeGroup.empty()) {
-                const rect = nodeGroup.select('.node-rect')
-                const fo = nodeGroup.select('.node-text')
-                
-                if (!rect.empty() && !fo.empty()) {
-                  const borderOffset = 4
-                  
-                  // Set width
-                  rect.attr('width', newSize.width)
-                  rect.node()?.setAttribute('width', newSize.width + 3)
-                  
-                  // Set height
-                  rect.attr('height', newSize.height)
-                  rect.node()?.setAttribute('height', newSize.height)
-                  
-                  // Set foreignObject
-                  const foWidth = Math.max(0, newSize.width + borderOffset)
-                  const foHeight = Math.max(0, newSize.height - borderOffset)
-                  fo.attr('width', foWidth)
-                  fo.attr('height', foHeight)
-                  fo.node()?.setAttribute('width', foWidth)
-                  fo.node()?.setAttribute('height', foHeight)
-                  
-                  // ⚠️ CRITICAL: Reset ALL height-related styles to AUTO
-                  // Điều này cho phép node tự động fit với nội dung mà không giữ kích thước cũ
-                  const wrapperNode = fo.select('.node-content-wrapper').node()
-                  if (wrapperNode) {
-                    wrapperNode.style.removeProperty('height')
-                    wrapperNode.style.removeProperty('min-height')
-                    wrapperNode.style.removeProperty('max-height')
-                    wrapperNode.style.setProperty('height', 'auto', 'important')
-                    wrapperNode.style.setProperty('min-height', '0', 'important')
-                    wrapperNode.style.setProperty('max-height', 'none', 'important')
-                  }
-                  
-                  const containerNode = fo.select('.node-editor-container').node()
-                  if (containerNode) {
-                    containerNode.style.removeProperty('height')
-                    containerNode.style.removeProperty('min-height')
-                    containerNode.style.removeProperty('max-height')
-                    containerNode.style.setProperty('height', 'auto', 'important')
-                    containerNode.style.setProperty('min-height', '0', 'important')
-                    containerNode.style.setProperty('max-height', 'none', 'important')
-                  }
-                  
-                  // Set editor content to auto height với min-height phù hợp
-                  const editorInstance = d3Renderer.getEditorInstance(restoredNode.id)
-                  if (editorInstance && !editorInstance.isDestroyed) {
-                    const editorDOM = editorInstance.view?.dom
-                    const editorContent = editorDOM?.querySelector('.mindmap-editor-prose') || editorDOM
-                    if (editorContent) {
-                      editorContent.style.removeProperty('height')
-                      editorContent.style.removeProperty('min-height')
-                      editorContent.style.removeProperty('max-height')
-                      editorContent.style.setProperty('height', 'auto', 'important')
-                      editorContent.style.setProperty('min-height', '43px', 'important')
-                      editorContent.style.setProperty('max-height', 'none', 'important')
-                      editorContent.style.setProperty('overflow', 'visible', 'important')
-                      
-                      // Force reflow để browser tính toán lại
-                      void editorContent.offsetHeight
-                      
-                      // Đo height THỰC TẾ sau khi set auto
-                      requestAnimationFrame(() => {
-                        const actualHeight = editorContent.scrollHeight || editorContent.offsetHeight || 43
-                        const finalHeight = Math.max(actualHeight, 43)
-                        const finalFoHeight = Math.max(0, finalHeight - borderOffset)
-                        
-                        // Update rect và fo với height thực tế
-                        rect.attr('height', finalHeight)
-                        rect.node()?.setAttribute('height', finalHeight)
-                        fo.attr('height', finalFoHeight)
-                        fo.node()?.setAttribute('height', finalFoHeight)
-                        
-                        // ⚠️ QUAN TRỌNG: LOCK wrapper/container height để match với nội dung
-                        // Nếu để auto, chúng sẽ expand ra đầy fo và tạo khoảng trắng
-                        if (wrapperNode) {
-                          wrapperNode.style.setProperty('height', `${finalFoHeight}px`, 'important')
-                          wrapperNode.style.setProperty('min-height', `${finalFoHeight}px`, 'important')
-                          wrapperNode.style.setProperty('max-height', `${finalFoHeight}px`, 'important')
-                        }
-                        
-                        if (containerNode) {
-                          containerNode.style.setProperty('height', `${finalFoHeight}px`, 'important')
-                          containerNode.style.setProperty('min-height', `${finalFoHeight}px`, 'important')
-                          containerNode.style.setProperty('max-height', `${finalFoHeight}px`, 'important')
-                        }
-                        
-                        // Update cache
-                        d3Renderer.nodeSizeCache.set(restoredNode.id, { width: newSize.width, height: finalHeight })
-                        
-                        if (Math.abs(finalHeight - newSize.height) > 2) {
-                          console.log(`[Undo/Redo] 🔧 Adjusted height cho node ${restoredNode.id}: ${newSize.height} -> ${finalHeight}`)
-                        } else {
-                          console.log(`[Undo/Redo] ✅ Height chính xác cho node ${restoredNode.id}: ${finalHeight}px`)
-                        }
-                      })
-                    }
-                  }
-                  
-                  console.log(`[Undo/Redo] 📐 Applied size to DOM cho node ${restoredNode.id}: ${newSize.width}x${newSize.height}`)
-                }
-              }
-            }
-          } catch (e) {
-            console.error(`[Undo/Redo] ❌ Lỗi khi re-estimate node ${restoredNode.id}:`, e)
-          }
-        }
-      }
-      
-      // Step 5: Final render để apply kích thước mới
-      // Đợi requestAnimationFrame hoàn thành việc đo height thực tế
-      await nextTick()
-      await new Promise(resolve => setTimeout(resolve, 200))
-      
-      if (d3Renderer) {
-        console.log('[Undo/Redo] 🎨 Final render với size đã được adjust')
-        d3Renderer.render(false)
-      }
-    }
-  } finally {
-    isRestoringSnapshot.value = false
-  }
-  
-  // So sánh để tìm nodes deleted, added, updated
-  const newNodesMap = new Map()
-  nodes.value.forEach(node => {
-    newNodesMap.set(node.id, node)
-  })
-  
-  // Tìm nodes đã bị xóa (có trong old nhưng không có trong new)
-  const deletedNodeIds = []
-  oldNodesMap.forEach((node, id) => {
-    if (id !== 'root' && !newNodesMap.has(id)) {
-      deletedNodeIds.push(id)
-    }
-  })
-  
-  // Tìm nodes added hoặc updated
-  nodes.value.forEach(node => {
-    if (node.id === 'root') return
-    
-    const oldNode = oldNodesMap.get(node.id)
-    if (!oldNode) {
-      // Node mới được thêm
-      changedNodeIds.value.add(node.id)
-    } else {
-      // Kiểm tra xem node có thay đổi không
-      const oldLabel = oldNode.data?.label || ''
-      const newLabel = node.data?.label || ''
-      if (oldLabel !== newLabel) {
-        changedNodeIds.value.add(node.id)
-      }
-    }
-  })
-  
-  console.log('[Undo/Redo] 📊 Thay đổi phát hiện:', {
-    deleted: deletedNodeIds.length,
-    changedOrAdded: changedNodeIds.value.size
-  })
-  
-  // Broadcast nodes deleted nếu có
-  if (deletedNodeIds.length > 0 && permissions.value.write) {
-    savingCount.value++
-    deleteNodesResource.submit({
-      entity_name: props.entityName,
-      node_ids: JSON.stringify(deletedNodeIds)
-    })
-    console.log('[Undo/Redo] ✅ Đang broadcast xóa nodes:', deletedNodeIds)
-  }
-  
-  // Lưu và broadcast nodes updated/added
-  scheduleSave()
-}
 
 // Delete functions moved to useMindmapDelete composable
 
@@ -3075,14 +2513,10 @@ onMounted(() => {
     window.__debugMindmap = {
       logHistory: logHistoryStack,
       getHistoryStack: () => historyStack.value,
-      getHistoryIndex: () => historyIndex.value,
-      undo,
-      redo
+      getHistoryIndex: () => historyIndex.value
     }
     console.log('🐛 Debug tools available: window.__debugMindmap')
     console.log('   - window.__debugMindmap.logHistory() : Xem lịch sử snapshot')
-    console.log('   - window.__debugMindmap.undo()       : Undo thủ công')
-    console.log('   - window.__debugMindmap.redo()       : Redo thủ công')
   }
 
   // Handle window resize

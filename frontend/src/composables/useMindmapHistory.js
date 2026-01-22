@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 
 export function useMindmapHistory() {
   const historyStack = ref([])
@@ -6,8 +6,6 @@ export function useMindmapHistory() {
   const MAX_HISTORY_SIZE = 50
   const isRestoringSnapshot = ref(false)
 
-  const canUndo = computed(() => historyIndex.value > 0)
-  const canRedo = computed(() => historyIndex.value < historyStack.value.length - 1)
 
   const saveSnapshot = (force = false) => {
     if (isRestoringSnapshot.value && !force) {
@@ -50,11 +48,9 @@ export function useMindmapHistory() {
   const logHistory = () => {
     console.log('[History] Snapshot history:', {
       total: historyStack.value.length,
-      current: historyIndex.value,
-      canUndo: canUndo.value,
-      canRedo: canRedo.value
+      current: historyIndex.value
     })
-    
+
     historyStack.value.forEach((snapshot, idx) => {
       const isCurrent = idx === historyIndex.value
       const nodes = snapshot.elements.filter(el => el.id && !el.source && !el.target)
@@ -67,8 +63,6 @@ export function useMindmapHistory() {
     historyIndex,
     MAX_HISTORY_SIZE,
     isRestoringSnapshot,
-    canUndo,
-    canRedo,
     saveSnapshot,
     logHistory,
   }
