@@ -1,7 +1,9 @@
 <template>
-    <MindmapTextNodeViewEditor ref="editorRef" :permissions="props.permissions" :initial-content="content" @rename-title="onRenameTitle"
-        @update-nodes="onUpdateNodes" @open-comment="onOpenComment" @add-child-node="onAddChildFromText"
-        @done-node="onDoneNode" @copy-node="onCopyNode" @task-link-node="onTaskLinkNode" @delete-node="onDeleteNode" @unlink-task-node="onUnlinkTaskNode" @insert-images="onInsertImages"/>
+    <MindmapTextNodeViewEditor ref="editorRef" :permissions="props.permissions" :initial-content="content"
+        @rename-title="onRenameTitle" @update-nodes="onUpdateNodes" @open-comment="onOpenComment"
+        @add-child-node="onAddChildFromText" @done-node="onDoneNode" @copy-node="onCopyNode"
+        @task-link-node="onTaskLinkNode" @delete-node="onDeleteNode" @unlink-task-node="onUnlinkTaskNode"
+        @insert-images="onInsertImages" />
 </template>
 
 <script setup>
@@ -98,8 +100,11 @@ watch(
 )
 
 defineExpose({
-  forceStopEditing() {
-    editorRef.value?.forceStopEditing?.()
-  }
+    forceStopEditing() {
+        editorRef.value?.forceStopEditing?.()
+    },
+    focusNodeById(nodeId) {
+        editorRef.value?.focusNodeById?.(nodeId)
+    }
 })
 </script>
