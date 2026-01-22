@@ -36,7 +36,7 @@ export function useResolvedNode({
       node_id: node.id,
       session_index: session,
       history: {
-        node_key: node.node_key,
+        node_key: node.node_key || crypto.randomUUID(),
         node_created_at: new Date(node.created_at).toISOString(),
         node_title: extractTextFromP(node.data?.label || ""),
         node_position: node.position,

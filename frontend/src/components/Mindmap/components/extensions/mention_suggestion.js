@@ -13,16 +13,26 @@ function matchName(fullName, query) {
   const nameTokens = normalize(fullName).split(/\s+/)
   const queryTokens = normalize(query).split(/\s+/)
 
-  if (queryTokens.length > nameTokens.length) return false
+  let nameIndex = 0
 
-  for (let i = 0; i < queryTokens.length; i++) {
-    if (!nameTokens[i].startsWith(queryTokens[i])) {
-      return false
+  for (const q of queryTokens) {
+    let found = false
+
+    while (nameIndex < nameTokens.length) {
+      if (nameTokens[nameIndex].startsWith(q)) {
+        found = true
+        nameIndex++
+        break
+      }
+      nameIndex++
     }
+
+    if (!found) return false
   }
 
   return true
 }
+
 
 export function MentionSuggestion({ getMembers, nodeId }) {
   let activeIndex = 0

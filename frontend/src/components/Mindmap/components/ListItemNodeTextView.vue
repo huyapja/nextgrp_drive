@@ -13,8 +13,32 @@
 
 <script setup>
 import { NodeViewWrapper, NodeViewContent } from "@tiptap/vue-3"
+import { inject, onMounted, onBeforeUnmount } from "vue"
 
-defineProps({
+const props = defineProps({
   node: Object,
+  updateAttributes: Function,
+})
+
+const emitter = inject("emitter")
+
+function handleTaskLink(payload) {
+  if (payload.nodeId !== props.node.attrs.nodeId) return
+
+  const { taskId, mode, status } = payload  
+
+  props.updateAttributes({
+    taskId: taskId || null,
+    taskMode: mode || null,
+    taskStatus: status || null,
+  })
+}
+
+onMounted(() => {
+  emitter?.on("task-link-node", handleTaskLink)
+})
+
+onBeforeUnmount(() => {
+  emitter?.off("task-link-node", handleTaskLink)
 })
 </script>

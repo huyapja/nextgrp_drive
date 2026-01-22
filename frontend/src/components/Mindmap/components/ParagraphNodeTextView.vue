@@ -164,7 +164,7 @@
 
 
 
-    <div class="ml-2">
+    <div class="ml-2 paragraph-content">
       <NodeViewContent />
     </div>
 

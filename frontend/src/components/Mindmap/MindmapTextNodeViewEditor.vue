@@ -111,30 +111,37 @@ const remoteEditingNodes = new Map()
  * ================================ */
 
 let lastEmittedTitle = null
+const lastNodeLabels = new Map()
+
 
 function syncFromEditor(editor) {
   isEditorEmitting = true
 
   const html = editor.getHTML()
-
-  // ================================
-  // Sync node edits
-  // ================================
   const edits = extractNodeEditsFromHTML(html)
-  if (edits.length) {
-    emit("update-nodes", edits)
+
+  const changedEdits = []
+
+  edits.forEach(({ nodeId, label }) => {
+    const prev = lastNodeLabels.get(nodeId)
+
+    if (prev !== label) {
+      lastNodeLabels.set(nodeId, label)
+      changedEdits.push({ nodeId, label })
+    }
+  })
+
+  if (changedEdits.length) {
+    emit("update-nodes", changedEdits)
   }
 
-  // ================================
-  // Sync title (CHỈ khi thay đổi)
-  // ================================
+  // ===== title sync giữ nguyên =====
   const container = document.createElement("div")
   container.innerHTML = html
 
   const h1 = container.querySelector('h1[data-node-id="root"]')
   if (h1) {
     const title = h1.textContent?.trim() ?? ""
-
     if (title && title !== lastEmittedTitle) {
       lastEmittedTitle = title
       emit("rename-title", title)
@@ -145,6 +152,7 @@ function syncFromEditor(editor) {
     isEditorEmitting = false
   })
 }
+
 
 const route = useRoute()
 const entityName = computed(() => route.params.entityName)
@@ -338,8 +346,6 @@ function handleInjectTaskLink(payload) {
     isInjectingTaskLink = false
   })
 }
-
-
 
 onMounted(() => {
   editor.value = new Editor({
@@ -726,19 +732,20 @@ defineExpose({
   transition: all 0.2s ease;
 }
 
-.prose :deep(li[data-has-count="true"] > div p:not(:has(span))) {
-  position: relative;
-  display: inline-block;
+
+.prose
+  :deep(
+    li[data-has-count="true"]
+      > div
+      > div
+      > p:not(
+        :has(span[data-inline-root] > span:not(:empty))
+      )::after
+  ) {
+  content: none;
 }
 
-.prose[data-v-049909dd] li[data-has-count="true"]>div p:not(:has(span)):not(blockquote p)::after {
-  content: "";
-  display: block;
-  width: 100%;
-  height: 2px;
-  background-color: #fcdf7e;
-  margin-top: 2px;
-}
+
 
 .prose :deep(.mm-node) {
   position: relative;
@@ -756,10 +763,10 @@ defineExpose({
   border-radius: 3px;
 }
 
-.prose :deep(.mm-node.is-comment-hover:not(:has(span[data-inline-root]))) {
+/* .prose :deep(.mm-node.is-comment-hover:not(:has(span[data-inline-root]))) {
   background-color: #faedc2;
   border-radius: 3px;
-}
+} */
 
 .prose :deep(.mm-node.is-comment-hover) {
   caret-color: #000000;
@@ -876,7 +883,7 @@ defineExpose({
 
 .prose :deep(ul li ul) {
   margin: 0;
-  /* padding:9px 0; */
+  padding-top:9px;
 }
 
 .prose :deep(li[data-has-children="true"][data-level="0"] ul::before) {
