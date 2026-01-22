@@ -48,6 +48,8 @@ export default {
       userPermissions: {}, // Cache permissions để tránh check lại
       permissionsChecked: false, // Track xem đã check permissions chưa
       lockedMentionId: null, // Track mention bị lock
+      mentionComponent: null, // Reference đến mention component để trigger update
+      checkingPermissions: false, // Track xem đang check permissions không
     }
   },
   computed:{
@@ -64,12 +66,18 @@ export default {
   },
   async mounted() {
     // ⚠️ Initialize editor immediately, don't wait for users/permissions
-    // Users data will be loaded in background and mention will work once loaded
+    // Editor sẽ hoạt động ngay, không bị block bởi API calls
     this.initEditor()
     
-    // Load users only (without permissions check) - non-blocking
-    // Permissions will be checked lazily when mention menu opens
-    this.loadUsers()
+    // Load users và check permissions ngay (NON-BLOCKING cho editor init)
+    // - Editor đã được khởi tạo ở trên, không đợi API
+    // - Nếu API check permission bị pending, editor vẫn hoạt động bình thường
+    // - Mention list sẽ hiển thị với has_permission: true (default) tạm thời
+    // - Sau khi API hoàn thành, mention list sẽ tự động update với permissions đúng
+    this.loadUsers().then(() => {
+      // Check permissions ngay sau khi load users xong (non-blocking)
+      this.checkUsersPermissions()
+    })
   },
   beforeUnmount() {
     if (this.editor) {
@@ -109,11 +117,19 @@ export default {
         return
       }
       
+      // Skip if đang check
+      if (this.checkingPermissions) {
+        return
+      }
+      
+      this.checkingPermissions = true
+      
       try {
         // Get user emails for permission check
         const userEmails = this.usersData.map((user) => user.id)
 
         if (userEmails.length === 0) {
+          this.checkingPermissions = false
           return
         }
 
@@ -138,7 +154,35 @@ export default {
           }))
           
           this.permissionsChecked = true
+          this.checkingPermissions = false
           console.log("User permissions checked:", this.userPermissions)
+          
+          // Trigger update cho mention component nếu đã được tạo
+          // TipTap sẽ tự động gọi lại items function qua onUpdate khi user gõ
+          // Nhưng để đảm bảo update ngay, trigger updateProps
+          this.$nextTick(() => {
+            if (this.mentionComponent && this.mentionComponent.updateProps && this.editor) {
+              try {
+                // Lấy query hiện tại từ editor
+                const state = this.editor.state
+                const { $from } = state.selection
+                const textBefore = $from.textContent
+                const query = textBefore.substring(textBefore.lastIndexOf('@') + 1)
+                
+                // Update props với items mới (có permissions đã được cập nhật)
+                const currentProps = this.mentionComponent.props || {}
+                const newItems = this.getMentionItems(query)
+                
+                console.log("Updating mention component with new items:", newItems.length, "items")
+                this.mentionComponent.updateProps({
+                  ...currentProps,
+                  items: newItems,
+                })
+              } catch (error) {
+                console.error("Error updating mention component:", error)
+              }
+            }
+          })
         } catch (permError) {
           console.error("Failed to check permissions:", permError)
           // Default to true if permission check fails (allow mention)
@@ -147,10 +191,79 @@ export default {
             has_permission: true,
           }))
           this.permissionsChecked = true
+          this.checkingPermissions = false
         }
       } catch (error) {
         console.error("Failed to check permissions:", error)
+        this.checkingPermissions = false
       }
+    },
+    
+    // Helper function để get mention items (extract từ items function)
+    getMentionItems(query = "") {
+      const users = this.usersData || []
+
+      // Lấy danh sách các mention đã có trong editor
+      const existingMentionIds = new Set()
+      if (this.editor && this.editor.state) {
+        this.editor.state.doc.descendants((node) => {
+          if (node.type.name === "mention") {
+            existingMentionIds.add(node.attrs.id)
+          }
+        })
+      }
+
+      // Lọc bỏ những user đã được mention
+      const availableUsers = users.filter(
+        (user) => !existingMentionIds.has(user.id) && user.id !== this.currentUserName
+      )
+
+      // Tìm kiếm linh hoạt hơn với nhiều từ
+      const queryLower = query.toLowerCase().trim()
+
+      if (!queryLower) {
+        // Nếu không có query, hiển thị tất cả user chưa mention
+        return availableUsers.slice(0, 10)
+      }
+
+      // Bỏ dấu query để tìm kiếm
+      const queryNoTones = this.removeVietnameseTones(queryLower)
+
+      return availableUsers
+        .filter((item) => {
+          const labelLower = item.label.toLowerCase()
+          const labelNoTones = this.removeVietnameseTones(labelLower)
+
+          // Tìm kiếm theo từng từ trong query
+          const queryWords = queryNoTones
+            .split(/\s+/)
+            .filter((w) => w)
+
+          return queryWords.every((word) => {
+            // Tìm cả trong bản có dấu và không dấu
+            return (
+              labelLower.includes(word) || labelNoTones.includes(word)
+            )
+          })
+        })
+        .sort((a, b) => {
+          // Ưu tiên kết quả khớp chính xác hơn
+          const aLabel = this.removeVietnameseTones(
+            a.label.toLowerCase()
+          )
+          const bLabel = this.removeVietnameseTones(
+            b.label.toLowerCase()
+          )
+
+          const aStartsWith = aLabel.startsWith(queryNoTones)
+          const bStartsWith = bLabel.startsWith(queryNoTones)
+
+          if (aStartsWith && !bStartsWith) return -1
+          if (!aStartsWith && bStartsWith) return 1
+
+          return 0
+        })
+        .slice(0, 10)
     },
     // Hàm bỏ dấu tiếng Việt
     removeVietnameseTones(str) {
@@ -459,88 +572,29 @@ export default {
               allowSpaces: true,
 
               items: ({ query, editor }) => {
+                // ⚠️ Function này KHÔNG async, return ngay lập tức
+                // Không block editor hoặc mention menu khi API pending
                 console.log(
                   "Mention items function called, query:",
                   query,
-                  "data:",
-                  this.usersData
+                  "permissionsChecked:",
+                  self.permissionsChecked,
+                  "checkingPermissions:",
+                  self.checkingPermissions
                 )
-                const users = this.usersData || []
-
-                // Lấy danh sách các mention đã có trong editor
-                const existingMentionIds = new Set()
-                if (editor && editor.state) {
-                  editor.state.doc.descendants((node) => {
-                    if (node.type.name === "mention") {
-                      existingMentionIds.add(node.attrs.id)
-                    }
-                  })
+                
+                // Trigger check permissions nếu chưa check (NON-BLOCKING)
+                // - Không đợi API, return ngay với data hiện tại
+                // - Permissions sẽ được check trong background
+                // - Component sẽ tự động update sau khi permissions check xong
+                if (!self.permissionsChecked && !self.checkingPermissions) {
+                  self.checkUsersPermissions() // Fire and forget
                 }
-
-                console.log(
-                  "Existing mentions:",
-                  Array.from(existingMentionIds)
-                )
-
-                // Lọc bỏ những user đã được mention
-                const availableUsers = users.filter(
-                  (user) => !existingMentionIds.has(user.id) && user.id !== this.currentUserName
-                )
-
-                console.log(
-                  "Available users (not yet mentioned):",
-                  availableUsers.length
-                )
-
-                // Tìm kiếm linh hoạt hơn với nhiều từ
-                const queryLower = query.toLowerCase().trim()
-
-                if (!queryLower) {
-                  // Nếu không có query, hiển thị tất cả user chưa mention
-                  return availableUsers.slice(0, 10)
-                }
-
-                // Bỏ dấu query để tìm kiếm
-                const queryNoTones = this.removeVietnameseTones(queryLower)
-
-                return availableUsers
-                  .filter((item) => {
-                    const labelLower = item.label.toLowerCase()
-                    const labelNoTones = this.removeVietnameseTones(labelLower)
-
-                    // Tìm kiếm theo từng từ trong query
-                    // Hỗ trợ cả CÓ DẤU và KHÔNG DẤU
-                    // VD: "tran quang" hoặc "trần quang" đều tìm được "Trần Quang"
-                    const queryWords = queryNoTones
-                      .split(/\s+/)
-                      .filter((w) => w)
-
-                    return queryWords.every((word) => {
-                      // Tìm cả trong bản có dấu và không dấu
-                      return (
-                        labelLower.includes(word) || labelNoTones.includes(word)
-                      )
-                    })
-                  })
-                  .sort((a, b) => {
-                    // Ưu tiên kết quả khớp chính xác hơn
-                    const aLabel = this.removeVietnameseTones(
-                      a.label.toLowerCase()
-                    )
-                    const bLabel = this.removeVietnameseTones(
-                      b.label.toLowerCase()
-                    )
-
-                    const aStartsWith = aLabel.startsWith(queryNoTones)
-                    const bStartsWith = bLabel.startsWith(queryNoTones)
-
-                    if (aStartsWith && !bStartsWith) return -1
-                    if (!aStartsWith && bStartsWith) return 1
-
-                    // Nếu cả 2 đều starts with hoặc đều không, giữ nguyên thứ tự
-                    return 0
-                  })
-                  .slice(0, 10)
+                
+                // Return items ngay lập tức (không đợi API)
+                // Nếu permissions chưa check xong, sẽ trả về has_permission: true (default)
+                // Component sẽ được update lại sau khi permissions check xong
+                return self.getMentionItems(query)
               },
 
               render: () => {
@@ -549,15 +603,24 @@ export default {
 
                 return {
                   onStart: (props) => {
+                    // ⚠️ Function này KHÔNG async, không đợi API
+                    // Mention menu sẽ hiển thị ngay, không bị block
                     console.log("Mention popup onStart called")
-                    // ⚠️ Check permissions when mention popup opens (user types @)
-                    if (!self.permissionsChecked) {
-                      self.checkUsersPermissions() // Check permissions in background
+                    
+                    // Trigger check permissions nếu chưa check (NON-BLOCKING)
+                    // - Không đợi API, tạo component ngay
+                    // - Component sẽ tự động update sau khi permissions check xong
+                    if (!self.permissionsChecked && !self.checkingPermissions) {
+                      self.checkUsersPermissions() // Fire and forget
                     }
+                    
+                    // Tạo component ngay lập tức (không đợi API)
                     component = new VueRenderer(MentionList, {
                       props,
                       editor: props.editor,
                     })
+                    // Lưu reference để có thể trigger update sau khi permissions check xong
+                    self.mentionComponent = component
                     if (!props.clientRect) {
                       return
                     }
@@ -590,6 +653,7 @@ export default {
                   onExit() {
                     popup[0].destroy()
                     component.destroy()
+                    self.mentionComponent = null
                   },
                 }
               },
