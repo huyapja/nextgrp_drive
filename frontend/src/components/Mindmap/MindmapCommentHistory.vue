@@ -119,7 +119,7 @@
 
 <script setup>
 import CustomAvatar from "../CustomAvatar.vue"
-import { getTeamMembers } from "../../resources/team"
+import { getCommentMembers } from "../../resources/team"
 import { ref, onMounted, computed, onUnmounted, inject, watch, nextTick } from "vue"
 import { call } from "frappe-ui"
 import {
@@ -184,7 +184,7 @@ function normalizeEmoji(emoji) {
 
 const memberMap = computed(() => {
     const map = {}
-        ; (getTeamMembers.data || []).forEach(m => {
+        ; (getCommentMembers.data || []).forEach(m => {
             map[m.email] = m
         })
     return map
