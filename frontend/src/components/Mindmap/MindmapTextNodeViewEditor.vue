@@ -350,7 +350,7 @@ function handleInjectTaskLink(payload) {
 function scrollToSelection(editor) {
   const { node } = editor.view.domAtPos(editor.state.selection.anchor)
   if (node instanceof Element) {
-    node.scrollIntoView({ behavior: "smooth" })
+    node.scrollIntoView({ behavior: "smooth", block: "center", })
   }
 }
 
