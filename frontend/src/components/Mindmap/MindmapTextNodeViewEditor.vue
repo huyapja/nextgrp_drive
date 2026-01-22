@@ -347,6 +347,72 @@ function handleInjectTaskLink(payload) {
   })
 }
 
+function scrollToSelection(editor) {
+  const { node } = editor.view.domAtPos(editor.state.selection.anchor)
+  if (node instanceof Element) {
+    node.scrollIntoView({ behavior: "smooth" })
+  }
+}
+
+function focusNodeById(nodeId) {
+  if (!editor.value || !nodeId) return
+
+  const { state, view } = editor.value
+  let targetPos = null
+
+  state.doc.descendants((node, pos) => {
+    if (targetPos != null) return false
+    if (node.type.name === "listItem" && node.attrs?.nodeId === nodeId) {
+      targetPos = pos + 2
+      return false
+    }
+  })
+
+  if (targetPos == null) return
+
+  const tr = state.tr.setSelection(
+    TextSelection.create(state.doc, targetPos)
+  )
+
+  tr.setMeta("ui-only", true)
+  view.dispatch(tr)
+
+  requestAnimationFrame(() => {
+    // 1️⃣ scroll theo selection (KHÔNG scrollIntoView trong tr nữa)
+    scrollToSelection(editor.value)
+
+    // 2️⃣ set clicked state
+    markNodeClicked(nodeId)
+
+    // 3️⃣ kích hoạt comment state (để vàng)
+    editor.value.options?.onOpenComment?.(nodeId, { focus: false })
+
+    // 4️⃣ focus editor
+    view.focus()
+  })
+}
+
+
+function clearAllClickedNodes() {
+  document
+    .querySelectorAll('li[data-is-clicked="true"]')
+    .forEach(li => {
+      li.removeAttribute('data-is-clicked')
+    })
+}
+
+function markNodeClicked(nodeId) {
+  const li = document.querySelector(
+    `li[data-node-id="${nodeId}"]`
+  )
+  if (!li) return
+
+  clearAllClickedNodes()
+  li.setAttribute('data-is-clicked', 'true')
+}
+
+
+
 onMounted(() => {
   editor.value = new Editor({
     content: props.initialContent,
@@ -667,7 +733,8 @@ watch(
 defineExpose({
   forceStopEditing() {
     editingTracker.forceStop("switch-view")
-  }
+  },
+  focusNodeById
 })
 </script>
 
@@ -733,15 +800,7 @@ defineExpose({
 }
 
 
-.prose
-  :deep(
-    li[data-has-count="true"]
-      > div
-      > div
-      > p:not(
-        :has(span[data-inline-root] > span:not(:empty))
-      )::after
-  ) {
+.prose :deep(li[data-has-count="true"] > div > div > p:not( :has(span[data-inline-root] > span:not(:empty)))::after) {
   content: none;
 }
 
@@ -883,7 +942,7 @@ defineExpose({
 
 .prose :deep(ul li ul) {
   margin: 0;
-  padding-top:9px;
+  padding-top: 9px;
 }
 
 .prose :deep(li[data-has-children="true"][data-level="0"] ul::before) {

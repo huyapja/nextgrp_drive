@@ -5070,11 +5070,15 @@ function createFocusHandler(focusFn) {
   return (node) => {
     if (!node) return
 
-    const nodeID = node.id || node.node_id
+    const nodeID = node.id || node.node_id    
     if (!nodeID) return
 
     focusFn(node)
-    scrollToNodeWithRetry(nodeID)
+    if(currentView.value === 'visual'){
+      scrollToNodeWithRetry(nodeID)
+    }else{
+      textViewRef.value?.focusNodeById?.(nodeID)
+    }
   }
 }
 
