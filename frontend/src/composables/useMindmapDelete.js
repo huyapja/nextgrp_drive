@@ -1,5 +1,5 @@
-import { ref } from 'vue'
 import { call } from 'frappe-ui'
+import { nextTick, ref } from 'vue'
 
 /**
  * Mindmap Delete Operations
@@ -82,16 +82,6 @@ export function useMindmapDelete({
    * Thực hiện xóa node (cascade)
    */
   const performDelete = async (nodeId) => {
-    // ⚠️ FIX: Lưu snapshot trước khi xóa
-    // Đảm bảo luôn lưu snapshot khi xóa node để có thể undo
-    console.log('[Delete] 💾 Gọi saveSnapshot() trước khi xóa node:', nodeId)
-    
-    // ⚠️ CRITICAL: Force save snapshot khi xóa node
-    // Lý do: saveSnapshot() được gọi TRƯỚC khi node bị xóa khỏi elements.value
-    // Nếu không force, nó sẽ so sánh và thấy không có thay đổi (vì node chưa bị xóa) → skip
-    // Force = true để đảm bảo luôn lưu snapshot trước khi xóa node
-    saveSnapshot(true)
-
     const nodesToDelete = new Set([nodeId])
 
     const collectDescendants = (id) => {
@@ -123,8 +113,20 @@ export function useMindmapDelete({
       return true
     })
 
+    // Update elements first
     elements.value = [...newNodes, ...newEdges]
     selectedNode.value = null
+
+    // ⚠️ FIX: Lưu snapshot SAU khi xóa node khỏi elements.value
+    // Đảm bảo snapshot lưu state AFTER deletion, không phải BEFORE
+    // Force = true để đảm bảo luôn lưu snapshot bất kể có sự khác biệt
+    console.log('[Delete] 💾 Gọi saveSnapshot() SAU khi xóa node:', nodeId)
+    saveSnapshot(true)
+    
+    // ⚠️ FIX: Đợi nextTick để đảm bảo snapshot đã được lưu vào history stack
+    // Tránh trường hợp khi xóa nhiều node nhanh, các snapshot bị gộp lại thành một
+    // Điều này đảm bảo mỗi lần xóa node sẽ tạo một snapshot riêng biệt
+    await nextTick()
 
     await call("drive.api.mindmap_comment.delete_comments_by_nodes", {
       mindmap_id: entityName,

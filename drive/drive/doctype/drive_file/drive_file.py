@@ -812,22 +812,31 @@ class DriveFile(Document):
                     "timestamp": frappe.utils.now(),
                 }
 
-                # Emit socket event (broadcast to all, frontend will filter by entity_name)
-                try:
-                    frappe.publish_realtime(
-                        event="permission_revoked",
-                        message=message,
-                        after_commit=True,  # Emit after commit to ensure data is saved
-                    )
-                    print(
-                        f"📡 Emitted permission_revoked event for user {user} on {self.name}, action: {action}"
-                    )
-                    print(f"   Message: {message}")
-                except Exception as e:
-                    print(f"❌ Failed to emit permission_revoked event: {str(e)}")
-                    import traceback
+                # ⚠️ FIX: Chỉ emit socket event cho user được thay đổi quyền, không broadcast cho tất cả
+                # Chỉ user được chia sẻ/thay đổi quyền cần nhận event, không phải tất cả users có quyền truy cập
+                if user and user != self.owner:
+                    try:
+                        frappe.publish_realtime(
+                            event="permission_revoked",
+                            message=message,
+                            user=user,  # Chỉ gửi cho user được thay đổi quyền
+                            after_commit=True,  # Emit after commit to ensure data is saved
+                        )
+                        print(
+                            f"📡 Emitted permission_revoked event for user {user} on {self.name}, action: {action}"
+                        )
+                        print(f"   Message: {message}")
+                        print(f"   ✅ Only sent to user {user} (not broadcast to all)")
+                    except Exception as e:
+                        print(f"❌ Failed to emit permission_revoked event: {str(e)}")
+                        import traceback
 
-                    traceback.print_exc()
+                        traceback.print_exc()
+                else:
+                    print(
+                        f"⏭️ Skipped emitting permission_revoked event - user is owner or invalid user"
+                    )
+                    print(f"   User: {user}, Owner: {self.owner}")
 
         # ✅ Nếu đây là folder, tự động chia sẻ tất cả children
         revoke_editing_access(self.name, user)

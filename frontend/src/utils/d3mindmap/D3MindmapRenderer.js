@@ -504,9 +504,18 @@ export class D3MindmapRenderer {
             }
           }
         } else {
-          size = this.estimateNodeSize(node)
+          // ⚠️ FIX: Ưu tiên dùng cache nếu có (đặc biệt quan trọng khi restore snapshot)
+          // Chỉ tính toán lại nếu không có cache hoặc cache không hợp lý
+          const cachedSize = this.nodeSizeCache.get(node.id)
+          if (cachedSize && cachedSize.width > 0 && cachedSize.height > 0) {
+            // Có cache hợp lý, dùng cache
+            size = cachedSize
+          } else {
+            // Không có cache hoặc cache không hợp lý, tính toán lại
+            size = this.estimateNodeSize(node)
+            this.nodeSizeCache.set(node.id, size)
+          }
           nodeSizes.set(node.id, size)
-          this.nodeSizeCache.set(node.id, size)
         }
 
         nodeSizes.set(node.id, size)

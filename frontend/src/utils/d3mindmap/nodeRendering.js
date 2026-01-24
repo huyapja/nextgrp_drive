@@ -57,17 +57,25 @@ export function renderNodes(renderer, positions) {
     }
     
     // Nếu node có fixedWidth/fixedHeight, dùng trực tiếp và cập nhật cache
+    // ⚠️ CRITICAL: Ưu tiên dùng fixedWidth/fixedHeight để giữ kích thước từ snapshot
     if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
       renderer.nodeSizeCache.set(node.id, {
         width: node.data.fixedWidth,
         height: node.data.fixedHeight,
       })
-    } else if (!renderer.nodeSizeCache.has(node.id) || renderer.editingNode !== node.id) {
-      // Chỉ tính toán lại nếu chưa có trong cache hoặc node đang không được edit
-      // Luôn tính toán lại khi render lần đầu để đảm bảo có buffer đủ
-      const size = renderer.estimateNodeSize(node)
-      renderer.nodeSizeCache.set(node.id, size)
+      // ⚠️ FIX: Không tính toán lại nếu đã có fixedWidth/fixedHeight
+      return
     }
+    
+    // ⚠️ FIX: Nếu có cache, dùng cache thay vì tính toán lại
+    if (renderer.nodeSizeCache.has(node.id) && renderer.editingNode !== node.id) {
+      // Đã có cache và node không đang edit, dùng cache
+      return
+    }
+    
+    // Chỉ tính toán lại nếu chưa có cache hoặc node đang edit
+    const size = renderer.estimateNodeSize(node)
+    renderer.nodeSizeCache.set(node.id, size)
     // ⚠️ FIX: Bỏ logic force width >= 130px để cho phép node có width nhỏ hơn minWidth
     // Node paste sẽ có kích thước chính xác như node gốc
   })
@@ -77,7 +85,7 @@ export function renderNodes(renderer, positions) {
     const nodeLabel = node.data?.label || ''
     const hasImages = nodeLabel.includes('<img') || nodeLabel.includes('image-wrapper') || nodeLabel.includes('image-wrapper-node')
     
-    // Ưu tiên dùng fixedWidth/fixedHeight nếu có
+    // ⚠️ CRITICAL: Ưu tiên dùng fixedWidth/fixedHeight nếu có (đặc biệt quan trọng khi restore snapshot)
     const isRootNode = node.data?.isRoot || node.id === 'root'
     if (node.data && node.data.fixedWidth && node.data.fixedHeight && !isRootNode) {
       // ⚠️ FIX: Nếu có ảnh nhưng fixedWidth < 400px, force = 400px
@@ -359,40 +367,6 @@ export function renderNodes(renderer, positions) {
       return null
     })
 
-  const wrapper = nodesUpdate
-  .select('.node-text')
-  .select('.node-content-wrapper')
-
-  const badge = wrapper
-    .selectAll('.comment-count-badge')
-    .data(d => {
-      const c = Number(d?.count || 0)
-      return c > 0 ? [c] : []
-    })
-
-  badge.enter()
-    .append('div')
-    .attr('class', 'comment-count-badge')
-    .merge(badge)
-    .on('click', function (event, count) {
-      
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      event.preventDefault()
-      
-    const nodeData = d3.select(this.closest('.node-group')).datum()
-      
-    renderer.callbacks?.onOpenCommentList?.({
-      type: 'add-comment',
-      node: nodeData
-    })
-  })
-    .text(d => d)
-
-  // nếu count = 0 thì tự remove
-  badge.exit().remove()
-
-  
   // Update node rect style dựa trên selectedNode
   nodesUpdate.select('.node-rect')
     .attr('fill', d => d.data?.isRoot ? '#3b82f6' : '#ffffff') // Root node màu xanh, các node khác màu trắng
@@ -1431,6 +1405,93 @@ export function renderNodes(renderer, positions) {
     .attr('stroke-width', 2) // Border luôn là 2px
     .attr('opacity', d => getNodeOpacity(d)) // Làm mờ rect khi completed hoặc có ancestor completed
   
+  // ⚠️ CRITICAL: Cập nhật badge container width ngay sau khi node-rect được cập nhật
+  // Đảm bảo badge container luôn có width = node-rect width, đặc biệt khi đang edit
+  nodesUpdate.each(function(d) {
+    const nodeGroup = d3.select(this)
+    const rect = nodeGroup.select('.node-rect')
+    const badgeContainer = nodeGroup.select('.comment-badge-container')
+    
+    if (!badgeContainer.empty() && !rect.empty()) {
+      const rectWidth = parseFloat(rect.attr('width')) || 0
+      if (rectWidth > 0) {
+        const badgeWidth = 30 // Width cố định của badge container
+        badgeContainer
+          .attr('x', rectWidth - badgeWidth + 10) // 10px offset từ góc phải
+          .attr('y', -6) // -6px offset từ trên xuống
+          .attr('width', badgeWidth) // Width cố định
+      }
+    }
+  })
+  
+  // ⚠️ FIX: Cập nhật comment-count-badge container SAU KHI node-rect đã được cập nhật
+  // Đảm bảo getNodeSize() trả về kích thước chính xác trước khi tính toán vị trí badge
+  const badgeContainer = nodesUpdate
+    .selectAll('.comment-badge-container')
+    .data(d => {
+      const c = Number(d?.count || 0)
+      return c > 0 ? [d] : [] // Trả về node data nếu có count > 0
+    })
+
+  const badgeContainerEnter = badgeContainer.enter()
+    .append('foreignObject')
+    .attr('class', 'comment-badge-container')
+    .style('pointer-events', 'none') // Cho phép click xuyên qua, chỉ badge mới bắt click
+    .style('overflow', 'visible')
+
+  badgeContainerEnter
+    .append('xhtml:div')
+    .attr('class', 'comment-count-badge-wrapper')
+
+  const badgeContainerUpdate = badgeContainerEnter.merge(badgeContainer)
+
+  // ⚠️ FIX: Đặt badge container với x = 10, y = -6 (offset từ góc trên bên phải của node)
+  // Badge container có width cố định để đặt badge ở góc trên bên phải
+  badgeContainerUpdate
+    .attr('x', d => {
+      // ⚠️ CRITICAL: Tính toán x position dựa trên node width
+      // x = nodeWidth - badgeWidth + 10 (10px offset từ góc phải)
+      const nodeGroup = renderer.g.select(`[data-node-id="${d.id}"]`)
+      const rect = nodeGroup.select('.node-rect')
+      const rectWidth = parseFloat(rect.attr('width')) || getNodeSize(d).width
+      const badgeWidth = 30 // Width cố định của badge container
+      return rectWidth - badgeWidth + 10 // 10px offset từ góc phải
+    })
+    .attr('y', -8) // -6px offset từ trên xuống
+    .attr('width', 30) // Width cố định cho badge container
+    .attr('height', 22) // Đủ cao cho badge
+
+  // Tạo hoặc cập nhật badge bên trong container
+  const badgeWrapper = badgeContainerUpdate.select('.comment-count-badge-wrapper')
+  const badge = badgeWrapper
+    .selectAll('.comment-count-badge')
+    .data(d => {
+      const c = Number(d?.count || 0)
+      return c > 0 ? [c] : [] // Trả về count value
+    })
+
+  badge.enter()
+    .append('div')
+    .attr('class', 'comment-count-badge')
+    .merge(badge)
+    .on('click', function (event, count) {
+      event.stopPropagation()
+      event.stopImmediatePropagation()
+      event.preventDefault()
+      
+      const nodeData = d3.select(this.closest('.node-group')).datum()
+      
+      renderer.callbacks?.onOpenCommentList?.({
+        type: 'add-comment',
+        node: nodeData
+      })
+    })
+    .text(d => d)
+
+  // nếu count = 0 thì tự remove
+  badge.exit().remove()
+  badgeContainer.exit().remove()
+  
   // Update textarea content and behaviors
   nodesUpdate.select('.node-text')
     .each((nodeData, idx, nodeArray) => {
@@ -1543,7 +1604,6 @@ export function renderNodes(renderer, positions) {
       // Sau khi xóa task link/ảnh, rect đã được cập nhật trong handleEditorBlur
       const actualRectWidth = parseFloat(rect.attr('width')) || rectWidth
       if (actualRectWidth !== rectWidth) {
-        
         rectWidth = actualRectWidth
       }
       
@@ -1555,6 +1615,17 @@ export function renderNodes(renderer, positions) {
       fo.attr('y', 2)
       fo.attr('width', Math.max(0, rectWidth - borderOffset))
       fo.attr('height', Math.max(0, rectHeight - borderOffset))
+      
+      // ⚠️ CRITICAL: Cập nhật x và width của badge container
+      // Badge container có x = nodeWidth - badgeWidth + 10, y = -6
+      const badgeContainerUpdate = nodeGroup.select('.comment-badge-container')
+      if (!badgeContainerUpdate.empty()) {
+        const badgeWidth = 30 // Width cố định của badge container
+        badgeContainerUpdate
+          .attr('x', rectWidth - badgeWidth + 10) // 10px offset từ góc phải
+          .attr('y', -8) // -6px offset từ trên xuống
+          .attr('width', badgeWidth) // Width cố định
+      }
       
       // ⚠️ CRITICAL: Nếu có ảnh, đảm bảo rect cũng có height đúng
       if (hasImages) {
@@ -1811,6 +1882,12 @@ export function renderNodes(renderer, positions) {
                           rect.attr('width', currentWidth)
                           const foWidth = currentWidth - borderOffset
                           fo.attr('width', Math.max(0, foWidth))
+                          
+                          // ⚠️ CRITICAL: Cập nhật badge container width ngay khi rect width thay đổi
+                          const badgeContainer = nodeGroup.select('.comment-badge-container')
+                          if (!badgeContainer.empty()) {
+                            badgeContainer.attr('width', currentWidth)
+                          }
                         }
                       }
                       

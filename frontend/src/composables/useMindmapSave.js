@@ -88,28 +88,68 @@ export function useMindmapSave({
 
     const { count, ...nodeData } = node
     const nodeWithPos = { ...nodeData }
+    
+    // ⚠️ CRITICAL: Đảm bảo nodeWithPos.data.label có giá trị từ node.data.label trước
+    if (!nodeWithPos.data) {
+      nodeWithPos.data = {}
+    }
+    // Luôn đảm bảo có label từ node.data.label làm fallback
+    if (!nodeWithPos.data.label && node.data?.label) {
+      nodeWithPos.data.label = node.data.label
+    }
 
-    // ⚠️ FIX: Nếu editor đang mount, lấy label từ editor.getHTML() thay vì node.data.label
+    // ⚠️ FIX: Nếu editor đang mount và có content đầy đủ, lấy label từ editor.getHTML()
     // Tránh dùng label bị corrupt từ realtime update
+    // ⚠️ CRITICAL: Chỉ dùng editor.getHTML() nếu nó có giá trị đầy đủ, nếu không dùng node.data.label
     if (d3Renderer) {
       const editorInstance = d3Renderer.getEditorInstance?.(nodeId)
       if (editorInstance && !editorInstance.isDestroyed && editorInstance.getHTML) {
         const editorLabel = editorInstance.getHTML()
-        if (editorLabel) {
+        // ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt khi undo/redo
+        const normalizedLabel = editorLabel && typeof editorLabel === 'string' 
+          ? editorLabel.normalize('NFC') 
+          : editorLabel
+        // Chỉ dùng editorLabel nếu nó có giá trị và không rỗng
+        if (normalizedLabel && normalizedLabel.trim() !== '' && normalizedLabel !== '<p></p>' && normalizedLabel !== '<p data-type="node-title"></p>') {
           console.log('[DEBUG] 📝 Lấy label từ editor.getHTML() thay vì node.data.label:', {
             nodeId,
-            editorLabelLength: editorLabel.length,
-            editorLabelPreview: editorLabel.substring(0, 100),
+            editorLabelLength: normalizedLabel.length,
+            editorLabelPreview: normalizedLabel.substring(0, 100),
             nodeLabelLength: nodeWithPos.data?.label?.length || 0,
             nodeLabelPreview: nodeWithPos.data?.label?.substring(0, 100) || ''
           })
-          if (!nodeWithPos.data) {
-            nodeWithPos.data = {}
-          }
-          nodeWithPos.data.label = editorLabel
+          nodeWithPos.data.label = normalizedLabel
+        } else {
+          // Editor có nhưng content rỗng, dùng label từ node.data.label (đã set ở trên)
+          console.log('[DEBUG] ⚠️ Editor.getHTML() trả về rỗng cho node:', nodeId, 'dùng label từ node.data.label:', {
+            nodeLabelLength: nodeWithPos.data?.label?.length || 0,
+            nodeLabelPreview: nodeWithPos.data?.label?.substring(0, 100) || ''
+          })
         }
+      } else {
+        // Editor chưa sẵn sàng, dùng label từ node.data.label (đã set ở trên)
+        console.log('[DEBUG] 💾 Editor chưa sẵn sàng, dùng label từ node.data.label:', {
+          nodeId,
+          nodeLabelLength: nodeWithPos.data?.label?.length || 0,
+          nodeLabelPreview: nodeWithPos.data?.label?.substring(0, 100) || ''
+        })
       }
     }
+    
+    // ⚠️ CRITICAL: Đảm bảo label có giá trị trước khi lưu
+    if (!nodeWithPos.data?.label || nodeWithPos.data.label.trim() === '') {
+      console.warn('[DEBUG] ⚠️ Node không có label, không thể lưu:', nodeId, {
+        hasNodeData: !!node.data,
+        hasNodeDataLabel: !!node.data?.label,
+        nodeDataLabelLength: node.data?.label?.length || 0
+      })
+      return
+    }
+    
+    console.log('[DEBUG] ✅ Node có label đầy đủ, sẽ lưu:', nodeId, {
+      labelLength: nodeWithPos.data.label.length,
+      labelPreview: nodeWithPos.data.label.substring(0, 100)
+    })
 
     if (d3Renderer && d3Renderer.positions) {
       const pos = d3Renderer.positions.get(nodeId)
@@ -172,6 +212,25 @@ export function useMindmapSave({
           const { count, ...nodeData } = node
           const nodeWithPos = { ...nodeData }
 
+          // ⚠️ CRITICAL: Đảm bảo label có giá trị
+          if (!nodeWithPos.data) {
+            nodeWithPos.data = {}
+          }
+          // Đảm bảo nodeWithPos.data.label có giá trị từ node.data.label
+          if (!nodeWithPos.data.label && node.data?.label) {
+            nodeWithPos.data.label = node.data.label
+            console.log('[DEBUG] 💾 [saveImmediately] Đảm bảo label có giá trị cho node:', nodeId, {
+              labelLength: nodeWithPos.data.label.length,
+              labelPreview: nodeWithPos.data.label.substring(0, 100)
+            })
+          }
+          
+          // ⚠️ CRITICAL: Kiểm tra label trước khi lưu
+          if (!nodeWithPos.data.label || nodeWithPos.data.label.trim() === '') {
+            console.warn('[DEBUG] ⚠️ [saveImmediately] Node không có label, bỏ qua:', nodeId)
+            return
+          }
+
           if (d3Renderer && d3Renderer.positions) {
             const pos = d3Renderer.positions.get(nodeId)
             if (pos) {
@@ -181,9 +240,6 @@ export function useMindmapSave({
 
           if (nodeCreationOrder.value.has(nodeId)) {
             const order = nodeCreationOrder.value.get(nodeId)
-            if (!nodeWithPos.data) {
-              nodeWithPos.data = {}
-            }
             nodeWithPos.data.order = order
           }
 
@@ -262,4 +318,3 @@ export function useMindmapSave({
     scheduleSave,
   }
 }
-

@@ -196,12 +196,25 @@ kbd {
   animation: slideOut 0.25s ease-in forwards;
 }
 
+:deep(.comment-badge-container) {
+  pointer-events: none; /* Container không bắt sự kiện, chỉ badge bắt */
+  overflow: visible;
+}
+
+:deep(.comment-count-badge-wrapper) {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  /* ⚠️ CRITICAL: Đảm bảo wrapper luôn có width = 100% để badge có thể dùng flex-end */
+}
+
 :deep(.comment-count-badge) {
   min-width: 22px;
   height: 18px;
   padding: 0 6px;
-  margin-top: 5px;
-  margin-right: 5px;
   background: #facc15;
   color: #fff;
   font-size: 10px;
@@ -211,23 +224,14 @@ kbd {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  position: relative;
-  pointer-events: auto;
+  pointer-events: auto; /* Chỉ badge mới bắt sự kiện click */
   z-index: 9999999;
+  cursor: pointer;
+  margin-top: 4px; /* Offset từ trên xuống */
+  margin-right: 4px; /* Offset từ phải vào */
 }
 
-:deep(.comment-count-badge::after) {
-  content: "";
-  position: absolute;
-  bottom: -3px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 4px solid #facc15;
-}
+/* Bỏ ::after (mũi tên) vì badge giờ ở góc trên bên phải, không cần mũi tên nữa */
 
 .permission-modal-overlay {
   position: fixed;

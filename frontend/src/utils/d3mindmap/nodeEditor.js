@@ -10,6 +10,16 @@ import { createApp } from 'vue'
 import { calculateNodeHeightWithImages } from './nodeSize.js'
 
 /**
+ * Normalize text to NFC (Normalized Form Composed) to fix Vietnamese diacritic issues
+ * This ensures consistent Unicode representation when saving and restoring text
+ */
+function normalizeUnicodeNFC(text) {
+	if (!text || typeof text !== 'string') return text
+	// Normalize to NFC (composed form) - standard for most text processing
+	return text.normalize('NFC')
+}
+
+/**
  * Mount Vue component vào container
  */
 export function mountNodeEditor(renderer, nodeId, container, props = {}) {
@@ -95,8 +105,10 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	// ⚠️ NEW: Skip nếu đang update style (không tính toán lại kích thước)
 	if (renderer.isUpdatingStyle && renderer.isUpdatingStyle.has(nodeId)) {
 		// Chỉ cập nhật label, không tính toán lại kích thước
+		// ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt
+		const normalizedValue = normalizeUnicodeNFC(value)
 		if (!nodeData.data) nodeData.data = {}
-		nodeData.data.label = value
+		nodeData.data.label = normalizedValue
 		// Trigger callback với flag skipSizeCalculation
 		if (renderer.callbacks.onNodeUpdate) {
 			renderer.callbacks.onNodeUpdate(nodeId, { 
@@ -122,9 +134,12 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	const previousText = renderer.getNodeLabel(nodeData)
 	const isFirstEdit = !previousText || !previousText.trim()
 	
-	// Cập nhật node data với giá trị mới
+	// ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt
+	const normalizedValue = normalizeUnicodeNFC(value)
+	
+	// Cập nhật node data với giá trị mới (đã normalize)
 	if (!nodeData.data) nodeData.data = {}
-	nodeData.data.label = value
+	nodeData.data.label = normalizedValue
 	
 	// Tính toán kích thước mới (tương tự logic textarea)
 	const maxWidth = 400
@@ -330,6 +345,32 @@ export function handleEditorInput(renderer, nodeId, value, foElement, nodeData) 
 	
 	// Cập nhật width trước để editor có width đúng khi đo height
 	rect.attr('width', currentWidth)
+	
+	// ⚠️ CRITICAL: Cập nhật badge container x, y, width ngay lập tức khi rect width thay đổi
+	// Đảm bảo badge luôn ở góc trên bên phải của node khi đang edit
+	// nodeGroup đã được khai báo ở dòng 113
+	// Sử dụng requestAnimationFrame để đảm bảo cập nhật ngay trong frame tiếp theo
+	const badgeContainer = nodeGroup.select('.comment-badge-container')
+	if (!badgeContainer.empty()) {
+		const badgeWidth = 30 // Width cố định của badge container
+		// Cập nhật ngay lập tức
+		badgeContainer
+			.attr('x', currentWidth - badgeWidth + 10) // 10px offset từ góc phải
+			.attr('y', -6) // -6px offset từ trên xuống
+			.attr('width', badgeWidth) // Width cố định
+		// Force reflow để đảm bảo DOM được cập nhật ngay lập tức
+		void badgeContainer.node()?.offsetWidth
+		// Đảm bảo cập nhật lại trong frame tiếp theo để tránh delay
+		requestAnimationFrame(() => {
+			if (!badgeContainer.empty()) {
+				badgeContainer
+					.attr('x', currentWidth - badgeWidth + 10)
+					.attr('y', -6)
+					.attr('width', badgeWidth)
+			}
+		})
+	}
+	
 	const fo = d3.select(foElement)
 	const borderOffset = 4 // 2px border mỗi bên
 	const foWidth = Math.max(0, currentWidth - borderOffset)
@@ -738,9 +779,12 @@ export function handleEditorStyleUpdate(renderer, nodeId, foElement, nodeData) {
 	// Lấy HTML hiện tại từ editor (đã có style mới)
 	const newHtml = editor.getHTML()
 	
-	// Cập nhật node data với HTML mới
+	// ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt khi undo/redo
+	const normalizedHtml = normalizeUnicodeNFC(newHtml)
+	
+	// Cập nhật node data với HTML mới (đã normalize)
 	if (!nodeData.data) nodeData.data = {}
-	nodeData.data.label = newHtml
+	nodeData.data.label = normalizedHtml
 	
 	// KHÔNG tính toán lại kích thước node
 	// KHÔNG cập nhật rect, foreignObject
@@ -1000,6 +1044,9 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	// Lưu HTML để giữ formatting (bold, italic, etc.)
 	let finalValue = editor ? editor.getHTML() : (nodeData.data?.label || '')
 	
+	// ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt khi undo/redo
+	finalValue = normalizeUnicodeNFC(finalValue)
+	
 	// ⚠️ DEBUG: Log để kiểm tra encoding khi blur
 	console.log('[DEBUG] 📝 Editor blur - getHTML():', {
 		nodeId,
@@ -1041,11 +1088,13 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 			if (editor) {
 				editor.commands.setContent(defaultHtml)
 			}
+			// ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt
+			const normalizedDefaultHtml = normalizeUnicodeNFC(defaultHtml)
 			// Cập nhật finalValue để đảm bảo được lưu đúng
-			finalValue = defaultHtml
-			// Cập nhật nodeData với text mặc định
+			finalValue = normalizedDefaultHtml
+			// Cập nhật nodeData với text mặc định (đã normalize)
 			if (!nodeData.data) nodeData.data = {}
-			nodeData.data.label = defaultHtml
+			nodeData.data.label = normalizedDefaultHtml
 			
 			// Tính toán lại kích thước dựa trên "Sơ đồ"
 			const tempNode = { ...nodeData, data: { ...nodeData.data, label: `<p>${defaultText}</p>` } }
@@ -1776,6 +1825,18 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 	rect.attr('width', finalWidth)
 	rect.attr('height', finalHeight)
 	
+	// ⚠️ CRITICAL: Cập nhật badge container x, y, width ngay khi rect width thay đổi trong handleEditorBlur
+	// Đảm bảo badge luôn ở góc trên bên phải của node khi blur
+	const badgeContainerBlur = nodeGroup.select('.comment-badge-container')
+	if (!badgeContainerBlur.empty()) {
+		const badgeWidth = 30 // Width cố định của badge container
+		badgeContainerBlur
+			.attr('x', finalWidth - badgeWidth + 10) // 10px offset từ góc phải
+			.attr('y', -6) // -6px offset từ trên xuống
+			.attr('width', badgeWidth) // Width cố định
+		// Force reflow để đảm bảo DOM được cập nhật ngay lập tức
+		void badgeContainerBlur.node()?.offsetWidth
+	}
 	
 	// Cập nhật vị trí nút add-child
 	nodeGroup.select('.add-child-btn').attr('cx', finalWidth + 20)

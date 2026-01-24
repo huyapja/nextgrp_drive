@@ -127,6 +127,19 @@ def get_mindmap_data(entity_name):
                             "Sync Task Status",
                         )
 
+        # ⚠️ FIX: Load collapsed nodes từ viewport_state
+        collapsed_nodes = []
+        if doc.viewport_state:
+            try:
+                viewport_data = (
+                    json.loads(doc.viewport_state)
+                    if isinstance(doc.viewport_state, str)
+                    else doc.viewport_state
+                )
+                collapsed_nodes = viewport_data.get("collapsed_nodes", [])
+            except:
+                collapsed_nodes = []
+
         return {
             "name": doc.name,
             "title": doc.title,
@@ -142,6 +155,7 @@ def get_mindmap_data(entity_name):
             "creation": doc.creation,
             "drive_file_name": doc_drive.name,
             "is_private": doc_drive.is_private,
+            "collapsed_nodes": collapsed_nodes,  # ⚠️ FIX: Trả về collapsed nodes
         }
 
     except Exception as e:
@@ -1112,4 +1126,87 @@ def import_mindmap_nextgrp(entity_name, nextgrp_data):
         frappe.log_error(
             f"Import mindmap error: {frappe.get_traceback()}", "Import Mindmap NextGRP"
         )
+        frappe.throw(str(e))
+
+
+@frappe.whitelist()
+def save_mindmap_collapsed_nodes(entity_name, collapsed_node_ids):
+    """
+    Lưu trạng thái collapsed nodes vào database và emit realtime event
+
+    :param entity_name: Drive File entity name
+    :param collapsed_node_ids: List các node IDs đang collapsed
+    """
+    try:
+        # Get Drive File
+        doc_drive = frappe.get_doc("Drive File", entity_name)
+
+        if not doc_drive or not doc_drive.mindmap:
+            frappe.throw(_("Mindmap not found"), frappe.DoesNotExistError)
+
+        # Check permission (chỉ cần read để xem collapse state)
+        if not frappe.has_permission("Drive File", "read", doc_drive):
+            frappe.throw(_("No permission to access"), frappe.PermissionError)
+
+        # Get Drive Mindmap
+        mindmap_doc = frappe.get_doc("Drive Mindmap", doc_drive.mindmap)
+
+        # Parse collapsed_node_ids nếu là string
+        if isinstance(collapsed_node_ids, str):
+            collapsed_node_ids = json.loads(collapsed_node_ids)
+
+        # Load viewport_state hiện tại
+        viewport_data = {}
+        if mindmap_doc.viewport_state:
+            try:
+                viewport_data = (
+                    json.loads(mindmap_doc.viewport_state)
+                    if isinstance(mindmap_doc.viewport_state, str)
+                    else mindmap_doc.viewport_state
+                )
+            except:
+                viewport_data = {}
+
+        # Update collapsed_nodes
+        viewport_data["collapsed_nodes"] = (
+            collapsed_node_ids if isinstance(collapsed_node_ids, list) else []
+        )
+
+        # Save viewport_state
+        mindmap_doc.viewport_state = json.dumps(viewport_data, ensure_ascii=False)
+        mindmap_doc.save(ignore_permissions=True)
+        frappe.db.commit()
+
+        # Emit realtime event để sync cho các users khác
+        message = {
+            "entity_name": entity_name,
+            "mindmap_id": mindmap_doc.name,
+            "collapsed_node_ids": collapsed_node_ids,
+            "modified_by": frappe.session.user,
+            "timestamp": frappe.utils.now(),
+        }
+
+        try:
+            frappe.publish_realtime(
+                event="drive_mindmap:collapsed_nodes_updated",
+                message=message,
+                after_commit=True,
+            )
+            print(
+                f"📡 Emitted collapsed_nodes_updated event for {entity_name}: {len(collapsed_node_ids)} collapsed nodes"
+            )
+        except Exception as e:
+            frappe.log_error(
+                f"Error emitting collapsed_nodes_updated event: {str(e)}",
+                "Emit Collapsed Nodes Event",
+            )
+
+        return {
+            "success": True,
+            "message": _("Collapsed nodes saved successfully"),
+            "collapsed_node_ids": collapsed_node_ids,
+        }
+
+    except Exception as e:
+        frappe.log_error(frappe.get_traceback(), "Save Collapsed Nodes Error")
         frappe.throw(str(e))

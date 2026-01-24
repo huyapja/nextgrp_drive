@@ -621,17 +621,18 @@ def revoke_editing_access(entity_name, user_email):
         print(f"   Target entity: {entity_name}")
         print(f"   Message: {message}")
 
-        # Emit using frappe.msgprint with realtime
+        # ⚠️ FIX: Chỉ emit socket event cho user bị revoke quyền, không broadcast cho tất cả
         try:
-            # Method 1: Emit custom event
+            # Method 1: Emit custom event - chỉ gửi cho user bị revoke quyền
             result = frappe.publish_realtime(
                 event="permission_revoked",
                 message=message,
+                user=user_email,  # Chỉ gửi cho user bị revoke quyền
                 after_commit=False,
             )
-            print(f"✅ Custom event emitted")
+            print(f"✅ Custom event emitted to user {user_email} only")
 
-            # Method 2: Also emit via message (frappe built-in)
+            # Method 2: Also emit via message (frappe built-in) - chỉ gửi cho user bị revoke quyền
             frappe.publish_realtime(
                 event="msgprint",
                 message={
@@ -641,9 +642,10 @@ def revoke_editing_access(entity_name, user_email):
                     "entity_name": entity_name,
                     "action": "permission_revoked",
                 },
+                user=user_email,  # Chỉ gửi cho user bị revoke quyền
                 after_commit=False,
             )
-            print(f"✅ Message event also emitted")
+            print(f"✅ Message event also emitted to user {user_email} only")
         except Exception as e:
             print(f"❌ publish_realtime failed: {str(e)}")
             import traceback

@@ -197,6 +197,7 @@ export function useMindmapRealtimeNodes({
     const localNodeIds = new Set(nodes.value.map(n => n.id))
     const hasNewNodes = remoteNodeUpdates.some(n => !localNodeIds.has(n.id))
     
+    // ⚠️ CRITICAL: Update nodes đã tồn tại và thêm nodes mới
     const updatedNodes = nodes.value.map(localNode => {
       const remoteNode = remoteNodeUpdates.find(n => n.id === localNode.id)
       if (remoteNode) {
@@ -207,6 +208,18 @@ export function useMindmapRealtimeNodes({
       }
       return localNode
     })
+    
+    // ⚠️ CRITICAL: Thêm các nodes mới (chưa có trong local)
+    const newNodes = remoteNodeUpdates.filter(remoteNode => !localNodeIds.has(remoteNode.id))
+    if (newNodes.length > 0) {
+      console.log('➕ [Batch Update] Thêm nodes mới:', newNodes.map(n => n.id))
+      newNodes.forEach(newNode => {
+        if (newNode.data?.order !== undefined) {
+          nodeCreationOrder.value.set(newNode.id, newNode.data.order)
+        }
+        updatedNodes.push(newNode)
+      })
+    }
     
     // ⚠️ CRITICAL: Xử lý edges nếu có trong payload
     let updatedEdges = edges.value
@@ -223,7 +236,13 @@ export function useMindmapRealtimeNodes({
       updatedEdges = [...updatedEdges, ...payload.edges]
     }
     
+    // ⚠️ CRITICAL: Update elements.value với nodes và edges đã được cập nhật
     elements.value = [...updatedNodes, ...updatedEdges]
+    console.log('✅ [Batch Update] Đã cập nhật elements.value:', {
+      totalNodes: updatedNodes.length,
+      totalEdges: updatedEdges.length,
+      newNodesCount: newNodes.length
+    })
     
     // ⚠️ CRITICAL: Force lưu snapshot nếu có node mới từ batch update
     if (saveSnapshot && hasNewNodes) {
@@ -265,6 +284,61 @@ export function useMindmapRealtimeNodes({
         const currentEdges = elements.value.filter(el => el.source && el.target)
         renderer.setData(updatedNodes, currentEdges, nodeCreationOrder.value)
         renderer.render()
+        
+        // ⚠️ CRITICAL: Đợi render xong, sau đó mount editor cho các nodes mới
+        if (newNodes.length > 0) {
+          nextTick(() => {
+            setTimeout(() => {
+              newNodes.forEach(newNode => {
+                const nodeGroup = renderer.g.select(`[data-node-id="${newNode.id}"]`)
+                const editorContainer = nodeGroup.select('.node-editor-container')
+                const containerNode = editorContainer.node()
+                const containerHasChildren = containerNode && containerNode.children.length > 0
+                
+                if (!containerHasChildren && containerNode) {
+                  console.log(`[Batch Update] ⚠️ Editor container rỗng cho node mới ${newNode.id}, mount editor`)
+                  const text = newNode.data?.label || ''
+                  const isRootNode = newNode.id === 'root' || newNode.data?.isRoot
+                  const color = newNode.data?.color || '#1f2937'
+                  
+                  renderer.mountNodeEditor(newNode.id, containerNode, {
+                    value: text,
+                    placeholder: 'Nhập...',
+                    color: color,
+                    minHeight: '43px',
+                    width: '100%',
+                    height: 'auto',
+                    isRoot: isRootNode,
+                    uploadImage: renderer.uploadImage || null,
+                    editable: renderer.options?.permissions?.write === 1,
+                    onInput: (value) => {},
+                    onFocus: () => {},
+                    onBlur: () => {},
+                  })
+                  
+                  // Đợi editor mount xong, sau đó set content
+                  nextTick(() => {
+                    setTimeout(() => {
+                      const editorInstance = renderer.getEditorInstance(newNode.id)
+                      if (editorInstance && !editorInstance.isDestroyed && editorInstance.view && text) {
+                        try {
+                          editorInstance.commands.setContent(text, false)
+                          requestAnimationFrame(() => {
+                            const tr = editorInstance.view.state.tr
+                            editorInstance.view.dispatch(tr)
+                            console.log(`[Batch Update] ✅ Đã mount và set content cho node mới ${newNode.id}`)
+                          })
+                        } catch (err) {
+                          console.error(`[Batch Update] ❌ Lỗi khi set content cho node mới ${newNode.id}:`, err)
+                        }
+                      }
+                    }, 100)
+                  })
+                }
+              })
+            }, 200)
+          })
+        }
       })
     }
   }
@@ -442,22 +516,312 @@ export function useMindmapRealtimeNodes({
           renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
           renderer.render()
           
-          if (isNodeSelected) {
-            const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
-            if (hasLocalChanges) {
-              console.log('⚠️ Node đang được selected và có thay đổi local, bỏ qua update editor content')
-              return
-            } else {
-              console.log('✨ Node đang được selected nhưng chưa có thay đổi, cho phép update editor content')
-            }
-          }
-          
-          const editorInstance = renderer.getEditorInstance(remoteNode.id)
-          if (editorInstance && !editorInstance.isDestroyed) {
-            try {
-              editorInstance.commands.setContent(remoteNode.data.label, false)
+          // ⚠️ CRITICAL: Đợi render xong trước khi xử lý editor
+          // Render sẽ mount Vue component vào container
+          nextTick(() => {
+            setTimeout(() => {
+              if (isNodeSelected) {
+                const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
+                if (hasLocalChanges) {
+                  console.log('⚠️ Node đang được selected và có thay đổi local, bỏ qua update editor content')
+                  return
+                } else {
+                  console.log('✨ Node đang được selected nhưng chưa có thay đổi, cho phép update editor content')
+                }
+              }
               
-              requestAnimationFrame(() => {
+              // ⚠️ CRITICAL: Đợi editor được mount trước khi set content
+              // Đặc biệt quan trọng cho node mới được thêm từ realtime
+              nextTick(() => {
+                setTimeout(() => {
+              // Kiểm tra xem editor đã được mount chưa
+              const nodeGroup = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+              const editorContainer = nodeGroup.select('.node-editor-container')
+              const containerNode = editorContainer.node()
+              const containerHasChildren = containerNode && containerNode.children.length > 0
+              
+              // Nếu container rỗng, cần mount editor
+              if (!containerHasChildren && containerNode) {
+                console.log(`[Realtime] ⚠️ Editor container rỗng cho node ${remoteNode.id}, mount editor thủ công`)
+                const nodeData = renderer.nodes.find(n => n.id === remoteNode.id)
+                if (nodeData) {
+                  const text = remoteNode.data?.label || nodeData.data?.label || ''
+                  const isRootNode = nodeData.id === 'root' || nodeData.data?.isRoot
+                  const color = nodeData.data?.color || '#1f2937'
+                  
+                  renderer.mountNodeEditor(remoteNode.id, containerNode, {
+                    value: text,
+                    placeholder: 'Nhập...',
+                    color: color,
+                    minHeight: '43px',
+                    width: '100%',
+                    height: 'auto',
+                    isRoot: isRootNode,
+                    uploadImage: renderer.uploadImage || null,
+                    editable: renderer.options?.permissions?.write === 1,
+                    onInput: (value) => {
+                      // Handle input sẽ được set sau
+                    },
+                    onFocus: () => {
+                      // Handle focus sẽ được set sau
+                    },
+                    onBlur: () => {
+                      // Handle blur sẽ được set sau
+                    },
+                  })
+                  
+                  // ⚠️ CRITICAL: Đợi Vue component được mount và editor instance sẵn sàng
+                  // mountNodeEditor mount ngay nhưng Vue component cần thời gian để render vào DOM
+                  nextTick(() => {
+                    setTimeout(() => {
+                      // Function để set content sau khi đảm bảo container đã có children
+                      const proceedWithSetContent = () => {
+                        // Retry để đảm bảo editor instance sẵn sàng
+                      const checkEditorReady = () => {
+                        return new Promise((resolve) => {
+                          let attempts = 0
+                          const maxAttempts = 20
+                          
+                          const check = () => {
+                            const editorInstance = renderer.getEditorInstance(remoteNode.id)
+                            // ⚠️ CRITICAL: Kiểm tra cả container có children và editor instance có DOM
+                            const containerCheck = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+                              .select('.node-editor-container')
+                              .node()
+                            const containerHasChildren = containerCheck && containerCheck.children.length > 0
+                            
+                            if (editorInstance && !editorInstance.isDestroyed && editorInstance.view && editorInstance.view.dom && containerHasChildren) {
+                              resolve(editorInstance)
+                            } else if (attempts < maxAttempts) {
+                              attempts++
+                              setTimeout(check, 50)
+                            } else {
+                              console.warn(`[Realtime] ⚠️ Editor không sẵn sàng sau ${maxAttempts} lần thử:`, {
+                                hasEditorInstance: !!editorInstance,
+                                hasView: !!editorInstance?.view,
+                                hasDOM: !!editorInstance?.view?.dom,
+                                containerHasChildren
+                              })
+                              resolve(null)
+                            }
+                          }
+                          
+                          check()
+                        })
+                      }
+                      
+                      checkEditorReady().then(editorInstance => {
+                        if (editorInstance && !editorInstance.isDestroyed && editorInstance.view) {
+                          try {
+                            // ⚠️ CRITICAL: Đảm bảo label có giá trị trước khi set
+                            let labelToSet = remoteNode.data?.label || ''
+                            
+                            // ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt
+                            if (labelToSet && typeof labelToSet === 'string') {
+                              labelToSet = labelToSet.normalize('NFC')
+                            }
+                            
+                            if (!labelToSet || labelToSet.trim() === '') {
+                              console.warn(`[Realtime] ⚠️ Node ${remoteNode.id} không có label, bỏ qua set content`)
+                              return
+                            }
+                            
+                            // Kiểm tra xem DOM đã có chưa
+                            const editorDOM = editorInstance.view.dom
+                            const editorContent = editorDOM?.querySelector('.mindmap-editor-prose') || editorDOM
+                            
+                            if (!editorContent) {
+                              console.warn(`[Realtime] ⚠️ Editor DOM chưa sẵn sàng cho node ${remoteNode.id}`)
+                              return
+                            }
+                            
+                            editorInstance.commands.setContent(labelToSet, false)
+                            
+                            // ⚠️ CRITICAL: Force update editor view để đảm bảo DOM được cập nhật
+                            requestAnimationFrame(() => {
+                              const tr = editorInstance.view.state.tr
+                              editorInstance.view.dispatch(tr)
+                              
+                              // Kiểm tra lại DOM sau khi dispatch
+                              nextTick(() => {
+                                const updatedContent = editorInstance.view.dom?.querySelector('.mindmap-editor-prose') || editorInstance.view.dom
+                                const hasContent = updatedContent && (updatedContent.textContent || updatedContent.innerHTML.trim() !== '<p></p>')
+                                
+                                // Kiểm tra lại container
+                                const finalContainerCheck = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+                                  .select('.node-editor-container')
+                                  .node()
+                                const finalContainerHasChildren = finalContainerCheck && finalContainerCheck.children.length > 0
+                                
+                                console.log(`[Realtime] ✅ Đã mount và set content cho node ${remoteNode.id}:`, {
+                                  labelLength: labelToSet.length,
+                                  labelPreview: labelToSet.substring(0, 100),
+                                  hasView: !!editorInstance.view,
+                                  hasDOM: !!editorInstance.view?.dom,
+                                  hasContent: hasContent,
+                                  containerHasChildren: finalContainerHasChildren,
+                                  domContent: updatedContent?.textContent || updatedContent?.innerHTML?.substring(0, 100) || 'empty'
+                                })
+                                
+                                // Nếu container vẫn rỗng, trigger render lại
+                                if (!finalContainerHasChildren) {
+                                  console.warn(`[Realtime] ⚠️ Container vẫn rỗng sau khi set content, trigger render lại`)
+                                  renderer.render()
+                                }
+                              })
+                            })
+                          } catch (err) {
+                            console.error(`[Realtime] ❌ Lỗi khi set content cho node ${remoteNode.id}:`, err)
+                          }
+                        } else {
+                          console.warn(`[Realtime] ⚠️ Editor instance không sẵn sàng cho node ${remoteNode.id} sau 20 lần thử`)
+                        }
+                      })
+                      }
+                      
+                      // Kiểm tra xem Vue component đã được mount chưa
+                      const vueAppEntry = renderer.vueApps?.get(remoteNode.id)
+                      if (!vueAppEntry) {
+                        console.warn(`[Realtime] ⚠️ Vue app chưa được mount cho node ${remoteNode.id}`)
+                        return
+                      }
+                      
+                      // Kiểm tra xem container có children chưa (Vue component đã mount vào DOM)
+                      const currentContainerNode = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+                        .select('.node-editor-container')
+                        .node()
+                      const currentHasChildren = currentContainerNode && currentContainerNode.children.length > 0
+                      
+                      if (!currentHasChildren) {
+                        console.warn(`[Realtime] ⚠️ Container vẫn rỗng sau khi mount, kiểm tra lại sau render`)
+                        setTimeout(() => {
+                          const finalContainerNode = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+                            .select('.node-editor-container')
+                            .node()
+                          const finalHasChildren = finalContainerNode && finalContainerNode.children.length > 0
+                          
+                          if (!finalHasChildren) {
+                            console.error(`[Realtime] ❌ Container vẫn rỗng sau khi render cho node ${remoteNode.id}, thử mount lại`)
+                            if (finalContainerNode) {
+                              renderer.mountNodeEditor(remoteNode.id, finalContainerNode, {
+                                value: text,
+                                placeholder: 'Nhập...',
+                                color: color,
+                                minHeight: '43px',
+                                width: '100%',
+                                height: 'auto',
+                                isRoot: isRootNode,
+                                uploadImage: renderer.uploadImage || null,
+                                editable: renderer.options?.permissions?.write === 1,
+                                onInput: (value) => {},
+                                onFocus: () => {},
+                                onBlur: () => {},
+                              })
+                              
+                              nextTick(() => {
+                                setTimeout(() => {
+                                  const retryContainerNode = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+                                    .select('.node-editor-container')
+                                    .node()
+                                  const retryHasChildren = retryContainerNode && retryContainerNode.children.length > 0
+                                  if (!retryHasChildren) {
+                                    console.error(`[Realtime] ❌ Container vẫn rỗng sau khi mount lại cho node ${remoteNode.id}`)
+                                    return
+                                  }
+                                  proceedWithSetContent()
+                                }, 100)
+                              })
+                            } else {
+                              return
+                            }
+                          } else {
+                            proceedWithSetContent()
+                          }
+                        }, 150)
+                      } else {
+                        proceedWithSetContent()
+                      }
+                    }, 200)
+                  })
+                }
+              } else {
+                // Editor đã được mount, chỉ cần set content
+                // ⚠️ CRITICAL: Đợi editor instance sẵn sàng
+                const checkAndSetContent = async () => {
+                  let editorInstance = renderer.getEditorInstance(remoteNode.id)
+                  let attempts = 0
+                  const maxAttempts = 5
+                  
+                  while ((!editorInstance || editorInstance.isDestroyed || !editorInstance.view) && attempts < maxAttempts) {
+                    await nextTick()
+                    editorInstance = renderer.getEditorInstance(remoteNode.id)
+                    attempts++
+                    if (attempts < maxAttempts) {
+                      await new Promise(resolve => setTimeout(resolve, 50))
+                    }
+                  }
+                  
+                  return editorInstance
+                }
+                
+                checkAndSetContent().then(editorInstance => {
+                  if (editorInstance && !editorInstance.isDestroyed && editorInstance.view) {
+                    try {
+                      // ⚠️ CRITICAL: Đảm bảo label có giá trị trước khi set
+                      let labelToSet = remoteNode.data?.label || ''
+                      
+                      // ⚠️ FIX: Normalize Unicode để tránh lỗi dấu tiếng Việt
+                      if (labelToSet && typeof labelToSet === 'string') {
+                        labelToSet = labelToSet.normalize('NFC')
+                      }
+                      
+                      if (!labelToSet || labelToSet.trim() === '') {
+                        console.warn(`[Realtime] ⚠️ Node ${remoteNode.id} không có label, bỏ qua set content`)
+                        return
+                      }
+                      
+                      editorInstance.commands.setContent(labelToSet, false)
+                      
+                      // ⚠️ CRITICAL: Force update editor view để đảm bảo DOM được cập nhật
+                      if (editorInstance.view) {
+                        requestAnimationFrame(() => {
+                          const tr = editorInstance.view.state.tr
+                          editorInstance.view.dispatch(tr)
+                        })
+                      }
+                      
+                      console.log(`[Realtime] ✅ Đã set content cho node ${remoteNode.id} (editor đã mount):`, {
+                        labelLength: labelToSet.length,
+                        labelPreview: labelToSet.substring(0, 100),
+                        hasView: !!editorInstance.view,
+                        hasDOM: !!editorInstance.view?.dom
+                      })
+                    } catch (err) {
+                      console.error(`[Realtime] ❌ Lỗi khi set content cho node ${remoteNode.id}:`, err)
+                    }
+                  } else {
+                    console.warn(`[Realtime] ⚠️ Editor instance không sẵn sàng cho node ${remoteNode.id} sau 5 lần thử`)
+                  }
+                })
+              }
+                }, 100)
+              })
+            }, 100)
+          })
+          
+          // Code để xử lý size calculation sau khi editor đã được mount và content đã được set
+          // Đợi đủ lâu để đảm bảo editor đã được mount và content đã được set (mount editor mất ~100ms + setContent)
+          setTimeout(() => {
+            const editorInstance = renderer.getEditorInstance(remoteNode.id)
+            if (editorInstance && !editorInstance.isDestroyed) {
+              try {
+                // Đảm bảo label có giá trị
+                if (!remoteNode.data?.label || remoteNode.data.label.trim() === '') {
+                  console.warn(`[Realtime] ⚠️ Node ${remoteNode.id} không có label, bỏ qua tính toán size`)
+                  return
+                }
+                
+                requestAnimationFrame(() => {
                 setTimeout(() => {
                   requestAnimationFrame(() => {
                     const nodeGroup = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
@@ -708,7 +1072,10 @@ export function useMindmapRealtimeNodes({
             } catch (err) {
               console.error('Error updating node content:', err)
             }
+          } else {
+            console.warn(`[Realtime] ⚠️ Editor instance không tồn tại cho node ${remoteNode.id} khi tính toán size`)
           }
+        }, 200) // Đợi 200ms để đảm bảo editor đã được mount
         })
       }
   }
