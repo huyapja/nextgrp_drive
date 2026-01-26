@@ -91,7 +91,7 @@
               <div class="flex items-center w-full gap-1">
                 <component
                   :is="option.icon"
-                  class="filter-option-icon"
+                  :class="['filter-option-icon', { 'filter-option-icon-mindmap': option.value === 'MindMap' }]"
                 />
                 <span>{{ option.label }}</span>
               </div>
@@ -166,7 +166,7 @@
                 <div class="flex items-center gap-3">
                   <component
                     :is="option.icon"
-                    class="mobile-filter-icon"
+                    :class="['mobile-filter-icon', { 'mobile-filter-icon-mindmap': option.value === 'MindMap' }]"
                   />
                   <span class="mobile-filter-label">{{ option.label }}</span>
                 </div>
@@ -286,18 +286,15 @@
   </div>
 </template>
 <script setup>
+import { ICON_TYPES } from "@/utils/files"
+import { onClickOutside, onKeyDown } from "@vueuse/core"
 import { TabButtons } from "frappe-ui"
 import Button from "primevue/button"
-import InputText from "primevue/inputtext"
-import Dropdown from "primevue/dropdown"
 import Dialog from "primevue/dialog"
-import Tooltip from "primevue/tooltip"
-import { ref, computed, watch, useTemplateRef, onMounted, onUnmounted } from "vue"
-import { ICON_TYPES, MIME_LIST_MAP, sortEntities } from "@/utils/files"
-import { useStore } from "vuex"
-import { onKeyDown } from "@vueuse/core"
-import { onClickOutside } from "@vueuse/core"
+import InputText from "primevue/inputtext"
+import { computed, onMounted, onUnmounted, ref, useTemplateRef, watch } from "vue"
 import { useRoute } from "vue-router"
+import { useStore } from "vuex"
 
 const rows = defineModel(Array)
 const props = defineProps({
@@ -443,7 +440,7 @@ function clearAllFilters() {
 
 const filterOptions = computed(() => {
   return Object.keys(ICON_TYPES).map((k) => ({
-    label: __(k),
+    label: k === 'MindMap' ? 'Sơ đồ tư duy' : __(k),
     value: k,
     icon: ICON_TYPES[k],
   }))
@@ -651,6 +648,16 @@ watch(shareView, (newValue) => {
 
 .filter-option-icon {
   @apply w-4 h-4;
+}
+
+/* Icon mindmap specific styles - 14px với border-radius 2px */
+.filter-option-icon.filter-option-icon-mindmap,
+.filter-option-icon.filter-option-icon-mindmap svg {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 2px;
+  overflow: hidden;
+  margin-left: 1px;
 }
 
 .filter-check {
@@ -1047,6 +1054,15 @@ watch(shareView, (newValue) => {
   font-size: 26px;
   flex-shrink: 0;
   color: #6b7280;
+}
+
+/* Icon mindmap specific styles for mobile - 14px với border-radius 2px */
+.mobile-filter-icon.mobile-filter-icon-mindmap,
+.mobile-filter-icon.mobile-filter-icon-mindmap svg {
+  width: 14px !important;
+  height: 14px !important;
+  border-radius: 2px;
+  overflow: hidden;
 }
 
 .mobile-filter-label {

@@ -1,4 +1,4 @@
-import { nextTick, inject  } from 'vue'
+import { nextTick } from 'vue'
 
 /**
  * Mindmap UI Actions

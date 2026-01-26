@@ -19,7 +19,8 @@ export function useMindmapRealtimeNodes({
   editingStartTime,
   changedNodeIds,
   calculateNodeHeightWithImages,
-  saveSnapshot
+  saveSnapshot,
+  applyStrikethroughToTitle
 }) {
 
   /**
@@ -380,20 +381,57 @@ export function useMindmapRealtimeNodes({
       })
       
       const nodeIndex = nodes.value.findIndex(n => n.id === remoteNode.id)
+      
+      // ⚠️ FIX: Khai báo các biến trước khi sử dụng
       const isNodeBeingEdited = remoteNode.id === editingNodeId
       const isNodeSelected = remoteNode.id === selectedNodeId && remoteNode.id !== editingNodeId
       const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
       
-      // ⚠️ FIX: Không cập nhật elements.value nếu node đang được local user edit
-      // Tránh overwrite label đang được edit với label bị corrupt từ remote
+      // ⚠️ FIX: Kiểm tra xem có chỉ thay đổi completed status không
+      const localNode = nodes.value.find(n => n.id === remoteNode.id)
+      const isOnlyCompletedChange = localNode && 
+        localNode.data?.label === remoteNode.data?.label &&
+        localNode.data?.completed !== remoteNode.data?.completed
+      
+      // ⚠️ FIX: Luôn cho phép update completed status, ngay cả khi node đang được selected/focused
+      // Vì completed không ảnh hưởng đến label đang được edit
       const shouldUpdateElements = !isNodeBeingEdited && !isNodeSelected && !hasLocalChanges
+      const shouldUpdateCompletedOnly = remoteNode.data?.completed !== undefined && 
+        (isNodeBeingEdited || isNodeSelected || hasLocalChanges)
       
       // ⚠️ CRITICAL: Phải update elements.value (không phải nodes.value vì nó là computed)
       const elementIndex = elements.value.findIndex(el => el.id === remoteNode.id && !el.source && !el.target)
       if (elementIndex !== -1) {
         if (shouldUpdateElements) {
-        elements.value[elementIndex] = { ...remoteNode }
-        console.log('✅ Đã cập nhật node vào elements.value:', remoteNode.id)
+          // ⚠️ FIX: Đảm bảo kích thước từ payload được giữ lại khi cập nhật elements.value
+          const updatedNode = { ...remoteNode }
+          if (remoteNode.data?.rect) {
+            // Giữ nguyên kích thước từ payload
+            if (!updatedNode.data) updatedNode.data = {}
+            updatedNode.data.rect = remoteNode.data.rect
+          }
+          elements.value[elementIndex] = updatedNode
+          console.log('✅ Đã cập nhật node vào elements.value:', remoteNode.id, {
+            hasRect: !!remoteNode.data?.rect,
+            rect: remoteNode.data?.rect
+          })
+        } else if (shouldUpdateCompletedOnly) {
+          // ⚠️ FIX: Luôn update completed status, giữ nguyên label và các data khác
+          // Nhưng vẫn cập nhật kích thước nếu có trong payload
+          const updatedData = {
+            ...elements.value[elementIndex].data,
+            completed: remoteNode.data?.completed
+          }
+          if (remoteNode.data?.rect) {
+            updatedData.rect = remoteNode.data.rect
+          }
+          elements.value[elementIndex] = {
+            ...elements.value[elementIndex],
+            data: updatedData
+          }
+          console.log('✅ Đã cập nhật completed status cho node đang được focus/edit:', remoteNode.id, {
+            hasRect: !!remoteNode.data?.rect
+          })
         } else {
           console.log('⏭️ Bỏ qua cập nhật elements.value vì node đang được local user edit:', {
             nodeId: remoteNode.id,
@@ -404,7 +442,10 @@ export function useMindmapRealtimeNodes({
         }
       } else {
         elements.value.push({ ...remoteNode })
-        console.log('✅ Đã thêm node mới vào elements.value:', remoteNode.id)
+        console.log('✅ Đã thêm node mới vào elements.value:', remoteNode.id, {
+          hasRect: !!remoteNode.data?.rect,
+          rect: remoteNode.data?.rect
+        })
       }
       
       if (remoteNode.data?.order !== undefined) {
@@ -421,21 +462,106 @@ export function useMindmapRealtimeNodes({
         })
       }
       
+      // ⚠️ FIX: Kiểm tra xem có node nào đang được local user edit không
+      // Nếu có, không render để tránh blur editor đang được edit
+      // (Các biến isNodeBeingEdited, isNodeSelected, hasLocalChanges đã được khai báo ở trên)
+      
+      // ⚠️ FIX: Nếu node đang được local user edit, chỉ update completed status nếu cần
+      // Không render để tránh blur editor
       if (isNodeBeingEdited) {
         const timeSinceEditStart = editingStartTime.value ? Date.now() - editingStartTime.value : Infinity
-        const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
         
         const shouldAllowUpdate = timeSinceEditStart < 2000 && !hasLocalChanges
         
         if (shouldAllowUpdate) {
           console.log('✨ Cho phép update editor vì vừa mới bắt đầu edit (<2s) và chưa có thay đổi')
         } else {
-          console.log('⚠️ Node đang được LOCAL USER edit, bỏ qua render để không gián đoạn user', {
+          console.log('⚠️ Node đang được LOCAL USER edit, chỉ update completed status, bỏ qua render để không gián đoạn user', {
             timeSinceEditStart,
             hasLocalChanges
           })
-          return
+          
+          // ⚠️ FIX: Chỉ update completed status và d3Node.data, không render
+          if (renderer) {
+            const d3Node = renderer.nodes.find(n => n.id === remoteNode.id)
+            if (d3Node && remoteNode.data?.completed !== undefined) {
+              const oldCompleted = d3Node.data?.completed || false
+              d3Node.data.completed = remoteNode.data.completed
+              
+              // Apply strikethrough nếu completed status thay đổi
+              if (oldCompleted !== remoteNode.data.completed && applyStrikethroughToTitle) {
+                nextTick(() => {
+                  setTimeout(() => {
+                    const editorInstance = renderer.getEditorInstance?.(remoteNode.id)
+                    if (editorInstance && !editorInstance.isDestroyed) {
+                      if (!renderer.isUpdatingStyle) {
+                        renderer.isUpdatingStyle = new Set()
+                      }
+                      renderer.isUpdatingStyle.add(remoteNode.id)
+                      
+                      applyStrikethroughToTitle(editorInstance, remoteNode.data.completed)
+                      
+                      setTimeout(() => {
+                        if (renderer.isUpdatingStyle) {
+                          renderer.isUpdatingStyle.delete(remoteNode.id)
+                        }
+                      }, 100)
+                    }
+                  }, 100)
+                })
+              }
+            }
+          }
+          
+          return // Không render để tránh blur editor
         }
+      }
+      
+      // ⚠️ FIX: Nếu có node khác đang được local user edit, không render để tránh blur
+      // Chỉ render nếu không có node nào đang được edit
+      if (editingNodeId && editingNodeId !== remoteNode.id) {
+        console.log('⚠️ Có node khác đang được LOCAL USER edit, bỏ qua render để không gián đoạn user')
+        
+        // ⚠️ FIX: Vẫn update completed status và d3Node.data cho node này
+        if (renderer) {
+          const d3Node = renderer.nodes.find(n => n.id === remoteNode.id)
+          if (d3Node) {
+            // Update label nếu không đang được edit
+            if (!isNodeSelected && !hasLocalChanges) {
+              d3Node.data.label = remoteNode.data.label
+            }
+            
+            // Update completed status
+            if (remoteNode.data?.completed !== undefined) {
+              const oldCompleted = d3Node.data?.completed || false
+              d3Node.data.completed = remoteNode.data.completed
+              
+              if (oldCompleted !== remoteNode.data.completed && applyStrikethroughToTitle) {
+                nextTick(() => {
+                  setTimeout(() => {
+                    const editorInstance = renderer.getEditorInstance?.(remoteNode.id)
+                    if (editorInstance && !editorInstance.isDestroyed) {
+                      if (!renderer.isUpdatingStyle) {
+                        renderer.isUpdatingStyle = new Set()
+                      }
+                      renderer.isUpdatingStyle.add(remoteNode.id)
+                      
+                      applyStrikethroughToTitle(editorInstance, remoteNode.data.completed)
+                      
+                      setTimeout(() => {
+                        if (renderer.isUpdatingStyle) {
+                          renderer.isUpdatingStyle.delete(remoteNode.id)
+                        }
+                      }, 100)
+                    }
+                  }, 100)
+                })
+              }
+            }
+          }
+        }
+        
+        return // Không render để tránh blur editor đang được edit
       }
       
       if (payload.edge) {
@@ -479,38 +605,165 @@ export function useMindmapRealtimeNodes({
             }
           }
           
-          const d3Node = renderer.nodes.find(n => n.id === remoteNode.id)
-          if (d3Node) {
-            // ⚠️ FIX: Chỉ cập nhật label nếu node không đang được local user edit
-            // Tránh overwrite label đang được edit với label bị corrupt từ remote
-            const isLocalEditing = remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId
-            const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
-            
-            if (!isLocalEditing && !hasLocalChanges) {
-              // ⚠️ DEBUG: Log để kiểm tra encoding
-              const remoteLabel = remoteNode.data?.label || ''
-              console.log('[Realtime] 📝 Cập nhật d3Node.data.label:', {
-                nodeId: remoteNode.id,
-                labelLength: remoteLabel.length,
-                labelPreview: remoteLabel.substring(0, 100),
-                labelFull: remoteLabel,
-                isLocalEditing,
-                hasLocalChanges
-              })
+            const d3Node = renderer.nodes.find(n => n.id === remoteNode.id)
+            if (d3Node) {
+              // ⚠️ FIX: Chỉ cập nhật label nếu node không đang được local user edit
+              // Tránh overwrite label đang được edit với label bị corrupt từ remote
+              const isLocalEditing = remoteNode.id === editingNodeId || remoteNode.id === selectedNodeId
+              const hasLocalChanges = changedNodeIds.value.has(remoteNode.id)
               
-            d3Node.data.label = remoteNode.data.label
-            } else {
-              console.log('[Realtime] ⏭️ Bỏ qua cập nhật label vì node đang được local user edit:', {
-                nodeId: remoteNode.id,
-                isLocalEditing,
-                hasLocalChanges
-              })
+              // ⚠️ FIX: Kiểm tra xem có chỉ thay đổi completed status không
+              const localNode = nodes.value.find(n => n.id === remoteNode.id)
+              const isOnlyCompletedChange = localNode && 
+                localNode.data?.label === remoteNode.data?.label &&
+                localNode.data?.completed !== remoteNode.data?.completed
+              
+              if (!isLocalEditing && !hasLocalChanges) {
+                // ⚠️ DEBUG: Log để kiểm tra encoding
+                const remoteLabel = remoteNode.data?.label || ''
+                console.log('[Realtime] 📝 Cập nhật d3Node.data.label:', {
+                  nodeId: remoteNode.id,
+                  labelLength: remoteLabel.length,
+                  labelPreview: remoteLabel.substring(0, 100),
+                  labelFull: remoteLabel,
+                  isLocalEditing,
+                  hasLocalChanges
+                })
+                
+                d3Node.data.label = remoteNode.data.label
+              } else {
+                console.log('[Realtime] ⏭️ Bỏ qua cập nhật label vì node đang được local user edit:', {
+                  nodeId: remoteNode.id,
+                  isLocalEditing,
+                  hasLocalChanges
+                })
+              }
+              
+              // ⚠️ FIX: Cập nhật kích thước node từ payload nếu có
+              if (remoteNode.data?.rect) {
+                const remoteSize = remoteNode.data.rect
+                if (remoteSize.width && remoteSize.height) {
+                  console.log('[Realtime] 📐 Cập nhật kích thước node từ payload:', remoteNode.id, {
+                    width: remoteSize.width,
+                    height: remoteSize.height
+                  })
+                  
+                  // Cập nhật cache
+                  renderer.nodeSizeCache.set(remoteNode.id, { width: remoteSize.width, height: remoteSize.height })
+                  
+                  // Cập nhật d3Node.data.rect
+                  if (!d3Node.data) d3Node.data = {}
+                  d3Node.data.rect = { width: remoteSize.width, height: remoteSize.height }
+                  d3Node.data.fixedWidth = remoteSize.width
+                  d3Node.data.fixedHeight = remoteSize.height
+                  
+                  // ⚠️ CRITICAL: Cập nhật kích thước vào DOM ngay lập tức
+                  nextTick(() => {
+                    const nodeGroup = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
+                    if (!nodeGroup.empty()) {
+                      const rect = nodeGroup.select('.node-rect')
+                      const fo = nodeGroup.select('.node-text')
+                      
+                      if (!rect.empty() && !fo.empty()) {
+                        const borderOffset = 4
+                        const foWidth = Math.max(0, remoteSize.width - borderOffset)
+                        const foHeight = Math.max(0, remoteSize.height - borderOffset)
+                        
+                        rect.attr('width', remoteSize.width)
+                        rect.attr('height', remoteSize.height)
+                        rect.node()?.setAttribute('width', remoteSize.width)
+                        rect.node()?.setAttribute('height', remoteSize.height)
+                        
+                        fo.attr('width', foWidth)
+                        fo.attr('height', foHeight)
+                        fo.node()?.setAttribute('width', foWidth)
+                        fo.node()?.setAttribute('height', foHeight)
+                        
+                        nodeGroup.select('.add-child-btn').attr('cx', remoteSize.width + 20).attr('cy', remoteSize.height / 2)
+                        nodeGroup.select('.add-child-text').attr('x', remoteSize.width + 20).attr('y', remoteSize.height / 2)
+                        nodeGroup.select('.collapse-btn-number').attr('cx', remoteSize.width + 20).attr('cy', remoteSize.height / 2)
+                        nodeGroup.select('.collapse-text-number').attr('x', remoteSize.width + 20).attr('y', remoteSize.height / 2)
+                        nodeGroup.select('.collapse-btn-arrow').attr('cx', remoteSize.width + 20).attr('cy', remoteSize.height / 2)
+                        nodeGroup.select('.collapse-arrow').attr('transform', `translate(${remoteSize.width + 20}, ${remoteSize.height / 2}) scale(0.7) translate(-12, -12)`)
+                        nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', remoteSize.width).attr('height', remoteSize.height)
+                        nodeGroup.select('.node-hover-layer').attr('width', remoteSize.width + 40).attr('height', remoteSize.height)
+                        
+                        console.log('[Realtime] ✅ Đã cập nhật kích thước vào DOM từ payload:', remoteNode.id, {
+                          width: remoteSize.width,
+                          height: remoteSize.height
+                        })
+                      }
+                    }
+                  })
+                }
+              }
+            
+            // ⚠️ FIX: Luôn cập nhật completed status, ngay cả khi node đang được edit
+            // Vì completed không ảnh hưởng đến label đang được edit
+            if (remoteNode.data?.completed !== undefined) {
+              const oldCompleted = d3Node.data?.completed || false
+              d3Node.data.completed = remoteNode.data.completed
+              
+              // ⚠️ FIX: Apply strikethrough nếu completed status thay đổi
+              if (oldCompleted !== remoteNode.data.completed && applyStrikethroughToTitle) {
+                nextTick(() => {
+                  setTimeout(() => {
+                    const editorInstance = renderer.getEditorInstance?.(remoteNode.id)
+                    if (editorInstance && !editorInstance.isDestroyed) {
+                      // ⚠️ FIX: Set flag để skip handleEditorInput khi apply strikethrough từ realtime
+                      // Tránh trigger save và gây loop
+                      if (!renderer.isUpdatingStyle) {
+                        renderer.isUpdatingStyle = new Set()
+                      }
+                      renderer.isUpdatingStyle.add(remoteNode.id)
+                      
+                      applyStrikethroughToTitle(editorInstance, remoteNode.data.completed)
+                      
+                      // Clear flag sau khi dispatch
+                      setTimeout(() => {
+                        if (renderer.isUpdatingStyle) {
+                          renderer.isUpdatingStyle.delete(remoteNode.id)
+                        }
+                      }, 100)
+                    }
+                  }, 100)
+                })
+              }
             }
             
             if (d3Node.data.fixedWidth || d3Node.data.fixedHeight) {
               delete d3Node.data.fixedWidth
               delete d3Node.data.fixedHeight
             }
+          }
+          
+          // ⚠️ FIX: Kiểm tra lại xem có node nào đang được edit không trước khi render
+          // (Có thể có node mới được thêm vào sau khi kiểm tra ở trên)
+          const currentEditingNodeId = editingNode.value
+          if (currentEditingNodeId) {
+            console.log('⚠️ Có node đang được LOCAL USER edit, chỉ update data, bỏ qua render để không gián đoạn user')
+            
+            // ⚠️ FIX: Vẫn update d3Node.data cho node mới, nhưng không render
+            // Node sẽ được render khi user blur editor
+            if (elementIndex === -1) {
+              // Node mới: cần thêm vào renderer.nodes nhưng không render
+              // Chỉ update setData để node có trong data, nhưng không gọi render()
+              renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+              console.log('⚠️ Node mới được thêm vào data nhưng không render vì có node đang được edit')
+            } else {
+              // Node đã tồn tại: chỉ update d3Node.data
+              const d3Node = renderer.nodes.find(n => n.id === remoteNode.id)
+              if (d3Node) {
+                if (!isNodeSelected && !hasLocalChanges) {
+                  d3Node.data.label = remoteNode.data.label
+                }
+                if (remoteNode.data?.completed !== undefined) {
+                  d3Node.data.completed = remoteNode.data.completed
+                }
+              }
+            }
+            
+            return // Không render để tránh blur editor đang được edit
           }
           
           renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
@@ -635,6 +888,9 @@ export function useMindmapRealtimeNodes({
                               return
                             }
                             
+                            // ⚠️ FIX: Đếm số lượng ảnh trong content mới để đảm bảo tất cả ảnh được set
+                            const imageCountInNewContent = (labelToSet.match(/<img[^>]*>/gi) || []).length
+                            
                             editorInstance.commands.setContent(labelToSet, false)
                             
                             // ⚠️ CRITICAL: Force update editor view để đảm bảo DOM được cập nhật
@@ -646,6 +902,9 @@ export function useMindmapRealtimeNodes({
                               nextTick(() => {
                                 const updatedContent = editorInstance.view.dom?.querySelector('.mindmap-editor-prose') || editorInstance.view.dom
                                 const hasContent = updatedContent && (updatedContent.textContent || updatedContent.innerHTML.trim() !== '<p></p>')
+                                
+                                // ⚠️ FIX: Kiểm tra số lượng ảnh thực tế trong DOM
+                                const actualImageCount = updatedContent?.querySelectorAll('img').length || 0
                                 
                                 // Kiểm tra lại container
                                 const finalContainerCheck = renderer.g.select(`[data-node-id="${remoteNode.id}"]`)
@@ -660,8 +919,51 @@ export function useMindmapRealtimeNodes({
                                   hasDOM: !!editorInstance.view?.dom,
                                   hasContent: hasContent,
                                   containerHasChildren: finalContainerHasChildren,
+                                  imageCountInContent: imageCountInNewContent,
+                                  actualImageCount: actualImageCount,
                                   domContent: updatedContent?.textContent || updatedContent?.innerHTML?.substring(0, 100) || 'empty'
                                 })
+                                
+                                // ⚠️ FIX: Nếu số lượng ảnh không khớp, tiếp tục kiểm tra và retry
+                                // if (actualImageCount !== imageCountInNewContent && imageCountInNewContent > 0) {
+                                //   let retryCheckAttempts = 0
+                                //   const maxRetryCheckAttempts = 20 // 20 * 100ms = 2 giây
+                                //   let retryCount = 0
+                                //   const maxRetries = 2
+                                //   let isRetryCompleted = false
+                                  
+                                //   const retryCheckImages = () => {
+                                //     if (isRetryCompleted) return
+                                    
+                                //     retryCheckAttempts++
+                                //     const retryEditorContent = editorInstance.view?.dom?.querySelector('.mindmap-editor-prose') || editorInstance.view?.dom
+                                //     const retryImageCount = retryEditorContent?.querySelectorAll('img').length || 0
+                                    
+                                //     // Nếu số lượng ảnh khớp, dừng kiểm tra ngay
+                                //     if (retryImageCount === imageCountInNewContent) {
+                                //       isRetryCompleted = true
+                                //       return
+                                //     }
+                                    
+                                //     // Nếu số lượng ảnh không khớp và chưa retry quá nhiều lần
+                                //     if (retryImageCount !== imageCountInNewContent && retryCount < maxRetries && retryCheckAttempts % 5 === 0) {
+                                //       retryCount++
+                                //       editorInstance.commands.setContent(labelToSet, false)
+                                //       requestAnimationFrame(() => {
+                                //         const tr2 = editorInstance.view.state.tr
+                                //         editorInstance.view.dispatch(tr2)
+                                //       })
+                                //     }
+                                    
+                                //     // Tiếp tục kiểm tra nếu chưa đạt max attempts và chưa hoàn thành
+                                //     if (retryCheckAttempts < maxRetryCheckAttempts && !isRetryCompleted) {
+                                //       setTimeout(retryCheckImages, 100)
+                                //     }
+                                //   }
+                                  
+                                //   // Bắt đầu retry check sau 300ms
+                                //   setTimeout(retryCheckImages, 300)
+                                // }
                                 
                                 // Nếu container vẫn rỗng, trigger render lại
                                 if (!finalContainerHasChildren) {
@@ -780,13 +1082,115 @@ export function useMindmapRealtimeNodes({
                         return
                       }
                       
-                      editorInstance.commands.setContent(labelToSet, false)
+                      // ⚠️ FIX: Kiểm tra content hiện tại để tránh set lại nếu giống nhau
+                      const currentContent = editorInstance.getHTML()
+                      if (currentContent === labelToSet) {
+                        console.log(`[Realtime] ⏭️ Content không thay đổi, bỏ qua set content cho node ${remoteNode.id}`)
+                        return
+                      }
+                      
+                      // ⚠️ FIX: Đếm số lượng ảnh trong content mới
+                      const imageCountInNewContent = (labelToSet.match(/<img[^>]*>/gi) || []).length
+                      
+                      // ⚠️ FIX: Nếu có nhiều ảnh (>2), parse HTML và extract ảnh để TipTap parse đúng
+                      // TipTap có thể không parse đúng HTML có nhiều image-wrapper
+                      if (imageCountInNewContent > 2) {
+                        const tempDiv = document.createElement('div')
+                        tempDiv.innerHTML = labelToSet
+                        
+                        // Extract text content (paragraphs)
+                        const paragraphs = Array.from(tempDiv.querySelectorAll('p'))
+                        const textContent = paragraphs.map(p => p.outerHTML).join('')
+                        
+                        // Extract tất cả ảnh (cả trong image-wrapper và img trần)
+                        const imageWrappers = Array.from(tempDiv.querySelectorAll('.image-wrapper'))
+                        const rawImages = Array.from(tempDiv.querySelectorAll('img:not(.image-wrapper img)'))
+                        
+                        // Build content mới: text + images (chỉ img tags, không có image-wrapper)
+                        let newContent = textContent
+                        
+                        imageWrappers.forEach(wrapper => {
+                          const img = wrapper.querySelector('img')
+                          if (img) {
+                            const imgSrc = img.getAttribute('src') || ''
+                            const imgAlt = img.getAttribute('alt') || ''
+                            newContent += `<img src="${imgSrc}" alt="${imgAlt}" />`
+                          }
+                        })
+                        
+                        rawImages.forEach(img => {
+                          const imgSrc = img.getAttribute('src') || ''
+                          const imgAlt = img.getAttribute('alt') || ''
+                          if (imgSrc && !imageWrappers.some(w => w.querySelector(`img[src="${imgSrc}"]`))) {
+                            newContent += `<img src="${imgSrc}" alt="${imgAlt}" />`
+                          }
+                        })
+                        
+                        // Thêm blockquote nếu có
+                        const blockquote = tempDiv.querySelector('blockquote')
+                        if (blockquote) {
+                          newContent += blockquote.outerHTML
+                        }
+                        
+                        // Set content mới (TipTap sẽ tự động wrap ảnh bằng ImageWithWrapper extension)
+                        editorInstance.commands.setContent(newContent, false)
+                      } else {
+                        editorInstance.commands.setContent(labelToSet, false)
+                      }
                       
                       // ⚠️ CRITICAL: Force update editor view để đảm bảo DOM được cập nhật
                       if (editorInstance.view) {
                         requestAnimationFrame(() => {
                           const tr = editorInstance.view.state.tr
                           editorInstance.view.dispatch(tr)
+                          
+                          // // ⚠️ FIX: Chỉ kiểm tra và retry nếu có ảnh
+                          // if (imageCountInNewContent > 0) {
+                          //   nextTick(() => {
+                          //     let checkAttempts = 0
+                          //     const maxCheckAttempts = 20 // 20 * 100ms = 2 giây
+                          //     let retryCount = 0
+                          //     const maxRetries = 2
+                          //     let isCompleted = false
+                              
+                          //     const checkImages = () => {
+                          //       if (isCompleted) return
+                                
+                          //       checkAttempts++
+                          //       const editorDOM = editorInstance.view?.dom
+                          //       if (editorDOM) {
+                          //         const editorContent = editorDOM.querySelector('.mindmap-editor-prose') || editorDOM
+                          //         const actualImageCount = editorContent.querySelectorAll('img').length
+                                  
+                          //         // Nếu số lượng ảnh khớp, dừng kiểm tra ngay
+                          //         if (actualImageCount === imageCountInNewContent) {
+                          //           isCompleted = true
+                          //           return
+                          //         }
+                                  
+                          //         // Nếu số lượng ảnh không khớp và chưa retry quá nhiều lần
+                          //         if (actualImageCount !== imageCountInNewContent && retryCount < maxRetries && checkAttempts % 5 === 0) {
+                          //           retryCount++
+                          //           editorInstance.commands.setContent(labelToSet, false)
+                          //           requestAnimationFrame(() => {
+                          //             const tr2 = editorInstance.view.state.tr
+                          //             editorInstance.view.dispatch(tr2)
+                          //           })
+                          //         }
+                                  
+                          //         // Tiếp tục kiểm tra nếu chưa đạt max attempts và chưa hoàn thành
+                          //         if (checkAttempts < maxCheckAttempts && !isCompleted) {
+                          //           setTimeout(checkImages, 100)
+                          //         }
+                          //       } else if (checkAttempts < maxCheckAttempts && !isCompleted) {
+                          //         setTimeout(checkImages, 100)
+                          //       }
+                          //     }
+                              
+                          //     // Bắt đầu kiểm tra sau 200ms
+                          //     setTimeout(checkImages, 200)
+                          //   })
+                          // }
                         })
                       }
                       
@@ -794,7 +1198,16 @@ export function useMindmapRealtimeNodes({
                         labelLength: labelToSet.length,
                         labelPreview: labelToSet.substring(0, 100),
                         hasView: !!editorInstance.view,
-                        hasDOM: !!editorInstance.view?.dom
+                        hasDOM: !!editorInstance.view?.dom,
+                        imageCount: imageCountInNewContent
+                      })
+                      
+                      // ⚠️ FIX: Sau khi set content thành công, trigger tính toán lại kích thước ngay
+                      // Đảm bảo kích thước node được cập nhật đúng sau khi nhận real-time update
+                      nextTick(() => {
+                        setTimeout(() => {
+                          calculateAndUpdateNodeSize(remoteNode.id)
+                        }, 150)
                       })
                     } catch (err) {
                       console.error(`[Realtime] ❌ Lỗi khi set content cho node ${remoteNode.id}:`, err)
@@ -808,6 +1221,224 @@ export function useMindmapRealtimeNodes({
               })
             }, 100)
           })
+          
+          // ⚠️ FIX: Helper function để tính toán lại kích thước và cập nhật
+          const calculateAndUpdateNodeSize = (nodeId) => {
+            const editorInstance = renderer.getEditorInstance(nodeId)
+            if (!editorInstance || editorInstance.isDestroyed) {
+              console.warn(`[Realtime] ⚠️ Editor instance không sẵn sàng cho node ${nodeId} khi tính toán size`)
+              return
+            }
+            
+            const remoteNode = nodes.value.find(n => n.id === nodeId)
+            if (!remoteNode || !remoteNode.data?.label || remoteNode.data.label.trim() === '') {
+              console.warn(`[Realtime] ⚠️ Node ${nodeId} không có label, bỏ qua tính toán size`)
+              return
+            }
+            
+            // ⚠️ FIX: Nếu đã có kích thước từ payload, sử dụng luôn không cần tính toán lại
+            if (remoteNode.data?.rect && remoteNode.data.rect.width && remoteNode.data.rect.height) {
+              const sizeFromPayload = remoteNode.data.rect
+              console.log(`[Realtime] ✅ Sử dụng kích thước từ payload cho node ${nodeId}:`, {
+                width: sizeFromPayload.width,
+                height: sizeFromPayload.height
+              })
+              
+              requestAnimationFrame(() => {
+                const nodeGroup = renderer.g.select(`[data-node-id="${nodeId}"]`)
+                if (!nodeGroup.empty()) {
+                  const rect = nodeGroup.select('.node-rect')
+                  const fo = nodeGroup.select('.node-text')
+                  const editorDOM = editorInstance.view?.dom
+                  const editorContent = editorDOM?.querySelector('.mindmap-editor-prose') || editorDOM
+                  
+                  if (!rect.empty() && !fo.empty() && editorContent) {
+                    updateNodeSizeWithNewSize(nodeId, sizeFromPayload, rect, fo, nodeGroup, editorContent, 4)
+                  }
+                }
+              })
+              return
+            }
+            
+            console.log(`[Realtime] 🔄 Bắt đầu tính toán lại kích thước cho node ${nodeId} (không có kích thước từ payload)`)
+            
+            requestAnimationFrame(() => {
+              setTimeout(() => {
+                requestAnimationFrame(() => {
+                  const nodeGroup = renderer.g.select(`[data-node-id="${nodeId}"]`)
+                  if (nodeGroup.empty()) {
+                    console.warn(`[Realtime] ⚠️ Không tìm thấy node group cho node ${nodeId}`)
+                    return
+                  }
+                  
+                  const rect = nodeGroup.select('.node-rect')
+                  const fo = nodeGroup.select('.node-text')
+                  
+                  if (rect.empty() || fo.empty()) {
+                    console.warn(`[Realtime] ⚠️ Không tìm thấy rect hoặc fo cho node ${nodeId}`)
+                    return
+                  }
+                  
+                  const editorDOM = editorInstance.view?.dom
+                  const editorContent = editorDOM?.querySelector('.mindmap-editor-prose') || editorDOM
+                  
+                  if (!editorContent) {
+                    console.warn(`[Realtime] ⚠️ Không tìm thấy editor content cho node ${nodeId}`)
+                    return
+                  }
+                  
+                  const borderOffset = 4
+                  const maxWidth = 400
+                  const minWidth = 130
+                  const singleLineHeight = Math.ceil(19 * 1.4) + 16
+                  
+                  const hasImages = remoteNode.data?.label?.includes('<img') || remoteNode.data?.label?.includes('image-wrapper')
+                  
+                  if (hasImages) {
+                    const newSize = { width: maxWidth, height: singleLineHeight }
+                    updateNodeSizeWithNewSize(nodeId, newSize, rect, fo, nodeGroup, editorContent, borderOffset)
+                  } else {
+                    // ⚠️ FIX: Đo trực tiếp từ DOM element sau khi content đã được set
+                    // Đảm bảo kích thước chính xác hơn estimateNodeSize
+                    const editorHTML = editorInstance.getHTML() || ''
+                    const editorContentText = editorContent.textContent || editorContent.innerText || ''
+                    
+                    // Đo width thực tế từ DOM
+                    void editorContent.offsetWidth
+                    void editorContent.offsetHeight
+                    void editorContent.scrollWidth
+                    void editorContent.scrollHeight
+                    
+                    // ⚠️ FIX: Đo trực tiếp từ DOM sau khi content đã được set
+                    // Đợi một chút để DOM được cập nhật và đo lại
+                    setTimeout(() => {
+                      // Đảm bảo editorContent có width đúng để đo chính xác
+                      // Tạm thời set width auto và white-space nowrap để đo scrollWidth chính xác
+                      const originalWidth = editorContent.style.width
+                      const originalWhiteSpace = editorContent.style.whiteSpace
+                      
+                      editorContent.style.setProperty('width', 'auto', 'important')
+                      editorContent.style.setProperty('white-space', 'nowrap', 'important')
+                      editorContent.style.setProperty('box-sizing', 'border-box', 'important')
+                      
+                      requestAnimationFrame(() => {
+                        requestAnimationFrame(() => {
+                          // Đo scrollWidth sau khi đã set white-space: nowrap
+                          const actualScrollWidth = editorContent.scrollWidth || editorContent.offsetWidth || 0
+                          const actualScrollHeight = editorContent.scrollHeight || editorContent.offsetHeight || 0
+                          
+                          // Tính width: scrollWidth + padding (16px mỗi bên = 32px) + border (4px)
+                          const calculatedWidth = Math.max(actualScrollWidth + 32, minWidth)
+                          const calculatedHeight = Math.max(actualScrollHeight, singleLineHeight)
+                          
+                          // Nếu width quá lớn, dùng maxWidth
+                          const finalWidth = calculatedWidth > maxWidth ? maxWidth : calculatedWidth
+                          
+                          const newSize = { width: finalWidth, height: calculatedHeight }
+                          
+                          console.log(`[Realtime] 📐 Đo kích thước từ DOM cho node ${nodeId}:`, {
+                            editorHTML: editorHTML.substring(0, 100),
+                            editorContentText: editorContentText.substring(0, 50),
+                            actualScrollWidth,
+                            actualScrollHeight,
+                            calculatedWidth: finalWidth,
+                            calculatedHeight,
+                            newSize
+                          })
+                          
+                          // Restore original styles
+                          if (originalWidth) {
+                            editorContent.style.setProperty('width', originalWidth, 'important')
+                          }
+                          if (originalWhiteSpace) {
+                            editorContent.style.setProperty('white-space', originalWhiteSpace, 'important')
+                          }
+                          
+                          // Cập nhật kích thước
+                          updateNodeSizeWithNewSize(nodeId, newSize, rect, fo, nodeGroup, editorContent, borderOffset)
+                        })
+                      })
+                    }, 150)
+                  }
+                })
+              }, 10)
+            })
+          }
+          
+          // ⚠️ FIX: Helper function để cập nhật kích thước node
+          const updateNodeSizeWithNewSize = (nodeId, newSize, rect, fo, nodeGroup, editorContent, borderOffset) => {
+            // ⚠️ CRITICAL: Cập nhật kích thước vào DOM và cache
+            renderer.nodeSizeCache.set(nodeId, newSize)
+            
+            const node = renderer.nodes.find((n) => n.id === nodeId)
+            if (node && !node.data) node.data = {}
+            if (node) {
+              node.data.rect = { width: newSize.width, height: newSize.height }
+            }
+            
+            rect.attr('width', newSize.width)
+            rect.attr('height', newSize.height)
+            rect.node()?.setAttribute('width', newSize.width)
+            rect.node()?.setAttribute('height', newSize.height)
+            
+            const foWidth = Math.max(0, newSize.width - borderOffset)
+            const foHeight = Math.max(0, newSize.height - borderOffset)
+            fo.attr('width', foWidth)
+            fo.attr('height', foHeight)
+            fo.node()?.setAttribute('width', foWidth)
+            fo.node()?.setAttribute('height', foHeight)
+            
+            editorContent.style.setProperty('width', `${foWidth}px`, 'important')
+            
+            nodeGroup.select('.add-child-btn').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+            nodeGroup.select('.add-child-text').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+            nodeGroup.select('.collapse-btn-number').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+            nodeGroup.select('.collapse-text-number').attr('x', newSize.width + 20).attr('y', newSize.height / 2)
+            nodeGroup.select('.collapse-btn-arrow').attr('cx', newSize.width + 20).attr('cy', newSize.height / 2)
+            nodeGroup.select('.collapse-arrow').attr('transform', `translate(${newSize.width + 20}, ${newSize.height / 2}) scale(0.7) translate(-12, -12)`)
+            nodeGroup.select('.collapse-button-bridge').attr('width', 20).attr('x', newSize.width).attr('height', newSize.height)
+            nodeGroup.select('.node-hover-layer').attr('width', newSize.width + 40).attr('height', newSize.height)
+            
+            // ⚠️ CRITICAL: Cập nhật nodes.value TRƯỚC khi gọi setData và render
+            const vueNode = nodes.value.find(n => n.id === nodeId)
+            if (vueNode && vueNode.data) {
+              vueNode.data.rect = { width: newSize.width, height: newSize.height }
+              vueNode.data.fixedWidth = newSize.width
+              vueNode.data.fixedHeight = newSize.height
+            }
+            
+            // ⚠️ CRITICAL: Cập nhật d3Node.data.rect
+            const d3Node = renderer.nodes.find((n) => n.id === nodeId)
+            if (d3Node) {
+              if (!d3Node.data) d3Node.data = {}
+              d3Node.data.rect = { width: newSize.width, height: newSize.height }
+              d3Node.data.fixedWidth = newSize.width
+              d3Node.data.fixedHeight = newSize.height
+            }
+            
+            if (renderer.positions) {
+              renderer.positions.delete(nodeId)
+            }
+            
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                if (renderer) {
+                  renderer.setData(nodes.value, edges.value, nodeCreationOrder.value)
+                  
+                  const d3NodeAfterSetData = renderer.nodes.find((n) => n.id === nodeId)
+                  if (d3NodeAfterSetData) {
+                    if (!d3NodeAfterSetData.data) d3NodeAfterSetData.data = {}
+                    d3NodeAfterSetData.data.rect = { width: newSize.width, height: newSize.height }
+                    d3NodeAfterSetData.data.fixedWidth = newSize.width
+                    d3NodeAfterSetData.data.fixedHeight = newSize.height
+                  }
+                  
+                  renderer.render(true)
+                  console.log(`[Realtime] ✅ Đã cập nhật kích thước và render lại cho node ${nodeId}: ${newSize.width}x${newSize.height}`)
+                }
+              })
+            })
+          }
           
           // Code để xử lý size calculation sau khi editor đã được mount và content đã được set
           // Đợi đủ lâu để đảm bảo editor đã được mount và content đã được set (mount editor mất ~100ms + setContent)
@@ -844,7 +1475,15 @@ export function useMindmapRealtimeNodes({
                           if (hasImages) {
                             newSize = { width: maxWidth, height: singleLineHeight }
                           } else {
+                            // ⚠️ FIX: Tính toán lại kích thước dựa trên remoteNode.data.label
+                            // KHÔNG dùng editorContent vì editor có thể chưa được cập nhật đúng lúc
+                            // Code tính toán lại kích thước chính xác sẽ được gọi trong calculateAndUpdateNodeSize
+                            // sau khi content đã được set vào editor
                             newSize = renderer.estimateNodeSize(remoteNode)
+                            console.log(`[Realtime] 📐 Tính toán lại kích thước (tạm thời) cho node ${remoteNode.id}:`, {
+                              remoteLabel: remoteNode.data?.label?.substring(0, 50),
+                              estimatedSize: newSize
+                            })
                           }
                           
                           const foWidth = Math.max(0, newSize.width - borderOffset)
@@ -1075,7 +1714,7 @@ export function useMindmapRealtimeNodes({
           } else {
             console.warn(`[Realtime] ⚠️ Editor instance không tồn tại cho node ${remoteNode.id} khi tính toán size`)
           }
-        }, 200) // Đợi 200ms để đảm bảo editor đã được mount
+        }, 150) // ⚠️ FIX: Giảm delay từ 200ms xuống 150ms để đảm bảo tính toán lại kích thước được gọi sớm hơn
         })
       }
   }

@@ -165,6 +165,33 @@ export function useMindmapSave({
       }
       nodeWithPos.data.order = order
     }
+    
+    // ⚠️ FIX: Thêm kích thước node vào payload để gửi qua socket
+    // User B sẽ sử dụng kích thước này thay vì tính toán lại
+    if (d3Renderer && d3Renderer.nodeSizeCache) {
+      const cachedSize = d3Renderer.nodeSizeCache.get(nodeId)
+      if (cachedSize) {
+        if (!nodeWithPos.data) {
+          nodeWithPos.data = {}
+        }
+        nodeWithPos.data.rect = { width: cachedSize.width, height: cachedSize.height }
+        console.log('[DEBUG] 💾 Thêm kích thước node vào payload:', nodeId, {
+          width: cachedSize.width,
+          height: cachedSize.height
+        })
+      } else {
+        // Nếu không có cache, tính toán lại kích thước
+        const estimatedSize = d3Renderer.estimateNodeSize(node)
+        if (!nodeWithPos.data) {
+          nodeWithPos.data = {}
+        }
+        nodeWithPos.data.rect = { width: estimatedSize.width, height: estimatedSize.height }
+        console.log('[DEBUG] 💾 Tính toán và thêm kích thước node vào payload:', nodeId, {
+          width: estimatedSize.width,
+          height: estimatedSize.height
+        })
+      }
+    }
 
     const edge = edges.value.find(e => e.target === nodeId)
 

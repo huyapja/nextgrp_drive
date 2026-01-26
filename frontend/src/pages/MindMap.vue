@@ -793,7 +793,8 @@ const realtimeNodes = useMindmapRealtimeNodes({
   editingStartTime,
   changedNodeIds,
   calculateNodeHeightWithImages,
-  saveSnapshot: saveSnapshot
+  saveSnapshot: saveSnapshot,
+  applyStrikethroughToTitle
 })
 const {
   handleRealtimeNodesDeleted,
@@ -1127,6 +1128,12 @@ const initD3Renderer = () => {
         textInputSaveTimeout = null
       }, TEXT_INPUT_SAVE_DELAY)
       
+      // ⚠️ FIX: Không lưu snapshot nếu đang upload ảnh (insert image trigger text input)
+      if (window.__isUploadingImage && window.__uploadingImageNodeId === nodeId) {
+        console.log('[TextInput] ⏭️ Bỏ qua lưu snapshot vì đang upload ảnh cho node:', nodeId)
+        return
+      }
+      
       // ⚠️ FIX: Lưu snapshot với debounce khi nhập text để có thể undo từng bước
       // Debounce time dài hơn (1 giây) để tránh tạo quá nhiều snapshots
       if (textInputSnapshotTimeout) {
@@ -1204,6 +1211,31 @@ const initD3Renderer = () => {
         return false
       }
       
+      // ⚠️ FIX: Không lưu snapshot nếu đang upload ảnh (blur/focus lại để update height)
+      if (window.__isUploadingImage && window.__uploadingImageNodeId === nodeId) {
+        console.log('[EditStart] ⏭️ Bỏ qua lưu snapshot vì đang upload ảnh cho node:', nodeId)
+        editingNode.value = nodeId
+        editingStartTime.value = Date.now()
+        return true
+      }
+      
+      // ⚠️ FIX: Không lưu snapshot nếu node vừa được tạo (< 2 giây)
+      // Vì đã có snapshot khi tạo node rồi, không cần snapshot thêm trong EditStart
+      const renderer = typeof d3Renderer === 'function' ? d3Renderer() : d3Renderer?.value || d3Renderer
+      if (renderer?.newlyCreatedNodes) {
+        const newlyCreatedTime = renderer.newlyCreatedNodes.get(nodeId)
+        if (newlyCreatedTime) {
+          const timeSinceCreation = Date.now() - newlyCreatedTime
+          if (timeSinceCreation < 2000) {
+            console.log('[EditStart] ⏭️ Bỏ qua lưu snapshot vì node vừa được tạo (< 2s):', nodeId, { timeSinceCreation })
+            editingNode.value = nodeId
+            editingStartTime.value = Date.now()
+            broadcastNodeEditing(nodeId, true)
+            return true
+          }
+        }
+      }
+      
       // ⚠️ CRITICAL: Lưu snapshot TRƯỚC khi bắt đầu edit
       // Đảm bảo có snapshot "before" để undo về
       // Force = true để đảm bảo luôn lưu snapshot, ngay cả khi so sánh thấy không có thay đổi
@@ -1227,16 +1259,105 @@ const initD3Renderer = () => {
         textInputSnapshotTimeout = null
       }
       
+      // ⚠️ FIX: Không lưu snapshot nếu đang upload ảnh (blur để update height)
+      if (window.__isUploadingImage && window.__uploadingImageNodeId === finishedNodeId) {
+        console.log('[EditEnd] ⏭️ Bỏ qua lưu snapshot vì đang upload ảnh cho node:', finishedNodeId)
+        // Không clear editingNode vì sẽ focus lại ngay
+        return
+      }
+      
       if (finishedNodeId) {
         const node = nodes.value.find(n => n.id === finishedNodeId)
         if (node) {
           // node.data.label đã được cập nhật trong renderer on('blur')
           
-          // ⚠️ FIX: Luôn lưu snapshot khi blur để đảm bảo có snapshot với nội dung đã nhập
-          // Không kiểm tra hasChanges vì ngay cả khi không có thay đổi, vẫn cần snapshot
-          // để đảm bảo undo hoạt động đúng (quay về trạng thái trước khi blur)
-          console.log(`[EditEnd] 💾 Lưu snapshot sau khi blur node ${finishedNodeId}`)
-          saveSnapshot()
+          // ⚠️ FIX: Kiểm tra xem node có thay đổi nội dung không
+          const hasChanges = changedNodeIds.value.has(finishedNodeId)
+          
+          // ⚠️ FIX: Kiểm tra xem node có thay đổi nội dung thực sự không
+          // So sánh label hiện tại với label mặc định "Nhánh mới"
+          // Lấy label từ editor nếu có, nếu không thì dùng node.data.label
+          const renderer = typeof d3Renderer === 'function' ? d3Renderer() : d3Renderer?.value || d3Renderer
+          let currentLabel = ''
+          
+          // ⚠️ FIX: Lấy label từ editor để đảm bảo chính xác
+          const editorInstance = renderer?.getEditorInstance?.(finishedNodeId)
+          if (editorInstance && !editorInstance.isDestroyed) {
+            try {
+              const editorLabel = editorInstance.getHTML()
+              // Extract plain text từ HTML để so sánh
+              const tempDiv = document.createElement('div')
+              tempDiv.innerHTML = editorLabel
+              const plainText = (tempDiv.textContent || tempDiv.innerText || '').trim()
+              currentLabel = plainText
+            } catch (err) {
+              // Nếu có lỗi, dùng label từ node.data
+              const nodeLabel = node.data?.label || ''
+              if (nodeLabel) {
+                const tempDiv = document.createElement('div')
+                tempDiv.innerHTML = nodeLabel
+                currentLabel = (tempDiv.textContent || tempDiv.innerText || '').trim()
+              }
+            }
+          } else {
+            // Không có editor, dùng label từ node.data
+            const nodeLabel = node.data?.label || ''
+            if (nodeLabel) {
+              const tempDiv = document.createElement('div')
+              tempDiv.innerHTML = nodeLabel
+              currentLabel = (tempDiv.textContent || tempDiv.innerText || '').trim()
+            }
+          }
+          
+          const defaultLabel = 'Nhánh mới'
+          // ⚠️ FIX: Coi là có thay đổi nếu label khác với defaultLabel (kể cả rỗng)
+          const hasContentChanged = currentLabel !== defaultLabel
+          
+          // ⚠️ DEBUG: Log để kiểm tra
+          console.log('[EditEnd] 🔍 Kiểm tra có nên lưu snapshot:', {
+            nodeId: finishedNodeId,
+            currentLabel,
+            defaultLabel,
+            hasContentChanged,
+            hasNewlyCreatedNodes: !!renderer?.newlyCreatedNodes,
+            newlyCreatedNodesKeys: renderer?.newlyCreatedNodes ? Array.from(renderer.newlyCreatedNodes.keys()) : []
+          })
+          
+          // ⚠️ FIX: Không lưu snapshot nếu node vừa được tạo và chưa có thay đổi nội dung
+          // Vì đã có snapshot khi tạo node rồi, không cần snapshot thêm khi blur
+          if (renderer?.newlyCreatedNodes && !hasContentChanged) {
+            const newlyCreatedTime = renderer.newlyCreatedNodes.get(finishedNodeId)
+            console.log('[EditEnd] 🔍 Kiểm tra newlyCreatedTime:', { newlyCreatedTime, nodeId: finishedNodeId })
+            if (newlyCreatedTime) {
+              const timeSinceCreation = Date.now() - newlyCreatedTime
+              // ⚠️ FIX: Tăng thời gian kiểm tra lên 5 giây để đảm bảo bắt được blur ngay sau khi tạo
+              if (timeSinceCreation < 5000) {
+                console.log('[EditEnd] ⏭️ Bỏ qua lưu snapshot vì node vừa được tạo và chưa có thay đổi nội dung:', finishedNodeId, { timeSinceCreation, currentLabel, defaultLabel, hasContentChanged })
+                // ⚠️ FIX: Xóa node khỏi newlyCreatedNodes sau khi đã kiểm tra xong
+                if (renderer.newlyCreatedNodes) {
+                  renderer.newlyCreatedNodes.delete(finishedNodeId)
+                }
+                // Vẫn xử lý các logic khác (rename root node, save, etc.)
+              } else {
+                // Node đã được tạo > 5s, lưu snapshot bình thường
+                console.log(`[EditEnd] 💾 Lưu snapshot sau khi blur node ${finishedNodeId} (node đã được tạo > 5s)`)
+                saveSnapshot()
+              }
+            } else {
+              // Node không phải là node mới, lưu snapshot bình thường
+              console.log(`[EditEnd] 💾 Lưu snapshot sau khi blur node ${finishedNodeId} (không tìm thấy trong newlyCreatedNodes)`)
+              saveSnapshot()
+            }
+          } else {
+            // Node có thay đổi nội dung hoặc không phải node mới, lưu snapshot
+            console.log(`[EditEnd] 💾 Lưu snapshot sau khi blur node ${finishedNodeId}`, { 
+              hasContentChanged, 
+              currentLabel, 
+              defaultLabel,
+              hasNewlyCreatedNodes: !!renderer?.newlyCreatedNodes
+            })
+            saveSnapshot()
+          }
 
           // Nếu là root node, đổi tên file
           if (node.id === 'root' || node.data?.isRoot) {
@@ -1255,7 +1376,7 @@ const initD3Renderer = () => {
           }
 
           // Lưu ngay lập tức nếu có thay đổi (không đợi debounce)
-          const hasChanges = changedNodeIds.value.has(finishedNodeId)
+          // hasChanges đã được khai báo ở trên
           if (hasChanges) {
             if (saveTimeout) {
               clearTimeout(saveTimeout)
@@ -4292,11 +4413,23 @@ async function handleInsertImage({ node }) {
         title: "Chỉ được phép tải lên file ảnh (JPG, PNG, GIF, WEBP, BMP, SVG)", 
         indicator: "red" 
       })
+      // Clear flag nếu file không hợp lệ
+      if (typeof window !== 'undefined') {
+        window.__isUploadingImage = false
+        window.__uploadingImageNodeId = null
+      }
       return
     }
 
     // ⚠️ CRITICAL: Lưu node.id và editor instance trước khi upload
     const nodeId = node.id
+    
+    // ⚠️ FIX: Set flag để skip lưu snapshot khi blur/focus lại editor sau khi upload ảnh
+    if (typeof window !== 'undefined') {
+      window.__isUploadingImage = true
+      window.__uploadingImageNodeId = nodeId
+    }
+    
     let editorBeforeUpload = currentEditorInstance.value || (d3Renderer?.getEditorInstance(nodeId))
     
     
@@ -4334,6 +4467,11 @@ async function handleInsertImage({ node }) {
       }
       
       if (!editor || !editor.view) {
+        // Clear flag nếu không có editor
+        if (typeof window !== 'undefined') {
+          window.__isUploadingImage = false
+          window.__uploadingImageNodeId = null
+        }
         return
       }
       
@@ -4547,35 +4685,84 @@ async function handleInsertImage({ node }) {
                         
                         if (editor) {
                           
+                          // ⚠️ FIX: Đảm bảo node được thêm vào changedNodeIds trước khi blur
+                          // Điều này đảm bảo khi upload nhiều ảnh liên tiếp, node luôn được đánh dấu để save
+                          changedNodeIds.value.add(nodeId)
+                          
                           // Blur editor → trigger handleEditorBlur → cập nhật height
                           editor.commands.blur()
+                          
+                          // ⚠️ FIX: Đảm bảo node vẫn còn trong changedNodeIds sau khi blur
+                          // và trigger save ngay lập tức để đảm bảo socket được bắn
+                          setTimeout(() => {
+                            changedNodeIds.value.add(nodeId)
+                            saveImmediately()
+                          }, 200) // Đợi handleEditorBlur hoàn tất
                           
                           // Sau đó focus lại để người dùng có thể tiếp tục edit
                           setTimeout(() => {
                             editor.commands.focus('end')
+                            
+                            // ⚠️ FIX: Clear flag sau khi focus lại để cho phép lưu snapshot bình thường
+                            setTimeout(() => {
+                              if (typeof window !== 'undefined') {
+                                window.__isUploadingImage = false
+                                window.__uploadingImageNodeId = null
+                              }
+                            }, 200) // Đợi một chút để đảm bảo focus đã hoàn tất
                           }, 100)
                         } else {
                           console.error('[ERROR handleInsertImage] editor is null for node:', nodeId)
+                          // Clear flag nếu có lỗi
+                          if (typeof window !== 'undefined') {
+                            window.__isUploadingImage = false
+                            window.__uploadingImageNodeId = null
+                          }
                         }
                       } else {
                         console.error('[ERROR handleInsertImage] d3Renderer or nodeId is null')
+                        // Clear flag nếu có lỗi
+                        if (typeof window !== 'undefined') {
+                          window.__isUploadingImage = false
+                          window.__uploadingImageNodeId = null
+                        }
                       }
                     } catch (err) {
                       console.error('[ERROR handleInsertImage] Exception:', err)
+                      // Clear flag nếu có lỗi
+                      if (typeof window !== 'undefined') {
+                        window.__isUploadingImage = false
+                        window.__uploadingImageNodeId = null
+                      }
                     }
                   }, 150) // Đợi thêm 150ms sau khi ảnh load xong
                 }).catch(err => {
+                  // Clear flag nếu có lỗi
+                  if (typeof window !== 'undefined') {
+                    window.__isUploadingImage = false
+                    window.__uploadingImageNodeId = null
+                  }
                   
                 })
               }
             }, 50) // Kiểm tra mỗi 50ms
           } catch (err) {
-            
+            console.error('[ERROR handleInsertImage] Exception in requestAnimationFrame:', err)
+            // Clear flag nếu có lỗi
+            if (typeof window !== 'undefined') {
+              window.__isUploadingImage = false
+              window.__uploadingImageNodeId = null
+            }
           }
         })
       }
     } catch (error) {
-      
+      console.error('[ERROR handleInsertImage] Exception:', error)
+      // Clear flag nếu có lỗi
+      if (typeof window !== 'undefined') {
+        window.__isUploadingImage = false
+        window.__uploadingImageNodeId = null
+      }
     }
   }
 

@@ -40,7 +40,8 @@ export default defineConfig({
       "drive.localhost",
       "b5371ace976e.ngrok-free.app",
       ".ngrok-free.app",
-      ".lhr.life"
+      ".lhr.life",
+      '.trycloudflare.com'
     ],
     port: 8082,
     host: true

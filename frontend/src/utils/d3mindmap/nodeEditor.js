@@ -1031,9 +1031,11 @@ export function handleEditorBlur(renderer, nodeId, foElement, nodeData) {
 		if (renderer.nodesBeingFocused) {
 			renderer.nodesBeingFocused.delete(nodeId)
 		}
-		if (renderer.newlyCreatedNodes) {
-			renderer.newlyCreatedNodes.delete(nodeId)
-		}
+		// ⚠️ FIX: KHÔNG xóa newlyCreatedNodes ở đây, để onNodeEditingEnd có thể kiểm tra
+		// newlyCreatedNodes sẽ được xóa trong onNodeEditingEnd sau khi kiểm tra xong
+		// if (renderer.newlyCreatedNodes) {
+		//   renderer.newlyCreatedNodes.delete(nodeId)
+		// }
 	}
 	
 	// ⚠️ IMPORTANT: Xóa cache kích thước ban đầu khi blur

@@ -784,10 +784,6 @@ def files_multi_team(
                         (DriveFile.is_private == 1)
                         & (DriveFile.owner == frappe.session.user)
                     )
-                    print(
-                        "DEBUG - Filtering original files for personal=1 (My Drive)",
-                        original_files_query.run(as_dict=True),
-                    )
                 if personal == -3:
                     # Chỉ lấy file gốc công khai và file của user (thùng rác cá nhân)
                     # (DriveFile.is_private == 0)

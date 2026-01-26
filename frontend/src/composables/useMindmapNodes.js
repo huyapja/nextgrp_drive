@@ -154,11 +154,13 @@ export function useMindmapNodes({
         d3Renderer.value.newlyCreatedNodes = new Map()
       }
       d3Renderer.value.newlyCreatedNodes.set(newNodeId, Date.now())
+      // ⚠️ FIX: Tăng thời gian cleanup lên 5 giây để đảm bảo EditEnd có thể kiểm tra
+      // Vì user có thể blur sau khi tạo node > 1 giây
       const cleanupTimeoutId = setTimeout(() => {
         if (d3Renderer.value.newlyCreatedNodes) {
           d3Renderer.value.newlyCreatedNodes.delete(newNodeId)
         }
-      }, 1000)
+      }, 5000) // Tăng từ 1s lên 5s
       nodeFocusTimeouts.push(cleanupTimeoutId)
     }
 
@@ -309,11 +311,13 @@ export function useMindmapNodes({
         d3Renderer.value.newlyCreatedNodes = new Map()
       }
       d3Renderer.value.newlyCreatedNodes.set(newNodeId, Date.now())
+      // ⚠️ FIX: Tăng thời gian cleanup lên 5 giây để đảm bảo EditEnd có thể kiểm tra
+      // Vì user có thể blur sau khi tạo node > 1 giây
       const cleanupTimeoutId = setTimeout(() => {
         if (d3Renderer.value.newlyCreatedNodes) {
           d3Renderer.value.newlyCreatedNodes.delete(newNodeId)
         }
-      }, 1000)
+      }, 5000) // Tăng từ 1s lên 5s
       nodeFocusTimeouts.push(cleanupTimeoutId)
     }
 
