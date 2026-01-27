@@ -68,15 +68,9 @@ def get_editor_config(entity_name):
         document_type = get_document_type(file_ext)
 
         # Callback URL for saving
-        site_url = get_accessible_site_url()
-        callback_url = f"{site_url}/api/method/drive.api.onlyoffice.save_document"
-        print(f"🔗 Callback URL: {callback_url}")
-
-        # Validate callback URL is accessible (warn if localhost/127.0.0.1)
-        if "localhost" in callback_url or "127.0.0.1" in callback_url:
-            print(
-                f"⚠️  WARNING: Callback URL contains localhost/127.0.0.1 - OnlyOffice server may not be able to access it!"
-            )
+        callback_url = (
+            f"{get_accessible_site_url()}/api/method/drive.api.onlyoffice.save_document"
+        )
 
         # Xác định permissions
         can_edit = has_edit or is_owner
@@ -188,8 +182,6 @@ def save_document():
     """
     OnlyOffice callback handler - CRITICAL: Must return {"error": 0} or {"error": 1}
     """
-    import traceback
-
     try:
         # Log raw request for debugging
         data = frappe.request.json or {}
@@ -197,13 +189,7 @@ def save_document():
         key = data.get("key")
         url = data.get("url")
         users = data.get("users", [])
-
         print(f"=== OnlyOffice save callback received ===")
-        print(f"   Status: {status}")
-        print(f"   Key: {key}")
-        print(f"   URL: {url}")
-        print(f"   Users: {users}")
-
         # Status meanings:
         # 0 - NotFound (document not found)
         # 1 - Editing (document being edited)
@@ -215,130 +201,64 @@ def save_document():
 
         # Status 1: Editing - just acknowledge
         if status == 1:
-            print(f"✅ Status 1: Editing - acknowledged")
             return {"error": 0}
 
         # Status 4: Closed without changes
         if status == 4:
-            print(f"✅ Status 4: Closed without changes")
             return {"error": 0}
 
         # Status 2 or 6: Save required
         if status in [2, 6]:
             if not url:
-                error_msg = "❌ Missing download URL in callback"
-                print(error_msg)
-                frappe.log_error(error_msg, "OnlyOffice Save Error")
                 return {"error": 1}
 
             entity_name = extract_entity_from_key(key)
-            print(f"   Extracted entity_name: {entity_name}")
 
             if not entity_name:
-                error_msg = f"❌ Cannot extract entity_name from key: {key}"
-                print(error_msg)
-                frappe.log_error(error_msg, "OnlyOffice Save Error")
                 return {"error": 1}
 
             try:
                 # Get document owner to set proper permissions
                 doc = frappe.get_doc("Drive File", entity_name)
-                print(f"   File: {doc.title} (owner: {doc.owner})")
 
                 # CRITICAL: Switch to document owner context
                 frappe.set_user(doc.owner)
-                print(f"   Switched to owner context: {doc.owner}")
-
                 # Verify write permission
                 if not has_edit_permission(entity_name):
-                    error_msg = f"❌ No write permission for user {frappe.session.user} on {entity_name}"
-                    print(error_msg)
-                    frappe.log_error(error_msg, "OnlyOffice Save Error")
+                    print(
+                        f"❌ No write permission for user {frappe.session.user} on {entity_name}"
+                    )
                     return {"error": 1}
-
                 # Status 2: Save synchronously (document closed)
                 if status == 2:
-                    print(f"💾 Status 2: Saving synchronously...")
-                    try:
-                        success = save_document_sync(entity_name, url, key)
-                        if success:
-                            print(f"✅ Save successful")
-                            return {"error": 0}
-                        else:
-                            error_msg = (
-                                "❌ Save failed (save_document_sync returned False)"
-                            )
-                            print(error_msg)
-                            frappe.log_error(error_msg, "OnlyOffice Save Error")
-                            return {"error": 1}
-                    except Exception as save_err:
-                        error_msg = f"❌ Error in save_document_sync: {str(save_err)}"
-                        print(error_msg)
-                        print(traceback.format_exc())
-                        frappe.log_error(
-                            f"{error_msg}\n{traceback.format_exc()}",
-                            "OnlyOffice Save Error",
-                        )
+                    success = save_document_sync(entity_name, url, key)
+                    if success:
+                        return {"error": 0}
+                    else:
                         return {"error": 1}
-
                 # Status 6: Force save - can be async
                 else:
-                    print(f"💾 Status 6: Enqueueing force save...")
-                    try:
-                        enqueue(
-                            save_document_async,
-                            queue="default",
-                            timeout=300,
-                            entity_name=entity_name,
-                            download_url=url,
-                            key=key,
-                            is_force_save=True,
-                        )
-                        print(f"✅ Force save enqueued")
-                        return {"error": 0}
-                    except Exception as enqueue_err:
-                        error_msg = f"❌ Error enqueueing save: {str(enqueue_err)}"
-                        print(error_msg)
-                        print(traceback.format_exc())
-                        frappe.log_error(
-                            f"{error_msg}\n{traceback.format_exc()}",
-                            "OnlyOffice Save Error",
-                        )
-                        return {"error": 1}
+                    enqueue(
+                        save_document_async,
+                        queue="default",
+                        timeout=300,
+                        entity_name=entity_name,
+                        download_url=url,
+                        key=key,
+                        is_force_save=True,
+                    )
+                    return {"error": 0}
 
-            except frappe.DoesNotExistError:
-                error_msg = f"❌ Drive File not found: {entity_name}"
-                print(error_msg)
-                frappe.log_error(error_msg, "OnlyOffice Save Error")
-                return {"error": 1}
             except Exception as e:
-                error_msg = f"❌ Error processing save callback: {str(e)}"
-                print(error_msg)
-                print(traceback.format_exc())
-                frappe.log_error(
-                    f"{error_msg}\n{traceback.format_exc()}", "OnlyOffice Save Error"
-                )
                 return {"error": 1}
 
         # Status 3 or 7: Error
         if status in [3, 7]:
-            error_msg = f"❌ OnlyOffice reported error status: {status}"
-            print(error_msg)
-            frappe.log_error(error_msg, "OnlyOffice Save Error")
             return {"error": 1}
 
-        # Unknown status
-        error_msg = f"⚠️ Unknown status: {status}"
-        print(error_msg)
         return {"error": 0}
 
     except Exception as e:
-        error_msg = f"❌ Critical error in save_document callback: {str(e)}"
-        print(error_msg)
-        print(traceback.format_exc())
-        frappe.log_error(
-            f"{error_msg}\n{traceback.format_exc()}", "OnlyOffice Save Error"
-        )
         return {"error": 1}
 
 
@@ -958,7 +878,6 @@ def save_document_sync(entity_name, download_url, key):
         frappe.db.commit()
 
         print(f"✅ Document saved successfully: {entity_name}")
-        return True
 
     except requests.RequestException as e:
         print(f"❌ Download error: {str(e)}", exc_info=True)
@@ -986,32 +905,23 @@ def save_document_async(entity_name, download_url, key, is_force_save=False):
 def get_accessible_site_url():
     """Get the site URL accessible by OnlyOffice"""
 
-    # Lấy domain từ request hiện tại (ưu tiên cao nhất)
+    # Lấy domain từ request hiện tại
     try:
         if frappe.request:
             # Lấy scheme (http/https) và host từ request
             scheme = frappe.request.scheme
             host = frappe.request.host
             manual_url = f"{scheme}://{host}"
-            print(f"🌐 Using request URL: {manual_url}")
             return manual_url.rstrip("/")
-    except Exception as e:
-        print(f"⚠️ Could not get URL from request: {e}")
+    except:
+        pass
 
-    # Fallback: lấy từ site_config nếu có (nhưng kiểm tra không phải OnlyOffice server)
+    # Fallback: lấy từ site_config nếu có
     manual_url = frappe.conf.get("onlyoffice_callback_url")
     if manual_url:
-        onlyoffice_url = frappe.conf.get("onlyoffice_url", "")
-        # Chỉ dùng nếu không phải OnlyOffice server URL
-        if onlyoffice_url and onlyoffice_url.rstrip("/") not in manual_url.rstrip("/"):
-            print(f"🌐 Using configured callback URL: {manual_url}")
-            return manual_url.rstrip("/")
-        else:
-            print(f"⚠️ onlyoffice_callback_url points to OnlyOffice server, ignoring")
+        return manual_url.rstrip("/")
 
-    # Fallback cuối cùng: lấy từ frappe.utils.get_url()
     site_url = frappe.utils.get_url()
-    print(f"🌐 Using default site URL: {site_url}")
 
     if "localhost" in site_url or "127.0.0.1" in site_url:
         import socket
