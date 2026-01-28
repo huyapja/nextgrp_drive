@@ -69,15 +69,11 @@ export default {
     // Editor sẽ hoạt động ngay, không bị block bởi API calls
     this.initEditor()
     
-    // Load users và check permissions ngay (NON-BLOCKING cho editor init)
+    // Load users with permissions in one API call (NON-BLOCKING cho editor init)
     // - Editor đã được khởi tạo ở trên, không đợi API
-    // - Nếu API check permission bị pending, editor vẫn hoạt động bình thường
-    // - Mention list sẽ hiển thị với has_permission: true (default) tạm thời
-    // - Sau khi API hoàn thành, mention list sẽ tự động update với permissions đúng
-    this.loadUsers().then(() => {
-      // Check permissions ngay sau khi load users xong (non-blocking)
-      this.checkUsersPermissions()
-    })
+    // - API get_system_users giờ trả về luôn permissions, không cần gọi thêm check_users_permissions
+    // - Mention list sẽ hiển thị với permissions đúng ngay từ đầu
+    this.loadUsers()
   },
   beforeUnmount() {
     if (this.editor) {
@@ -85,14 +81,15 @@ export default {
     }
   },
   methods: {
-    // Load users only (without permissions check) - fast, non-blocking
+    // Load users with permissions check in one API call
     async loadUsers() {
       try {
-        const response = await call("drive.api.product.get_system_users")
-        console.log("Raw users response:", response)
+        const response = await call("drive.api.product.get_system_users", {
+          entity_name: this.entityName,
+        })
+        console.log("Raw users response with permissions:", response)
 
-        // Load users without permissions check initially
-        // Permissions will be checked lazily when mention menu opens
+        // Load users with permissions from API response
         this.usersData = response.map((item) => ({
           id: item.email,
           label: item.full_name,
@@ -100,103 +97,34 @@ export default {
           user_image: item.user_image,
           type: "user",
           author: this.$store?.state?.user?.id || "Administrator",
-          has_permission: true, // Default to true, will be updated when permissions are checked
+          has_permission: item.has_permission !== undefined ? item.has_permission : true,
+          permissions: item.permissions || {
+            read: item.has_permission !== undefined ? item.has_permission : true,
+            write: false,
+            share: false,
+          },
         }))
 
-        console.log("Users loaded (permissions not checked yet):", this.usersData)
+        // Cache permissions
+        response.forEach((item) => {
+          const email = item.email || item.name
+          this.userPermissions[email] = item.has_permission !== undefined ? item.has_permission : true
+        })
+
+        this.permissionsChecked = true
+        console.log("Users loaded with permissions:", this.usersData)
       } catch (error) {
         console.error("Failed to fetch users:", error)
         this.usersData = []
       }
     },
     
-    // Check permissions lazily (only when mention menu opens)
+    // DEPRECATED: Không cần check permissions riêng nữa vì get_system_users đã trả về permissions
+    // Giữ lại để backward compatibility nếu có code khác gọi
     async checkUsersPermissions() {
-      // Skip if already checked
-      if (this.permissionsChecked) {
-        return
-      }
-      
-      // Skip if đang check
-      if (this.checkingPermissions) {
-        return
-      }
-      
-      this.checkingPermissions = true
-      
-      try {
-        // Get user emails for permission check
-        const userEmails = this.usersData.map((user) => user.id)
-
-        if (userEmails.length === 0) {
-          this.checkingPermissions = false
-          return
-        }
-
-        // Check permissions for all users
-        try {
-          const permissionResponse = await call(
-            "drive.api.product.check_users_permissions",
-            {
-              entity_name: this.entityName,
-              user_emails: JSON.stringify(userEmails),
-            }
-          )
-
-          permissionResponse.forEach((perm) => {
-            this.userPermissions[perm.email] = perm.has_permission
-          })
-          
-          // Update usersData with permissions
-          this.usersData = this.usersData.map((user) => ({
-            ...user,
-            has_permission: this.userPermissions[user.id] ?? true, // Default to true if not found
-          }))
-          
-          this.permissionsChecked = true
-          this.checkingPermissions = false
-          console.log("User permissions checked:", this.userPermissions)
-          
-          // Trigger update cho mention component nếu đã được tạo
-          // TipTap sẽ tự động gọi lại items function qua onUpdate khi user gõ
-          // Nhưng để đảm bảo update ngay, trigger updateProps
-          this.$nextTick(() => {
-            if (this.mentionComponent && this.mentionComponent.updateProps && this.editor) {
-              try {
-                // Lấy query hiện tại từ editor
-                const state = this.editor.state
-                const { $from } = state.selection
-                const textBefore = $from.textContent
-                const query = textBefore.substring(textBefore.lastIndexOf('@') + 1)
-                
-                // Update props với items mới (có permissions đã được cập nhật)
-                const currentProps = this.mentionComponent.props || {}
-                const newItems = this.getMentionItems(query)
-                
-                console.log("Updating mention component with new items:", newItems.length, "items")
-                this.mentionComponent.updateProps({
-                  ...currentProps,
-                  items: newItems,
-                })
-              } catch (error) {
-                console.error("Error updating mention component:", error)
-              }
-            }
-          })
-        } catch (permError) {
-          console.error("Failed to check permissions:", permError)
-          // Default to true if permission check fails (allow mention)
-          this.usersData = this.usersData.map((user) => ({
-            ...user,
-            has_permission: true,
-          }))
-          this.permissionsChecked = true
-          this.checkingPermissions = false
-        }
-      } catch (error) {
-        console.error("Failed to check permissions:", error)
-        this.checkingPermissions = false
-      }
+      // Permissions đã được check trong loadUsers() rồi
+      // Không cần làm gì thêm
+      return
     },
     
     // Helper function để get mention items (extract từ items function)
@@ -588,7 +516,7 @@ export default {
                 // - Permissions sẽ được check trong background
                 // - Component sẽ tự động update sau khi permissions check xong
                 if (!self.permissionsChecked && !self.checkingPermissions) {
-                  self.checkUsersPermissions() // Fire and forget
+                  // Permissions đã được check trong loadUsers() rồi, không cần check lại
                 }
                 
                 // Return items ngay lập tức (không đợi API)
@@ -611,7 +539,7 @@ export default {
                     // - Không đợi API, tạo component ngay
                     // - Component sẽ tự động update sau khi permissions check xong
                     if (!self.permissionsChecked && !self.checkingPermissions) {
-                      self.checkUsersPermissions() // Fire and forget
+                      // Permissions đã được check trong loadUsers() rồi, không cần check lại
                     }
                     
                     // Tạo component ngay lập tức (không đợi API)

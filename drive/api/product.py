@@ -537,8 +537,12 @@ def get_all_site_users():
 
 
 @frappe.whitelist()
-def get_system_users():
-    """Get all system users for mentions"""
+def get_system_users(entity_name=None):
+    """
+    Get all system users for mentions
+    If entity_name is provided, also check and return permissions for each user
+    :param entity_name: Optional Drive File name to check permissions
+    """
     users = frappe.get_all(
         doctype="User",
         filters=[
@@ -554,6 +558,62 @@ def get_system_users():
         ],
         order_by="full_name asc",
     )
+    
+    # Nếu có entity_name, check quyền cho từng user
+    if entity_name:
+        try:
+            entity_doc = frappe.get_doc("Drive File", entity_name)
+        except Exception as e:
+            frappe.log_error(f"Error getting Drive File document: {str(e)}")
+            # Nếu không lấy được entity, trả về users không có quyền
+            return [
+                {
+                    **user,
+                    "has_permission": False,
+                    "permissions": {
+                        "read": False,
+                        "write": False,
+                        "share": False,
+                    },
+                }
+                for user in users
+            ]
+        
+        # Check quyền cho từng user
+        result = []
+        for user in users:
+            try:
+                email = user.get("email") or user.get("name")
+                has_read_permission = user_has_permission(entity_doc, "read", email)
+                has_write_permission = user_has_permission(entity_doc, "write", email)
+                has_share_permission = user_has_permission(entity_doc, "share", email)
+                
+                result.append(
+                    {
+                        **user,
+                        "has_permission": has_read_permission,  # Backward compatibility
+                        "permissions": {
+                            "read": has_read_permission,
+                            "write": has_write_permission,
+                            "share": has_share_permission,
+                        },
+                    }
+                )
+            except Exception as e:
+                frappe.log_error(f"Error checking permission for {user.get('email')}: {str(e)}")
+                result.append({
+                    **user,
+                    "has_permission": False,
+                    "permissions": {
+                        "read": False,
+                        "write": False,
+                        "share": False,
+                    },
+                })
+        
+        return result
+    
+    # Nếu không có entity_name, trả về users như cũ (backward compatible)
     return users
 
 

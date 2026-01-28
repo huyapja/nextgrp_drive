@@ -544,8 +544,8 @@ def if_folder_exists(team, folder_name, parent, personal):
     )
 
     if existing_folder:
-        return existing_folder.name
+        return existing_folder.name, False  # Trả về (folder_name, is_new)
     else:
         d = frappe.get_doc({"doctype": "Drive File", **values})
         d.insert()
-        return d.name
+        return d.name, True  # Trả về (folder_name, is_new)

@@ -92,10 +92,14 @@ def upload_file(
     if fullpath:
         dirname = os.path.dirname(fullpath).split("/")
         for i in dirname:
-            new_parent = if_folder_exists(team, i, parent, is_private)
+            old_parent = parent
+            new_parent, is_new = if_folder_exists(team, i, parent, is_private)
             # Lưu lại folder vừa tạo (nếu nó khác parent hiện tại)
-            if new_parent != parent:
+            if new_parent != old_parent:
                 created_folders.append(new_parent)
+                # Chỉ ghi log vào Entity Activity Log cho folder mới tạo
+                if is_new:
+                    create_new_entity_activity_log(entity=new_parent, action_type="create")
             parent = new_parent
 
     # if not frappe.has_permission(
@@ -540,6 +544,9 @@ def create_folder(team, title, personal=False, parent=None):
         }
     )
     drive_file.insert()
+
+    # Ghi log vào Entity Activity Log khi tạo folder
+    create_new_entity_activity_log(entity=drive_file.name, action_type="create")
 
     if origin_parent:
         get_permissions = frappe.get_all(

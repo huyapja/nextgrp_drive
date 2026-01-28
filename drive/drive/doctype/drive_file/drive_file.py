@@ -723,14 +723,20 @@ class DriveFile(Document):
                 ptype="share",
                 user=frappe.session.user,
             ):
-                for owner in get_ancestors_of(self.name):
-                    if frappe.session.user == frappe.get_value(
-                        "Drive File", {"name": owner}, ["owner"]
-                    ):
-                        continue
-                    else:
-                        frappe.throw("Not permitted to share", frappe.PermissionError)
-                        break
+                # ✅ Kiểm tra nếu user là owner của ancestor folder
+                has_ancestor_permission = False
+                if self.is_group:
+                    for ancestor in get_ancestors_of(self.name):
+                        ancestor_owner = frappe.get_value(
+                            "Drive File", {"name": ancestor}, ["owner"]
+                        )
+                        if frappe.session.user == ancestor_owner:
+                            has_ancestor_permission = True
+                            break
+
+                # ✅ Nếu không có quyền share và không phải owner của ancestor, throw exception
+                if not has_ancestor_permission:
+                    frappe.throw("Not permitted to share", frappe.PermissionError)
 
         permission = frappe.db.get_value(
             "Drive Permission",
@@ -764,6 +770,35 @@ class DriveFile(Document):
             }
             | {l[0]: l[1] for l in levels if l[1] is not None}
         )
+
+        # ✅ Tính toán new_write_permission để check điều kiện revoke
+        new_write_permission = (
+            permission.write if permission.write is not None else False
+        )
+        old_write_permission_bool = (
+            bool(old_write_permission) if old_write_permission is not None else False
+        )
+
+        # ✅ Chỉ revoke editing access nếu user đang có write permission và bị giảm xuống
+        # Phải kiểm tra quyền write TRƯỚC khi save permission để nếu không có quyền thì share fail ngay
+        should_revoke = old_write_permission_bool and not new_write_permission
+        if should_revoke and user:
+            print(
+                f"📉 User {user} write permission changed: True → False, checking permission to revoke..."
+            )
+            # ✅ Kiểm tra quyền write trước khi gọi revoke_editing_access
+            if not frappe.has_permission("Drive File", doc=self.name, ptype="write"):
+                frappe.throw(
+                    "Không thể thu hồi quyền chỉnh sửa: Bạn không có quyền write trên file này",
+                    frappe.PermissionError,
+                )
+            # ✅ Nếu có quyền write, gọi revoke_editing_access TRƯỚC khi save permission
+            try:
+                revoke_editing_access(self.name, user)
+            except Exception as e:
+                # Nếu revoke fail thì rollback và throw exception để share cũng fail
+                frappe.db.rollback()
+                frappe.throw(f"Không thể chia sẻ: {str(e)}")
 
         permission.save(ignore_permissions=True)
         frappe.db.commit()  # Commit để đảm bảo permission được lưu trước khi emit event
@@ -839,9 +874,6 @@ class DriveFile(Document):
                     print(f"   User: {user}, Owner: {self.owner}")
 
         # ✅ Nếu đây là folder, tự động chia sẻ tất cả children
-        revoke_editing_access(self.name, user)
-        if old_write_permission and not write:
-            print(f"📉 User {user} write permission changed: True → False")
         if self.is_group:
             self._share_children_bulk(
                 user=user,
