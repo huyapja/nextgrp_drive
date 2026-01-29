@@ -40,7 +40,7 @@ export function initSocket(): Socket {
   })
 
   socket.on("connect_error", (error) => {
-    console.error("❌ Lỗi:", error.message)
+    console.error("❌ Lỗi: ", error.message)
   })
 
   return socket
